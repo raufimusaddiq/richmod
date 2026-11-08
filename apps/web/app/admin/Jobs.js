@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { time, Badge, Empty, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
+import { time, Badge, Empty, Pending, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
 
 export default function Jobs({ setError }) {
   const [filters, setFilters] = useState({ status: "", lane: "", type: "", range: "24h", q: "" });
-  const [data, refresh, more] = useAdminList("/api/v1/admin/jobs", filters, setError), [selected, setSelected] = useState(null);
-  if (!data) return <Empty>Memuat jobs…</Empty>;
+  const [data, refresh, more, state] = useAdminList("/api/v1/admin/jobs", filters, setError), [selected, setSelected] = useState(null);
+  if (!data) return <Pending state={state} retry={refresh}>Memuat jobs…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
@@ -64,9 +64,10 @@ export default function Jobs({ setError }) {
           </tr>
         )}
       </Table>
-      {data.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}
+      {data.nextCursor && <button className="secondary admin-more" disabled={state.more} onClick={more}>Muat berikutnya</button>}
       {selected && (
         <JobDetail
+          key={selected}
           id={selected}
           close={() => setSelected(null)}
           setError={setError}
@@ -77,7 +78,7 @@ export default function Jobs({ setError }) {
 }
 
 function JobDetail({ id, close, setError }) {
-  const [data] = useLoad(`/api/v1/admin/jobs/${id}`, setError);
+  const [data, reload, state] = useLoad(`/api/v1/admin/jobs/${id}`, setError);
   const drawer = useDrawerA11y(close);
   return (
     <aside
@@ -92,7 +93,7 @@ function JobDetail({ id, close, setError }) {
         Tutup
       </button>
       {!data ? (
-        <Empty>Memuat…</Empty>
+        <Pending state={state} retry={reload}>Memuat…</Pending>
       ) : (
         <>
           <h2>Tugas</h2>

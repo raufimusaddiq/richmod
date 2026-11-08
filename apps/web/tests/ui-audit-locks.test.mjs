@@ -155,7 +155,7 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   assert.match(text("app/layout.js"), /<InboxCountProvider>\{children\}<\/InboxCountProvider>/);
   // Notices are not decisions: the count is the server's needs-your-decision
   // count across every page (X-Decision-Count) plus pending actions.
-  assert.match(text("app/inbox/page.js"), /if \(!loading && !error\) publishInboxCount\(decisions \+ actions\.length\)/);
+  assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(decisions \+ actions\.length\)/);
   assert.match(provider, /X-Decision-Count/);
 });
 
@@ -231,9 +231,9 @@ test("every dashboard section has a setter and every nav entry has an icon", () 
 
 test("one malformed inbox list does not hide the other", () => {
   const inbox = text("app/inbox/page.js");
-  assert.match(inbox, /const readList = async \(response, apply, name\) => \{ try \{/);
-  assert.match(inbox, /await readList\(reviewResponse, setReviews/);
-  assert.match(inbox, /await readList\(actionResponse, setActions/);
+  assert.match(inbox, /const readList = async \(response, name\) => \{ try \{/);
+  assert.match(inbox, /await readList\(reviewResponse, "daftar transaksi"/);
+  assert.match(inbox, /await readList\(actionResponse, "daftar tindakan"/);
 });
 
 test("the stylesheet is an ordered list of balanced pieces", () => {

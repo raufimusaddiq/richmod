@@ -21,9 +21,13 @@ export const ms = (v) =>
       ? `${Math.round(v)} ms`
       : `${(v / 1000).toFixed(1)} dtk`;
 
-export async function get(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Tidak dapat memuat data.");
+export async function get(url, signal) {
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    const failure = new Error("Tidak dapat memuat data.");
+    failure.status = response.status;
+    throw failure;
+  }
   return response.json();
 }
 
@@ -62,31 +66,106 @@ export function useDrawerA11y(close) {
   return ref;
 }
 
-export function useLoad(url, setError) {
-  const [data, setData] = useState(null);
-  const load = useCallback(
-    () =>
-      get(url)
-        .then(setData)
-        .catch((err) => setError(err.message)),
-    [url, setError],
-  );
-  useEffect(() => {
-    load();
-  }, [load]);
-  return [data, load];
+// A request that failed must say so: "Memuat…" forever hides a dead endpoint.
+export function Pending({ state, retry, children }) {
+  if (state?.error) {
+    return (
+      <div className="notice error feedback" role="alert">
+        <span>{state.error}</span>
+        {retry && <button className="secondary" onClick={() => retry()}>Coba lagi</button>}
+      </div>
+    );
+  }
+  return <Empty>{children}</Empty>;
 }
 
+// Loads `url` with a staleness guard. The returned data belongs to the url it
+// was fetched for: while another url loads (a different household's drawer) the
+// previous url's data is never handed back (keepPrevious opts in to showing it
+// while a filter such as a date range reloads in place). Returns [data, reload, state].
+// Starting a load clears the page banner; a failure sets it again.
+export function useLoad(url, setError, { keepPrevious = false } = {}) {
+  const [result, setResult] = useState({ url: null, data: null });
+  const [state, setState] = useState({ error: "", loading: true });
+  const generation = useRef(0), controller = useRef(null);
+  const load = useCallback(async () => {
+    controller.current?.abort();
+    const own = new AbortController();
+    controller.current = own;
+    const id = ++generation.current;
+    setError("");
+    setState({ error: "", loading: true });
+    try {
+      const data = await get(url, own.signal);
+      if (id !== generation.current) return;
+      setResult({ url, data });
+      setState({ error: "", loading: false });
+    } catch (err) {
+      if (id !== generation.current || err?.name === "AbortError") return;
+      setError(err.message);
+      setState({ error: err.message, loading: false });
+    }
+  }, [url, setError]);
+  useEffect(() => {
+    load();
+    return () => { generation.current += 1; controller.current?.abort(); };
+  }, [load]);
+  return [keepPrevious || result.url === url ? result.data : null, load, state];
+}
+
+// Paged admin list. A filter change starts a new generation: a "load more" that
+// was in flight for the old filter is discarded, and a second click while one is
+// in flight does nothing. Returns [data, reload, more, state].
 export function useAdminList(path, filters, setError) {
   const query = useMemo(() => new URLSearchParams(filters).toString(), [filters]);
   const [data, setData] = useState(null);
-  const load = useCallback(() => get(`${path}?${query}`).then(setData).catch((e) => setError(e.message)), [path, query, setError]);
-  const more = useCallback(() => {
-    if (!data?.nextCursor) return;
-    get(`${path}?${query}&cursor=${encodeURIComponent(data.nextCursor)}`).then((next) => setData({ items: [...data.items, ...next.items], nextCursor: next.nextCursor })).catch((e) => setError(e.message));
-  }, [data, path, query, setError]);
-  useEffect(() => { load(); }, [load]);
-  return [data, load, more];
+  const [state, setState] = useState({ error: "", loading: true, more: false });
+  const generation = useRef(0), controller = useRef(null), moreFlight = useRef(false), cursor = useRef("");
+  const load = useCallback(async () => {
+    controller.current?.abort();
+    const own = new AbortController();
+    controller.current = own;
+    const id = ++generation.current;
+    moreFlight.current = false;
+    setError("");
+    setState({ error: "", loading: true, more: false });
+    try {
+      const next = await get(`${path}?${query}`, own.signal);
+      if (id !== generation.current) return;
+      cursor.current = next.nextCursor || "";
+      setData(next);
+      setState({ error: "", loading: false, more: false });
+    } catch (err) {
+      if (id !== generation.current || err?.name === "AbortError") return;
+      setError(err.message);
+      setState({ error: err.message, loading: false, more: false });
+    }
+  }, [path, query, setError]);
+  const more = useCallback(async () => {
+    if (!cursor.current || moreFlight.current) return;
+    const id = generation.current, signal = controller.current?.signal;
+    moreFlight.current = true;
+    setError("");
+    setState(current => ({ ...current, more: true }));
+    try {
+      const next = await get(`${path}?${query}&cursor=${encodeURIComponent(cursor.current)}`, signal);
+      if (id !== generation.current) return;
+      cursor.current = next.nextCursor || "";
+      setData(current => ({ items: [...(current?.items || []), ...next.items], nextCursor: next.nextCursor }));
+      setState(current => ({ ...current, more: false }));
+    } catch (err) {
+      if (id !== generation.current || err?.name === "AbortError") return;
+      setError(err.message);
+      setState(current => ({ ...current, more: false }));
+    } finally {
+      if (id === generation.current) moreFlight.current = false;
+    }
+  }, [path, query, setError]);
+  useEffect(() => {
+    load();
+    return () => { generation.current += 1; controller.current?.abort(); };
+  }, [load]);
+  return [data, load, more, state];
 }
 
 export function Table({ headers, children }) {

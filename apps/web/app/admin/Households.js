@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useDialogs from "../components/useDialogs";
-import { time, Badge, Empty, useDrawerA11y, useLoad, Table } from "./shared";
+import { time, Badge, Empty, Pending, useDrawerA11y, useLoad, Table } from "./shared";
 
 // Server error codes from POST /api/v1/admin/households and owner-invite.
 const provisionErrors = {
@@ -30,9 +30,11 @@ export async function postProvision(url, payload) {
 
 // The owner invite is shown once: only its hash is stored, so a lost link is
 // replaced with "Buat ulang undangan pemilik", never recovered.
-function InviteLink({ invite, title }) {
+function InviteLink({ invite, title, onDismiss }) {
   const link = typeof window === "undefined" ? invite.link : window.location.origin + invite.link;
   const [copied, setCopied] = useState("");
+  // A different link is a different secret: the previous "copied" notice must not vouch for it.
+  useEffect(() => { setCopied(""); }, [link]);
   // The link is shown once, so say plainly whether it reached the clipboard;
   // without a secure context the browser has no clipboard API at all.
   async function copy() {
@@ -54,6 +56,7 @@ function InviteLink({ invite, title }) {
       <div className="invite-actions">
         <input aria-label="Tautan undangan pemilik" readOnly value={link} onFocus={(event) => event.target.select()} />
         <button className="secondary" onClick={copy}>Salin tautan</button>
+        {onDismiss && <button className="secondary" onClick={onDismiss}>Sembunyikan</button>}
       </div>
       {copied && <p className="notice" role="status">{copied}</p>}
     </section>
@@ -104,11 +107,11 @@ function CreateHousehold({ onCreated, setError }) {
 }
 
 export default function Households({ setError }) {
-  const [data, refresh] = useLoad("/api/v1/admin/households", setError),
+  const [data, refresh, state] = useLoad("/api/v1/admin/households", setError),
     [selected, setSelected] = useState(null),
     [creating, setCreating] = useState(false),
     [created, setCreated] = useState(null);
-  if (!data) return <Empty>Memuat household…</Empty>;
+  if (!data) return <Pending state={state} retry={refresh}>Memuat household…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
@@ -135,7 +138,7 @@ export default function Households({ setError }) {
           }}
         />
       )}
-      {created && <InviteLink invite={created.invite} title={`${created.household.name} dibuat untuk ${created.owner.email}`} />}
+      {created && <InviteLink key={created.invite.link} onDismiss={() => setCreated(null)} invite={created.invite} title={`${created.household.name} dibuat untuk ${created.owner.email}`} />}
       <Table
         headers={[
           "Keluarga",
@@ -162,6 +165,7 @@ export default function Households({ setError }) {
       </Table>
       {selected && (
         <HouseholdDetail
+          key={selected}
           id={selected}
           close={() => setSelected(null)}
           setError={setError}
@@ -172,20 +176,29 @@ export default function Households({ setError }) {
 }
 
 function HouseholdDetail({ id, close, setError }) {
-  const [data, reload] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
+  const [data, reload, state] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
   const { confirm, dialogs } = useDialogs();
   const [ownerInvite, setOwnerInvite] = useState(null);
   const [reissuing, setReissuing] = useState(false);
   const drawer = useDrawerA11y(close);
   const pendingOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && !x.enrolled);
   const enrolledOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && x.enrolled);
+  // The link is a one-time secret tied to this household and to the owner state
+  // it was minted for. Once the owner enrolls (or is deactivated) the link is
+  // spent, so it must not stay on screen as if it still worked.
+  useEffect(() => {
+    if (!data || !ownerInvite) return;
+    if (ownerInvite.kind === "invite" && !pendingOwner) setOwnerInvite(null);
+    if (ownerInvite.kind === "reset" && !enrolledOwner) setOwnerInvite(null);
+  }, [data, ownerInvite, pendingOwner, enrolledOwner]);
   // Each reissue revokes the previous link, so a double click must not
   // silently invalidate the link just shown.
   async function reissue() {
     if (reissuing) return;
     setReissuing(true);
     try {
-      setOwnerInvite(await postProvision(`/api/v1/admin/households/${id}/owner-invite`));
+      const issued = await postProvision(`/api/v1/admin/households/${id}/owner-invite`);
+      setOwnerInvite({ ...issued, kind: "invite" });
       reload();
     } catch (err) {
       setError(err.message);
@@ -200,7 +213,8 @@ function HouseholdDetail({ id, close, setError }) {
     if (!(await confirm(`Buat tautan atur ulang kata sandi untuk ${enrolledOwner.email}? Kata sandi lama berlaku sampai tautan dipakai.`, { confirmLabel: "Buat tautan" }))) return;
     setReissuing(true);
     try {
-      setOwnerInvite(await postProvision(`/api/v1/admin/households/${id}/owner-invite`, { reset: true }));
+      const issued = await postProvision(`/api/v1/admin/households/${id}/owner-invite`, { reset: true });
+      setOwnerInvite({ ...issued, kind: "reset" });
       reload();
     } catch (err) {
       setError(err.message);
@@ -222,7 +236,7 @@ function HouseholdDetail({ id, close, setError }) {
         Tutup
       </button>
       {!data ? (
-        <Empty>Memuat…</Empty>
+        <Pending state={state} retry={reload}>Memuat…</Pending>
       ) : (
         <>
           <h2>{data.name}</h2>
@@ -290,7 +304,7 @@ function HouseholdDetail({ id, close, setError }) {
               <button className="secondary" onClick={resetOwnerPassword} disabled={reissuing}>{reissuing ? "Membuat tautan…" : "Atur ulang kata sandi pemilik"}</button>
             </div>
           )}
-          {ownerInvite && <InviteLink invite={ownerInvite} title={`${pendingOwner ? "Undangan baru" : "Tautan atur ulang kata sandi"} untuk ${(pendingOwner || enrolledOwner)?.email || "pemilik"}`} />}
+          {ownerInvite && <InviteLink key={ownerInvite.link} onDismiss={() => setOwnerInvite(null)} invite={ownerInvite} title={`${ownerInvite.kind === "invite" ? "Undangan baru" : "Tautan atur ulang kata sandi"} untuk ${(pendingOwner || enrolledOwner)?.email || "pemilik"}`} />}
           <h3>LLM terbaru</h3>
           {data.recentLLMCalls?.length ? <Table headers={["Waktu", "Task", "Status", "Latency"]}>{data.recentLLMCalls.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.task}</td><td><Badge value={x.status} /></td><td>{x.durationMs} ms</td></tr>)}</Table> : <Empty>Tidak ada panggilan LLM.</Empty>}
           <h3>Source gagal</h3>

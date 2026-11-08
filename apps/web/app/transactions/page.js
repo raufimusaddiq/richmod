@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import TransactionList from "../components/TransactionList";
 import useAuth from "../components/useAuth";
 import useDrawerA11y from "../components/useDrawerA11y";
+import { LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { selectionHref } from "../lib/cycleReview";
 import { cycleEntryWindow, withinCycleWindow } from "../lib/missingTransaction";
@@ -18,15 +19,18 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState([]);
   const [wealthAccounts, setWealthAccounts] = useState([]);
   const [members, setMembers] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const closeDetail = useCallback(() => setSelected(null), []);
-  const drawerRef = useDrawerA11y(Boolean(selected), closeDetail);
-  const [evidence, setEvidence] = useState([]);
-  const [audit, setAudit] = useState([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState("");
+  // The drawer is one state machine {closed | loading | error | ready, id, data}
+  // whose request is aborted on close or on opening another row, so a slow
+  // response can neither reopen a closed drawer nor mix two transactions.
+  const drawer = useDrawerRecord(async (id, signal) => {
+    const [transaction, evidenceResponse, auditResponse] = await Promise.all([fetch(`/api/v1/transactions/${id}`, { signal }), fetch(`/api/v1/transactions/${id}/evidence`, { signal }), fetch(`/api/v1/transactions/${id}/audit`, { signal })]);
+    if (!transaction.ok || !evidenceResponse.ok || !auditResponse.ok) throw new LoadError("Detail transaksi belum dapat dimuat. Coba lagi.");
+    return { transaction: await transaction.json(), evidence: await evidenceResponse.json(), audit: await auditResponse.json() };
+  }, "Detail transaksi belum dapat dimuat. Coba lagi.");
+  const closeDetail = drawer.close;
+  const drawerRef = useDrawerA11y(drawer.status !== "closed", closeDetail);
+  const selected = drawer.data?.transaction || (drawer.id ? { id: drawer.id } : null);
+  const evidence = drawer.data?.evidence || [], audit = drawer.data?.audit || [];
   const [createError, setCreateError] = useState("");
   const [creating, setCreating] = useState(false);
   const [nextCursor, setNextCursor] = useState("");
@@ -45,23 +49,26 @@ export default function TransactionsPage() {
   // opens on its own with the date limited to that salary cycle.
   const [missingWindow, setMissingWindow] = useState(null);
 
-  const load = useCallback(async (search = window.location.search) => {
+  // Superseded loads are aborted and ignored. A failure drops the rows so stale
+  // items never sit under the error banner; the page keeps its first-load skeleton
+  // only until it has loaded once, and a filter or page change reloads in place.
+  const loader = useGuardedLoad(async ({ signal, current }, search = window.location.search) => {
     const query = new URLSearchParams(search); if (!query.has("limit")) query.set("limit", "50"); const requestSearch = `?${query}`;
-    setLoading(true);
-    try {
-      const [transactions, categoryResponse, accountResponse, wealthAccountResponse, memberResponse] = await Promise.all([fetch(`/api/v1/transactions${requestSearch}`), fetch("/api/v1/categories"), fetch("/api/v1/accounts"), fetch("/api/v1/wealth/accounts"), fetch("/api/v1/household/members")]);
-      if (!transactions.ok) { const body = await transactions.json().catch(() => ({})); setError(body.error || "Transaksi belum dapat dimuat."); return; }
-      setItems(await transactions.json()); setNextCursor(transactions.headers.get("X-Next-Cursor") || ""); setError("");
-      if (categoryResponse.ok) setCategories(await categoryResponse.json());
-      if (accountResponse.ok) setAccounts(await accountResponse.json());
-      if (wealthAccountResponse.ok) setWealthAccounts(await wealthAccountResponse.json());
-      if (memberResponse.ok) setMembers(await memberResponse.json());
-    } catch {
-      setError("Koneksi terputus saat memuat riwayat transaksi. Coba lagi.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    const [transactions, categoryResponse, accountResponse, wealthAccountResponse, memberResponse] = await Promise.all([fetch(`/api/v1/transactions${requestSearch}`, { signal }), fetch("/api/v1/categories", { signal }), fetch("/api/v1/accounts", { signal }), fetch("/api/v1/wealth/accounts", { signal }), fetch("/api/v1/household/members", { signal })]);
+    if (!transactions.ok) { const body = await transactions.json().catch(() => ({})); throw new LoadError(body.error || "Transaksi belum dapat dimuat."); }
+    const list = await transactions.json(), cursor = transactions.headers.get("X-Next-Cursor") || "";
+    const optional = async response => (response.ok ? response.json().catch(() => null) : null);
+    const [categoryList, accountList, wealthList, memberList] = [await optional(categoryResponse), await optional(accountResponse), await optional(wealthAccountResponse), await optional(memberResponse)];
+    if (!current()) return;
+    setItems(Array.isArray(list) ? list : []); setNextCursor(cursor);
+    if (Array.isArray(categoryList)) setCategories(categoryList);
+    if (Array.isArray(accountList)) setAccounts(accountList);
+    if (Array.isArray(wealthList)) setWealthAccounts(wealthList);
+    if (Array.isArray(memberList)) setMembers(memberList);
+  }, { fallback: "Koneksi terputus saat memuat riwayat transaksi. Coba lagi.", onFailure: () => { setItems([]); setNextCursor(""); } });
+  const load = loader.run;
+  const loading = loader.loading || loader.refreshing;
+  const error = loader.error;
 
   useEffect(() => {
     if (!user) return;
@@ -78,9 +85,9 @@ export default function TransactionsPage() {
   // equal and stays still. Skip while loading: the filter's first commit is the
   // skeleton, where the panel is not on screen to animate.
   useEffect(() => {
-    if (!loading && refreshPending) consumedRefresh.current = refreshToken;
-  }, [loading, refreshPending, refreshToken]);
-  useEffect(() => { if (user) { const id = new URLSearchParams(window.location.search).get("id"); if (id) openDetail({ id }); } }, [user]);
+    if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
+  }, [loading, loader.hasLoaded, refreshPending, refreshToken]);
+  useEffect(() => { if (user) { const id = new URLSearchParams(window.location.search).get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
   useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) { setMissingWindow(window_); setCreateError(""); createDialog.current?.showModal(); } }, [user]);
 
   async function filter(event) {
@@ -105,15 +112,7 @@ export default function TransactionsPage() {
     window.history.back();
   }
 
-  async function openDetail(item) {
-    setSelected({ id: item.id }); setEvidence([]); setAudit([]); setDetailError(""); setDetailLoading(true);
-    try {
-      const [transaction, evidenceResponse, auditResponse] = await Promise.all([fetch(`/api/v1/transactions/${item.id}`), fetch(`/api/v1/transactions/${item.id}/evidence`), fetch(`/api/v1/transactions/${item.id}/audit`)]);
-      if (!transaction.ok || !evidenceResponse.ok || !auditResponse.ok) throw new Error();
-      setSelected(await transaction.json()); setEvidence(await evidenceResponse.json()); setAudit(await auditResponse.json());
-    } catch { setDetailError("Detail transaksi belum dapat dimuat. Coba lagi."); }
-    finally { setDetailLoading(false); }
-  }
+  const openDetail = item => drawer.open(item.id);
 
   async function createTransaction(event) {
     event.preventDefault(); const formEl = event.currentTarget; setCreating(true); setCreateError("");
@@ -140,9 +139,9 @@ export default function TransactionsPage() {
     {query.get("merchantId") && <div className="notice feedback"><span>Filter merchant terpilih dari tinjauan siklus.</span><button className="secondary" type="button" onClick={() => { const next = new URLSearchParams(window.location.search); next.delete("merchantId"); next.delete("cursor"); window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", `/transactions?${next}`); setCursorHistory([]); load(`?${next}`); }}>Hapus filter merchant</button></div>}
     <dialog ref={createDialog} aria-labelledby="create-transaction-title" onClose={() => setCreateError("")}><form className="transaction-form" onSubmit={createTransaction}><div className="section-title"><h2 id="create-transaction-title">Tambah transaksi</h2><button type="button" aria-label="Tutup" onClick={() => createDialog.current?.close()}>×</button></div><label>Jenis<select name="type" required value={transactionType} onChange={event => setTransactionType(event.target.value)}><option value="EXPENSE">Pengeluaran</option><option value="INCOME">Pemasukan</option><option value="TRANSFER">Transfer</option></select></label>{transactionType === "TRANSFER" && <><label>Tujuan transfer<select name="purpose" value={transferPurpose} onChange={event => setTransferPurpose(event.target.value)}><option value="INTERNAL_TRANSFER">Transfer internal</option><option value="SAVINGS_TRANSFER">Pindah ke tabungan</option><option value="INVESTMENT_CONTRIBUTION">Kontribusi investasi</option><option value="ASSET_PURCHASE">Pembelian aset</option><option value="DEBT_PRINCIPAL_PAYMENT">Pembayaran pokok utang</option></select></label>{transferPurpose !== "INTERNAL_TRANSFER" && <label>Akun kekayaan terkait<select name="relatedWealthAccountId" required><option value="">Pilih akun kekayaan</option>{wealthAccounts.filter(item => item.active !== false).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</>}<label>Jumlah (IDR)<input name="amount" inputMode="numeric" pattern="[1-9][0-9]*" required/></label><label>Deskripsi<input name="description" maxLength="500" required/></label>{missingWindow && <p className="notice">Catat transaksi yang terlewat di siklus {missingWindow.from} sampai {missingWindow.to}. Waktunya dibatasi ke siklus itu agar sisa siklusnya dihitung ulang.</p>}<label>Waktu<input key={missingWindow ? `cycle-${missingWindow.from}` : "free"} name="transactionAt" type="datetime-local" required={Boolean(missingWindow)} min={missingWindow?.min} max={missingWindow?.max} defaultValue={missingWindow?.value}/></label><label>Akun<select name="accountId" required={transactionType === "TRANSFER"}><option value="">{transactionType === "TRANSFER" ? "Pilih akun sumber" : "Tanpa akun"}</option>{accounts.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{transactionType !== "TRANSFER" && <label>Kategori<select name="categoryId"><option value="">Tanpa kategori</option>{categories.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Catatan<textarea name="note"/></label>{createError && <p role="alert" className="error-notice">{createError}</p>}<div className="dialog-actions"><button type="button" onClick={() => createDialog.current?.close()}>Batal</button><button disabled={creating}>{creating ? "Menyimpan…" : "Simpan"}</button></div></form></dialog>
     <form className="filter-bar surface" onSubmit={filter} inert={loading}><input aria-label="Cari transaksi" name="q" placeholder="Cari tempat transaksi atau catatan" defaultValue={query.get("q") || ""}/><label className="filter-date"><span>Dari tanggal</span><input name="from" type="date" defaultValue={query.get("from") || ""}/></label><label className="filter-date"><span>Sampai tanggal</span><input name="to" type="date" defaultValue={query.get("to") || ""}/></label><select aria-label="Tipe transaksi" name="type" defaultValue={query.get("type") || ""}><option value="">Semua tipe</option><option value="SPENDING">Pengeluaran & refund</option>{Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Kategori" name="categoryId" defaultValue={query.get("categoryId") || ""}><option value="">Semua kategori</option><option value="uncategorized">Belum dikategorikan</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Anggota" name="memberId" defaultValue={query.get("memberId") || ""}><option value="">Semua anggota</option>{members.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select><select aria-label="Status" name="status" defaultValue={query.get("status") || ""}><option value="">Semua status</option>{Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Akun" name="accountId" defaultValue={query.get("accountId") || ""}><option value="">Semua akun</option>{accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Sumber" name="source" defaultValue={query.get("source") || ""}><option value="">Semua sumber</option><option value="BANK_EMAIL">Email bank</option><option value="TELEGRAM_TEXT">Pesan Telegram</option><option value="TELEGRAM_IMAGE">Gambar Telegram</option><option value="WEB_MANUAL">Input web</option><option value="WEB_IMAGE">Dokumen web</option></select><input name="merchantId" type="hidden" defaultValue={query.get("merchantId") || ""}/><button>Terapkan filter</button></form>
-    <ErrorNotice message={error} retry={load}/>
-    {loading ? <Skeleton cards={1} rows={6}/> : <><section className="surface ledger-panel" data-refreshed={refreshPending || undefined}><div className="section-title"><div><span className="eyebrow">HASIL</span><h2>{items.length} transaksi</h2></div></div><TransactionList items={items} onSelect={openDetail} newId={createdId}/></section><div className="pagination-actions"><button className="secondary" disabled={loading || !cursorHistory.length} onClick={previousPage}>Sebelumnya</button><button className="secondary" disabled={loading || !nextCursor} onClick={nextPage}>Berikutnya</button></div></>}
-    {selected && <div className="drawer-backdrop" onClick={closeDetail}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer" role="dialog" aria-modal="true" aria-label="Detail transaksi" aria-busy={detailLoading} onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeDetail}>×</button>{detailLoading ? <p>Memuat detail…</p> : detailError ? <div><p role="alert">{detailError}</p><button onClick={() => openDetail(selected)}>Coba lagi</button></div> : <><span className="eyebrow">DETAIL TRANSAKSI</span><h2>{selected.merchantName || selected.description || typeLabel[selected.type]}</h2><strong className="detail-amount">{money(selected.amount)}</strong><dl style={{ border: 0, borderRadius: 0, overflow: "visible" }}><div><dt>Tanggal</dt><dd>{dateTime(selected.transactionAt)}</dd></div><div><dt>Kategori</dt><dd>{selected.categoryName || "Belum dikategorikan"}</dd></div><div><dt>Akun</dt><dd>{selected.accountName || "—"}</dd></div><div><dt>Sumber pencatatan</dt><dd>{sourceLabel(selected.sourceType)}</dd></div><div><dt>Status</dt><dd>{statusLabel[selected.status] || selected.status}</dd></div>{selected.type === "TRANSFER" && <><div><dt>Tujuan transfer</dt><dd>{purposeLabel(selected.purpose)}</dd></div><div><dt>Akun kekayaan</dt><dd>{selected.relatedWealthAccountName || "—"}</dd></div></>}</dl><h3>Sumber Pencatatan</h3><div className="timeline">{evidence.map(item => <article key={item.id}><i>✓</i><div><b>{evidenceLabel(item.evidenceType)}</b><small>{sourceLabel(item.sourceType)} · {dateTime(item.receivedAt)}</small></div></article>)}{!evidence.length && <p className="empty compact">Belum ada sumber pencatatan terhubung.</p>}</div><h3>Riwayat Perubahan</h3><div className="timeline">{audit.map(item => <article key={item.id}><i>•</i><div><b>{item.action}</b><small>{item.actorType} · {dateTime(item.createdAt)}</small></div></article>)}{!audit.length && <p className="empty compact">Belum ada perubahan tercatat.</p>}</div></>}</aside></div>}
+    <ErrorNotice message={error} retry={() => load()}/>
+    {!loader.hasLoaded && !loader.failed ? <Skeleton cards={1} rows={6}/> : loader.failed ? null : <><section className="surface ledger-panel" aria-busy={loading} data-refreshed={(refreshPending && !loading) || undefined}><div className="section-title"><div><span className="eyebrow">HASIL</span><h2>{items.length} transaksi</h2></div></div><TransactionList items={items} onSelect={openDetail} newId={createdId}/></section><div className="pagination-actions"><button className="secondary" disabled={loading || !cursorHistory.length} onClick={previousPage}>Sebelumnya</button><button className="secondary" disabled={loading || !nextCursor} onClick={nextPage}>Berikutnya</button></div></>}
+    {drawer.status !== "closed" && <div className="drawer-backdrop" onClick={closeDetail}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer" role="dialog" aria-modal="true" aria-label="Detail transaksi" aria-busy={drawer.status === "loading"} onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeDetail}>×</button>{drawer.status === "loading" ? <p>Memuat detail…</p> : drawer.status === "error" ? <div><p role="alert">{drawer.error}</p><button onClick={drawer.retry}>Coba lagi</button></div> : <><span className="eyebrow">DETAIL TRANSAKSI</span><h2>{selected.merchantName || selected.description || typeLabel[selected.type]}</h2><strong className="detail-amount">{money(selected.amount)}</strong><dl style={{ border: 0, borderRadius: 0, overflow: "visible" }}><div><dt>Tanggal</dt><dd>{dateTime(selected.transactionAt)}</dd></div><div><dt>Kategori</dt><dd>{selected.categoryName || "Belum dikategorikan"}</dd></div><div><dt>Akun</dt><dd>{selected.accountName || "—"}</dd></div><div><dt>Sumber pencatatan</dt><dd>{sourceLabel(selected.sourceType)}</dd></div><div><dt>Status</dt><dd>{statusLabel[selected.status] || selected.status}</dd></div>{selected.type === "TRANSFER" && <><div><dt>Tujuan transfer</dt><dd>{purposeLabel(selected.purpose)}</dd></div><div><dt>Akun kekayaan</dt><dd>{selected.relatedWealthAccountName || "—"}</dd></div></>}</dl><h3>Sumber Pencatatan</h3><div className="timeline">{evidence.map(item => <article key={item.id}><i>✓</i><div><b>{evidenceLabel(item.evidenceType)}</b><small>{sourceLabel(item.sourceType)} · {dateTime(item.receivedAt)}</small></div></article>)}{!evidence.length && <p className="empty compact">Belum ada sumber pencatatan terhubung.</p>}</div><h3>Riwayat Perubahan</h3><div className="timeline">{audit.map(item => <article key={item.id}><i>•</i><div><b>{item.action}</b><small>{item.actorType} · {dateTime(item.createdAt)}</small></div></article>)}{!audit.length && <p className="empty compact">Belum ada perubahan tercatat.</p>}</div></>}</aside></div>}
   </AppShell>;
 }
 

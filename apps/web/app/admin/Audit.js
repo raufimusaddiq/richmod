@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { time, Empty, useAdminList, Table } from "./shared";
+import { time, Empty, Pending, useAdminList, Table } from "./shared";
 
 export default function Audit({ setError }) {
   const [kind, setKind] = useState("all"), [householdId, setHouseholdId] = useState(""), [filters, setFilters] = useState({ action: "", range: "24h" });
   const platform = kind === "platform";
   const household = kind === "household";
   const path = platform ? "/api/v1/admin/audit/platform" : household ? "/api/v1/admin/audit/household" : "/api/v1/admin/audit/all";
-  const [data, refresh, more] = useAdminList(path, household ? {...filters, householdId} : filters, setError);
-  if (!data) return <Empty>Memuat audit…</Empty>;
+  const [data, refresh, more, state] = useAdminList(path, household ? {...filters, householdId} : filters, setError);
+  if (!data) return <Pending state={state} retry={refresh}>Memuat audit…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
@@ -49,7 +49,7 @@ export default function Audit({ setError }) {
             </td>
           </tr>
         )}
-      </Table>{data.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}</>}
+      </Table>{data.nextCursor && <button className="secondary admin-more" disabled={state.more} onClick={more}>Muat berikutnya</button>}</>}
     </section>
   );
 }
