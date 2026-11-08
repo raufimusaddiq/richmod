@@ -499,6 +499,7 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	err := tx.QueryRow(ctx, `SELECT r.id, r.status, EXISTS(SELECT 1 FROM review_conversation c WHERE c.review_request_id=r.id)
 		FROM review_request r WHERE r.review_item_id=$1 ORDER BY r.created_at LIMIT 1`, itemID).Scan(&reviewID, &requestStatus, &alreadyRendered)
 	if err == nil && requestStatus != "PENDING_SEND" && requestStatus != "OPEN" {
+		slog.Default().Info("review not projected: its request is already closed", "review_item_id", itemID, "review_request_id", reviewID, "request_status", requestStatus)
 		return nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

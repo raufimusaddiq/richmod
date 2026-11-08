@@ -55,6 +55,16 @@ func TestReviewItemResolutionCascadesToRequestAndConversation(t *testing.T) {
 			t.Fatalf("%s request after the item was resolved: %s/%s, want RESOLVED/RESOLVED", from, status, conversation)
 		}
 	}
+	// The merchant-learning question is asked after the request is RESOLVED and
+	// must survive both the trigger and the repair.
+	learnItem, learnRequest := newReview("OPEN")
+	_, err = pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT_DECISION' WHERE review_request_id=$1`, learnRequest)
+	must(err)
+	_, err = pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now() WHERE id=$1`, learnItem)
+	must(err)
+	if status, conversation := state(learnRequest); status != "RESOLVED" || conversation != "AWAITING_MERCHANT_DECISION" {
+		t.Fatalf("merchant-learning question: %s/%s, want RESOLVED/AWAITING_MERCHANT_DECISION", status, conversation)
+	}
 	_, request := newReview("OPEN")
 	_, err = pool.Exec(ctx, `UPDATE review_request SET status='CANCELLED' WHERE id=$1`, request)
 	must(err)
