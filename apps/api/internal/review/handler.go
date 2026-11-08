@@ -725,8 +725,16 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,voided_at=NULL,updated_at=now() WHERE id=$1`, sourceID); err != nil {
+	// Only the transaction the merge voided is reopened; one that has changed
+	// since (the transition guard also forbids reopening anything else) stops
+	// the reversal instead of being dragged back into review.
+	reopened, err := tx.Exec(r.Context(), `UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,voided_at=NULL,updated_at=now() WHERE id=$1 AND household_id=$2 AND status='VOIDED'`, sourceID, household)
+	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
+		return
+	}
+	if reopened.RowsAffected() != 1 {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the merged transaction is no longer voided"})
 		return
 	}
 	if err := reviewdomain.ReopenTransactionReview(r.Context(), tx, household, sourceID); err != nil {
@@ -734,11 +742,11 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='NEEDS_REVIEW',metadata_json=metadata_json-'merged_into',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, sourceID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='NEEDS_REVIEW',metadata_json=metadata_json-'merged_into',updated_at=now() WHERE proposal_status=$3 AND household_id=$2 AND id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')`, sourceID, household, "MERGED"); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, sourceID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE household_id=$2 AND processing_status IN ('PROCESSED','IGNORED','NEEDS_REVIEW') AND id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, sourceID, household); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}
