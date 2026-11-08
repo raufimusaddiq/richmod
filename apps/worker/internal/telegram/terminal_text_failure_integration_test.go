@@ -57,7 +57,7 @@ func (f *terminalFixture) event(id int64) string {
 
 func (f *terminalFixture) job(sourceEventID string, attempts int) queue.Job {
 	payload, _ := json.Marshal(map[string]string{"source_event_id": sourceEventID})
-	job := queue.Job{Type: "PROCESS_TELEGRAM_TEXT", Payload: payload, Attempts: attempts, MaxAttempts: 5}
+	job := queue.Job{LockedBy: "test", Type: "PROCESS_TELEGRAM_TEXT", Payload: payload, Attempts: attempts, MaxAttempts: 5}
 	if err := f.pool.QueryRow(f.ctx, `INSERT INTO job(type,payload_json,status,attempts,max_attempts,locked_at,locked_by) VALUES('PROCESS_TELEGRAM_TEXT',$1::jsonb,'RUNNING',$2,5,now(),'test') RETURNING id::text`, string(payload), attempts).Scan(&job.ID); err != nil {
 		f.t.Fatal(err)
 	}
