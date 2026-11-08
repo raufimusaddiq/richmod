@@ -205,8 +205,13 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 			return Principal{}, "", time.Time{}, err
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE "user" SET password_hash=$1,password_initialized_at=now(),updated_at=now() WHERE id=$2 AND active`, hash, userID); err != nil {
+	updated, err := tx.Exec(ctx, `UPDATE "user" SET password_hash=$1,password_initialized_at=now(),updated_at=now() WHERE id=$2 AND active`, hash, userID)
+	if err != nil {
 		return Principal{}, "", time.Time{}, err
+	}
+	if updated.RowsAffected() != 1 {
+		// A deactivated account must not consume the invite or get a session.
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
 	}
 	if _, err = tx.Exec(ctx, `UPDATE dashboard_account_invite SET status='CONSUMED',consumed_at=now() WHERE id=$1`, inviteID); err != nil {
 		return Principal{}, "", time.Time{}, err

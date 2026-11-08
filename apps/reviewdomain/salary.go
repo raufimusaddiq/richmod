@@ -94,9 +94,10 @@ func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (Salar
 			return result, err
 		}
 	}
-	// RETURNING id distinguishes a real insert from an ON CONFLICT skip, so a
+	// RETURNING id distinguishes a real insert (or the revival of a VOIDED salary
+	// event by a new confirmed payslip) from an ON CONFLICT skip, so a
 	// re-confirmation does not enqueue a duplicate residual review.
-	if err := tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,to_date($3,'YYYY-MM'),$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING RETURNING id`, result.SalarySourceID, cmd.HouseholdID, period, cmd.PayDate, cmd.NetPay, cmd.Transaction, cmd.SourceEvent).Scan(&result.SalaryEventID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,to_date($3,'YYYY-MM'),$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id,pay_date=EXCLUDED.pay_date,net_pay=EXCLUDED.net_pay,source_event_id=EXCLUDED.source_event_id,status='CONFIRMED' WHERE salary_event.status='VOIDED' RETURNING id`, result.SalarySourceID, cmd.HouseholdID, period, cmd.PayDate, cmd.NetPay, cmd.Transaction, cmd.SourceEvent).Scan(&result.SalaryEventID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return result, err
 	}
 	return result, nil

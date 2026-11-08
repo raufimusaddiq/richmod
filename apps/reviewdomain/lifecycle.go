@@ -69,7 +69,8 @@ func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceI
 	)
 	UPDATE source_event SET processing_status=CASE WHEN state.pending THEN 'NEEDS_REVIEW'
 		WHEN state.rejected AND NOT state.accepted THEN 'IGNORED'
-		WHEN processing_status='IGNORED' AND NOT state.accepted THEN 'IGNORED' ELSE 'PROCESSED' END
+		WHEN processing_status='IGNORED' AND NOT state.accepted THEN 'IGNORED'
+		WHEN processing_status='FAILED' AND NOT state.accepted THEN 'FAILED' ELSE 'PROCESSED' END
 	FROM state WHERE household_id=$2 AND id IN (SELECT id FROM sources)`, sourceID, householdID)
 	return err
 }

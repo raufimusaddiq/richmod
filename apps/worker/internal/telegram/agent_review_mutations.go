@@ -48,10 +48,17 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'`, review.transactionID, state.HouseholdID); err != nil {
+	voided, err := tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'`, review.transactionID, state.HouseholdID)
+	if err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID); err != nil {
+	if voided.RowsAffected() != 1 {
+		// Resolved elsewhere (the dashboard) since this card was bound: reject
+		// nothing, and never reject the proposals of a confirmed transaction.
+		result.Status = "STALE_REVIEW_BINDING"
+		return result, true, nil
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')`, review.transactionID); err != nil {
 		return result, true, err
 	}
 	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_REJECTED"); err != nil {

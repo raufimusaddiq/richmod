@@ -367,8 +367,11 @@ func (s *PostgreSQLStore) Link(ctx context.Context, input CaptureInput, token st
 	if err != nil {
 		return false, fmt.Errorf("validate Telegram invite: %w", err)
 	}
+	// FOR SHARE conflicts with Deactivate's update of the same member row, so a
+	// removal either finishes first (this link is refused) or waits for the link
+	// and then revokes the identity it just created; it can never miss it.
 	var active bool
-	if err = tx.QueryRow(ctx, `SELECT hm.active AND u.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 AND hm.user_id=$2`, householdID, userID).Scan(&active); err != nil || !active {
+	if err = tx.QueryRow(ctx, `SELECT hm.active AND u.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 AND hm.user_id=$2 FOR SHARE OF hm`, householdID, userID).Scan(&active); err != nil || !active {
 		return false, ErrUnauthorized
 	}
 	// Telegram ID and user are bound 1:1: an ID already bound to anyone, or a
