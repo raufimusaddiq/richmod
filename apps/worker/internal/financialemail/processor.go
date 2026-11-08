@@ -815,7 +815,8 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	}
 	call, _, err := p.gateway.NativeToolCall(ctx, "preview:"+payload.PreviewID, prompt, map[string]any{"provider_name": provider, "sender_address": sender, "email_subject": subject, "email_body": "<untrusted_email_body>" + body + "</untrusted_email_body>", "household_timezone": "Asia/Jakarta"}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
-		_, _ = p.pool.Exec(ctx, `UPDATE financial_email_preview SET status='FAILED',error_message=$2,updated_at=now() WHERE id=$1`, payload.PreviewID, err.Error())
+		// The preview stays PROCESSING while the job retries (a retry claims it
+		// again); only the job's final failure marks it FAILED (TerminalPreviewFailureTx).
 		return err
 	}
 	out, err := gateway.DecodeToolArguments[output](call, "emit_financial_email_observations")

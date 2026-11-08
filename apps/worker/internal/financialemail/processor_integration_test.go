@@ -782,3 +782,49 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 		t.Fatalf("only the unresolved entity may be requested: %v", decision.MissingFacts)
 	}
 }
+
+// A financial email job that runs out of attempts finalizes its source as FAILED
+// and leaves one Tindakan item; a stranded preview becomes FAILED so it no
+// longer blocks activating the source.
+func TestFinancialEmailTerminalFailureFinalizesSourceAndPreview(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	h, user, _, _, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	var previewID string
+	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_preview(household_id,financial_source_id,subject,body,status,created_by_user_id,source_config_version)
+		SELECT $1,e.financial_source_id,'s','b','PROCESSING',$3,fs.config_version FROM financial_email_event e JOIN financial_email_source fs ON fs.id=e.financial_source_id WHERE e.source_event_id=$2 RETURNING id`, h, source, user).Scan(&previewID); err != nil {
+		t.Fatal(err)
+	}
+	p := NewProcessor(pool, &integrationGateway{raw: `{"observations":[]}`})
+	for i := 0; i < 2; i++ {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := p.TerminalFailureTx(ctx, tx, source); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.TerminalPreviewFailureTx(ctx, tx, previewID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var status, preview string
+	var actions int
+	if err := pool.QueryRow(ctx, `SELECT s.processing_status,(SELECT status FROM financial_email_preview WHERE id=$2),(SELECT count(*) FROM integration_action WHERE household_id=s.household_id AND dedupe_key=s.id::text) FROM source_event s WHERE s.id=$1`, source, previewID).Scan(&status, &preview, &actions); err != nil {
+		t.Fatal(err)
+	}
+	if status != "FAILED" || preview != "FAILED" || actions != 1 {
+		t.Fatalf("source=%s preview=%s actions=%d, want FAILED/FAILED/1", status, preview, actions)
+	}
+}

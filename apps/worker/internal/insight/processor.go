@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -287,4 +289,15 @@ func (p *Processor) fail(ctx context.Context, id, household, reason string) erro
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// TerminalFailureTx runs inside the transaction that marks a GENERATE_INSIGHT job
+// FAILED. An insight the job never finished would stay PENDING and block
+// generating another for the same household and period.
+func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, insightID string) error {
+	if !reviewdomain.IsSourceEventID(insightID) {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE insight SET status='FAILED',gateway_route='cloud-llm-gateway' WHERE id=$1 AND status='PENDING'`, insightID)
+	return err
 }

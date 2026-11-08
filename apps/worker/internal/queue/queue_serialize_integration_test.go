@@ -76,6 +76,7 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 
 	var mu sync.Mutex
 	claimed := map[string]string{}
+	claimedJobs := map[string]Job{}
 	var wg sync.WaitGroup
 	for worker := 0; worker < 6; worker++ {
 		wg.Add(1)
@@ -89,6 +90,7 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 			if found {
 				mu.Lock()
 				claimed[job.ID] = job.HouseholdID
+				claimedJobs[job.ID] = job
 				mu.Unlock()
 			}
 		}(worker)
@@ -101,7 +103,7 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 	if job, found, err := q.Claim(ctx, "w9", "DEFAULT"); err != nil || found {
 		t.Fatalf("claimed %s while household A's message was running (err=%v)", job.ID, err)
 	}
-	if err := q.Succeed(ctx, "20000000-0000-4000-8000-000000000001"); err != nil {
+	if err := q.Succeed(ctx, claimedJobs["20000000-0000-4000-8000-000000000001"]); err != nil {
 		t.Fatal(err)
 	}
 	job, found, err := q.Claim(ctx, "w9", "DEFAULT")
