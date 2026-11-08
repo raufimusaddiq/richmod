@@ -519,6 +519,24 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if binding == nil || binding.ReviewRequestID != reviewRequestID {
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu itu sudah selesai atau berubah, jadi belum ada yang diubah.")
 	}
+	// Claim the choice before applying it. The read above takes no lock, so two
+	// quick taps (the same button twice, or two options) would both pass it and
+	// the one typed answer would land on two cards. Whoever flips PENDING to
+	// RESOLVED first applies it; the other tap is stale. A failure before the
+	// answer is applied hands the choice back so the retry can claim it again.
+	claimed, err := p.pool.Exec(ctx, `UPDATE telegram_pending_card_choice SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='PENDING' AND expires_at>now()`, choiceID)
+	if err != nil {
+		return true, err
+	}
+	if claimed.RowsAffected() != 1 {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, cardChoiceStaleMessage)
+	}
+	applied := false
+	defer func() {
+		if !applied {
+			_, _ = p.pool.Exec(context.WithoutCancel(ctx), `UPDATE telegram_pending_card_choice SET status='PENDING',resolved_at=NULL WHERE id=$1 AND status='RESOLVED'`, choiceID)
+		}
+	}()
 	categories, err := p.categorySlugs(ctx, householdID)
 	if err != nil {
 		return true, err
@@ -534,14 +552,13 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if err != nil {
 		return true, err
 	}
+	// The review mutation is committed: from here the choice stays RESOLVED.
+	applied = true
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return true, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE telegram_pending_card_choice SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='PENDING'`, choiceID); err != nil {
-		return true, err
-	}
 	if err := finalizeAgentSource(ctx, tx, householdID, sourceEventID, "telegram-agent-card-choice"); err != nil {
 		return true, err
 	}

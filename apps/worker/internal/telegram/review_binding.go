@@ -490,9 +490,17 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	// A projection is "rendered" once its conversation row exists. The send job
 	// binds the Telegram message id later, so checking only the recipient would
 	// re-render (and re-insert review_conversation) on a second call.
+	// One item has one request for life (review_request_review_item_unique), so
+	// a request that has since expired or closed is not replaced by a second one;
+	// inserting here would raise a unique violation and abort the producer's
+	// whole transaction.
 	var alreadyRendered bool
-	err := tx.QueryRow(ctx, `SELECT r.id, EXISTS(SELECT 1 FROM review_conversation c WHERE c.review_request_id=r.id)
-		FROM review_request r WHERE r.review_item_id=$1 AND r.status IN ('PENDING_SEND','OPEN') ORDER BY r.created_at LIMIT 1`, itemID).Scan(&reviewID, &alreadyRendered)
+	var requestStatus string
+	err := tx.QueryRow(ctx, `SELECT r.id, r.status, EXISTS(SELECT 1 FROM review_conversation c WHERE c.review_request_id=r.id)
+		FROM review_request r WHERE r.review_item_id=$1 ORDER BY r.created_at LIMIT 1`, itemID).Scan(&reviewID, &requestStatus, &alreadyRendered)
+	if err == nil && requestStatus != "PENDING_SEND" && requestStatus != "OPEN" {
+		return nil
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,status)
 			VALUES($1,$2,NULLIF($3,'')::uuid,$4,'OPEN') RETURNING id`, itemID, householdID, transactionID, reviewType).Scan(&reviewID)
