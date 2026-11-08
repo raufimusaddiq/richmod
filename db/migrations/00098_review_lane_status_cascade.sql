@@ -55,6 +55,8 @@ FROM review_request r
 WHERE r.id = c.review_request_id AND r.status IN ('RESOLVED', 'CANCELLED') AND c.state NOT IN ('RESOLVED', 'AWAITING_MERCHANT_DECISION');
 
 -- +goose Down
+-- The data repair above is not undone: the conversations it resolved belonged to
+-- closed requests and stay RESOLVED.
 DROP TRIGGER review_request_close_conversation ON review_request;
 DROP FUNCTION review_request_close_conversation();
 DROP TRIGGER review_item_close_request ON review_item;

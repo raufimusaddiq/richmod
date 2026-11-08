@@ -552,8 +552,8 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if err != nil {
 		return true, err
 	}
-	// The review mutation is committed: from here the choice stays RESOLVED.
-	applied = true
+	// The choice stays RESOLVED only once the reply and the source's
+	// finalization commit; a failed commit hands it back so the retry can run.
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return true, err
@@ -568,5 +568,9 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if err := enqueueRetireButtons(ctx, tx, update, "Sudah dipilih."); err != nil {
 		return true, err
 	}
-	return true, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return true, err
+	}
+	applied = true
+	return true, nil
 }
