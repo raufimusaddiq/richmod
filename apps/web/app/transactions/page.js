@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import TransactionList from "../components/TransactionList";

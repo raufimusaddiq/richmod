@@ -352,3 +352,10 @@ test("wealth: drawer states, guarded saves, and a failed reload drops the old fi
 test("no state-machine page keeps the old single-string `working` or a bare loading boolean", () => {
   for (const page of pages) assert.doesNotMatch(text(`app/${page}/page.js`).split("// The state model.")[0], /useState\(true\), \[error|const \[loading, setLoading\]/, page);
 });
+
+test("auth: an unavailable session is announced with a retry, never a silent loading state", () => {
+  const auth = text("app/components/AuthProvider.js");
+  assert.match(auth, /if \(unavailable && !loaded\)/, "`unavailable` is consumed");
+  assert.match(auth, /role="alert"[\s\S]*Coba lagi/);
+  assert.match(auth, /setAttempt\(count => count \+ 1\)/, "retry restarts the load");
+});

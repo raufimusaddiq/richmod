@@ -12,6 +12,7 @@ export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true, timer = 0;
@@ -37,7 +38,17 @@ export default function AuthProvider({ children }) {
       active = false;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [attempt]);
+
+  // Never leave a page on a silent "Memuat…": say the session cannot be checked.
+  if (unavailable && !loaded) {
+    return (
+      <main className="loading" role="alert">
+        <p>Sesi belum dapat diperiksa. Periksa koneksi, lalu coba lagi.</p>
+        <button className="secondary" onClick={() => { setUnavailable(false); setAttempt(count => count + 1); }}>Coba lagi</button>
+      </main>
+    );
+  }
 
   return (
     <AuthContext.Provider value={{ user, loaded, unavailable }}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import useAuth from "../components/useAuth";
 import useDrawerA11y from "../components/useDrawerA11y";
