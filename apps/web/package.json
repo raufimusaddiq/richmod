@@ -24,6 +24,6 @@
     "recharts": "3.10.1"
   },
   "devDependencies": {
-    "playwright": "1.64.1"
+    "playwright": "1.65.0"
   }
 }
