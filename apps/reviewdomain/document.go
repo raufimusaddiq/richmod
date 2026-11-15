@@ -13,15 +13,14 @@ import (
 // does not allow.
 var ErrDocumentReviewInvalid = errors.New("reviewdomain: document review is no longer valid")
 
-// DocumentReviewCommand closes a review whose subject is a document rather than
-// a transaction, proposal, or source event: DOCUMENT_CLASSIFICATION and
-// DOCUMENT_EXTRACTION_LOW_CONFIDENCE. Those are produced when the shared
-// document pipeline cannot classify or extract a document with confidence.
+// DocumentReviewCommand closes a review whose subject is a document rather than a
+// transaction, proposal, or source event: DOCUMENT_CLASSIFICATION and
+// DOCUMENT_EXTRACTION_LOW_CONFIDENCE, raised when the shared document pipeline cannot
+// classify or extract with confidence.
 //
-// REPROCESS asks the caller to re-run the document pipeline (the producer owns
-// enqueuing the job, since the queue is a worker concern); the resolver records
-// the human intent and returns the source event so the surface can do it. IGNORE
-// closes the review and parks the document so it stops surfacing.
+// REPROCESS records the human intent and returns the source event so the surface can
+// enqueue the pipeline job (the queue is a worker concern). IGNORE closes the review
+// and parks the document so it stops surfacing.
 type DocumentReviewCommand struct {
 	HouseholdID, UserID, ReviewItemID, DocumentID, ActorType string
 	Action                                                   string
