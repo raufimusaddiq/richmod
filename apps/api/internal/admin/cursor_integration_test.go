@@ -28,23 +28,24 @@ func TestAdminPagedEndpointsRejectMalformedCursor(t *testing.T) {
 		name  string
 		new   func(http.ResponseWriter, *http.Request)
 		path  string
-		nonID string
+		nonID string // "" means the endpoint does not cast the id, so only garbage cursors apply
 	}{
 		{"jobs", handler.Jobs, "/api/v1/admin/jobs", "not-a-uuid"},
 		{"llmCalls", handler.LLMCalls, "/api/v1/admin/llm/calls", "not-a-uuid"},
 		{"logs", handler.Logs, "/api/v1/admin/logs", "not-a-uuid"},
 		{"platformAudit", handler.PlatformAudit, "/api/v1/admin/audit/platform", "not-a-number"},
 		{"householdAudit", handler.HouseholdAudit, "/api/v1/admin/audit/household?householdId=" + url.QueryEscape(householdID), "not-a-uuid"},
+		{"allAudit", handler.AllAudit, "/api/v1/admin/audit/all", ""},
 		{"reviewProjections", handler.ReviewOpsProjections, "/api/v1/admin/reviews/projections", "not-a-uuid"},
 	}
-	// Well-formed base64 that decodes to nonsense, and a well-formed cursor whose
-	// id cannot be cast by the endpoint's SQL.
+	// Malformed beyond repair, and a well-formed cursor whose id cannot be cast
+	// by the endpoint's SQL.
 	cursors := func(nonID string) []string {
-		return []string{
-			"not-a-cursor",
-			makeCursor(time.Now(), nonID),
-			url.QueryEscape("%%%"),
+		out := []string{"not-a-cursor", url.QueryEscape("%%%")}
+		if nonID != "" {
+			out = append(out, makeCursor(time.Now(), nonID))
 		}
+		return out
 	}
 	for _, tc := range cases {
 		for _, cursor := range cursors(tc.nonID) {

@@ -28,6 +28,7 @@ type cursorIDKind int
 const (
 	cursorUUID cursorIDKind = iota
 	cursorNumeric
+	cursorText
 )
 
 // parseCursor decodes the shared (created_at, id) keyset cursor. An absent
@@ -49,12 +50,15 @@ func parseCursor(value string, kind cursorIDKind) (pageCursor, bool, error) {
 	if err != nil {
 		return pageCursor{}, false, errInvalidCursor
 	}
-	if kind == cursorUUID {
+	switch kind {
+	case cursorUUID:
 		if _, err := uuid.Parse(id); err != nil {
 			return pageCursor{}, false, errInvalidCursor
 		}
-	} else if _, err := strconv.ParseInt(id, 10, 64); err != nil {
-		return pageCursor{}, false, errInvalidCursor
+	case cursorNumeric:
+		if _, err := strconv.ParseInt(id, 10, 64); err != nil {
+			return pageCursor{}, false, errInvalidCursor
+		}
 	}
 	return pageCursor{Time: t, ID: id}, true, nil
 }

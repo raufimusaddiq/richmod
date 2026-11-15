@@ -522,7 +522,11 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AllAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := pageLimit(r, 50, 100)
-	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	cursor, hasCursor, err := parseCursor(q.Get("cursor"), cursorText)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	start := adminRange(q.Get("range"))
 	if from, ok := dateBound(q.Get("from"), false); ok {
 		start = from

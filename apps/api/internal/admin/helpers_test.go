@@ -35,6 +35,9 @@ func TestCursorRoundTrip(t *testing.T) {
 	if _, _, err := parseCursor(makeCursor(wantTime, wantID), cursorNumeric); err == nil {
 		t.Fatal("uuid id accepted for a numeric endpoint")
 	}
+	if _, ok, err := parseCursor(makeCursor(wantTime, "not-a-uuid"), cursorText); err != nil || !ok {
+		t.Fatalf("text id rejected: %v", err)
+	}
 }
 
 func TestSafeJobRefsRedactsPayload(t *testing.T) {
