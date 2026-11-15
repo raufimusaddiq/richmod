@@ -105,3 +105,21 @@ test("a failed load keeps rows but drops the stale pager cursor", () => {
   assert.doesNotMatch(source, /query\.set\("limit", "50"\)/);
   assert.match(source, /hasActiveFilters\(`\?\$\{query\}`\) && <button type="button" className="secondary" onClick=\{resetFilters\}>Hapus filter<\/button>/);
 });
+
+test("T-16 polish: actors, evidence, minus sign, admin durations and decimal commas", async () => {
+  const { actorText, evidenceTypeText, auditActionText } = await import("../app/lib/labels.js");
+  const { money } = await import("../app/lib/format.js");
+  const { ratioLabel } = await import("../app/lib/cycleReview.js");
+  const { duration, percent, ms } = await import("../app/lib/adminFormat.js");
+  for (const code of ["WORKER", "TELEGRAM_CALLBACK", "USER", "SYSTEM", "TELEGRAM"]) assert.doesNotMatch(actorText(code), /[A-Z_]{4,}/);
+  assert.equal(evidenceTypeText("MANUAL_ENTRY"), "Input manual");
+  assert.equal(evidenceTypeText("SOME_NEW_KIND"), "Some new kind");
+  assert.equal(auditActionText("Auto confirm screenshot row"), "Baris tangkapan layar dikonfirmasi otomatis");
+  assert.equal(money("-2777998"), "\u2212Rp\u00a02.777.998");
+  assert.equal(ratioLabel("-0.165"), "\u221216,5%");
+  assert.equal(percent(1), "100,0%");
+  assert.equal(ms(40800), "40,8 dtk");
+  assert.equal(duration(3_660_000), "1 j 1 m");
+  assert.equal(duration(8000), "8 dtk");
+  assert.equal(duration(20_867_600), "5 j 47 m");
+});

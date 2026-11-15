@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, number, percent, ms, Badge, Metric, Empty, Pending, useLoad, useAdminList, Table } from "./shared";
+import { time, number, percent, ms, duration, Badge, Metric, Empty, Pending, useLoad, useAdminList, Table } from "./shared";
 
 export default function Reviews({ setError }) {
   const [range, setRange] = useState("24h");
@@ -58,19 +58,19 @@ export default function Reviews({ setError }) {
       <div className="admin-metrics">
         <Metric label="Tinjauan terbuka" value={number(summary.openReviews)} />
         <Metric
-          label="Eligible Telegram"
+          label="Memenuhi syarat Telegram"
           value={number(summary.eligibleTelegramReviews)}
         />
         <Metric
-          label="Proyeksi actionable"
+          label="Proyeksi dapat ditindak"
           value={number(summary.actionableTelegramProjections)}
         />
         <Metric
-          label="TARC"
+          label="Cakupan aksi Telegram"
           value={percent(summary.telegramActionableCoverageRate)}
           note={
             summary.legacyUnmeasuredReviews
-              ? `Target 100% · ${number(summary.legacyUnmeasuredReviews)} legacy tak terukur`
+              ? `Target 100% · ${number(summary.legacyUnmeasuredReviews)} lama tak terukur`
               : "Target 100%"
           }
         />
@@ -120,7 +120,7 @@ export default function Reviews({ setError }) {
             "Jenis",
             "Dibuat",
             "Terbuka",
-            "Eligible",
+            "Memenuhi syarat",
             "Proyeksi",
             "Cakupan",
             "Telegram",
@@ -215,7 +215,7 @@ export default function Reviews({ setError }) {
                   <Badge value={item.deliveryStatus} />
                 </td>
                 <td>{number(item.retryCount)}</td>
-                <td>{ms(item.ageMs)}</td>
+                <td>{duration(item.ageMs)}</td>
                 <td>{item.resolvedSurface || "—"}</td>
                 <td>{time(item.updatedAt)}</td>
               </tr>
