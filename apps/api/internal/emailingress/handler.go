@@ -121,10 +121,17 @@ func (h *Handler) Deliveries(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required"})
 		return
 	}
-	deliveries, err := h.service.RecentDeliveries(r.Context(), p.HouseholdID)
+	deliveries, next, err := h.service.RecentDeliveries(r.Context(), p.HouseholdID, r.URL.Query().Get("cursor"))
+	if errors.Is(err, ErrInvalidCursor) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid cursor"})
+		return
+	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to load email deliveries"})
 		return
+	}
+	if next != "" {
+		w.Header().Set("X-Next-Cursor", next)
 	}
 	writeJSON(w, 200, deliveries)
 }

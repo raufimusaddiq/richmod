@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
@@ -252,6 +255,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	limit, cursorAt, cursorID, ok := documentPage(w, r)
+	if !ok {
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT d.id,d.document_type,CASE WHEN d.status='NEEDS_REVIEW' AND NOT pending.any THEN 'EXTRACTED' ELSE d.status END,a.media_type,a.byte_size,a.width,a.height,d.created_at,
 		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),pending.any,
@@ -267,13 +274,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			AND t.household_id=d.household_id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'
 		) linked ON true
 		CROSS JOIN LATERAL (SELECT `+documentPendingSQL+` AS any) pending
-		WHERE d.household_id=$1 ORDER BY d.created_at DESC LIMIT 100`, household)
+		WHERE d.household_id=$1 AND ($2::timestamptz IS NULL OR (d.created_at,d.id) < ($2,NULLIF($3,'')::uuid))
+		ORDER BY d.created_at DESC,d.id DESC LIMIT $4`, household, cursorAt, cursorID, limit+1)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list documents"})
 		return
 	}
 	defer rows.Close()
 	result := make([]map[string]any, 0)
+	createdAts := make([]time.Time, 0)
 	for rows.Next() {
 		var id, status, media, source string
 		var kind *string
@@ -283,18 +292,53 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		var needsReview, reprocessing bool
 		var size int64
 		var width, height int
-		var created any
+		var created time.Time
 		if rows.Scan(&id, &kind, &status, &media, &size, &width, &height, &created, &source, &confidence, &summary, &linked, &needsReview, &reprocessing) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list documents"})
 			return
 		}
+		createdAts = append(createdAts, created)
 		result = append(result, map[string]any{"id": id, "documentType": kind, "status": status, "mediaType": media, "byteSize": size, "width": width, "height": height, "createdAt": created, "sourceType": source, "confidence": confidence, "summary": summary, "linkedTransactionIds": linked, "needsReview": needsReview, "reprocessing": reprocessing})
 	}
 	if err := rows.Err(); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list documents"})
 		return
 	}
+	if len(result) > limit {
+		result = result[:limit]
+		last := result[limit-1]
+		w.Header().Set("X-Next-Cursor", base64.RawURLEncoding.EncodeToString([]byte(createdAts[limit-1].UTC().Format(time.RFC3339Nano)+"|"+last["id"].(string))))
+	}
 	writeJSON(w, 200, result)
+}
+
+const (
+	defaultDocumentPage = 50
+	maxDocumentPage     = 100
+)
+
+// documentPage reads limit and cursor. It answers 400 itself, so a bad value never silently falls back to the first page.
+func documentPage(w http.ResponseWriter, r *http.Request) (limit int, at *time.Time, id string, ok bool) {
+	limit = defaultDocumentPage
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > maxDocumentPage {
+			writeJSON(w, 400, map[string]string{"error": "limit must be between 1 and 100"})
+			return 0, nil, "", false
+		}
+		limit = parsed
+	}
+	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(cursor)
+		stamp, cid, found := strings.Cut(string(raw), "|")
+		parsed, timeErr := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil || !found || timeErr != nil || uuid.Validate(cid) != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid cursor"})
+			return 0, nil, "", false
+		}
+		at, id = &parsed, cid
+	}
+	return limit, at, id, true
 }
 
 // Reprocess re-queues the existing PROCESS_DOCUMENT job for a FAILED document.
