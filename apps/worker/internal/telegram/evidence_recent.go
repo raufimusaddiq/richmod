@@ -7,17 +7,12 @@ import (
 	"time"
 )
 
-// Recency policy for evidence a message is not explicitly replying to (ADR-050
-// binding levels 4-6). The windows live here and nowhere else; tune them from the
+// Recency windows for evidence a message does not reply to (ADR-050 binding levels 4-6); tune from the
 // binding-level counters.
 const (
-	// immediateEvidenceWindow is how recent evidence must be to count as "the one
-	// just sent".
 	immediateEvidenceWindow = 10 * time.Minute
-	// recentEvidenceWindow bounds how far back evidence stays in recent context.
-	recentEvidenceWindow = 60 * time.Minute
-	// maxRecentEvidence is how many candidates a turn can carry.
-	maxRecentEvidence = 3
+	recentEvidenceWindow    = 60 * time.Minute
+	maxRecentEvidence       = 3
 
 	evidenceBindingImmediate = "IMMEDIATE"
 	evidenceBindingRecent    = "RECENT"
@@ -28,16 +23,8 @@ type recentEvidenceCandidate struct {
 	Age      time.Duration
 }
 
-// recentEvidenceCandidates lists this chat's newest actionable Telegram evidence
-// inside the recent window, newest first. It reads one more row than the carry
-// limit so "more than the limit" is distinguishable from "exactly the limit".
-// Ages come from the database clock, never from model text.
-//
-// Evidence is scoped to the household, the chat and the Telegram user who sent it
-// (ADR-050: "the newest from this user in this chat"). Ingress only accepts
-// private chats, where the chat id equals the user id, so for older rows that lack
-// the recorded sender the chat id stands in for the user; that fallback is
-// explicit here rather than an invariant this query silently relies on.
+// Scoped to household, chat and sending user; older rows without a sender fall back to the chat id.
+// Reads one row past the carry limit to tell "more than" from "exactly".
 func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID string, chatID, userID int64) ([]recentEvidenceCandidate, error) {
 	rows, err := p.pool.Query(ctx, `SELECT d.id::text,extract(epoch FROM now()-d.created_at)::float8
 		FROM document d JOIN source_event s ON s.id=d.source_event_id AND s.household_id=d.household_id
@@ -63,10 +50,7 @@ func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID st
 	return out, rows.Err()
 }
 
-// recentEvidenceContext is the turn-facing wrapper around bindRecentEvidence. The
-// context is optional, so any failure yields no context rather than an error: a
-// broken lookup (a bad row, a transient database error) must never abort the
-// household's message.
+// Context is optional: any failure yields none rather than aborting the household's message.
 func (p *Processor) recentEvidenceContext(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, candidates []recentEvidenceCandidate) (*agentEvidenceBinding, []map[string]any) {
 	evidence, ambiguous, err := p.bindRecentEvidenceFrom(ctx, householdID, sourceEventID, update, candidates)
 	if err != nil {
@@ -75,8 +59,6 @@ func (p *Processor) recentEvidenceContext(ctx context.Context, householdID, sour
 	return evidence, ambiguous
 }
 
-// bindRecentEvidenceFrom applies the binding rules to candidates the caller already
-// loaded, so a turn runs the candidates query once.
 func (p *Processor) bindRecentEvidenceFrom(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, candidates []recentEvidenceCandidate) (*agentEvidenceBinding, []map[string]any, error) {
 	if len(candidates) == 0 {
 		return nil, nil, nil
@@ -119,10 +101,8 @@ func (p *Processor) bindRecentEvidenceFrom(ctx context.Context, householdID, sou
 	return nil, contexts, nil
 }
 
-// freshEvidenceDocuments returns the documents the user sent within the immediate
-// window, from candidates the turn already loaded. It decides whether a bare amount
-// may be harvested as a new transaction (older evidence must not slow an ordinary
-// expense) and feeds the ledger guard below.
+// Decides whether a bare amount may be harvested as a new transaction (older evidence must not slow an
+// ordinary expense) and feeds the ledger guard.
 func freshEvidenceDocuments(candidates []recentEvidenceCandidate) []string {
 	var documents []string
 	for _, candidate := range candidates {
@@ -133,12 +113,8 @@ func freshEvidenceDocuments(candidates []recentEvidenceCandidate) []string {
 	return documents
 }
 
-// evidenceAlreadyRecorded reports whether a proposed new transaction repeats one
-// that the user's fresh evidence already produced: same type and amount, and the
-// proposed merchant is either absent or the same. It is the deterministic backstop
-// behind the prompt rule "never record a second transaction for a document that
-// already has one": the ledger, not the model, decides. A different merchant is left
-// alone so a genuine second purchase of the same price is not blocked. It fails open.
+// Backstop against a second transaction for one document: same type and amount, merchant absent or equal.
+// A different merchant is allowed so a genuine second purchase is not blocked; it fails open.
 func (p *Processor) evidenceAlreadyRecorded(ctx context.Context, householdID string, freshDocuments []string, transactionType, amount, merchant string) bool {
 	if len(freshDocuments) == 0 {
 		return false
@@ -173,11 +149,8 @@ func (p *Processor) evidenceAlreadyRecorded(ctx context.Context, householdID str
 	return false
 }
 
-// sameMerchantTokens is a bounded merchant match. Identical names always match.
-// Otherwise every word of the shorter name must appear as a whole word in the
-// longer one, and the shorter name must carry a distinctive word of five or more
-// letters: "mirota" matches "mirota swalayan", while "toko" does not match
-// "toko jaya" and a fragment of a word never matches.
+// Identical names match; otherwise each word of the shorter must be a whole word in the longer, and it needs
+// a distinctive word of 5+ letters ("mirota" matches "mirota swalayan", "toko" does not match "toko jaya").
 func sameMerchantTokens(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

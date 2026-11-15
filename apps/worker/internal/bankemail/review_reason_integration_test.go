@@ -12,10 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// reviewIncompleteExtraction used to hardcode UNKNOWN_BANK_TEMPLATE for every
-// rejection reason, so a structurally incomplete email and a semantically
-// unsupported one were indistinguishable in the Review Inbox. Pin the reason
-// that actually fired.
+// reviewIncompleteExtraction once hardcoded UNKNOWN_BANK_TEMPLATE for every rejection; pin the reason that
+// actually fired.
 func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -59,9 +57,8 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 			if status != "OPEN" {
 				t.Fatalf("status=%q; want OPEN", status)
 			}
-			// The ReviewDecision contract must be stored so the Inbox can explain the review
-			// without re-deriving it. Decision class, reason, and a why-not-auto-confirm
-			// reason are the minimum a client needs.
+			// The ReviewDecision contract must be stored so the Inbox explains the review without re-deriving
+			// it: class, reason and why-not-auto-confirm at minimum.
 			var decision reviewdec.Decision
 			var rawDecision []byte
 			if err := pool.QueryRow(ctx, `SELECT decision FROM review_item WHERE source_event_id=$1`, sourceEventID).Scan(&rawDecision); err != nil {
@@ -80,10 +77,8 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 	}
 }
 
-// A verified-but-unsupported ruling must leave its audit row behind. That row is
-// the only record of what the plane actually claimed for exactly the case the
-// review path parks (every bank residual), so persistence must run
-// before the review branch returns.
+// A verified-but-unsupported ruling must leave its audit row (the only record of what the plane claimed), so
+// persistence runs before the review branch returns.
 func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

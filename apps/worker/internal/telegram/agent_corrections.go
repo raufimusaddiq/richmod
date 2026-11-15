@@ -13,15 +13,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
-// selfEnteredSourceTypes are the sources whose facts the household itself
-// typed. Only a transaction whose every evidence row comes from one of them may
-// have its amount or merchant corrected from chat: for a bank, provider or
-// document-backed transaction the source evidence fixes those facts.
+// selfEnteredSourceTypes are household-typed sources; only a transaction whose evidence all comes from them
+// may have its amount or merchant corrected from chat.
 var selfEnteredSourceTypes = []string{"TELEGRAM_TEXT", "TELEGRAM_CALLBACK", "WEB_MANUAL"}
 
-// selfEnteredTransaction reports whether a transaction's facts come only from
-// the household's own entries. It runs inside the caller's transaction so the
-// check and the change see the same evidence.
+// selfEnteredTransaction runs in the caller's transaction so the check and the change see the same evidence.
 func selfEnteredTransaction(ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, householdID, transactionID string) (bool, error) {
@@ -136,8 +132,7 @@ func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState,
 			return result, true, err
 		}
 		if !self {
-			// Never staged: the amount/merchant of a bank, provider or document
-			// record comes from its source evidence, not from chat.
+			// Never staged: the amount and merchant of bank, provider or document records come from source evidence.
 			result.Status = "SOURCE_EVIDENCE_FIXES_AMOUNT"
 			result.Facts = map[string]any{"label": untrustedField(label), "amount_idr": currentAmount}
 			return result, true, nil
@@ -240,21 +235,15 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 }
 
 type correctionOutcome struct {
-	// Refused means the staged amount/merchant change no longer applies: the
-	// transaction gained source evidence after it was staged.
+	// Refused: the transaction gained source evidence after staging.
 	Refused bool
-	// Voided means the transaction was voided after the correction was staged,
-	// so nothing is edited: a voided row is no longer the household's to change.
-	Voided bool
-	// ProposedAt is the new transaction time, when the correction moved it.
+	// Voided: the transaction was voided after staging, so nothing is edited.
+	Voided     bool
 	ProposedAt *time.Time
 }
 
-// applyPendingCorrectionTx applies one locked, still-pending correction and
-// resolves it, with an audit row holding the before and after values. The
-// self-entered rule is checked again here, under the transaction lock, so a
-// receipt merged in after staging wins over the chat change. A confirmed
-// change refreshes the open cycle residuals of both the old and new time.
+// applyPendingCorrectionTx applies one locked pending correction with a before/after audit row.
+// The self-entered rule is rechecked under the lock so a receipt merged after staging wins.
 func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actionID string, telegramUserID int64) (correctionOutcome, error) {
 	var outcome correctionOutcome
 	var transactionID, txStatus string
@@ -326,9 +315,8 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	return outcome, nil
 }
 
-// offerExistingEditForTurn runs the single entry's "is this the one you already
-// recorded?" check and, when it stages an edit, queues the question in the same
-// transaction.
+// offerExistingEditForTurn runs the single entry's "already recorded?" check and, if it stages an edit,
+// queues the question in the same transaction.
 func (p *Processor) offerExistingEditForTurn(ctx context.Context, state *agentState, value validatedExtraction, result *agentToolResult) (string, error) {
 	label, existingAt, found, err := p.similarRecentExpense(ctx, state.HouseholdID, value.Amount, value.Merchant, value.TransactionAt)
 	if err != nil || !found {
@@ -363,10 +351,8 @@ func (p *Processor) offerExistingEditForTurn(ctx context.Context, state *agentSt
 	return token, tx.Commit(ctx)
 }
 
-// resolveEntryMerchantTx gives a typed merchant the household's merchant
-// identity, exactly as a review answer does (agentSaveReviewField): a
-// household-confirmed alias wins, otherwise the normalized merchant row is
-// created or reused. The remembered match carries the alias's category.
+// resolveEntryMerchantTx gives a typed merchant the household's merchant identity as a review answer does: a
+// confirmed alias wins, else the normalized merchant row is created or reused.
 func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw string) (string, *merchantmemory.Match, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

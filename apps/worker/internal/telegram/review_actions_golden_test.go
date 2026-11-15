@@ -12,10 +12,7 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
-// TestAgentReviewActionsGolden pins the action enum the agent's resolve_review
-// tool offers for each review kind. The agent vocabulary is a deliberate surface
-// projection of the stored actions, so it must not change as a side effect of
-// moving where review semantics are declared.
+// The agent's resolve_review action enum per review kind is a deliberate projection of the stored actions.
 func TestAgentReviewActionsGolden(t *testing.T) {
 	kinds := []string{
 		"TRANSFER_RECONCILIATION", "WEALTH_OBSERVATION", "TRANSFER_CLASSIFICATION",

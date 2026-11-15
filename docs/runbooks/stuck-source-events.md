@@ -76,6 +76,20 @@ A healthy system returns zero rows. Any row is a defect to triage, not noise;
 run the query after deploys and when the Review Inbox count looks lower than the
 ledger's unfinished count.
 
+## Stale document status repair (migration 00099)
+
+Runs automatically at deploy. A `document` left `NEEDS_REVIEW` after its last
+pending work was settled (for example a linked transaction confirmed) showed
+"Perlu ditinjau" with nothing to act on. `00099_settle_stale_needs_review_documents.sql`
+sets such documents to `EXTRACTED`. A document is stale only when nothing
+actionable is reachable from its own source or any album page source: no open
+review item, no `NEEDS_REVIEW` transaction or proposal, no pending provider-email
+observation, no open transfer case, no pending wealth observation. It names no
+row, writes one `audit_log` row per document (`REPAIR_STALE_DOCUMENT_REVIEW`, prior
+status) and changes no transaction, evidence or review row. Re-running is a no-op.
+`richmod.repair_household` limits it to one household. `Down` restores only
+documents Up changed that are still `EXTRACTED`; a second Down is a no-op.
+
 ## Ticket #356 repair (migration 00084)
 
 Migration `00084_settle_stuck_source_events.sql` settles 15 of the 17 events

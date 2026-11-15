@@ -6,11 +6,8 @@ import (
 	"time"
 )
 
-// F2 regression (disputed pair 926/928, synthetic values): same merchant, same
-// amount, printed times 10 minutes apart, the first already a confirmed
-// transaction backed by its own screenshot evidence. A distinct payment must
-// never reach the strong auto-link threshold (>= .90). On the unmodified
-// 66c1a9c matcher this fails with score 0.95.
+// F2 regression: a distinct payment (same merchant and amount, 10 minutes after a confirmed transaction)
+// must never reach the strong auto-link threshold (>= .90).
 func TestScreenshotF2DisputedPairMustNotAutoLink(t *testing.T) {
 	at := screenshotRowTime()
 	for _, tc := range []struct {

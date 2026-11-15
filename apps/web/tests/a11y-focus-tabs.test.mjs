@@ -1,0 +1,52 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { trapTarget, nextTabIndex } from "../app/lib/focusTrap.js";
+
+const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+test("trapTarget wraps Tab and Shift+Tab inside the container", () => {
+  const items = ["a", "b", "c"];
+  assert.equal(trapTarget(items, "c", false), "a");
+  assert.equal(trapTarget(items, "a", true), "c");
+  assert.equal(trapTarget(items, "b", false), null);
+  assert.equal(trapTarget(items, "b", true), null);
+  assert.equal(trapTarget(items, "outside", false), "a");
+  assert.equal(trapTarget(items, "outside", true), "c");
+  assert.equal(trapTarget([], "x", false, "box"), "box");
+});
+
+test("nextTabIndex implements the tablist arrow/Home/End keys", () => {
+  assert.equal(nextTabIndex("ArrowRight", 3, 4), 0);
+  assert.equal(nextTabIndex("ArrowLeft", 0, 4), 3);
+  assert.equal(nextTabIndex("Home", 2, 4), 0);
+  assert.equal(nextTabIndex("End", 0, 4), 3);
+  assert.equal(nextTabIndex("a", 0, 4), null);
+});
+
+test("mobile sheet uses the focus trap and returns focus to the trigger", () => {
+  const shell = read("app/components/AppShell.js");
+  assert.match(shell, /trapKeyDown\(event, morePanel\.current/);
+  assert.match(shell, /ref=\{morePanel\}/);
+  assert.match(shell, /moreButton\.current\?\.focus\(\)/);
+});
+
+test("settings jump links point at ids that exist", () => {
+  const src = read("app/settings/page.js");
+  const links = [...src.matchAll(/\["([a-z-]+)", "[^"]+"\]/g)].map(m => m[1]);
+  assert.ok(links.includes("akun-kekayaan") && links.includes("status-pemrosesan"));
+  assert.ok(!links.includes("akun-wealth"));
+  assert.match(src, /title="Akun kekayaan"/);
+  assert.match(src, /id="status-pemrosesan"/);
+});
+
+test("inbox tabs, admin tabs and document chips expose state", () => {
+  const inbox = read("app/inbox/page.js");
+  assert.match(inbox, /role="tablist"/);
+  assert.match(inbox, /aria-controls="inbox-panel"/);
+  assert.match(inbox, /role="tabpanel" id="inbox-panel"/);
+  assert.match(inbox, /event.key === "ArrowRight"/);
+  assert.match(inbox, /event.key === "Home"/);
+  assert.match(read("app/admin/page.js"), /aria-pressed=\{tab === key\}/);
+  assert.match(read("app/documents/page.js"), /aria-pressed=\{filter === key\}/);
+});

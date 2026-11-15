@@ -76,9 +76,7 @@ func TestTelegramMerchantLearningUsesSeparateExplicitReply(t *testing.T) {
 	if transactionStatus != "CONFIRMED" || reviewStatus != "RESOLVED" || conversationState != "AWAITING_MERCHANT_DECISION" || aliases != 0 {
 		t.Fatalf("transaction=%s review=%s conversation=%s aliases=%d", transactionStatus, reviewStatus, conversationState, aliases)
 	}
-	// The review item completes at confirm time so a merchant-learning
-	// question the user never answers cannot strand it. The optional question is
-	// tracked by conversation state only.
+	// The review item completes at confirm time so an unanswered merchant-learning question cannot strand it.
 	update.Message.MessageID = 24
 	if err := processor.applyMerchantLearningChoice(ctx, rememberSourceID, householdID, reviewID, transactionID, update, true); err != nil {
 		t.Fatal(err)

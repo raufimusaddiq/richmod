@@ -9,9 +9,7 @@ import (
 	"time"
 )
 
-// A Telegram rejection keeps its description and is classified: a 400/403 is
-// permanent (the queue must not retry it blindly), a 429 carries retry_after,
-// and a 5xx stays retryable. The bot token never appears in the error.
+// 400/403 are permanent, 429 carries retry_after, 5xx stays retryable, and the bot token never appears in the error.
 func TestSendClassifiesTelegramRejections(t *testing.T) {
 	cases := []struct {
 		status     int

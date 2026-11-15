@@ -18,32 +18,22 @@ type agentLimits struct {
 	MaxReadCallsPerResponse int
 	MaxReadCallsPerTurn     int
 	MaxSideEffectsPerTurn   int
-	// ModelCallTimeout bounds every model call in a turn. One cap, not one per
-	// phase: a follow-up that carries earlier context takes as long as an
-	// answer (a first call measured 6 s, long-form answers 9 to 11 s), and an
-	// 8 s cap on the first call failed a short follow-up twice in a row. The
-	// cap exists to bound a hung call, not to ration a slow one.
+	// ModelCallTimeout is one cap on every model call in a turn; it bounds a hung call, not a slow one.
 	ModelCallTimeout time.Duration
-	// TotalTurnTimeout is a backstop, not the working limit: a turn is bounded by
-	// its phases, so it must cover every phase at the call cap. The household is
-	// told the answer is still coming after ProgressNoticeDelay, so a slow
-	// multi-read turn is not silent.
+	// TotalTurnTimeout is a backstop, not the working limit: it must cover every phase at the call cap.
 	TotalTurnTimeout time.Duration
 }
 
-// TextJobBudget is the queue budget for one PROCESS_TELEGRAM_TEXT attempt: the
-// turn timeout plus room for reads, writes, and the reply. It must stay above
-// TotalTurnTimeout, and below the five-minute job lease.
+// TextJobBudget is the queue budget for one PROCESS_TELEGRAM_TEXT attempt; it must stay above
+// TotalTurnTimeout and below the five-minute job lease.
 const TextJobBudget = 160 * time.Second
 
-// ProgressNoticeDelay is how long a turn runs before the household is told the
-// answer is still coming. Single-phase turns finish well inside it (p90 about
-// 6 s), so only genuinely long turns, such as multi-read analytics, send one.
+// ProgressNoticeDelay is how long a turn runs before the household is told the answer is still coming;
+// single-phase turns (p90 about 6 s) finish inside it.
 const ProgressNoticeDelay = 10 * time.Second
 
-// MaxModelTimeoutAttempts is how many times a typed message is tried when the
-// model call times out. A timeout repeats with the same prompt and the same cap,
-// so more attempts only delay the answer the user is waiting for.
+// MaxModelTimeoutAttempts bounds retries of a model timeout; a retry uses the same prompt and cap, so more
+// attempts only delay the answer.
 const MaxModelTimeoutAttempts = 2
 
 var defaultAgentLimits = agentLimits{
@@ -75,74 +65,59 @@ type agentPublicRef struct {
 }
 
 type agentState struct {
-	SourceEventID string
-	HouseholdID   string
-	Update        telegramUpdate
-	Now           time.Time
-	Categories    []string
-	Tools         []gateway.ToolDefinition
-	RequiredTool  string
-	TurnContext   map[string]any
-	History       []agentToolResult
-	ModelPhases   int
-	// ArgumentRepairs counts the times Go returned a rejected tool call to the
-	// model for correction in this turn (maxArgumentRepairs).
+	SourceEventID   string
+	HouseholdID     string
+	Update          telegramUpdate
+	Now             time.Time
+	Categories      []string
+	Tools           []gateway.ToolDefinition
+	RequiredTool    string
+	TurnContext     map[string]any
+	History         []agentToolResult
+	ModelPhases     int
 	ArgumentRepairs int
 	ReadCalls       int
 	SideEffects     int
-	// Recoveries counts executor refusals handed back to the model this turn
-	// (maxRecoverableResults).
-	Recoveries int
-	// ReplyQueued is set when the turn's reply was queued inside the mutation's
-	// own transaction, so the loop must not answer again.
+	Recoveries      int
+	// ReplyQueued is set when the reply was queued inside the mutation's own transaction, so the loop must
+	// not answer again.
 	ReplyQueued bool
-	// ReadCache holds this turn's READ results by tool and arguments, so an
-	// identical repeated read is answered without running it again.
-	ReadCache map[string]agentToolResult
-	// activity is what the turn is doing now; the progress notice reads it from
-	// its own goroutine. A pointer, so copying the state (bound executors do)
-	// shares it instead of copying an atomic.
+	ReadCache   map[string]agentToolResult
+	// activity is read by the progress notice from its own goroutine; a pointer so copying the state shares
+	// it instead of copying an atomic.
 	activity         *atomic.Int32
 	HasPendingAction bool
 	HasPendingBatch  bool
 	HasSalaryChoice  bool
-	// ReviewType is the semantic review kind (server-owned action vocabulary),
-	// distinct from ReviewMode, which is the bound canonical subject/executor.
+	// ReviewType is the semantic review kind, distinct from ReviewMode (the bound canonical subject/executor).
 	ReviewType string
 	ReviewMode string
-	// ResidualDimensions names the facts that stayed unresolved after a
-	// generative extraction, so provenance records what the rescue actually owned
-	// instead of claiming the model re-decided a complete transaction (ADR-045
-	// telemetry). Empty means a direct acceptance with no bounded rescue.
+	// ResidualDimensions names the facts left unresolved after generative extraction so provenance records
+	// what the rescue owned (ADR-045); empty means direct acceptance.
 	ResidualDimensions []string
 
-	// Native continuation state for the immediately preceding READ phase. The
-	// gateway consumes these as provider-native tool outputs on the next model
-	// phase, preserving call IDs and ordering rather than pretending tool output
-	// is a new user message.
+	// Native continuation state for the preceding READ phase, consumed as provider-native tool outputs to
+	// keep call IDs and ordering.
 	PreviousResponseID string
 	PreviousToolCalls  []gateway.ToolCall
 	PendingToolOutputs []gateway.AgentToolOutput
 
-	// Review and merchant-learning targets are resolved by Go before the model
-	// turn. These server-only bindings are never exposed as canonical IDs to the
-	// model and prevent a later "latest row wins" query from changing targets.
+	// Server-only review and merchant-learning targets resolved by Go before the model turn; never exposed as
+	// canonical IDs. They stop a later "latest row wins" query from changing targets.
 	ReviewBinding           *agentReviewBinding
 	ReviewBindingCount      int
 	MerchantLearningBinding *agentMerchantLearningBinding
 	MerchantLearningCount   int
 
-	// Analytics is the request-scoped shared cycle-review READ session over the
-	// same deterministic fact engine as the analytics API. It never mutates.
+	// Analytics is the request-scoped READ session over the analytics API's fact engine; it never mutates.
 	Analytics *analyticscore.Session
 
-	// FreshEvidenceDocuments are the canonical ids of documents the user sent in the
-	// immediate window. Server-only; the record_transaction guard reads them so the
-	// ledger, not the model, refuses a second row for the same real event.
+	// FreshEvidenceDocuments are canonical ids of documents sent in the immediate window; server-only, so the
+	// ledger guard rather than the model refuses a duplicate row.
 	FreshEvidenceDocuments []string
 
-	// ReceivedAt is when the message reached Richmod; a message deferred for an
-	// unavailable gateway gives up after gatewayDeferralWindow from it.
+	// ReceivedAt is when the message reached Richmod; a message deferred for an unavailable gateway gives up
+	// after gatewayDeferralWindow.
 	ReceivedAt time.Time
 }
 

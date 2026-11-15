@@ -21,34 +21,26 @@ type screenshotIdentifier struct {
 	Value string `json:"value"`
 }
 
-// screenshotIdentifiersDescription is the field description the model sees in
-// the extraction and repair tool schemas. JSON Schema cannot express per-kind
-// uniqueness, so the rule is stated in words and enforced by Go.
+// screenshotIdentifiersDescription is the field description the model sees in the extraction and repair
+// schemas; JSON Schema cannot express per-kind uniqueness, so it is stated in words and enforced by Go.
 const screenshotIdentifiersDescription = "Printed transaction identifiers. Each kind (TRANSACTION_ID, REFERENCE_NUMBER, ORDER_ID) appears at most once per row and a row has at most 3 identifiers. If several numbers of one kind are printed, keep only the most specific one (for REFERENCE_NUMBER, the number explicitly labelled reference or RRN). Use null when none is printed."
 
-// maxScreenshotIdentifiers bounds the printed identifiers kept per row.
 const maxScreenshotIdentifiers = 3
 
 func knownScreenshotIdentifierKind(kind string) bool {
 	return kind == "TRANSACTION_ID" || kind == "REFERENCE_NUMBER" || kind == "ORDER_ID"
 }
 
-// screenshotIdentityNormalization records, for one row, what the deterministic
-// normalizer dropped. Only counts and kind names are kept: identifier values are
-// evidence and stay out of audit metadata.
+// screenshotIdentityNormalization records what the normalizer dropped for one row: counts and kind names
+// only, since identifier values are evidence.
 type screenshotIdentityNormalization struct {
 	Row                   int      `json:"row"`
 	DuplicateKindsDropped []string `json:"duplicate_kinds_dropped,omitempty"`
 	OverCapDropped        int      `json:"over_cap_dropped,omitempty"`
 }
 
-// normalizeScreenshotIdentifiers makes a row's identifier list satisfy the
-// uniqueness rules deterministically: it keeps the first identifier of each kind,
-// drops later duplicates, and caps the list at maxScreenshotIdentifiers. A receipt
-// may print several numbers of one kind and the model cannot be relied on to pick
-// one. Identity is observed evidence only, so this never touches amount, type,
-// direction, date or tenant, and never guesses: a row holding any unknown kind or
-// bad syntax is left untouched so it still fails validation.
+// normalizeScreenshotIdentifiers keeps the first identifier of each kind, up to maxScreenshotIdentifiers.
+// It never touches amount, type, direction, date or tenant; bad syntax is left to fail validation.
 func normalizeScreenshotIdentifiers(value *screenshotExtraction) []screenshotIdentityNormalization {
 	var changes []screenshotIdentityNormalization
 	for index := range value.Transactions {
@@ -90,9 +82,8 @@ func normalizeScreenshotIdentifiers(value *screenshotExtraction) []screenshotIde
 	return changes
 }
 
-// screenshotIdentityIssue names every rule a row's identity broke, so the repair
-// prompt can say what to fix instead of a bare code. It returns "" for a valid
-// identity. Text is validator-owned; it never echoes model output.
+// screenshotIdentityIssue names every rule a row's identity broke so the repair prompt can say what to fix;
+// "" when valid. Text is validator-owned, never model output.
 func screenshotIdentityIssue(row screenshotRow) string {
 	var rules []string
 	add := func(rule string) {
@@ -221,8 +212,8 @@ type screenshotQueryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// findScreenshotMatchesWith runs the matcher on q, so the locked write can
-// re-check inside its own transaction without a second pool connection.
+// findScreenshotMatchesWith runs the matcher on q so the locked write can re-check inside its own transaction
+// without a second connection.
 func findScreenshotMatchesWith(ctx context.Context, q screenshotQueryer, householdID string, row validatedScreenshotRow) ([]matchCandidate, error) {
 	if row.Value.Amount == nil || (!row.DateKnown && len(row.Value.TransactionIdentifiers) == 0) {
 		return nil, nil
@@ -231,12 +222,8 @@ func findScreenshotMatchesWith(ctx context.Context, q screenshotQueryer, househo
 	if err != nil {
 		return nil, err
 	}
-	// Candidates include transactions still awaiting review from any lane (bank
-	// email, receipt, another screenshot): one purchase seen twice must not become
-	// two transactions while the first is still in review (cross-lane dedup).
-	// Both fuzzy and identity candidates retain the canonical household/type/amount
-	// boundary. Only proposals actually bound to this transaction's screenshot
-	// evidence may contribute identity; stray proposals cannot authorise a link.
+	// Candidates include transactions awaiting review from any lane, so one purchase seen twice is not two.
+	// Only proposals bound to this transaction's screenshot evidence may contribute identity.
 	rows, err := q.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600,COALESCE(e.facts,'[]'::jsonb),t.status
 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
 LEFT JOIN LATERAL (
@@ -275,9 +262,8 @@ ORDER BY e.identity_hit DESC NULLS LAST,abs(extract(epoch FROM (t.transaction_at
 	return result, rows.Err()
 }
 
-// recordIdentifierNormalization makes a normalization visible: one audit row per
-// document and stage, written idempotently so a retried job does not repeat it.
-// It stores row indexes, kind names and counts, never identifier values.
+// recordIdentifierNormalization writes one idempotent audit row per document and stage so a retried job does
+// not repeat it; it stores row indexes, kind names and counts, never identifier values.
 func (p *Processor) recordIdentifierNormalization(ctx context.Context, householdID, sourceID, documentID, stage string, changes []screenshotIdentityNormalization) error {
 	encoded, err := json.Marshal(changes)
 	if err != nil {

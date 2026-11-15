@@ -14,9 +14,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
-// agentResolveReview is retained for internal callers/tests, but review
-// resolution is always server-bound. No conversational path may select the
-// newest household review as a mutation target.
+// agentResolveReview is retained for internal callers and tests; no conversational path may select the newest
+// household review as a target.
 func (p *Processor) agentResolveReview(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	return p.agentResolveBoundReview(ctx, state, call, args)
 }
@@ -53,8 +52,8 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 		return result, true, err
 	}
 	if voided.RowsAffected() != 1 {
-		// Resolved elsewhere (the dashboard) since this card was bound: reject
-		// nothing, and never reject the proposals of a confirmed transaction.
+		// Resolved elsewhere (the dashboard) since this card was bound: reject nothing, and never reject
+		// proposals of a confirmed transaction.
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
@@ -170,9 +169,8 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		return result, true, nil
 	}
 	if field == "description" && !reviewNeedsCategory(ctx, tx, review.reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, review.transactionID) {
-		// A purpose or correction was the only thing the card asked for and the
-		// transaction already satisfies the confirm rule: finish the review instead
-		// of asking for a category it already has.
+		// A purpose or correction was all the card asked for and the transaction already satisfies the
+		// confirm rule: finish the review instead of asking for a category.
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, "", reviewExtraction{Description: value, Confidence: 1}, userID); err != nil {
 			return result, true, err
 		}
@@ -282,10 +280,8 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 
 func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *agentState, review agentTransactionReview, categoryID string, value reviewExtraction, userID string) error {
 	var merchantID *string
-	// The conversational lane can reach the same canonical confirm as the
-	// generic reply lane, so the stored residual contract is enforced here too.
-	// The agent's native action handlers already refused undated or uncategorized
-	// input, so only an explicitly supplied date satisfies the residual date.
+	// The conversational lane reaches the same canonical confirm as the reply lane, so the residual contract is
+	// enforced here too; only an explicitly supplied date satisfies the residual date.
 	var storedDecision []byte
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_item ri WHERE ri.id=(SELECT review_item_id FROM review_request WHERE id=$1 AND household_id=$2) FOR UPDATE OF ri`, review.reviewID, state.HouseholdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
@@ -305,10 +301,8 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		}
 		transactionAt = &at
 	}
-	// ADR-046: the conversational lane calls the same canonical confirm as the
-	// generic reply lane. Confirm owns the transaction/proposal mutation and
-	// candidate revalidation; Telegram keeps only conversation state, evidence,
-	// and its own audit shape.
+	// ADR-046: same canonical confirm as the generic reply lane, which owns the mutation and candidate revalidation;
+	// Telegram keeps only conversation state, evidence and its own audit shape.
 	confirmResult, err := reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 		HouseholdID: state.HouseholdID, ActorUserID: userID, TransactionID: review.transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, review.reviewID),
@@ -330,8 +324,8 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	if confirmResult.MerchantID != "" {
 		merchantID = &confirmResult.MerchantID
 	}
-	// A confirmed review also completes the document workflow and any payslip
-	// salary recording, both through the shared operations.
+	// A confirmed review also completes the document workflow and payslip salary recording through the shared
+	// operations.
 	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, state.HouseholdID, review.transactionID); err != nil {
 		return err
 	}
@@ -361,10 +355,8 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		}
 	}
 	if askRemember {
-		// The review item completes now, not on the optional merchant answer: a
-		// follow-up question the user may never send must not strand the review
-		//. AWAITING_MERCHANT_DECISION marks the pending question without
-		// depending on review_request.status staying OPEN.
+		// The review item completes now, not on the optional merchant answer, so an unsent follow-up cannot strand it;
+		// AWAITING_MERCHANT_DECISION marks the pending question.
 		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err
 		}
@@ -419,8 +411,8 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 	if classification == "INVESTMENT_ACCOUNT" {
 		wealthID = ""
 	}
-	// ADR-046: one shared classification operation for Web and Telegram; the
-	// adapter keeps only its reply/evidence/telemetry side effects.
+	// ADR-046: one shared classification operation for Web and Telegram; the adapter keeps only reply,
+	// evidence and telemetry side effects.
 	transfer, err := reviewdomain.ClassifyTransferReview(ctx, tx, reviewdomain.TransferCommand{
 		HouseholdID: state.HouseholdID, ActorUserID: userID, TransactionID: review.transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, review.reviewID), RequestID: review.reviewID,
@@ -519,10 +511,8 @@ func (p *Processor) agentResolveTransferCaseTx(ctx context.Context, state *agent
 	return id, tx.Commit(ctx)
 }
 
-// cycleResidualAuditSQL records a residual resolution. Every parameter carries
-// an explicit type: jsonb_build_object takes "any", so an untyped $5 could not be
-// inferred by PostgreSQL and the prepared statement failed (SQLSTATE 42P18,
-// production 2026-10-23, "conversational side effect resolve_review").
+// cycleResidualAuditSQL types every parameter explicitly: jsonb_build_object takes "any", so an untyped $5
+// fails to prepare (SQLSTATE 42P18).
 const cycleResidualAuditSQL = `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1::uuid,'TELEGRAM',$2::uuid,$3::text,'cycle_residual_case',$4::uuid,jsonb_build_object('residualIdr',$5::text,'agent_sprint',1))`
 
 func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState, call gateway.ToolCall, action string, args map[string]any) (bool, agentToolResult, error) {
@@ -583,8 +573,8 @@ func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState,
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return true, result, err
 	}
-	// ADR-046: cycle basis refresh, allocation validation, and completion live in
-	// the shared operation; the agent lane maps the outcome to its own statuses.
+	// ADR-046: cycle basis refresh, allocation validation and completion live in the shared operation; the
+	// agent maps the outcome to its statuses.
 	allocations := make([]reviewdomain.CycleAllocation, 0, len(input.Allocations))
 	for _, allocation := range input.Allocations {
 		allocations = append(allocations, reviewdomain.CycleAllocation{WealthAccountID: allocation.WealthAccountID, AmountIDR: allocation.AmountIDR, Note: allocation.Note})

@@ -47,9 +47,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("parse database url: %w", err)
 	}
 	poolConfig.ConnConfig.RuntimeParams["timezone"] = "Asia/Jakarta"
-	// Several lane loops run at once, and a job can hold a transaction while it
-	// reads through the pool; size the pool so concurrent jobs cannot exhaust it
-	// waiting on each other. An explicit pool_max_conns in the URL wins.
+	// Size the pool so concurrent lane jobs holding transactions cannot exhaust it; an explicit pool_max_conns wins.
 	if !strings.Contains(databaseURL, "pool_max_conns") && poolConfig.MaxConns < minWorkerPoolConns {
 		poolConfig.MaxConns = minWorkerPoolConns
 	}
@@ -86,8 +84,7 @@ func run(logger *slog.Logger) error {
 				cost = metric.Cost
 			}
 		}
-		// The turn context carries the household, so a bounded-call row is
-		// attributable and the per-household value scoreboard can read it.
+		// The turn context carries the household so the call row is attributable.
 		householdID := telegram.TurnHouseholdID(callCtx)
 		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,call_kind,tool_name) VALUES(NULLIF($1,'')::uuid,$2,$3,NULLIF($4,''),$5,NULLIF($6,''),$7,$8,$9,$10::numeric,1,$11,NULLIF($12,''))`, householdID, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost, metric.CallKind, metric.ToolName); err != nil {
 			logger.Warn("LLM metric write failed", "task", metric.Task, "error", err)
@@ -111,10 +108,8 @@ func run(logger *slog.Logger) error {
 			logger.Warn("telegram command menu not registered", "error", err)
 		}
 	}()
-	// System One is the evidence verifier for bank email, documents and financial
-	// email only; it never decides a Telegram turn (ADR-052). Production must not
-	// be able to disable it by leaving the model unset; non-production environments
-	// opt out explicitly with JUDGMENT_MODE=disabled-dev.
+	// System One verifies bank email, document and financial-email evidence only, never a Telegram turn (ADR-052).
+	// Production cannot disable it by omitting the model; non-production opts out with JUDGMENT_MODE=disabled-dev.
 	judgmentMode := strings.ToLower(strings.TrimSpace(os.Getenv("JUDGMENT_MODE")))
 	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
 	var judgmentEngine systemone.InstrumentedEngine
@@ -123,9 +118,7 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		judgmentEngine = systemone.InstrumentedEngine{Engine: systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)), Record: recordIntelligencePhase}
-		// The Telegram agent runs without the judgment plane (ADR-052); the
-		// engine remains only as the bank-email, document and financial-email
-		// evidence verifier below.
+		// The Telegram agent runs without the judgment plane (ADR-052).
 	}
 	processor.SetPostGenerativeAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_TELEGRAM"))
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
@@ -134,14 +127,11 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure document storage: %w", err)
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
-	// Operational kill-switch: an operator must be able to park screenshot
-	// rows in review without a deploy. Unset keeps auto-confirm on.
+	// Operator kill-switch to park screenshot rows in review without a deploy; unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
 	if judgmentEngine.Record != nil {
-		// Row-level category rulings let a clear screenshot row reach the ledger
-		// without a review; the bounded plane, not generative confidence, is what
-		// authorises that write.
+		// The bounded plane, not generative confidence, authorises screenshot-row auto-confirm.
 		documentProcessor.SetVerifier(judgmentEngine)
 	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
@@ -153,12 +143,9 @@ func run(logger *slog.Logger) error {
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
-	// Each auto-confirm source has its own operational kill-switch. The
-	// default is on; an operator disables one source without touching the others.
+	// Each auto-confirm source has its own kill-switch, default on.
 	bankProcessor.SetCategoryAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_BANK_CATEGORY"))
-	// Evidence-channel semantic verification: the bounded plane rules on claims Go
-	// already holds, so neither email channel trusts generative self-confidence as
-	// its semantic gate (ADR-038).
+	// Email channels gate semantics on the bounded plane, not generative self-confidence (ADR-038).
 	if judgmentEngine.Record != nil {
 		bankProcessor.SetVerifier(judgmentEngine)
 	}
@@ -177,9 +164,7 @@ func run(logger *slog.Logger) error {
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	logger.Info("worker started", "worker_id", workerID)
-	// Missing VAPID configuration degrades quietly: the sender never starts, so
-	// outbox rows stay pending until the owner installs the keys. Nothing else
-	// in the worker or the health path depends on it.
+	// Missing VAPID config only stops the sender; outbox rows stay pending until keys are installed.
 	pushSender, pushErr := push.NewSender(pool, os.Getenv("VAPID_PRIVATE_KEY"), os.Getenv("VAPID_SUBJECT"), logger)
 	if pushErr != nil {
 		logger.Warn("push notifications disabled", "reason", pushErr.Error())
@@ -191,11 +176,8 @@ func run(logger *slog.Logger) error {
 		logger.Warn("attachment cache eviction failed", "error", err)
 	}
 	go maintainHeartbeat(ctx, logger, pool, workerID)
-	// Keep callback and other interactive work on a reserved execution loop so
-	// long-running jobs cannot delay Telegram button handling. Free-text Telegram
-	// turns run on the DEFAULT loops; several households are served at once, and
-	// the claim itself serializes one household's Telegram text (queue.claimSQL),
-	// which keeps a person's messages in order across retries (ADR-033).
+	// Interactive work gets a reserved loop so long jobs cannot delay Telegram button handling.
+	// claimSQL serializes one household's free-text turns, so DEFAULT loops keep a chat in order (ADR-033).
 	for _, lane := range []struct {
 		name     string
 		interval time.Duration
@@ -212,13 +194,11 @@ func run(logger *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-maintenanceTicker.C:
-			// Runs even when VAPID is absent and the sender never started, so
-			// the outbox cannot grow without bound behind a disabled feature.
+			// Runs without VAPID too, so the outbox cannot grow unbounded.
 			if _, err := push.Expire(ctx, pool, logger, push.DefaultExpiry); err != nil {
 				logger.Warn("push outbox expiry failed", "error", err)
 			}
-			// Same unconditional tick: terminal rows are deleted even when VAPID
-			// is unset and no Sender exists, so neither table grows unbounded.
+			// Same unconditional tick for terminal-row deletion.
 			if _, err := push.Purge(ctx, pool, logger, push.DefaultRetention); err != nil {
 				logger.Warn("push retention purge failed", "error", err)
 			}
@@ -281,9 +261,8 @@ func phaseOutcome(status string) string {
 	return "FAILED"
 }
 
-// requireJudgmentModel enforces the production invariant that bounded mutation
-// semantics cannot be silently disabled by omitting the model. Only an explicit
-// opt-out outside production is allowed.
+// requireJudgmentModel: production cannot disable bounded mutation semantics by omitting the model; only an
+// explicit non-production opt-out is allowed.
 func requireJudgmentModel(mode, model string) error {
 	if mode == "disabled-dev" || strings.TrimSpace(model) != "" {
 		return nil
@@ -291,13 +270,8 @@ func requireJudgmentModel(mode, model string) error {
 	return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
 }
 
-// catchUpResidualReviews re-enqueues residual review generation for confirmed
-// primary salary cycles that have neither a case nor a job. A job in any state
-// that the unique index covers (PENDING, RUNNING, SUCCEEDED) already owns the
-// cycle: a SUCCEEDED no-op (no residual, stale cycle) must not be re-enqueued,
-// and ON CONFLICT keeps one household's row from failing the whole batch. The
-// batch is shared fairly: every household's newest cycle is taken before any
-// household's second one.
+// catchUpResidualReviews re-enqueues residual review for confirmed salary cycles with no case or job.
+// Any job state the unique index covers, even a SUCCEEDED no-op, owns the cycle; newest cycle goes first.
 func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, limit int) {
 	_, err := pool.Exec(ctx, residualCatchUpSQL, limit)
 	if err != nil && ctx.Err() == nil {
@@ -323,9 +297,8 @@ ORDER BY e.household_rank,e.pay_date DESC,e.id
 LIMIT $1
 ON CONFLICT DO NOTHING`
 
-// envEnabled reads a kill-switch. Any value other than an explicit negative
-// keeps the switch enabled, so an unset or mistyped variable never silently
-// changes auto-confirm behavior.
+// envEnabled: any value other than an explicit negative keeps the switch on, so a mistyped variable never
+// changes auto-confirm.
 func envEnabled(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "0", "false", "off", "no", "disabled":
@@ -355,13 +328,12 @@ func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int6
 	return tag.RowsAffected(), nil
 }
 
-// defaultLaneWorkers is how many DEFAULT loops run. One household's Telegram
-// text never runs on two of them at once (the claim serializes it), so more
-// loops add throughput across households without reordering anyone's chat.
+// defaultLaneWorkers: the claim serializes a household's Telegram text, so more DEFAULT loops add cross-
+// household throughput without reordering a chat.
 const defaultLaneWorkers = 3
 
-// minWorkerPoolConns leaves every lane loop (3 DEFAULT, 1 INTERACTIVE, 1
-// BACKGROUND) room for a transaction plus nested reads and parallel READ tools.
+// minWorkerPoolConns leaves room per lane loop (3 DEFAULT, 1 INTERACTIVE, 1 BACKGROUND) for a transaction
+// plus nested reads and parallel READ tools.
 const minWorkerPoolConns = 16
 
 func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
@@ -399,11 +371,8 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-// terminalStep returns what must happen in the same transaction that marks a job
-// FAILED for its last attempt: finalize the source event, tell the household when
-// there is a chat to tell, and leave a dismissable item in the Inbox. Other job
-// types have no step. A payload that cannot be decoded yields an empty ID, which
-// every step treats as a no-op.
+// terminalStep returns what runs in the tx marking a job's last attempt FAILED: finalize the source event,
+// notify the chat, add a dismissable Inbox item. An undecodable payload yields an empty ID, a no-op.
 func terminalStep(job queue.Job, cause error, processor *telegram.Processor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor) func(context.Context, pgx.Tx) error {
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
@@ -475,8 +444,8 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 		}
 		processed++
 		if queue.Exhausted(job) {
-			// A crashed worker left this job RUNNING past its last attempt. It is
-			// not run again: it fails through the final-failure path.
+			// A crashed worker left this job RUNNING past its last attempt; it fails via the final-failure
+			// path instead of rerunning.
 			err = queue.LeaseExpiredError{Attempts: job.Attempts, MaxAttempts: job.MaxAttempts}
 		} else {
 			stopLease := jobs.KeepLease(ctx, job)
@@ -488,23 +457,19 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 				return fmt.Errorf("complete job: %w", finishErr)
 			}
 		} else if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsGatewayDeferral(err) {
-			// The AI gateway is unreachable: the message waits durably and runs
-			// the full agent path once the gateway is back (ADR-052 amendment).
-			// A deferral does not spend the job's attempts.
+			// Gateway unreachable: the message waits durably and runs the full agent path later without
+			// spending attempts (ADR-052).
 			logger.Warn("typed message deferred: AI gateway unavailable", "job_id", job.ID, "deferrals", job.Deferrals)
 			if deferErr := jobs.Defer(ctx, job, err); deferErr != nil {
 				return fmt.Errorf("defer job: %w", deferErr)
 			}
 		} else {
 			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
-			// A typed message follows the text failure taxonomy: a model timeout
-			// is retried once, a gateway rejection never.
+			// Typed messages follow the text failure taxonomy: a model timeout retries once, a gateway rejection never.
 			if job.Type == "PROCESS_TELEGRAM_TEXT" {
 				err = telegram.TextFailurePolicy(err, job.Attempts)
 			}
-			// A typed message that will not be retried again must not end in
-			// silence, so the notice is queued in the same transaction that marks
-			// the job FAILED.
+			// A message that will not be retried queues its notice in the same transaction that marks the job FAILED.
 			onFinal := terminalStep(job, err, processor, bankProcessor, financialProcessor, documentProcessor, insightProcessor)
 			if finishErr := jobs.FailWithHook(ctx, job, err, onFinal); finishErr != nil {
 				return fmt.Errorf("reschedule job: %w", finishErr)
@@ -547,9 +512,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	ctx = telegram.WithHousehold(ctx, job.HouseholdID)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
-		// The webhook already answered the callback query in its HTTP response
-		// (answerCallbackQuery as the webhook reply), so the tap spinner clears
-		// without waiting for this lane. A second answer would only be refused.
+		// The webhook already answered the callback query, so the tap spinner clears without this lane.
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
 		if err != nil {
 			return err

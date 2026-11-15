@@ -1,7 +1,6 @@
-// Package pushsupport holds the VAPID configuration predicate and the
-// subscription upsert shared by the API and worker binaries. Keeping the
-// enabled decision in one place prevents the API from advertising a state the
-// sender will never run in.
+// Package pushsupport holds the VAPID configuration predicate and the subscription
+// upsert shared by the API and worker, keeping the enabled decision in one place so
+// the API never advertises a state the sender will not run in.
 package pushsupport
 
 import (

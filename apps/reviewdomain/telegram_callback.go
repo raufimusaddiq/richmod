@@ -5,14 +5,12 @@ import (
 	"strings"
 )
 
-// Telegram inline-button callback grammar, shared by the API webhook (which
-// admits only this grammar before persisting anything) and the worker (which
-// produces and consumes it). Every callback is a bounded literal or a literal
-// prefix followed by an opaque token or a small page/index number; none carries
-// a canonical identifier that authorizes a mutation on its own. The worker
-// re-derives household, user, chat, and pending state for every callback.
-//
-// Telegram rejects callback_data longer than 64 bytes.
+// Telegram inline-button callback grammar, shared by the API webhook (which admits
+// only this grammar before persisting anything) and the worker (which produces and
+// consumes it). Every callback is a bounded literal or a literal prefix plus an opaque
+// token or small page/index number; none carries a canonical identifier that
+// authorizes a mutation, and the worker re-derives household, user, chat and pending
+// state for each callback. Telegram rejects callback_data longer than 64 bytes.
 const telegramCallbackMaxBytes = 64
 
 var pendingCallbackToken = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

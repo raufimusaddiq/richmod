@@ -16,8 +16,8 @@ func TestPhaseMetricDimensionsAreNotNull(t *testing.T) {
 	}
 }
 
-// Production must not be able to disable Jev-owned mutation semantics by
-// leaving the model unset; only an explicit non-production opt-out is allowed.
+// Production must not disable Jev-owned mutation semantics by omitting the model; only an explicit non-
+// production opt-out is allowed.
 func TestRequireJudgmentModel(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -43,8 +43,7 @@ func TestRequireJudgmentModel(t *testing.T) {
 	}
 }
 
-// envEnabled is a safety control: an unset or mistyped variable must keep the
-// switch on, and only an explicit negative value may disable it.
+// An unset or mistyped variable must keep the switch on; only an explicit negative disables it.
 func TestEnvEnabledDefaultsOnForUnsetOrUnknownValues(t *testing.T) {
 	cases := map[string]bool{
 		"":           true,

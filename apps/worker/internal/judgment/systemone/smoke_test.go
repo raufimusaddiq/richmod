@@ -10,33 +10,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// TestRealLiteRouterSystemOneSmoke is the opt-in end-to-end residual-category
-// canary: Richmod -> LiteRouter /systemone -> TypeSafe -> LiteRouter pass-through
-// -> Richmod decoder. The mocked tests above prove transport behaviour against a
-// controlled server; this one also checks a real bounded category decision from
-// source evidence and captures its actual versioned model id.
-//
-// It is skipped unless a secret-bearing environment supplies a real LiteRouter
-// endpoint and client key, because it consumes live provider credits:
-//
-//	SYSTEMONE_SMOKE_BASE_URL=<literouter base url>
-//	SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key>
-//	SYSTEMONE_SMOKE_MODEL=<model id>   # optional, defaults to typesafe/jev-latest
-//
-// Point BASE_URL at LiteRouter's internal address on a shared Docker network
-// (http://9router:20128/v1), not a public hostname. The worker reaches LiteRouter
-// directly over the container network by design: routing a bounded decision out
-// through the public edge and back into the same host would add a round trip and
-// a failure surface for no benefit. That name resolves only inside those
-// networks, so run this from a container alongside LiteRouter.
-//
-// The asserted model id is the *concrete* version the alias resolved to (for
-// example jev-1.13.0). typesafe/jev-latest is deliberately an alias; the concrete
-// version is what belongs on a stored judgment_decision row so a decision stays
-// reproducible after the alias advances.
-//
-// Only the LiteRouter client key is read here. No upstream provider key (for
-// example a TypeSafe key) is configured in Richmod, by design.
+// TestRealLiteRouterSystemOneSmoke is the opt-in live canary for a bounded category decision; it needs
+// SYSTEMONE_SMOKE_BASE_URL and SYSTEMONE_SMOKE_LITEROUTER_KEY, optionally SYSTEMONE_SMOKE_MODEL.
 func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_BASE_URL"))
 	clientKey := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_LITEROUTER_KEY"))
@@ -67,8 +42,7 @@ func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("real LiteRouter call failed: %v", err)
 	}
-	// The real provider must return its actual versioned model id so a stored
-	// decision stays attributable to the model that produced it.
+	// The concrete versioned model id keeps a stored decision attributable.
 	if strings.TrimSpace(result.Model) == "" {
 		t.Fatal("real LiteRouter response carried no model id")
 	}

@@ -40,8 +40,7 @@ type Metadata struct {
 	ResidualDimensions []string
 }
 
-// CallMetric contains metadata only. Prompt, response, and source content are
-// intentionally excluded from operational telemetry.
+// CallMetric holds metadata only; prompt, response and source content stay out of telemetry.
 type CallMetric struct {
 	Task               string
 	Protocol           string
@@ -94,8 +93,6 @@ type ToolDefinition struct {
 	Parameters  map[string]any
 }
 
-// NativeToolOptions controls the protocol-level tool contract. Optional
-// options preserve the V3 call shape for existing conversational callers.
 type NativeToolOptions struct {
 	Required bool
 	// ReasoningEffort is forwarded when the selected model supports it.
@@ -109,8 +106,7 @@ type ToolCall struct {
 	Arguments  json.RawMessage
 }
 
-// NativeToolCall asks the gateway for a native function_call. It never
-// executes a tool; callers must validate and dispatch it in Go.
+// NativeToolCall requests a native function_call and never executes it; callers validate and dispatch in Go.
 func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
 	if sourceEventFrom(ctx) == "" {
 		ctx = withSourceEvent(ctx, requestID)
@@ -125,8 +121,7 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	return
 }
 
-// DecodeToolArguments strictly decodes one provider-native function call.
-// Callers still own domain validation after decoding.
+// DecodeToolArguments strictly decodes one native function call; callers still own domain validation.
 func DecodeToolArguments[T any](call ToolCall, expectedName string) (T, error) {
 	var out T
 	if call.Name != expectedName {
@@ -214,10 +209,8 @@ func normalizeToolArguments(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// nativeChatCompletion is the protocol adapter fallback for routers/models
-// that expose OpenAI Chat Completions rather than Responses. It returns the
-// same internal ToolCall shape, so callers do not need protocol-specific
-// financial logic.
+// nativeChatCompletion is the Chat Completions fallback for routers without Responses, returning the same
+// ToolCall shape.
 func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, tools []map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {
 	var err error
 	userContent, err = chatContent(userContent)
@@ -241,12 +234,8 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 	return c.doChatToolCall(ctx, requestID, payload, options)
 }
 
-// chatMessages builds the Chat Completions message list. The provider rejects a
-// request whose messages carry no user turn (`messages must not be empty`), and
-// a system prompt alone gives the model nothing to answer, so a real user turn
-// is always emitted. Callers that supply no content are bounded extraction
-// lanes whose instruction is the required tool contract itself; the fallback
-// text keeps that turn non-empty instead of shipping a system-only request.
+// chatMessages always emits a user turn because the provider rejects messages without one.
+// Bounded extraction callers supply no content, so fallback text keeps the turn non-empty.
 func chatMessages(systemPrompt string, userContent any) []map[string]any {
 	if chatContentEmpty(userContent) {
 		userContent = "Use the required tool call to answer for the supplied evidence."
@@ -254,7 +243,6 @@ func chatMessages(systemPrompt string, userContent any) []map[string]any {
 	return []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}
 }
 
-// chatContent adapts Responses image/text parts to Chat Completions parts.
 func chatContent(content any) (any, error) {
 	parts, ok := content.([]map[string]any)
 	if !ok {

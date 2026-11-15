@@ -13,11 +13,8 @@ import (
 	"testing"
 )
 
-// pgx sends every Exec/Query as one prepared statement, and PostgreSQL refuses
-// to prepare more than one command (SQLSTATE 42601, production 2026-08-26 on the
-// PROCESS_TELEGRAM_TEXT path, fixed in 6ef69fe2). CI's ripgrep guard only sees a
-// second command on the same line; this scans every SQL string literal in the
-// worker and API, across lines, after removing quoted literals and comments.
+// pgx prepares each Exec/Query as one statement and PostgreSQL refuses more than one command (SQLSTATE 42601).
+// This scans every SQL literal in worker and API across lines, unlike CI's single-line ripgrep guard.
 func TestNoSQLStringHoldsMoreThanOneCommand(t *testing.T) {
 	statement := regexp.MustCompile(`(?is)^\s*(SELECT|INSERT|UPDATE|DELETE|WITH)\b`)
 	second := regexp.MustCompile(`(?is);\s*(SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER|DROP)\b`)

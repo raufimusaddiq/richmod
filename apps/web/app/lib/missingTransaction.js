@@ -1,9 +1,9 @@
 import { inclusiveEnd } from "./cycleReview.js";
 
-// The residual review's "Ada transaksi belum tercatat" hands off to manual
-// entry for one salary cycle. The API returns that cycle as Jakarta dates with
-// an exclusive end (cycle_residual_case.cycle_end); the handoff carries the
-// inclusive range so the list shows the cycle and the form limits its date.
+// The residual review's "Ada transaksi belum tercatat" hands off to manual entry for
+// one salary cycle. The API returns the cycle as Jakarta dates with an exclusive end
+// (cycle_residual_case.cycle_end); the handoff carries the inclusive range so the list
+// shows the cycle and the form limits its date.
 const day = /^\d{4}-\d{2}-\d{2}$/;
 
 export function missingTransactionHref(result) {
@@ -18,10 +18,10 @@ function localMinute(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// cycleEntryWindow reads the handoff from a /transactions query string. It
-// returns the datetime-local bounds of the cycle and a prefilled value inside
-// them (now when now is inside the cycle, otherwise noon on the cycle's last
-// day), or null when the page was not opened for a missing transaction.
+// cycleEntryWindow reads the handoff from a /transactions query string. It returns the
+// datetime-local bounds of the cycle and a prefilled value inside them (now if inside
+// the cycle, else noon on its last day), or null when the page was not opened for a
+// missing transaction.
 export function cycleEntryWindow(search, now = new Date()) {
   const query = new URLSearchParams(search || "");
   const from = query.get("from") || "", to = query.get("to") || "";

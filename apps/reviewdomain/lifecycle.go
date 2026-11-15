@@ -9,18 +9,15 @@ import (
 // RefreshSourceLifecycle settles the whole document, including album members and
 // proposal-only reviews. One completed row never settles its unresolved siblings.
 //
-// It is the only place a source event's processing_status is derived after a
-// review transition (ADR-046 amendment, 2026-11). Every lane's evidence state
-// counts: transactions and proposals, financial email observations, transfer
-// reconciliation cases, wealth observations and open review items. A source a
-// resolver dismissed is first marked with MarkSourceIgnored; the refresh keeps
-// IGNORED only while nothing on the source was accepted.
+// It is the only place a source event's processing_status is derived after a review
+// transition (ADR-046 amendment, 2026-11). Every lane's evidence state counts:
+// transactions and proposals, financial email observations, transfer reconciliation
+// cases, wealth observations and open review items. A source a resolver dismissed is
+// first marked with MarkSourceIgnored; the refresh keeps IGNORED only while nothing
+// on the source was accepted.
 //
-// A wealth observation counts the same way whatever its origin: an ACCEPTED or
-// APPLIED one is accepted evidence and a DISMISSED one is rejected evidence,
-// whether it came from a document or a provider email. For a provider email the
-// financial email observation's own status usually says the same thing too
-// (IGNORED on an Inbox dismissal); the wealth clause no longer depends on that.
+// A wealth observation counts the same whatever its origin: ACCEPTED or APPLIED is
+// accepted evidence and DISMISSED is rejected evidence, document or provider email.
 func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceID string) error {
 	// Serialize sibling completion before taking the aggregate's fresh snapshot.
 	if _, err := tx.Exec(ctx, `SELECT s.id FROM source_event s WHERE s.household_id=$2 AND s.id IN (
@@ -92,10 +89,9 @@ func RefreshTransactionLifecycle(ctx context.Context, tx pgx.Tx, householdID, tr
 	return nil
 }
 
-// MarkSourceIgnored records that a household dismissed the evidence of one
-// source and then derives the settled status through RefreshSourceLifecycle, so
-// an accepted sibling (another observation, a linked transaction) still wins and
-// an open sibling review keeps the source in NEEDS_REVIEW.
+// MarkSourceIgnored records that a household dismissed one source's evidence, then
+// derives the settled status through RefreshSourceLifecycle, so an accepted sibling
+// still wins and an open sibling review keeps the source in NEEDS_REVIEW.
 func MarkSourceIgnored(ctx context.Context, tx pgx.Tx, householdID, sourceID string) error {
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1 AND household_id=$2`, sourceID, householdID); err != nil {
 		return err

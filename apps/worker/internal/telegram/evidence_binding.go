@@ -9,29 +9,22 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// agentWorkflowExactEvidence is the scope of a reply the server bound to
-// evidence that has no open review. READ tools stay; the only mutation lane is a
-// correction to the transaction the evidence is already linked to.
+// Reply bound to evidence with no open review: READ tools stay; the only mutation lane is a correction to the
+// already-linked transaction.
 const agentWorkflowExactEvidence agentWorkflowScope = "EXACT_EVIDENCE"
 
-// agentWorkflowEvidenceReadOnly is a reply bound to evidence for which the catalog
-// has no mutation lane: the evidence is not linked to a transaction, or the
-// correction tool is absent (for example when mutation authority is unavailable).
-// The scope string reaches the model, so it must describe
-// the real catalog.
+// Reply bound to evidence with no mutation lane (unlinked, or correction tool absent). The scope string
+// reaches the model, so it must describe the real catalog.
 const agentWorkflowEvidenceReadOnly agentWorkflowScope = "EVIDENCE_READ_ONLY"
 
-// agentEvidenceBinding is the server-owned result of binding a turn to evidence.
-// Document is canonical and never leaves the server; Context is the model-safe
-// Evidence Context Package.
+// Document is canonical and never leaves the server; Context is the model-safe package.
 type agentEvidenceBinding struct {
 	Document             canonicalDocumentID
 	Context              map[string]any
 	HasLinkedTransaction bool
 }
 
-// BindEvidenceMessage records that a bot message was about a document, so a later
-// reply to it binds. It is idempotent: a retried send finds the row and keeps it.
+// Idempotent: a retried send finds the row and keeps it.
 func (p *Processor) BindEvidenceMessage(ctx context.Context, chatID, messageID int64, documentID string) error {
 	if chatID == 0 || messageID == 0 || documentID == "" {
 		return nil
@@ -42,13 +35,8 @@ func (p *Processor) BindEvidenceMessage(ctx context.Context, chatID, messageID i
 	return err
 }
 
-// resolveReplyEvidence maps the message a reply points at to a document, or
-// reports that it points at none. Two exact surfaces, both scoped to household +
-// chat so another member's message with the same id never matches:
-//
-//  1. a bot notice bound to a document (telegram_message_binding);
-//  2. the user's own upload (source_event.telegram_message_id), where an album
-//     member resolves to the album's one document.
+// Resolves a reply's target by exact message, scoped to household and chat: a bot notice bound to a document,
+// or the user's own upload (an album resolves to its one document).
 func (p *Processor) resolveReplyEvidence(ctx context.Context, householdID string, update telegramUpdate) (canonicalDocumentID, bool, error) {
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		return "", false, nil
@@ -82,9 +70,6 @@ func (p *Processor) resolveReplyEvidence(ctx context.Context, householdID string
 	return canonicalDocumentID(documentID), true, nil
 }
 
-// reviewBindingForDocument finds the open review card for a document in this chat
-// and resolves it through the same exact-reply binder a reply to the card uses, so
-// there is one binding implementation and one authority.
 func (p *Processor) reviewBindingForDocument(ctx context.Context, householdID string, chatID int64, document canonicalDocumentID) (*agentReviewBinding, error) {
 	messageID, err := p.reviewCardMessageForDocument(ctx, householdID, chatID, document)
 	if err != nil || messageID == 0 {
@@ -93,10 +78,7 @@ func (p *Processor) reviewBindingForDocument(ctx context.Context, householdID st
 	return p.exactAgentReviewBinding(ctx, householdID, chatID, messageID)
 }
 
-// reviewCardMessageForDocument returns the Telegram message id of the open review
-// card that is about a document in this chat, or 0. It follows the document's own
-// review, a review on any of its source events, or a review on a transaction the
-// document is linked to.
+// Follows the document's own review, a review on any of its source events, or one on a linked transaction.
 func (p *Processor) reviewCardMessageForDocument(ctx context.Context, householdID string, chatID int64, document canonicalDocumentID) (int64, error) {
 	var messageID int64
 	err := p.pool.QueryRow(ctx, `SELECT rr.telegram_message_id
@@ -118,14 +100,8 @@ func (p *Processor) reviewCardMessageForDocument(ctx context.Context, householdI
 	return messageID, nil
 }
 
-// replyTargetForEvidenceReview treats a reply to an upload, or to a bound evidence
-// notice, as a reply to that document's open review card, so the deterministic
-// review lane (date, amount, policy) answers it exactly as if the household had
-// replied to the card. A reply to anything else, or to a document with no open
-// review in this chat, is returned unchanged. It never searches for "the latest"
-// review: the document is resolved from the exact message the user replied to.
-// A failed lookup is returned, not swallowed: this feeds a deterministic answer path,
-// so a transient failure must retry the job instead of silently rerouting the reply.
+// A reply to an upload or evidence notice targets that document's open review card, never "the latest" one.
+// A failed lookup is returned so the job retries instead of silently rerouting the reply.
 func (p *Processor) replyTargetForEvidenceReview(ctx context.Context, householdID string, update telegramUpdate) (telegramUpdate, error) {
 	document, found, err := p.resolveReplyEvidence(ctx, householdID, update)
 	if err != nil {
@@ -144,11 +120,8 @@ func (p *Processor) replyTargetForEvidenceReview(ctx context.Context, householdI
 	return update, nil
 }
 
-// repliesToProposalReview reports whether the update replies to the card of an open
-// review that is keyed on a proposal rather than a transaction (payslip pay date,
-// missing amount, document reviews). The conversational agent has no binding for
-// those kinds, so an exact reply to one is answered by the deterministic review
-// lane; transaction-keyed reviews stay with the agent.
+// Reviews keyed on a proposal (payslip pay date, missing amount, document) have no agent binding, so an exact
+// reply goes to the deterministic review lane.
 func (p *Processor) repliesToProposalReview(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		return false, nil
@@ -164,9 +137,7 @@ func (p *Processor) repliesToProposalReview(ctx context.Context, householdID str
 	return found, err
 }
 
-// documentForReviewBinding returns the document an already-bound review is about.
-// A receipt review is keyed on its transaction and reaches the document through
-// transaction_evidence; when a transaction has several documents, the newest wins.
+// A receipt review reaches its document through transaction_evidence; with several documents the newest wins.
 func (p *Processor) documentForReviewBinding(ctx context.Context, householdID string, binding *agentReviewBinding) (canonicalDocumentID, bool, error) {
 	if binding == nil || binding.ReviewRequestID == "" {
 		return "", false, nil
@@ -201,17 +172,8 @@ func (p *Processor) newEvidenceBinding(ctx context.Context, householdID, sourceE
 	return &agentEvidenceBinding{Document: document, Context: contexts[0], HasLinkedTransaction: linked}, nil
 }
 
-// bindTurnEvidence resolves the evidence a turn is about, deterministically and
-// in the ADR-050 order. It returns the evidence binding and, when the evidence has
-// an open review the user did not reply to directly, that review's binding.
-//
-//   - A reply to a review card keeps its existing binding; the evidence behind it
-//     is attached as context only.
-//   - A reply to the user's upload or to a bound notice binds that document, and
-//     its open review if there is one. An exact reply that resolves to nothing
-//     binds nothing: there is deliberately no fallback to recent evidence.
-//   - With no reply, a unique active review keeps its binding and gains its
-//     evidence as context.
+// ADR-050: a review-card reply keeps its binding (evidence is context); an upload reply binds the document.
+// An exact reply that resolves to nothing binds nothing (no recent-evidence fallback).
 func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, reviewBinding *agentReviewBinding, merchantBound, explicitReply bool) (*agentEvidenceBinding, *agentReviewBinding, error) {
 	if reviewBinding != nil {
 		document, found, err := p.documentForReviewBinding(ctx, householdID, reviewBinding)
@@ -248,11 +210,8 @@ func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEve
 	return evidence, review, nil
 }
 
-// applyEvidenceToolPolicy widens an unbound explicit reply to an evidence-bound
-// one. The model gets exactly one mutation lane, and only when the evidence is
-// already linked to a transaction and the correction tool is in the catalog:
-// correcting that transaction. Otherwise the reply is bound read-only, and the
-// scope says so; an unlinked, review-less document has nothing to mutate here.
+// Offers one mutation lane, correcting the linked transaction, only when the evidence is linked and the
+// correction tool is in the catalog; otherwise the reply is read-only.
 func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope agentWorkflowScope, evidence *agentEvidenceBinding) ([]gateway.ToolDefinition, agentWorkflowScope) {
 	if evidence == nil || scope != agentWorkflowExplicitUnbound {
 		return filtered, scope

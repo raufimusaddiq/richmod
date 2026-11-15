@@ -11,25 +11,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Deterministic replies (ADR-033 amendment, 2026-11). A mutation whose result
-// Go fully knows is answered from that result, without a second model call to
-// word it: it is faster, it cannot time out, and it cannot misstate what was
-// written. Only a result without a deterministic copy is worded by the model.
+// Deterministic replies (ADR-033): a mutation result Go fully knows is answered from it with no second model call;
+// only a result without a deterministic copy is worded by the model.
 
 const genericMutationReply = "Permintaan keuanganmu sudah diproses."
 
 const sourceEvidenceFixesAmountMessage = "Nominal dan merchant transaksi ini berasal dari bukti sumbernya (email bank, bukti penyedia, atau dokumen), jadi tidak bisa diubah dari chat. Kalau memang salah, buka transaksinya di web atau kirim bukti yang benar. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
 
-// agentMutationFallback always answers: the deterministic copy, or a generic
-// acknowledgement when no copy exists.
+// agentMutationFallback always answers: the deterministic copy, or a generic acknowledgement.
 func agentMutationFallback(result agentToolResult) string {
 	message, _ := agentMutationReply(result)
 	return message
 }
 
-// queueTurnReplyTx queues the turn's deterministic reply and its ASSISTANT turn
-// inside the mutation's own transaction (T7): the household hears about every
-// committed change, and a retry of the job finds the event final and answered.
+// queueTurnReplyTx queues the reply and ASSISTANT turn in the mutation's own transaction, so a retry finds
+// the event final and answered.
 func (p *Processor) queueTurnReplyTx(ctx context.Context, tx pgx.Tx, state *agentState, result agentToolResult) error {
 	message := clean(agentMutationFallback(result), 4000)
 	var err error
@@ -60,9 +56,8 @@ func mutationInt(mutation map[string]any, key string) int {
 	return 0
 }
 
-// friendlyWhen renders a transaction time relative to today: "hari ini 14:05",
-// "kemarin 09:00", otherwise "02 Agu 2026 15:04". An approximate time names the
-// part of the day instead of a clock time.
+// friendlyWhen renders a time relative to today ("hari ini 14:05", "kemarin 09:00", else "02 Agu 2026
+// 15:04"); an approximate time names the part of the day.
 func friendlyWhen(at time.Time, precision, period string) string {
 	local := at.In(jakartaLocation())
 	today := time.Now().In(jakartaLocation())
@@ -79,9 +74,8 @@ func friendlyWhen(at time.Time, precision, period string) string {
 	return day + " " + local.Format("15:04")
 }
 
-// transactionRecordedMessage shows what was written: label, amount, category
-// and when. A transaction left for review says the card below needs one step;
-// the card is sent to this same chat, so the Inbox is not mentioned then.
+// transactionRecordedMessage shows what was written; a transaction left for review points at the card below,
+// not the Inbox.
 func transactionRecordedMessage(result agentToolResult) string {
 	m := result.Mutation
 	amount, _ := m["amount_idr"].(string)
@@ -122,8 +116,7 @@ func transactionRecordedMessage(result agentToolResult) string {
 	return "✅ Tercatat: " + line + detail
 }
 
-// approximatePeriodName names the part of the day an approximate time stands
-// for (PAGI/SIANG/SORE/MALAM), from the representative hours Go assigns.
+// approximatePeriodName names the part of the day (PAGI/SIANG/SORE/MALAM) an approximate time stands for.
 func approximatePeriodName(at time.Time) string {
 	hour := at.In(jakartaLocation()).Hour()
 	for _, value := range approximateLocalTimes {
@@ -182,12 +175,8 @@ func correctionStagedMessage(m map[string]any) string {
 	return header + ":" + body + "\n\nPilih tombol konfirmasi kalau sudah benar. Perubahan ini menunggu 30 menit."
 }
 
-// recoverUnansweredTurn re-sends the answer of an agent turn whose mutation
-// committed but whose reply never got queued (the job failed between the two).
-// A turn is answered when it has an ASSISTANT row or a non-progress reply job;
-// otherwise the reply is rebuilt from the turn's stored side-effect result, or
-// an honest generic notice, and queued once: the ASSISTANT row is written in the
-// same transaction under the turn lock.
+// recoverUnansweredTurn re-queues the reply of a turn whose mutation committed but was never answered.
+// A turn is answered if it has an ASSISTANT row or non-progress reply job; else rebuild it once, locked.
 func (p *Processor) recoverUnansweredTurn(ctx context.Context, sourceEventID, householdID, payloadText, parserName string) error {
 	if !strings.HasPrefix(parserName, "telegram") || !strings.Contains(parserName, "agent") {
 		return nil
@@ -245,13 +234,11 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid.", true
 	}
 	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
-		// A refusal, not a recording: the user must be able to tell the two apart even
-		// when the model call that would have worded it fails.
+		// A refusal, not a recording: the user must tell them apart even if the model call fails.
 		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda.", true
 	}
 	if result.Status == "INVALID_CANDIDATE" {
-		// A refused merge, not a merge: said deterministically so a failed model call
-		// cannot read as success.
+		// A refused merge, not a merge: said deterministically so a failed model call cannot read as success.
 		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud.", true
 	}
 	if result.Mutation != nil {
@@ -405,8 +392,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	return genericMutationReply, false
 }
 
-// missingFields reads a review's missing_fields whether the result is live
-// ([]string) or rebuilt from stored JSON ([]any).
+// missingFields reads missing_fields whether live ([]string) or rebuilt from stored JSON ([]any).
 func missingFields(review map[string]any) ([]string, bool) {
 	switch value := review["missing_fields"].(type) {
 	case []string:

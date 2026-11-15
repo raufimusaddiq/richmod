@@ -12,11 +12,9 @@ import (
 // (with MarkSourceIgnored for a dismissal). Lanes that recomputed it inline with
 // their own CASE drifted and left events stuck (migrations 00083/00084).
 func TestSourceLifecycleIsDerivedOnlyByTheSharedRule(t *testing.T) {
-	// Any CASE that derives processing_status is a second lifecycle rule,
-	// including the agent's finalization CASE that kept NEEDS_REVIEW/IGNORED and
-	// the card-choice CASE that settled RECEIVED/PROCESSING (agent.go,
-	// agent_card_answer.go): both now call finalizeAgentSource, which delegates
-	// to RefreshSourceLifecycle.
+	// Any CASE that derives processing_status is a second lifecycle rule, including the
+	// agent finalization and card-choice CASEs (agent.go, agent_card_answer.go), which now
+	// call finalizeAgentSource and delegate to RefreshSourceLifecycle.
 	inline := regexp.MustCompile(`processing_status\s*=\s*CASE\b`)
 	// Settling a review-parked source by hand ("PROCESSED where it was
 	// NEEDS_REVIEW") hides its open work; the shared refresh decides that.

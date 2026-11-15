@@ -1,8 +1,6 @@
 package financialemail
 
-// resolutionGaps names exactly the entities the evidence could not bind, so the
-// stored ReviewDecision asks the household for the unresolved dimension only and
-// never re-requests an entity Go already resolved.
+// resolutionGaps names the entities the evidence could not bind, so the review asks only for unresolved dimensions.
 func resolutionGaps(account, wealth string) []string {
 	missing := make([]string, 0, 2)
 	if account == "" {

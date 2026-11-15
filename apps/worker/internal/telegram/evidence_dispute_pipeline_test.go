@@ -1,9 +1,6 @@
 package telegram_test
 
-// Realistic dispute pipeline: synthetic screenshots run through the real
-// document pipeline (ProcessScreenshot → matching → MERGED), the dispute is
-// raised through real text intake (source_event without chat/message ids, as in
-// production) and resolved through real callback intake. Only the model and the
+// Runs synthetic screenshots through the real pipeline, text intake and callback intake; only the model and
 // image bytes are scripted.
 
 import (
@@ -100,9 +97,7 @@ func newPipe(t *testing.T) *pipe {
 		t.Fatal(err)
 	}
 	at := time.Now().Add(-30 * time.Minute).In(time.FixedZone("WIB", 7*3600)).Truncate(time.Minute).Format(time.RFC3339)
-	// The extraction includes a printed transaction ID so identical repeat
-	// evidence retains its established safe auto-link behavior; everything else
-	// in the fixture remains synthetic and non-identifying.
+	// A printed transaction ID keeps identical repeat evidence on its safe auto-link path.
 	extraction := fmt.Sprintf(`{"account_hint":"","payment_status":"PAID","confidence":0.97,"transactions":[{"direction":"OUT","amount":"7500","currency":"IDR","transaction_at":%q,"merchant":"Synthetic Store","description":"Payment to Synthetic Store","category_slug":"food-and-drink","category_confidence":0.96,"confidence":0.97,"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"SYNTHETIC-DISPUTE-REPEAT"}],"transaction_time_precision":"TIME"}]}`, at)
 	p.gw = &scriptGW{extraction: json.RawMessage(extraction), agent: disputeCall}
 	p.docs = document.NewProcessorWithStorage(pool, p.gw, store)
@@ -143,8 +138,6 @@ func (p *pipe) n(sql string, args ...any) int {
 	return v
 }
 
-// upload stores a synthetic screenshot as Telegram image intake does (chat and
-// message ids present) and runs the real screenshot pipeline on it.
 func (p *pipe) upload() upload {
 	p.t.Helper()
 	p.seq += 2
@@ -160,8 +153,7 @@ func (p *pipe) upload() upload {
 	return u
 }
 
-// text delivers a typed reply through real text intake (no chat/message id on
-// the source_event, exactly as production stores it) and the real Process lane.
+// Text intake leaves chat and message ids off the source_event, as in production.
 func (p *pipe) text(body string, replyTo int64, from int64) (string, error) {
 	p.t.Helper()
 	p.gw.mu.Lock()
@@ -180,9 +172,7 @@ func (p *pipe) text(body string, replyTo int64, from int64) (string, error) {
 	return source, p.tg.Process(p.ctx, source)
 }
 
-// pressSequence keeps callback IDs unique when presses run concurrently: two
-// goroutines can read the same time.Now().UnixNano() and collide on
-// source_event_external_id_unique.
+// Keeps callback IDs unique under concurrent presses (colliding UnixNano breaks source_event_external_id_unique).
 var pressSequence atomic.Int64
 
 func (p *pipe) press(data string, message int64, from int64) (string, error) {
@@ -195,7 +185,6 @@ func (p *pipe) press(data string, message int64, from int64) (string, error) {
 	return source, p.tg.Process(p.ctx, source)
 }
 
-// card binds the open dispute card to a Telegram message id, as the send job does.
 func (p *pipe) card() int64 {
 	p.t.Helper()
 	request := p.str(`SELECT r.id::text FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status IN ('OPEN','PENDING_SEND') AND ri.decision->'decisionProvenance'->>'evidence_link_dispute'='true' ORDER BY r.created_at DESC LIMIT 1`, p.household)
@@ -290,7 +279,6 @@ func TestDisputeConfirmCarriesCategoryMerchantAndConfidencesAndMovesCorrectionTa
 	if got := p.snapshot(original); got != before {
 		t.Fatalf("original transaction changed: %+v -> %+v", before, got)
 	}
-	// Parity with the normal screenshot path on the same extraction.
 	for _, column := range []string{"category_id", "source_confidence", "classification_confidence"} {
 		a := p.str(fmt.Sprintf(`SELECT %s::text FROM transaction WHERE id=$1::uuid`, column), original)
 		b := p.str(fmt.Sprintf(`SELECT %s::text FROM transaction WHERE id=$1::uuid`, column), staged)
@@ -309,7 +297,6 @@ func TestDisputeConfirmCarriesCategoryMerchantAndConfidencesAndMovesCorrectionTa
 	}
 	_ = first
 
-	// F1: a correction replying to the second screenshot must target the NEW transaction.
 	p.gw.agent = func(call int, request gateway.AgentRequest) gateway.AgentResponse {
 		if call%2 != 0 {
 			return gateway.AgentResponse{Text: "Menunggu konfirmasi."}
@@ -330,7 +317,6 @@ func TestDisputeConfirmCarriesCategoryMerchantAndConfidencesAndMovesCorrectionTa
 		t.Fatalf("correction targets %q, want the new transaction %q (original %q)", got, staged, original)
 	}
 
-	// A repeated confirm is stale: nothing changes.
 	if _, err = p.press("review:dispute:confirm", card, p.tgUser); err != nil {
 		t.Fatalf("repeat confirm: %v", err)
 	}
@@ -342,7 +328,6 @@ func TestDisputeConfirmCarriesCategoryMerchantAndConfidencesAndMovesCorrectionTa
 func TestDisputeWithMemoryConflictAsksForCategoryThroughTheChooserAndRejectsForeignCategory(t *testing.T) {
 	p := newPipe(t)
 	_, second, original := p.mergedPair()
-	// Household memory now says this merchant is groceries while the extraction says food.
 	var merchantID string
 	p.must(p.pool.QueryRow(p.ctx, `SELECT merchant_id::text FROM transaction WHERE id=$1::uuid`, original).Scan(&merchantID))
 	p.exec(`INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'Synthetic Store',$2::uuid,$3::uuid,true,true)`, p.household, merchantID, p.catGroceries)
@@ -393,7 +378,6 @@ func TestRejectedDisputeCanBeRaisedAgainWithoutDuplicateOpenStaging(t *testing.T
 		t.Fatal(err)
 	}
 	firstStaged := p.stagedID()
-	// Raising it again while open must not stage a second row.
 	source, err := p.text("tapi ini transaksi baru", second.message, p.tgUser)
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +395,6 @@ func TestRejectedDisputeCanBeRaisedAgainWithoutDuplicateOpenStaging(t *testing.T
 	if got := p.snapshot(original); got != before {
 		t.Fatalf("reject changed the original: %+v -> %+v", before, got)
 	}
-	// Re-dispute after reject opens a NEW staging.
 	source, err = p.text("sebenarnya ini transaksi baru", second.message, p.tgUser)
 	if err != nil {
 		t.Fatal(err)
@@ -430,7 +413,6 @@ func TestDisputeCallbacksAreAuthorizedAndSafeUnderRaces(t *testing.T) {
 	}
 	card := p.card()
 
-	// A Telegram user with no identity, and another household's user, cannot resolve it.
 	stranger := newPipe(t)
 	for name, from := range map[string]int64{"unlinked user": p.tgUser + 424242, "other household user": stranger.tgUser} {
 		if _, err := p.press("review:dispute:confirm", card, from); err != nil {
@@ -440,12 +422,10 @@ func TestDisputeCallbacksAreAuthorizedAndSafeUnderRaces(t *testing.T) {
 			t.Fatalf("%s resolved the dispute", name)
 		}
 	}
-	// A callback against a different message id is stale.
 	if _, err := p.press("review:dispute:confirm", card+1000, p.tgUser); err != nil || p.confirmed() != 1 {
 		t.Fatalf("wrong message id: err=%v confirmed=%d", err, p.confirmed())
 	}
 
-	// Parallel confirm x2 + reject: exactly one outcome.
 	var wg sync.WaitGroup
 	for _, data := range []string{"review:dispute:confirm", "review:dispute:confirm", "review:dispute:reject"} {
 		wg.Add(1)
@@ -475,7 +455,6 @@ func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *te
 	}
 	card := p.card()
 
-	// Forged generic duplicate callbacks are refused without retry-loop errors.
 	for _, data := range []string{"review:dup:new", "review:dup:merge:0", "review:confirm"} {
 		if _, err := p.press(data, card, p.tgUser); err != nil {
 			t.Fatalf("%s: callback returned %v (would retry/fail the job)", data, err)
@@ -485,7 +464,6 @@ func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *te
 		}
 	}
 
-	// A typed reply to the card that asks the model to confirm/merge is refused explicitly.
 	p.gw.calls = 0
 	p.gw.agent = func(call int, _ gateway.AgentRequest) gateway.AgentResponse {
 		if call%2 == 0 {

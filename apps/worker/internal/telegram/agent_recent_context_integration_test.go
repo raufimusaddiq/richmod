@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// The turn context must expose recent ledger rows so a follow-up ("ibu kantin")
-// can bind to the transaction that was just recorded instead of being dropped.
-// Rows are surfaced with opaque refs only: the model can reference an existing
-// row but the context never leaks a canonical UUID.
 func TestAgentTurnContextIncludesRecentTransactions(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-ctx")

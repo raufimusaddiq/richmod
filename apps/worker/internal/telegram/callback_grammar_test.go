@@ -12,11 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// Every callback this package can emit or parse must be admitted by the API
-// webhook's grammar (reviewdomain.ValidTelegramCallback); otherwise the API
-// drops the button tap before the worker ever sees it. The scan reads every
-// "review:" and "pending:" string literal in non-test source, so adding a new
-// callback without teaching the shared grammar fails here.
+// Every callback emitted or parsed here must pass the API webhook grammar
+// (reviewdomain.ValidTelegramCallback), or the tap is dropped before the worker sees it.
 func TestEveryCallbackLiteralIsAdmittedByIngress(t *testing.T) {
 	samples := reviewdomain.TelegramCallbackSamples()
 	hasPrefix := func(prefix string) bool {
@@ -57,9 +54,7 @@ func TestEveryCallbackLiteralIsAdmittedByIngress(t *testing.T) {
 			switch {
 			case reviewdomain.ValidTelegramCallback(value):
 			case value == "review:" || value == "pending:":
-				// Generic namespace test in a dispatcher.
 			case strings.HasSuffix(value, ":") && hasPrefix(value):
-				// A prefix that a valid callback is built from or parsed with.
 			default:
 				t.Errorf("%s: callback %q is not admitted by the API ingress grammar", where, value)
 			}

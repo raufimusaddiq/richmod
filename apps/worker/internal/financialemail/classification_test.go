@@ -60,8 +60,7 @@ func cashObservation(confidence float64) observation {
 
 func stringPtrFor(value string) *string { return &value }
 
-// The central behaviour change: a bounded ruling is sufficient even when the
-// extractor's self-reported confidence is below the legacy 0.80 gate.
+// A bounded ruling suffices even when the extractor's self-reported confidence is below the legacy 0.80 gate.
 func TestCashMovementAllowedBelowLegacyConfidenceGate(t *testing.T) {
 	verifier := &stubVerifier{answers: cashRuling("CONTRIBUTION")}
 	processor := &Processor{verifier: verifier}
@@ -86,8 +85,7 @@ func TestCashMovementAllowedBelowLegacyConfidenceGate(t *testing.T) {
 	}
 }
 
-// A wealth value must never be classified as cash: money value is observed, not
-// transacted (canonical invariant).
+// A wealth value is observed, not transacted, so it must never classify as cash.
 func TestWealthValueIsNotACashMovement(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"observation_type":        choice("WEALTH_VALUE", judgment.ChoiceCriteria(observationTypeCriteria)),
@@ -119,10 +117,8 @@ func TestMovementTypeRequiredForCash(t *testing.T) {
 	}
 }
 
-// material_ambiguity is an inverted claim, so a decided *negative* is what
-// clears it. An answer in the undecided middle band means the bounded plane
-// could not tell, and reading that as approval is the fail-open hole this
-// package shared with bank email.
+// material_ambiguity is inverted: only a decided negative clears it, and an undecided middle band must not
+// read as approval (a fail-open hole shared with bank email).
 func TestUndecidedAmbiguityFailsClosed(t *testing.T) {
 	for _, probability := range []float64{0.02, 0.10} {
 		answers := cashRuling("CONTRIBUTION")
@@ -170,8 +166,7 @@ func TestProviderFailureRemainsInfrastructure(t *testing.T) {
 	}
 }
 
-// Unconfigured: no ruling is available, so callers keep their deterministic gate
-// and must not read this as approval.
+// Unconfigured: no ruling exists, so callers keep their deterministic gate and must not read it as approval.
 func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 	processor := &Processor{}
 	if _, verified, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9)); err != nil || verified {
@@ -179,11 +174,8 @@ func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 	}
 }
 
-// material_ambiguity must be judged by the same inverted Ambiguity policy that
-// the boolean gate uses. Reading it with the non-inverted Supported policy made
-// a noul in the (Low, High) band record as a decided "NO" while the gate still
-// treated it as undecided, so cashResidual returned empty and the case borrowed
-// TRANSFER_CLASSIFICATION.
+// material_ambiguity must use the inverted Ambiguity policy like the boolean gate; Supported recorded a (Low,
+// High) noul as a decided NO, so cashResidual returned empty and the case borrowed TRANSFER_CLASSIFICATION.
 func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
 	for _, probability := range []float64{0.10, 0.20} {
 		answers := cashRuling("CONTRIBUTION")
@@ -196,18 +188,16 @@ func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
 		if classification.cashAllowed() {
 			t.Fatalf("undecided ambiguity (noul=%.2f) must fail closed: %+v", probability, classification)
 		}
-		// The same undecided reading must reach the residual so the review names the
-		// real blocker instead of falling through to a transfer classification.
+		// The undecided reading must reach the residual so the review names the real blocker, not a transfer
+		// classification.
 		if !containsString(classification.cashResidual(), "transaction_ambiguity") {
 			t.Fatalf("undecided ambiguity (noul=%.2f) must produce the transaction_ambiguity residual: %+v", probability, classification.cashResidual())
 		}
 	}
 }
 
-// A choice the plane returned but AcceptChoice rejects (marginal confidence) must
-// record UNDECIDED, not the raw label. Recording the label let a rejected
-// observation_type read as a passing predicate, so cashResidual() came back empty
-// and the case borrowed TRANSFER_CLASSIFICATION.
+// A choice AcceptChoice rejects (marginal confidence) must record UNDECIDED, not the raw label, or it reads
+// as a passing predicate and cashResidual() returns empty.
 func TestRejectedChoiceOutcomeIsUndecidedNotPassing(t *testing.T) {
 	answers := cashRuling("CONTRIBUTION")
 	marginal := choice("CASH_MOVEMENT", judgment.ChoiceCriteria(observationTypeCriteria))

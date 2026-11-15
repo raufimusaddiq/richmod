@@ -13,24 +13,20 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// jeverifier is the seam onto the bounded judgment plane, expressed in the terms
-// this package needs so document intake never imports Telegram policy.
+// jeverifier is the seam onto the judgment plane so document intake never imports Telegram policy.
 type jeverifier interface {
 	Evaluate(context.Context, string, judgment.Request) (judgment.Result, error)
 }
 
-// ScreenshotRowCategoryPolicyVersion marks the thresholds behind a row-level
-// category ruling, so a stored decision stays reproducible.
+// ScreenshotRowCategoryPolicyVersion marks the thresholds behind a row category ruling so stored decisions
+// stay reproducible.
 const ScreenshotRowCategoryPolicyVersion = "2026-10-screenshot-category3"
 
-// rowCategoryPolicy is the same decisive-answer bar the bank-email category and
-// Telegram category policies use (MinTop .85 / MinMargin .20): a confident,
-// well-separated top category, otherwise the row asks one question instead of
-// guessing. Bump ScreenshotRowCategoryPolicyVersion when the bar moves.
+// rowCategoryPolicy is the same decisive-answer bar as the bank-email and Telegram category policies (MinTop
+// .85 / MinMargin .20); bump ScreenshotRowCategoryPolicyVersion when it moves.
 var rowCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
 
-// rowChoiceProvenance records what one batched bounded request decided, so the
-// canonical mutation keeps its decision provenance (ADR-038).
+// rowChoiceProvenance records what one batched request decided so the mutation keeps its decision provenance (ADR-038).
 type rowChoiceProvenance struct {
 	Model         string
 	PolicyVersion string
@@ -49,11 +45,8 @@ func rowIndexFromKey(key string) (int, bool) {
 	return index, true
 }
 
-// resolveRowCategories rules on the category of every unmatched OUT row in one
-// bounded request (one decision set per image, not one call per row).
-// Only a decisive, well-separated answer is returned; anything undecided stays
-// out of the map so the row keeps a minimal review. A provider failure is
-// returned as an error, never as an implicit approval.
+// resolveRowCategories rules on each unmatched OUT row's category in one bounded request per image.
+// Only decisive answers are kept; a provider failure is an error, never approval.
 func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID, householdID string, rows []validatedScreenshotRow, categories []categoryOption) (map[int]string, rowChoiceProvenance, error) {
 	provenance := rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}
 	if p.verifier == nil || len(categories) < 2 {
@@ -72,8 +65,8 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID, hou
 		}
 		key := rowQuestionKey(index)
 		rowState := map[string]any{
-			// Image-derived text is untrusted: delimit it so a crafted merchant cannot
-			// steer the ruling that authorises a canonical write.
+			// Image-derived text is untrusted: delimit it so a crafted merchant cannot steer the ruling that
+			// authorises a write.
 			"merchant":       "<untrusted_row_merchant>" + strings.TrimSpace(row.Value.Merchant) + "</untrusted_row_merchant>",
 			"description":    "<untrusted_row_description>" + strings.TrimSpace(row.Value.Description) + "</untrusted_row_description>",
 			"amount_idr":     row.Value.Amount,
@@ -98,8 +91,7 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID, hou
 	if len(questions) == 0 {
 		return nil, provenance, nil
 	}
-	// Each row's category question is still open at entry; no category is
-	// accepted before this bounded rescue.
+	// Each row's category is still open at entry; none is accepted before this rescue.
 	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ScreenshotRowCategoryPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-screenshot-category", judgment.Request{State: state, Questions: questions})
 	if err != nil {
@@ -120,9 +112,8 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID, hou
 	return decided, provenance, nil
 }
 
-// confirmScreenshotRow writes one auto-confirmed expense row: an accepted
-// proposal, the confirmed transaction, its evidence link, and an audit entry
-// naming the policy that authorised the write without a human.
+// confirmScreenshotRow writes one auto-confirmed expense row: an accepted proposal, the confirmed
+// transaction, its evidence link and an audit entry naming the authorising policy.
 func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID, documentID, proposalKey string, index int, row validatedScreenshotRow, provenance rowChoiceProvenance) error {
 	var merchantID *string
 	if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
@@ -150,9 +141,8 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 	return err
 }
 
-// screenshotRowDecision builds the ReviewDecision contract for one unresolved row, so the
-// Inbox asks only the dimension that is genuinely missing instead of reshowing
-// amount, direction, and time that Go already holds.
+// screenshotRowDecision builds the ReviewDecision for one unresolved row so the Inbox asks only the missing
+// dimension, not amount, direction and time Go already holds.
 func screenshotRowDecision(household, sourceEventID, transactionID, reviewType string, index int, row validatedScreenshotRow, jevAsked bool) reviewdec.Decision {
 	known := map[string]any{"direction": row.Value.Direction}
 	if row.Value.Amount != nil {
@@ -161,8 +151,7 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	if row.DateKnown {
 		known["transaction_at"] = row.TransactionAt.Format(time.RFC3339)
 	} else {
-		// A fallback time keeps its provenance instead of pretending
-		// the source printed it.
+		// A fallback time keeps its provenance instead of pretending the source printed it.
 		known["transaction_time_source"] = "RECEIVED_AT_FALLBACK"
 	}
 	if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
@@ -190,8 +179,7 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	if jevAsked {
 		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
 	}
-	// One reason code resolves to exactly one contract, so a screenshot
-	// row stores the same decision the bank-email and Telegram paths store.
+	// One reason code resolves to one contract, so a row stores the same decision as the bank-email and Telegram paths.
 	if shared, ok := reviewdec.Preset(reviewType, "transaction", transactionID); ok {
 		decision.DecisionClass = shared.DecisionClass
 		decision.MissingFacts = shared.MissingFacts
@@ -275,7 +263,6 @@ func screenshotReviewReason(row validatedScreenshotRow, possibleDuplicate bool) 
 	}
 }
 
-// screenshotSummary is the batch summary.
 func screenshotSummary(found, recorded, linked, pending int) string {
 	lines := []string{fmt.Sprintf("%d transaksi ditemukan.", found)}
 	if recorded > 0 {
@@ -290,8 +277,8 @@ func screenshotSummary(found, recorded, linked, pending int) string {
 	return strings.Join(lines, "\n")
 }
 
-// enqueueScreenshotSummary queues the batch summary. It is bound to the document so a
-// reply to it resolves to the screenshot it described.
+// enqueueScreenshotSummary queues the batch summary, bound to the document so a reply resolves to the
+// screenshot it described.
 func enqueueScreenshotSummary(ctx context.Context, tx pgx.Tx, chatID int64, documentID, summary string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text,'bind_document_id',$3::text))`, chatID, summary, documentID)
 	return err

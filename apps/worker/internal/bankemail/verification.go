@@ -10,65 +10,48 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// errVerifierUnconfigured marks a missing bounded verification plane. Semantic
-// verification is mandatory for the bank source contract, so this is a machine
-// retry state, never a household question.
+// errVerifierUnconfigured marks a missing bounded plane; verification is mandatory for the bank source, so it
+// is a machine retry, never a household question.
 var errVerifierUnconfigured = errors.New("bank email evidence verifier is not configured")
 
-// EvidenceVerification is the bounded ruling over one already-extracted bank
-// notification. It is the bank-email analogue of the Telegram transaction
-// decision: extraction produced arbitrary facts, this object decides whether
-// those facts are safe to hand to the deterministic bank policy.
+// EvidenceVerification is the bounded ruling over one extracted bank notification: whether its facts are safe
+// to hand to the deterministic bank policy.
 type EvidenceVerification struct {
 	TransactionObserved bool
 	AmountSupported     bool
 	DirectionSupported  bool
-	// SemanticGrounded rules that the email's wording supports the canonical
-	// class the deterministic policy will act on (an ordinary spend versus a
-	// transfer/internal movement). It replaces channel_supported: the exact
-	// payment mechanism (QR vs DEBIT_CARD vs MERCHANT_PAYMENT) is evidence
-	// metadata, not a required human fact, so an uncertain mechanism must not
-	// independently block an otherwise safe expense.
+	// SemanticGrounded: the email's wording supports the class the policy acts on (spend vs transfer).
+	// The payment mechanism is only metadata, so an uncertain one must not block an otherwise safe expense.
 	SemanticGrounded bool
 
-	// ClaimOutcomes keeps YES/NO/UNDECIDED per bounded predicate so a review can
-	// name the exact material predicate that did not clear, independently of the
-	// booleans used by the canonical auto-confirm guard.
+	// ClaimOutcomes keeps YES/NO/UNDECIDED per predicate so a review names the exact material predicate that
+	// did not clear.
 	ClaimOutcomes map[string]string
 
 	Model         string
 	PolicyVersion string
 }
 
-// supported reports whether every bounded claim was decided in the extractor's
-// favour. Anything undecided fails closed.
-//
-// The bundle checks only concrete source support (a real transaction, the stated
-// amount, the money direction, and the canonical class). It deliberately does not
-// ask the plane to certify a negative such as "this email is not ambiguous": that
-// is not bounded, so an undecided answer would only re-create a human review for a
-// complete email (a source-acceptable extraction proceeds to Go; LLM -> Jev is
-// never required by default).
+// supported reports whether every bounded claim was decided in the extractor's favour; undecided fails.
+// Only concrete support is checked, not negatives like "not ambiguous", which would force needless review.
 func (v EvidenceVerification) supported() bool {
 	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.SemanticGrounded
 }
 
-// jeverifier is the seam onto the bounded judgment plane. It is defined here, in
-// the terms this package needs, so bank email never imports Telegram policy.
+// jeverifier is the seam onto the judgment plane, in this package's terms so bank email never imports Telegram policy.
 type jeverifier interface {
 	Evaluate(context.Context, string, judgment.Request) (judgment.Result, error)
 }
 
-// BankEmailVerificationPolicyVersion marks the thresholds that ruled on these
-// verifications, so a stored decision stays reproducible.
+// BankEmailVerificationPolicyVersion marks the thresholds that ruled on these verifications so stored
+// decisions stay reproducible.
 const BankEmailVerificationPolicyVersion = "2026-09-jev4"
 
-// BankEmailCategoryPolicyVersion marks the category question's context and
-// thresholds: household names, same-merchant history and local time (ADR-053).
+// BankEmailCategoryPolicyVersion marks the category question's context and thresholds (ADR-053).
 const BankEmailCategoryPolicyVersion = "2026-10-bank-category2"
 
-// evidenceVerificationPolicy is the bank-email slice of the shared threshold
-// policy. A Noul here answers "does the email itself support this claim?".
+// evidenceVerificationPolicy is the bank-email slice of the shared threshold policy; a Noul answers whether
+// the email supports the claim.
 var evidenceVerificationPolicy = struct {
 	Amount    judgment.NoulPolicy
 	Direction judgment.NoulPolicy
@@ -81,25 +64,18 @@ var evidenceVerificationPolicy = struct {
 	Observed:  judgment.NoulPolicy{High: 0.85, Low: 0.15},
 }
 
-// bankCategoryPolicy is the bounded-choice strictness for the new-merchant
-// category question. It mirrors the Telegram category policy so a category is
-// only auto-applied when the same plane would have accepted it there.
+// bankCategoryPolicy mirrors the Telegram category policy so a category auto-applies only when the same plane
+// would accept it there.
 var bankCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
 
 const bankCategoryQuestion = "Choose the best active expense category for this purchase. Use OTHER_OR_UNCLEAR only when no category is safe."
 
-// resolveNewMerchantCategory asks the bounded plane to choose among the server's
-// active categories for a new merchant, then returns the canonical category ID
-// only when the answer is decisive and the chosen slug is one Go offered. It is
-// the deterministic Go half of category resolution: the model picks a slug, Go resolves the
-// ID, and an undecided answer leaves the caller's category-only review intact.
-// Machine failure is NOT semantic uncertainty: a provider or database error is
-// returned so the job stays retryable and no household review is created.
+// resolveNewMerchantCategory asks the bounded plane to pick an active category for a new merchant, returning
+// an ID only for a decisive, offered slug. A provider or DB error is returned so the job retries.
 func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventID, householdID string, extraction Extraction) (string, categoryProvenance, error) {
 	merchant, description, counterparty := strings.TrimSpace(value(extraction.Merchant)), strings.TrimSpace(value(extraction.Description)), strings.TrimSpace(value(extraction.Counterparty))
 	if merchant == "" && description == "" && counterparty == "" {
-		// No usable evidence can support a category question; the existing
-		// category residual stands without a machine decision.
+		// No usable evidence can support a category question; the category residual stands without a machine decision.
 		return "", categoryProvenance{}, nil
 	}
 	if p.verifier == nil {
@@ -110,8 +86,7 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 		return "", categoryProvenance{}, err
 	}
 	if len(categories) == 0 {
-		// Domain state: this household asserts no active expense categories, so
-		// there is no bounded choice to make. Not a machine failure.
+		// This household asserts no active expense categories, so there is no bounded choice; not a machine failure.
 		return "", categoryProvenance{}, nil
 	}
 	slugs := make([]string, 0, len(categories))
@@ -131,9 +106,8 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	if counterparty != "" {
 		state["counterparty"] = "<untrusted_counterparty>" + counterparty + "</untrusted_counterparty>"
 	}
-	// How this household already filed the same merchant, and when the purchase
-	// happened, are facts the model needs to rule on a merchant it cannot tell
-	// apart from its name alone (ADR-053).
+	// Same-merchant history and purchase time are facts the model needs to rule on a merchant it cannot tell
+	// from its name alone (ADR-053).
 	history, err := categoryctx.History(ctx, p.pool, householdID, merchant, slugs)
 	if err != nil {
 		return "", categoryProvenance{}, err
@@ -144,8 +118,7 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	if extraction.TransactionAt != nil {
 		state["local_time"] = categoryctx.LocalTime(*extraction.TransactionAt)
 	}
-	// Category is the single open semantic dimension; this phase does not
-	// re-decide an already accepted category.
+	// Category is the single open dimension; this phase does not re-decide an accepted category.
 	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", BankEmailCategoryPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
 		State: state,
@@ -168,9 +141,8 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	return "", categoryProvenance{}, nil
 }
 
-// categoryProvenance is the bounded answer that authorised a Jev-chosen
-// category. It is persisted next to the mutation so an operator can tell a
-// Jev-picked category from a deterministic merchant rule (ADR-038).
+// categoryProvenance is the bounded answer that authorised a Jev-chosen category, persisted with the mutation
+// to tell it from a deterministic merchant rule (ADR-038).
 type categoryProvenance struct {
 	Model         string
 	PolicyVersion string
@@ -197,9 +169,8 @@ func (p *Processor) activeExpenseCategories(ctx context.Context, householdID str
 	return out, rows.Err()
 }
 
-// verificationClaims is the bounded question set. Each claim is about facts the
-// deterministic bank policy will act on, and each is answered from the same
-// minimized state snapshot.
+// verificationClaims is the bounded question set about facts the deterministic bank policy acts on, all
+// answered from one minimized state snapshot.
 var verificationClaims = []struct {
 	Key          string
 	Instructions string
@@ -211,20 +182,12 @@ var verificationClaims = []struct {
 	{"semantic_grounded", "Does the email's wording support the canonical class Go will act on: an ordinary outgoing spend at a merchant, or movement of money to or from the customer's own accounts (transfer, internal transfer, RDN investment)? Answer yes when the wording clearly supports one of these. The exact payment mechanism (QR, debit card, merchant payment, ATM) does NOT matter here and must not lower the answer; answer no only when the wording suggests no real movement of money at all.", evidenceVerificationPolicy.Semantic},
 }
 
-// verifyEvidence asks one bounded bundle about an already-extracted bank email.
-// The provider never produces merchant or date strings here; it only rules on
-// claims Go already holds. A provider failure is returned as an error so the
-// caller can take the safe retry/review path instead of trusting confidence.
-//
-// A provider failure is the one case that justifies a safe retry
-// (timeout, gateway error, rate limit, malformed response), so a failed call is
-// re-asked once. A decisive negative ruling is a verdict, not a failure;
-// re-asking would be an OR over two draws that raises acceptance above policy.
-// Negative rulings therefore park the email for review immediately.
+// verifyEvidence asks one bounded bundle about an extracted email; a provider failure is re-asked once.
+// A decisive negative is a verdict, not a failure: re-asking would raise acceptance above policy.
 func (p *Processor) verifyEvidence(ctx context.Context, sourceEventID string, extraction Extraction, email TrustedEmail) (EvidenceVerification, bool, error) {
 	if p.verifier == nil {
-		// Verification is mandatory for this source contract. An unconfigured
-		// plane is an infrastructure state to retry, never a household review.
+		// Verification is mandatory for this source; an unconfigured plane is infrastructure state to retry,
+		// never a household review.
 		return EvidenceVerification{}, false, errVerifierUnconfigured
 	}
 	verification, verified, err := p.verifyEvidenceOnce(ctx, sourceEventID, extraction, email)
@@ -260,8 +223,7 @@ func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, ex
 		Questions: questions,
 	})
 	if err != nil {
-		// No ruling was obtained. The caller must treat this as infrastructure
-		// failure, never as a verified (or implicitly approved) verdict.
+		// No ruling was obtained: infrastructure failure, never a verified or implicitly approved verdict.
 		return EvidenceVerification{}, false, err
 	}
 	verification := EvidenceVerification{Model: result.Model, PolicyVersion: BankEmailVerificationPolicyVersion}
@@ -292,8 +254,7 @@ func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, ex
 	return verification, true, nil
 }
 
-// noulClaimed reports a decided, affirmative Noul. The undecided middle band
-// fails closed, exactly like the Telegram decision plane.
+// noulClaimed reports a decided affirmative Noul; the middle band fails closed like the Telegram decision plane.
 func noulClaimed(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) bool {
 	answer, ok := answers[key]
 	if !ok {

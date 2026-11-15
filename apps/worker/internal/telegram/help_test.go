@@ -72,7 +72,7 @@ func TestSetCommandsErrorsNeverContainTheBotToken(t *testing.T) {
 	const token = "123456:SECRET-TOKEN"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	base := server.URL
-	server.Close() // connection refused: the transport error would stringify the URL
+	server.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -17,8 +17,7 @@ func (p *Processor) continueProposalDateReview(ctx context.Context, sourceEventI
 	return err
 }
 
-// continueProposalAmountReview re-asks the one missing fact and leaves the
-// proposal and review open, so an unusable amount never resolves the review.
+// Re-asks the one missing fact and leaves the review open, so an unusable amount never resolves it.
 func (p *Processor) continueProposalAmountReview(ctx context.Context, sourceEventID, householdID, itemID string, update telegramUpdate, message string) error {
 	if _, err := p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err

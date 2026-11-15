@@ -92,7 +92,7 @@ func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
 		want         bool
 	}{
 		{"superseded review link", "EXTRACTED", false},
-		{"stored aggregate without active transaction", "NEEDS_REVIEW", true},
+		{"stored NEEDS_REVIEW without actionable review is not shown as review (N5)", "NEEDS_REVIEW", false},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			if _, err := pool.Exec(ctx, `UPDATE transaction_evidence SET metadata_json='{"link_status":"SUPERSEDED"}' WHERE transaction_id=$1`, transactionID); err != nil {
@@ -198,5 +198,68 @@ func TestDocumentListIncludesStagedEvidenceDispute(t *testing.T) {
 	must(json.Unmarshal(response.Body.Bytes(), &items))
 	if len(items) != 1 || items[0].Status != "EXTRACTED" || !items[0].NeedsReview {
 		t.Fatalf("staged dispute hidden: items=%d", len(items))
+	}
+}
+
+// N5: a document stored as NEEDS_REVIEW whose linked transaction is CONFIRMED and
+// that has no open review item must not read as needing review, and the badge
+// returns once an actionable review exists.
+func TestDocumentListDoesNotShowNeedsReviewWithoutActionableReview(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	var householdID, userID, sourceID, attachmentID, documentID, transactionID string
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stuck doc %d", stamp)).Scan(&householdID))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Stuck Owner','unused') RETURNING id`, fmt.Sprintf("stuck-doc-%d@example.test", stamp)).Scan(&userID))
+	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID)
+	must(err)
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED') RETURNING id`, householdID, fmt.Sprintf("stuck-%d", stamp), []byte(fmt.Sprintf("stuck-%d", stamp))).Scan(&sourceID))
+	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, householdID, []byte(fmt.Sprintf("stuck-att-%d", stamp)), fmt.Sprintf("%s/stuck.png", householdID)).Scan(&attachmentID))
+	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'RECEIPT','NEEDS_REVIEW') RETURNING id`, householdID, sourceID, attachmentID).Scan(&documentID))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',34000,now(),now()) RETURNING id`, householdID).Scan(&transactionID))
+	_, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'DOCUMENT')`, transactionID, sourceID)
+	must(err)
+	storage, err := blob.NewLocal(t.TempDir())
+	must(err)
+	handler := NewHandlerWithStorage(pool, storage)
+	list := func() (string, bool) {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/documents", nil)
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+		response := httptest.NewRecorder()
+		handler.List(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		var items []struct {
+			Status      string `json:"status"`
+			NeedsReview bool   `json:"needsReview"`
+		}
+		must(json.Unmarshal(response.Body.Bytes(), &items))
+		if len(items) != 1 {
+			t.Fatalf("items=%#v", items)
+		}
+		return items[0].Status, items[0].NeedsReview
+	}
+	if status, needs := list(); status == "NEEDS_REVIEW" || needs {
+		t.Fatalf("stuck document status=%s needsReview=%v, want settled", status, needs)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,review_type,status,document_id,decision) VALUES($1,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$2,'{"version":1,"reasonCode":"LOW_CONFIDENCE","allowedActions":["REPROCESS_DOCUMENT","IGNORE"]}'::jsonb)`, householdID, documentID)
+	must(err)
+	if status, needs := list(); status != "NEEDS_REVIEW" || !needs {
+		t.Fatalf("document with open review status=%s needsReview=%v, want NEEDS_REVIEW", status, needs)
 	}
 }

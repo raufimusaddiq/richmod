@@ -1,7 +1,6 @@
-// The one place a salary cycle is turned into a label. The API stores a cycle's
-// `end` as exclusive (the next cycle's first day), so a closed cycle is shown up
-// to the day before it and the raw end is never printed. An active cycle has no
-// end yet and reads "berjalan".
+// The one place a salary cycle becomes a label. The API stores `end` as exclusive (the
+// next cycle's first day), so a closed cycle shows up to the day before and the raw end
+// is never printed. An active cycle has no end yet and reads "berjalan".
 const dayFormat = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric" });
 
 export function formatDay(value) {
@@ -26,10 +25,9 @@ export function cycleRangeLabel({ start, end, active = false }) {
   return `${from} – ${formatDay(inclusiveEnd(end)) || "—"}`;
 }
 
-// Eyebrow for a spending window. `end` is inclusive here (already the last day).
-// `kind` and `cycles` are what the server actually resolved, not what was asked
-// for. The window is always spelled out so the donut never silently answers a
-// different question than the cycle-scoped page around it.
+// Eyebrow for a spending window; `end` is inclusive here. `kind` and `cycles` are what
+// the server resolved, not what was asked for, and the window is always spelled out so
+// the donut never silently answers a different question than the page around it.
 export function windowLabel({ kind, cycles, start, end }) {
   const label = kind === "SALARY_CYCLES" && cycles > 0 ? `${cycles} siklus gaji` : "3 bulan kalender";
   const from = formatDay(start);

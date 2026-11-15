@@ -419,3 +419,16 @@ test("documents: titles read screenshot transactions[] and fall back to date and
   assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "abc" } }), "Struk · Toko");
   assert.equal(fn({ documentType: "EWALLET_SCREENSHOT", status: "FAILED", summary: { transactions: [{ merchant: "Z" }] } }), "Tangkapan layar dompet digital · Gambar Telegram 15 Nov 2026, 12.48");
 });
+
+test("N7/N9: drawer trap reaches <summary> and skips unrendered controls; document cards use shared labels and money()", () => {
+  const hook = text("app/components/useDrawerA11y.js");
+  assert.match(hook, /a\[href\], summary, button/, "the trap's focusable selector includes <summary>");
+  assert.match(hook, /getClientRects\(\)\.length > 0/, "controls inside a closed <details> are not counted as the last focusable");
+  const page = text("app/documents/page.js");
+  assert.match(page, /NEEDS_REVIEW: "Perlu ditinjau"/, "the raw NEEDS_REVIEW enum has a label");
+  assert.match(page, /item\.needsReview && item\.status !== "NEEDS_REVIEW"/, "no second 'Perlu ditinjau' under the badge");
+  const body = page.slice(page.indexOf("function summaryText"), page.indexOf("function statusLabel"));
+  const summaryText = new Function("money", `${body}\nreturn summaryText;`)(v => `Rp${v}`);
+  assert.equal(summaryText({ merchant: "Indomaret", total: "34000" }), "Indomaret · Rp34000");
+  assert.equal(summaryText({ transactions: [{ merchant: "Kopi", amount: "45000" }] }), "Kopi · Rp45000");
+});

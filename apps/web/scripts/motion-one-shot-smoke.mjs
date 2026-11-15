@@ -3,11 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
 
-// A one-shot motion marker must survive exactly the render that follows the
-// user's action. This drives the real static export: a filter must fade the
-// ledger, and the pagination that follows must not; a save must mark the
-// figures it moved, and a later retry must not replay that flash. Regression
-// for issue #406.
+// A one-shot motion marker must survive exactly the render that follows the user's
+// action. This drives the real static export: a filter fades the ledger but the
+// pagination after it must not; a save marks the figures it moved and a later retry
+// must not replay that flash.
 const port = "3212";
 const base = `http://127.0.0.1:${port}`;
 const output = new URL("../test-results/motion-one-shot/", import.meta.url);

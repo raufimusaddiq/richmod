@@ -69,8 +69,7 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 			p := NewProcessor(f.pool, model)
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			if mode == "remembered" {
-				// "Beli aset" is a deterministic callback, so it arrives on the
-				// callback lane, not the free-text agent lane.
+				// "Beli aset" is a deterministic callback, so it arrives on the callback lane.
 				asset := callbackUpdate(f.chatID, 99, "review:asset")
 				assetRaw, marshalErr := json.Marshal(asset)
 				mustAgentTest(t, marshalErr)
@@ -105,7 +104,7 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 				if status != "CONFIRMED" || gotCategory != categoryID {
 					t.Fatalf("learned merchant result=%s category=%s", status, gotCategory)
 				}
-				mustAgentTest(t, p.ProcessAgent(ctx, f.sourceID)) // idempotent replay
+				mustAgentTest(t, p.ProcessAgent(ctx, f.sourceID))
 				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&conversation))
 				if conversation != "RESOLVED" {
 					t.Fatalf("already learned alias must not ask to learn again: %s", conversation)

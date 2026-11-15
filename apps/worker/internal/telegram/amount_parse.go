@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// Amounts as people type them in Indonesian chat (25rb, 25 ribu, 5k, 50.000,
-// Rp 25.000, 1,5jt, 25000), read deterministically for typed card answers.
+// Amounts as typed in Indonesian chat (25rb, 5k, Rp 25.000, 1,5jt), read deterministically for typed card answers.
 
 const maxAnswerAmount = 100_000_000
 
@@ -17,9 +16,8 @@ var (
 	amountUnits     = map[string]string{"rb": "rb", "ribu": "rb", "k": "rb", "jt": "jt", "juta": "jt"}
 )
 
-// parseAmountToken turns one amount token into whole rupiah. Dots and commas
-// are thousands separators unless a unit follows (1,5jt, 2.5rb). A bare number
-// under 500 is refused: "25" most likely means 25 ribu, and Go never guesses.
+// parseAmountToken turns one token into whole rupiah: dots and commas are thousands separators unless a unit
+// follows (1,5jt). A bare number under 500 is refused: "25" likely means 25 ribu and Go never guesses.
 func parseAmountToken(token, unit string) (string, bool) {
 	match := amountToken.FindStringSubmatch(token)
 	if match == nil {

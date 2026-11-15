@@ -209,11 +209,10 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 			t.Fatalf("a snapshot must never be reported as unchanged against itself: %+v", unchanged.Quality)
 		}
 	}
-	if unchanged.Wealth.Current == nil || unchanged.Wealth.Current.ID != unchangedSnapshot {
-		t.Fatalf("current snapshot = %+v", unchanged.Wealth.Current)
-	}
-	if unchanged.Wealth.Previous != nil && unchanged.Wealth.Previous.ID == unchanged.Wealth.Current.ID {
-		t.Fatalf("previous must be a distinct earlier snapshot: %+v", unchanged.Wealth.Previous)
+	// The only snapshot predates the cycle start, so it is the opening baseline,
+	// never an in-cycle observation: no delta, the blocker, and it stays visible as the latest observation.
+	if unchanged.Wealth.Current != nil || unchanged.Wealth.Previous == nil || unchanged.Wealth.Previous.ID != unchangedSnapshot || unchanged.Wealth.Change != nil || !hasBlocker(unchanged, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
+		t.Fatalf("wealth=%+v quality=%+v", unchanged.Wealth, unchanged.Quality)
 	}
 	f.transaction(t, "2026-09-08", "EXPENSE", "CONFIRMED", "2500", false)
 	quality := f.review(t, "")
@@ -441,4 +440,106 @@ func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) 
 	if len(rows) != 2 || fmt.Sprint(drill) != parentsAmount {
 		t.Fatalf("drill-down rows=%d total=%d, driver row=%s", len(rows), drill, parentsAmount)
 	}
+}
+
+func (f reviewFixture) snapshot(t *testing.T, at, value string) string {
+	t.Helper()
+	var id string
+	if err := f.pool.QueryRow(context.Background(), `INSERT INTO wealth_snapshot(household_id,observed_at,created_by_user_id) VALUES($1,$2::timestamptz,$3) RETURNING id`, f.household, at, f.user).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(context.Background(), `INSERT INTO wealth_snapshot_item(snapshot_id,wealth_account_id,value_idr,source) VALUES($1,$2,$3::numeric,'MANUAL')`, id, f.account, value); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func hasBlocker(facts cycleReview, kind string) bool {
+	for _, b := range facts.Quality {
+		if b.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCycleReviewWealthUsesCycleBoundaries(t *testing.T) {
+	setup := func(t *testing.T) reviewFixture {
+		f := cycleReviewFixture(t)
+		f.anchor(t, "2026-07-25")
+		f.anchor(t, "2026-08-23")
+		return f
+	}
+	t.Run("no snapshot inside the cycle gives no delta", func(t *testing.T) {
+		f := setup(t)
+		f.snapshot(t, "2026-07-25T00:31:00+07:00", "115941203")
+		f.snapshot(t, "2026-08-09T20:02:00+07:00", "125913093")
+		lastBefore := f.snapshot(t, "2026-08-22T14:53:00+07:00", "123135095")
+		facts := f.review(t, "?cycle_start=2026-08-23")
+		if facts.Wealth.Change != nil || facts.Wealth.Cashflow != nil || facts.Wealth.Other != nil || facts.Wealth.Current != nil || facts.Wealth.Previous == nil || facts.Wealth.Previous.ID != lastBefore {
+			t.Fatalf("wealth=%+v", facts.Wealth)
+		}
+		if !hasBlocker(facts, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
+			t.Fatalf("quality=%+v", facts.Quality)
+		}
+	})
+	t.Run("closed cycle compares last in-cycle snapshot with the opening baseline", func(t *testing.T) {
+		f := setup(t)
+		opening := f.snapshot(t, "2026-07-25T00:31:00+07:00", "115941203")
+		f.snapshot(t, "2026-08-09T20:02:00+07:00", "125913093")
+		last := f.snapshot(t, "2026-08-22T14:53:00+07:00", "123135095")
+		facts := f.review(t, "?cycle_start=2026-07-25")
+		if facts.Wealth.Previous == nil || facts.Wealth.Previous.ID != opening || facts.Wealth.Current == nil || facts.Wealth.Current.ID != last {
+			t.Fatalf("wealth=%+v", facts.Wealth)
+		}
+		if facts.Wealth.Change == nil || *facts.Wealth.Change != "7193892" {
+			t.Fatalf("change=%v", facts.Wealth.Change)
+		}
+	})
+	t.Run("snapshot exactly at cycle start is the baseline, not in-cycle", func(t *testing.T) {
+		f := setup(t)
+		atStart := f.snapshot(t, "2026-07-25T00:00:00+07:00", "100")
+		inside := f.snapshot(t, "2026-08-01T09:00:00+07:00", "250")
+		facts := f.review(t, "?cycle_start=2026-07-25")
+		if facts.Wealth.Previous == nil || facts.Wealth.Previous.ID != atStart || facts.Wealth.Current == nil || facts.Wealth.Current.ID != inside || *facts.Wealth.Change != "150" {
+			t.Fatalf("wealth=%+v", facts.Wealth)
+		}
+		only := setup(t)
+		only.snapshot(t, "2026-07-25T00:00:00+07:00", "100")
+		facts = only.review(t, "?cycle_start=2026-07-25")
+		if facts.Wealth.Change != nil || !hasBlocker(facts, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
+			t.Fatalf("a baseline alone is not an in-cycle observation: %+v %+v", facts.Wealth, facts.Quality)
+		}
+	})
+	t.Run("request on the start day shows a start-day snapshot as the latest observation", func(t *testing.T) {
+		f := cycleReviewFixture(t)
+		f.anchor(t, "2026-08-23")
+		f.anchor(t, "2026-09-10")
+		today := f.snapshot(t, "2026-09-10T08:00:00+07:00", "500")
+		facts := f.review(t, "?cycle_start=2026-09-10")
+		if facts.Wealth.Current != nil || facts.Wealth.Change != nil || facts.Wealth.Previous == nil || facts.Wealth.Previous.ID != today {
+			t.Fatalf("a start-day snapshot is the baseline until the cycle has an observation window: %+v", facts.Wealth)
+		}
+		if !hasBlocker(facts, "WEALTH_SNAPSHOT_BEFORE_CYCLE") || hasBlocker(facts, "MISSING_WEALTH_SNAPSHOT") {
+			t.Fatalf("quality=%+v", facts.Quality)
+		}
+	})
+	t.Run("multiple in-cycle snapshots use the newest", func(t *testing.T) {
+		f := setup(t)
+		f.snapshot(t, "2026-07-20T09:00:00+07:00", "100")
+		f.snapshot(t, "2026-07-28T09:00:00+07:00", "300")
+		newest := f.snapshot(t, "2026-08-05T09:00:00+07:00", "400")
+		facts := f.review(t, "?cycle_start=2026-07-25")
+		if facts.Wealth.Current == nil || facts.Wealth.Current.ID != newest || *facts.Wealth.Change != "300" {
+			t.Fatalf("wealth=%+v", facts.Wealth)
+		}
+	})
+	t.Run("no snapshot at or before start", func(t *testing.T) {
+		f := setup(t)
+		f.snapshot(t, "2026-08-05T09:00:00+07:00", "400")
+		facts := f.review(t, "?cycle_start=2026-07-25")
+		if facts.Wealth.Current == nil || facts.Wealth.Previous != nil || facts.Wealth.Change != nil || !hasBlocker(facts, "MISSING_PREVIOUS_WEALTH_SNAPSHOT") {
+			t.Fatalf("wealth=%+v quality=%+v", facts.Wealth, facts.Quality)
+		}
+	})
 }

@@ -12,8 +12,6 @@ func badTransactionDetails(callID string) gateway.ToolCall {
 	return gateway.ToolCall{ResponseID: "resp-1", CallID: callID, Name: "get_transaction_details", Arguments: []byte(`{"target_ref":""}`)}
 }
 
-// Go rejecting a call's arguments is not the end of the turn: the model is told
-// why, once, and Go validates whatever it sends next.
 func TestRejectedArgumentsAreReturnedToTheModelOnce(t *testing.T) {
 	call := badTransactionDetails("c1")
 	_, err := validateAgentCallSet([]gateway.ToolCall{call}, &agentState{}, defaultAgentLimits)
@@ -34,7 +32,6 @@ func TestRejectedArgumentsAreReturnedToTheModelOnce(t *testing.T) {
 	}
 }
 
-// Server-state decisions are not the model's to fix.
 func TestOnlyArgumentRejectionsAreRepairable(t *testing.T) {
 	state := &agentState{Tools: []gateway.ToolDefinition{{Name: "query_wealth"}}, ModelPhases: 1}
 	for name, calls := range map[string][]gateway.ToolCall{
@@ -85,8 +82,6 @@ func (m *scriptedModel) AgentTurn(_ context.Context, _ string, request gateway.A
 	return m.replies[len(m.requests)-1], nil
 }
 
-// The loop really sends the correction request, with the provider-native
-// continuation (previous response and call IDs) the gateway requires.
 func TestAgentLoopSendsTheRejectionBackToTheModel(t *testing.T) {
 	model := &scriptedModel{replies: []gateway.AgentResponse{
 		{ResponseID: "resp-1", ToolCalls: []gateway.ToolCall{badTransactionDetails("c1")}},
@@ -108,9 +103,8 @@ func TestAgentLoopSendsTheRejectionBackToTheModel(t *testing.T) {
 	}
 }
 
-// A set-shape or budget refusal is final, so it must win over a malformed
-// argument in the same response; otherwise the model could swap the refused set
-// for a standalone mutation on the repair phase.
+// A set-shape or budget refusal wins over a malformed argument in the same response, so the model cannot swap
+// the refused set for a standalone mutation.
 func TestServerStateRefusalsWinOverMalformedArguments(t *testing.T) {
 	validRead := gateway.ToolCall{CallID: "c0", Name: "query_spending", Arguments: []byte(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)}
 	validEffect := gateway.ToolCall{CallID: "c2", Name: "confirm_pending_action", Arguments: []byte(`{}`)}
