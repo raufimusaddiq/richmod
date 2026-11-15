@@ -3,6 +3,7 @@ package analyticscore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 	"time"
@@ -118,23 +119,99 @@ type historyCategory struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Amounts []string `json:"amounts"`
+	// DeltaVsPrevious is the selected cycle's amount minus the cycle before it in
+	// this matrix; null when the selected cycle has no earlier column.
+	DeltaVsPrevious *string `json:"deltaVsPrevious"`
 }
 
-// categoryHistory is the category x cycle matrix. Rows are the top categories
-// by net expense over the window; Other holds the rest, so every column
-// reconciles exactly to its cycle's net expense.
+type historyOther struct {
+	Amounts         []string `json:"amounts"`
+	DeltaVsPrevious *string  `json:"deltaVsPrevious"`
+}
+
+// categoryMatrix is one category x cycle matrix. Rows are the top categories by
+// net expense over the window; Other holds the rest, and Totals is each cycle's
+// net expense, so rows + Other = Totals in every column.
+type categoryMatrix struct {
+	CycleStarts []string `json:"cycleStarts"`
+	// SelectedIndex is the selected cycle's column; null when it is not in the window.
+	SelectedIndex        *int              `json:"selectedIndex"`
+	Rows                 []historyCategory `json:"rows"`
+	Other                historyOther      `json:"other"`
+	Totals               []string          `json:"totals"`
+	TotalDeltaVsPrevious *string           `json:"totalDeltaVsPrevious"`
+}
+
+// sameDayMatrix cuts every cycle at the same elapsed day-of-cycle as the active
+// selected cycle (a shorter cycle is cut at its own end), so no partial cycle is
+// compared with a full one. It uses the same rows as the full matrix.
+type sameDayMatrix struct {
+	ElapsedDays int `json:"elapsedDays"`
+	// MeasuredDays is how many days each column actually covers: ElapsedDays, or
+	// fewer for a cycle that ended sooner (kept whole, so the UI can say "hari 1-N").
+	MeasuredDays []int `json:"measuredDays"`
+	categoryMatrix
+}
+
+// categoryHistory is the full-cycle matrix plus, while the selected cycle is
+// ACTIVE, the same-day view (null otherwise).
 type categoryHistory struct {
-	CycleStarts []string          `json:"cycleStarts"`
-	Rows        []historyCategory `json:"rows"`
-	Other       struct {
-		Amounts []string `json:"amounts"`
-	} `json:"other"`
+	categoryMatrix
+	SameDay *sameDayMatrix `json:"sameDay"`
+}
+
+func emptyMatrix() categoryMatrix {
+	return categoryMatrix{CycleStarts: []string{}, Rows: []historyCategory{}, Other: historyOther{Amounts: []string{}}, Totals: []string{}}
 }
 
 func emptyCategoryHistory() categoryHistory {
-	h := categoryHistory{CycleStarts: []string{}, Rows: []historyCategory{}}
-	h.Other.Amounts = []string{}
-	return h
+	return categoryHistory{categoryMatrix: emptyMatrix()}
+}
+
+// merchantRankRow is one payee in the amount-ranked merchant list. Kind is
+// MERCHANT (resolved merchant, ID set), COUNTERPARTY (unresolved named payee) or
+// NONE (no merchant and no counterparty, shown as "Tanpa merchant").
+type merchantRankRow struct {
+	reviewValue
+	Kind     string  `json:"kind"`
+	Previous *string `json:"previous"`
+	Delta    *string `json:"deltaVsPrevious"`
+	Share    *string `json:"shareOfExpense"`
+}
+
+type merchantRankOther struct {
+	Amount        string  `json:"amount"`
+	Count         int     `json:"count"`
+	MerchantCount int     `json:"merchantCount"`
+	Previous      *string `json:"previous"`
+	Delta         *string `json:"deltaVsPrevious"`
+}
+
+type merchantRankTotal struct {
+	Amount   string  `json:"amount"`
+	Count    int     `json:"count"`
+	Previous *string `json:"previous"`
+	Delta    *string `json:"deltaVsPrevious"`
+}
+
+// merchantRanking lists payees by net amount, largest first. Previous follows
+// the comparison mode: the previous eligible cycle at the same elapsed day while
+// ACTIVE, the previous full cycle once CLOSED. Rows + Other = Total = cashflow.expense.
+type merchantRanking struct {
+	Mode  string            `json:"mode"`
+	Rows  []merchantRankRow `json:"rows"`
+	Other merchantRankOther `json:"other"`
+	Total merchantRankTotal `json:"total"`
+}
+
+const merchantRankingRows = 10
+
+// reviewMember is one recorder in the household attribution. It is descriptive,
+// not a ranking: the automatic bucket comes first, then members by name.
+type reviewMember struct {
+	reviewValue
+	Kind  string  `json:"kind"` // AUTOMATIC | MEMBER
+	Share *string `json:"shareOfExpense"`
 }
 
 type Facts struct {
@@ -174,10 +251,12 @@ type Facts struct {
 	CategoryRanking categoryRanking  `json:"categoryRanking"`
 	Categories      []reviewCategory `json:"categoryChanges"`
 	Merchants       []reviewChange   `json:"merchantDrivers"`
-	Members         []reviewValue    `json:"memberAttribution"`
-	Destinations    []reviewValue    `json:"savingsDestinations"`
-	Wealth          reviewWealth     `json:"wealth"`
-	Quality         []reviewBlocker  `json:"dataQuality"`
+	// MerchantRanking is the amount-ranked payee list for the cycle view.
+	MerchantRanking merchantRanking `json:"merchantRanking"`
+	Members         []reviewMember  `json:"memberAttribution"`
+	Destinations    []reviewValue   `json:"savingsDestinations"`
+	Wealth          reviewWealth    `json:"wealth"`
+	Quality         []reviewBlocker `json:"dataQuality"`
 }
 
 // Completeness retains ADR-015's coverage gate on gross confirmed expense so refunds
@@ -232,9 +311,8 @@ func newCycleMeasure(period reviewPeriod) cycleMeasure {
 
 const (
 	// DefaultHistory and MaxHistory bound the ledger window (cycles).
-	DefaultHistory       = 6
-	MaxHistory           = 12
-	historyTopCategories = 8
+	DefaultHistory = 6
+	MaxHistory     = 12
 )
 
 // Load computes one household's authoritative cycle facts in a read-only
@@ -276,7 +354,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if err != nil {
 		return Facts{}, err
 	}
-	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), CategoryRanking: emptyCategoryRanking(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, Members: []reviewValue{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
+	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), CategoryRanking: emptyCategoryRanking(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, MerchantRanking: emptyMerchantRanking(), Members: []reviewMember{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
 	index := 0
 	if selected != "" {
 		index = -1
@@ -346,9 +424,13 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 			measures = append(measures, newCycleMeasure(p))
 		}
 	}
-	var window []int
+	var window, sameDay []int
 	if history > 0 && facts.Period.Kind == "SALARY_CYCLE" {
-		measures, window = historyMeasures(measures, historyWindow(periods, index, history))
+		cycles := historyWindow(periods, index, history)
+		measures, window = historyMeasures(measures, cycles)
+		if facts.Period.State == "ACTIVE" {
+			measures, sameDay = historyMeasures(measures, sameDayWindow(cycles, daysBetween(facts.Period.Start, facts.Period.MeasuredUntil)))
+		}
 	}
 	if err := loadReviewMeasures(ctx, tx, household, measures, &facts); err != nil {
 		return facts, err
@@ -362,13 +444,14 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		measures[i].cash.Unallocated = financialmath.Subtract(cash.Surplus, measures[i].cash.Allocated)
 	}
 	if len(window) > 0 {
-		facts.History, facts.CategoryHistory = buildHistory(measures, window)
+		facts.History, facts.CategoryHistory = buildHistory(measures, window, sameDay, facts.Period.Start)
 	}
 	var full *cycleMeasure
 	if fullIndex >= 0 {
 		full = &measures[fullIndex]
 	}
 	measures = measures[:historyCount]
+	facts.MerchantRanking = buildMerchantRanking(measures, facts.Comparison.Mode)
 	facts.Pace = buildPace(full, measures[1:], facts.Comparison.Median3Available)
 	facts.Cashflow = measures[0].cash
 	var rankBase *cycleMeasure
@@ -497,18 +580,42 @@ func historyMeasures(measures []cycleMeasure, window []reviewPeriod) ([]cycleMea
 	return measures, indices
 }
 
+// sameDayWindow cuts each window cycle at the selected active cycle's elapsed
+// day count (a cycle shorter than that is measured to its own end). The active
+// cycle itself keeps its measured cutoff.
+func sameDayWindow(window []reviewPeriod, elapsed int) []reviewPeriod {
+	out := make([]reviewPeriod, 0, len(window))
+	for _, p := range window {
+		if p.State == "CLOSED" && p.End != nil {
+			start, err := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
+			if err == nil {
+				if cut := start.AddDate(0, 0, elapsed).Format("2006-01-02"); cut < *p.End {
+					p.MeasuredUntil = cut
+				}
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // buildHistory turns loaded window measures (oldest first) into the ledger
 // series. Amounts are Go-computed whole-IDR strings; "Other" is net expense minus
-// the listed rows, so each cycle reconciles exactly.
-func buildHistory(measures []cycleMeasure, window []int) ([]historyCycle, categoryHistory) {
+// the listed rows, so each cycle reconciles exactly. sameDay holds the indices of
+// the same cycles cut at one elapsed day (nil unless the selected cycle is
+// ACTIVE); its rows are the full matrix's rows. selectedStart picks the column
+// that deltaVsPrevious is measured for.
+func buildHistory(measures []cycleMeasure, window, sameDay []int, selectedStart string) ([]historyCycle, categoryHistory) {
 	history := make([]historyCycle, 0, len(window))
-	matrix := emptyCategoryHistory()
 	totals, names := map[string]string{}, map[string]string{}
-	for _, i := range window {
+	selected := -1
+	for pos, i := range window {
 		m := measures[i]
+		if m.period.Start == selectedStart {
+			selected = pos
+		}
 		history = append(history, historyCycle{Start: m.period.Start, End: m.period.End, MeasuredUntil: m.period.MeasuredUntil, State: m.period.State,
 			Income: m.cash.Income, GrossExpense: m.cash.GrossExpense, Refund: m.cash.Refund, Expense: m.cash.Expense, Net: m.cash.Net, SavingsAllocated: m.cash.Allocated})
-		matrix.CycleStarts = append(matrix.CycleStarts, m.period.Start)
 		for id, v := range m.categories {
 			if _, ok := totals[id]; !ok {
 				totals[id], names[id] = "0", v.Name
@@ -534,14 +641,33 @@ func buildHistory(measures []cycleMeasure, window []int) ([]historyCycle, catego
 		}
 		return ids[a] < ids[b]
 	})
-	if len(ids) > historyTopCategories {
-		ids = ids[:historyTopCategories]
+	if len(ids) > rankingTopCategories {
+		ids = ids[:rankingTopCategories]
 	}
+	matrix := categoryHistory{categoryMatrix: buildMatrix(measures, window, ids, names, selected)}
+	if len(sameDay) == len(window) && len(window) > 0 && selected >= 0 {
+		cut := measures[sameDay[selected]].period
+		days := make([]int, 0, len(sameDay))
+		for _, i := range sameDay {
+			days = append(days, daysBetween(measures[i].period.Start, measures[i].period.MeasuredUntil))
+		}
+		matrix.SameDay = &sameDayMatrix{ElapsedDays: daysBetween(cut.Start, cut.MeasuredUntil), MeasuredDays: days, categoryMatrix: buildMatrix(measures, sameDay, ids, names, selected)}
+	}
+	return history, matrix
+}
+
+// buildMatrix lays out the listed category ids by cycle. Other = net expense minus
+// the listed rows and Totals = net expense, so rows + Other = Totals per column.
+// With a selected column after the first, every row, Other and the total carry
+// selected minus the column before it.
+func buildMatrix(measures []cycleMeasure, idxs []int, ids []string, names map[string]string, selected int) categoryMatrix {
+	matrix := emptyMatrix()
 	for _, id := range ids {
-		matrix.Rows = append(matrix.Rows, historyCategory{ID: id, Name: names[id], Amounts: make([]string, 0, len(window))})
+		matrix.Rows = append(matrix.Rows, historyCategory{ID: id, Name: names[id], Amounts: make([]string, 0, len(idxs))})
 	}
-	for _, i := range window {
+	for _, i := range idxs {
 		m := measures[i]
+		matrix.CycleStarts = append(matrix.CycleStarts, m.period.Start)
 		listed := "0"
 		for r, id := range ids {
 			amount := "0"
@@ -552,8 +678,101 @@ func buildHistory(measures []cycleMeasure, window []int) ([]historyCycle, catego
 			listed = financialmath.Add(listed, amount)
 		}
 		matrix.Other.Amounts = append(matrix.Other.Amounts, financialmath.Subtract(m.cash.Expense, listed))
+		matrix.Totals = append(matrix.Totals, m.cash.Expense)
 	}
-	return history, matrix
+	if selected >= 0 && selected < len(idxs) {
+		matrix.SelectedIndex = &selected
+	}
+	if selected > 0 && selected < len(idxs) {
+		delta := func(a []string) *string { return valuePointer(financialmath.Subtract(a[selected], a[selected-1])) }
+		for r := range matrix.Rows {
+			matrix.Rows[r].DeltaVsPrevious = delta(matrix.Rows[r].Amounts)
+		}
+		matrix.Other.DeltaVsPrevious = delta(matrix.Other.Amounts)
+		matrix.TotalDeltaVsPrevious = delta(matrix.Totals)
+	}
+	return matrix
+}
+
+func emptyMerchantRanking() merchantRanking {
+	return merchantRanking{Rows: []merchantRankRow{}, Other: merchantRankOther{Amount: "0"}, Total: merchantRankTotal{Amount: "0"}}
+}
+
+// noMerchantName labels expense rows with neither a merchant nor a counterparty.
+const noMerchantName = "Tanpa merchant"
+
+func merchantKind(v reviewValue) string {
+	switch {
+	case v.ID != "":
+		return "MERCHANT"
+	case v.Name == noMerchantName:
+		return "NONE"
+	}
+	return "COUNTERPARTY"
+}
+
+// buildMerchantRanking ranks the selected cycle's payees by net amount (largest
+// first, numerically) and compares them with measures[1], the comparison cycle.
+// Payees with a zero or negative net, and everything after the top rows, fall
+// into Other, which is computed as total minus listed so rows + Other = Total =
+// the cycle's net expense to the rupiah.
+func buildMerchantRanking(measures []cycleMeasure, mode string) merchantRanking {
+	ranking := emptyMerchantRanking()
+	ranking.Mode = mode
+	current := measures[0]
+	var previous *cycleMeasure
+	if len(measures) > 1 {
+		previous = &measures[1]
+	}
+	type entry struct {
+		key string
+		v   reviewValue
+	}
+	entries := make([]entry, 0, len(current.merchants))
+	totalCount := 0
+	for key, v := range current.merchants {
+		entries = append(entries, entry{key, v})
+		totalCount += v.Count
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if c := compareAmounts(entries[i].v.Amount, entries[j].v.Amount); c != 0 {
+			return c > 0
+		}
+		if entries[i].v.Name != entries[j].v.Name {
+			return entries[i].v.Name < entries[j].v.Name
+		}
+		return entries[i].key < entries[j].key
+	})
+	ranking.Total = merchantRankTotal{Amount: current.cash.Expense, Count: totalCount}
+	if previous != nil {
+		ranking.Total.Previous = valuePointer(previous.cash.Expense)
+		ranking.Total.Delta = valuePointer(financialmath.Subtract(current.cash.Expense, previous.cash.Expense))
+	}
+	listed, listedPrevious, listedCount := "0", "0", 0
+	for _, e := range entries {
+		if len(ranking.Rows) == merchantRankingRows || compareAmounts(e.v.Amount, "0") <= 0 {
+			break
+		}
+		row := merchantRankRow{reviewValue: e.v, Kind: merchantKind(e.v), Share: positiveRatio(e.v.Amount, current.cash.Expense)}
+		if previous != nil {
+			prior := "0"
+			if v, ok := previous.merchants[e.key]; ok {
+				prior = v.Amount
+			}
+			row.Previous = valuePointer(prior)
+			row.Delta = valuePointer(financialmath.Subtract(e.v.Amount, prior))
+			listedPrevious = financialmath.Add(listedPrevious, prior)
+		}
+		ranking.Rows = append(ranking.Rows, row)
+		listed = financialmath.Add(listed, e.v.Amount)
+		listedCount += e.v.Count
+	}
+	ranking.Other = merchantRankOther{Amount: financialmath.Subtract(current.cash.Expense, listed), Count: totalCount - listedCount, MerchantCount: len(entries) - len(ranking.Rows)}
+	if previous != nil {
+		ranking.Other.Previous = valuePointer(financialmath.Subtract(previous.cash.Expense, listedPrevious))
+		ranking.Other.Delta = valuePointer(financialmath.Subtract(ranking.Other.Amount, *ranking.Other.Previous))
+	}
+	return ranking
 }
 
 func (f *Facts) block(kind string, count int, amount *string, action string) {
@@ -727,5 +946,68 @@ func orderedValues(values map[string]reviewValue) []reviewValue {
 		}
 		return out[i].ID < out[j].ID
 	})
+	return out
+}
+
+// orderedMembers keeps attribution descriptive, never a ranking: the automatic
+// bucket first, then members by name. shareOfExpense is Go-computed in
+// basis points with largest-remainder rounding, so the shares sum to exactly
+// 1.0000; it is null when net expense is not positive or a member is negative.
+func orderedMembers(values map[string]reviewValue) []reviewMember {
+	out := make([]reviewMember, 0, len(values))
+	total := big.NewInt(0)
+	shares := true
+	for _, v := range values {
+		kind := "MEMBER"
+		if v.ID == "" {
+			kind = "AUTOMATIC"
+		}
+		out = append(out, reviewMember{reviewValue: v, Kind: kind})
+		amount, _ := new(big.Int).SetString(v.Amount, 10)
+		if amount.Sign() < 0 {
+			shares = false
+		}
+		total.Add(total, amount)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if (out[i].Kind == "AUTOMATIC") != (out[j].Kind == "AUTOMATIC") {
+			return out[i].Kind == "AUTOMATIC"
+		}
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	if !shares || total.Sign() <= 0 {
+		return out
+	}
+	const scale = 10000
+	basis, remainders := make([]int64, len(out)), make([]*big.Int, len(out))
+	assigned := int64(0)
+	for i, m := range out {
+		amount, _ := new(big.Int).SetString(m.Amount, 10)
+		quotient, remainder := new(big.Int).QuoRem(new(big.Int).Mul(amount, big.NewInt(scale)), total, new(big.Int))
+		basis[i], remainders[i] = quotient.Int64(), remainder
+		assigned += basis[i]
+	}
+	order := make([]int, len(out))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return remainders[order[a]].Cmp(remainders[order[b]]) > 0 })
+	for k := int64(0); k < scale-assigned; k++ {
+		basis[order[k]]++
+	}
+	for i := range out {
+		out[i].Share = valuePointer(fmt.Sprintf("%d.%04d", basis[i]/scale, basis[i]%scale))
+	}
+	return out
+}
+
+func memberValues(members []reviewMember) []reviewValue {
+	out := make([]reviewValue, 0, len(members))
+	for _, m := range members {
+		out = append(out, m.reviewValue)
+	}
 	return out
 }
