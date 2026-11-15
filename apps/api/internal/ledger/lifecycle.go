@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpx"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 type transactionView struct {
@@ -40,6 +43,23 @@ type transactionView struct {
 	ConfirmedAt            *time.Time `json:"confirmedAt"`
 	VoidedAt               *time.Time `json:"voidedAt"`
 	UpdatedAt              time.Time  `json:"updatedAt"`
+}
+
+// activeMergeView is an ACTIVE reconciliation merge this transaction takes part in, with the
+// other side described for the drawer's "Pisahkan penggabungan" action. Role TARGET means this
+// transaction absorbed the other (voiding it is refused); SOURCE means it was folded into the other.
+type activeMergeView struct {
+	ID                 string    `json:"id"`
+	Role               string    `json:"role"`
+	OtherTransactionID string    `json:"otherTransactionId"`
+	OtherLabel         string    `json:"otherLabel"`
+	OtherAmount        string    `json:"otherAmount"`
+	OtherTransactionAt time.Time `json:"otherTransactionAt"`
+}
+
+type transactionDetail struct {
+	transactionView
+	ActiveMerges []activeMergeView `json:"activeMerges"`
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +233,36 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
 		return
 	}
-	writeJSON(w, 200, v)
+	// The merge annotation is secondary to the record: if it cannot be read the detail still loads, without
+	// the "Pisahkan penggabungan" action, and the void endpoint keeps refusing a merge target on its own.
+	merges, err := h.activeMerges(r.Context(), household, v.ID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "load active merges for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
+		merges = []activeMergeView{}
+	}
+	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges})
+}
+
+func (h *Handler) activeMerges(ctx context.Context, household, id string) ([]activeMergeView, error) {
+	rows, err := h.pool.Query(ctx, `SELECT m.id,CASE WHEN m.target_transaction_id=$1 THEN 'TARGET' ELSE 'SOURCE' END,o.id,COALESCE(mm.normalized_name,NULLIF(o.counterparty_name,''),NULLIF(o.description,''),''),o.amount::text,o.transaction_at
+		FROM reconciliation_merge m
+		JOIN transaction o ON o.household_id=m.household_id AND o.id=CASE WHEN m.target_transaction_id=$1 THEN m.source_transaction_id ELSE m.target_transaction_id END
+		LEFT JOIN merchant mm ON mm.id=o.merchant_id
+		WHERE m.household_id=$2 AND m.status='ACTIVE' AND $1 IN (m.source_transaction_id,m.target_transaction_id)
+		ORDER BY m.created_at,m.id`, id, household)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	merges := make([]activeMergeView, 0)
+	for rows.Next() {
+		var v activeMergeView
+		if err := rows.Scan(&v.ID, &v.Role, &v.OtherTransactionID, &v.OtherLabel, &v.OtherAmount, &v.OtherTransactionAt); err != nil {
+			return nil, err
+		}
+		merges = append(merges, v)
+	}
+	return merges, rows.Err()
 }
 
 func (h *Handler) ConfirmTransaction(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +286,8 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	defer tx.Rollback(r.Context())
 	var before string
 	var reviewOpen bool
-	if err := tx.QueryRow(r.Context(), `SELECT t.status,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
+	var occurredAt time.Time
+	if err := tx.QueryRow(r.Context(), `SELECT t.status,t.transaction_at,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &occurredAt, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "transaction not found"})
 		return
 	} else if err != nil {
@@ -245,17 +295,34 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		return
 	}
 	if before == "NEEDS_REVIEW" || reviewOpen {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "resolve this transaction through the review endpoint"})
+		writeJSON(w, http.StatusConflict, map[string]string{"code": codeReviewOpen, "error": "resolve this transaction through the review endpoint"})
 		return
 	}
 	if !canTransition(before, target) {
 		writeJSON(w, 409, map[string]string{"error": "invalid transaction status transition"})
 		return
 	}
+	// The merge flow locks its target row FOR UPDATE, so this read cannot race a merge being
+	// created. The database guard (00100) backs it up for every other void path.
+	if target == "VOIDED" {
+		protected, err := reviewdomain.ActiveMergeTarget(r.Context(), tx, household, id)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
+		if protected {
+			httpx.WriteMergeTargetRefusal(w)
+			return
+		}
+	}
 	if target == "CONFIRMED" {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id)
 	} else {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
+	}
+	if errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
+		httpx.WriteMergeTargetRefusal(w)
+		return
 	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
@@ -264,6 +331,14 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,$3,'transaction',$4,jsonb_build_object('status',$5::text),jsonb_build_object('status',$6::text))`, household, p.UserID, target, id, before, target); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to audit transaction"})
 		return
+	}
+	// A voided CONFIRMED transaction leaves the totals, so an open cycle residual review
+	// built on them is recomputed in the same commit (as a newly recorded one does).
+	if target == "VOIDED" && before == "CONFIRMED" {
+		if err = reviewdomain.RefreshOpenCycleResidualsFor(r.Context(), tx, household, occurredAt, p.UserID, reviewdomain.CycleReopenTransactionVoided); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})

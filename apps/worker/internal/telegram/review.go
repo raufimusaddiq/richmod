@@ -693,6 +693,12 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
 		Action: "TELEGRAM_REJECTED",
 	}); err != nil {
+		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+			if rerr := tx.Rollback(ctx); rerr != nil {
+				return rerr
+			}
+			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.")
+		}
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {

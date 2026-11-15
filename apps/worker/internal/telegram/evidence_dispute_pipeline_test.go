@@ -483,3 +483,38 @@ func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *te
 		t.Fatalf("typed reply status = %q, want EVIDENCE_DISPUTE_USE_BUTTONS", status)
 	}
 }
+
+// A staged dispute transaction that is the target of an ACTIVE merge must not be voided by the reject button:
+// the household gets a plain reply, the card stays open, and the job does not fail.
+func TestDisputeRejectRefusesActiveMergeTarget(t *testing.T) {
+	p := newPipe(t)
+	_, second, _ := p.mergedPair()
+	if _, err := p.text("tapi ini transaksi baru", second.message, p.tgUser); err != nil {
+		t.Fatal(err)
+	}
+	staged := p.stagedID()
+	card := p.card()
+	duplicate := p.str(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,voided_at) SELECT household_id,type,'VOIDED',amount,transaction_at,now() FROM transaction WHERE id=$1::uuid RETURNING id::text`, staged)
+	p.exec(`INSERT INTO reconciliation_merge(household_id,source_transaction_id,target_transaction_id,status,created_by_user_id) VALUES($1,$2::uuid,$3::uuid,'ACTIVE',(SELECT user_id FROM telegram_identity WHERE household_id=$1 LIMIT 1))`, p.household, duplicate, staged)
+
+	source, err := p.press("review:dispute:reject", card, p.tgUser)
+	if err != nil {
+		t.Fatalf("a refusal is a reply, not a failed job: %v", err)
+	}
+	if got := p.str(`SELECT status FROM transaction WHERE id=$1::uuid`, staged); got != "NEEDS_REVIEW" {
+		t.Fatalf("staged target status = %s", got)
+	}
+	if p.n(`SELECT count(*) FROM review_item WHERE household_id=$1 AND transaction_id=$2::uuid AND status IN ('OPEN','PENDING_SEND')`, p.household, staged) != 1 {
+		t.Fatal("the dispute review must stay open")
+	}
+	if p.n(`SELECT count(*) FROM audit_log WHERE entity_id=$1::uuid AND action IN ('VOIDED','REJECT_REVIEW','TELEGRAM_REJECTED')`, staged) != 0 {
+		t.Fatal("a refusal must not audit a void")
+	}
+	text := p.str(`SELECT COALESCE(string_agg(payload_json->>'text',' | '),'') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat)
+	if !strings.Contains(text, "tujuan penggabungan yang masih aktif") {
+		t.Fatalf("reply = %q", text)
+	}
+	if p.str(`SELECT processing_status FROM source_event WHERE id=$1::uuid`, source) != "IGNORED" {
+		t.Fatal("the callback's source event must settle, not fail")
+	}
+}

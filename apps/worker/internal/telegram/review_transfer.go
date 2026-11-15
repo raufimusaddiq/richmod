@@ -184,6 +184,9 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 		} else if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Akun kekayaan tujuan bukan aset yang kompatibel.")
+		} else if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+			_ = tx.Rollback(ctx)
+			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.")
 		} else if errors.Is(err, reviewdomain.ErrTransferNotFound) {
 			// The choice does not apply (an old card, or an outgoing choice on incoming money): say so
 			// instead of failing the job into silence.

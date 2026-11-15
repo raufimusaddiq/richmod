@@ -7,13 +7,13 @@ Rule of thumb: a transition that must never happen is enforced in the database;
 a transition that depends on business context is guarded by a `WHERE status IN
 (...)` in the one function that owns it, and its row count is checked.
 
-Last audited: 2026-11 (see ADR-049 amendment, migrations 00097 and 00098).
+Last audited: 2026-11 (see ADR-049 amendment, migrations 00097, 00098 and 00100).
 
 ## Enforced in the database
 
 | Machine | Legal moves | Enforced by |
 |---|---|---|
-| `transaction.status` | PENDING → CONFIRMED / NEEDS_REVIEW / VOIDED; NEEDS_REVIEW → CONFIRMED / VOIDED; CONFIRMED → VOIDED / NEEDS_REVIEW; VOIDED → NEEDS_REVIEW (reversed merge only) | trigger `transaction_status_transition` (00097); timestamp CHECKs |
+| `transaction.status` | PENDING → CONFIRMED / NEEDS_REVIEW / VOIDED; NEEDS_REVIEW → CONFIRMED / VOIDED; CONFIRMED → VOIDED / NEEDS_REVIEW; VOIDED → NEEDS_REVIEW (reversed merge only). Any → VOIDED is refused while the row is the target of an `ACTIVE` `reconciliation_merge` (unless it is itself the source of an `ACTIVE` merge) | trigger `transaction_status_transition` (00097, merge-target guard 00100); timestamp CHECKs |
 | `salary_event.status` | follows its transaction (VOIDED ⇄ CONFIRMED) | trigger `transaction_salary_event_status` (00097) |
 | `review_item` → `review_request` → `review_conversation` | item RESOLVED closes its request; request RESOLVED/CANCELLED resolves its conversations (not EXPIRED, not `AWAITING_MERCHANT_DECISION`) | triggers `review_item_close_request`, `review_request_close_conversation` (00098) |
 | `review_request` card delivery | see `review_request_recipient` below | triggers/functions of 00079 and 00094 |
@@ -97,3 +97,40 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
   or creates a `review_item`.
 - **Errors** return `{"error": "...", "code": "..."}`; the web app maps `code`
   to Indonesian copy and never shows the English text. No schema change.
+
+## Voiding a transaction
+
+`POST /api/v1/transactions/{id}/void` (`ledger/lifecycle.go`, `transition`) is the
+web "Batalkan transaksi" action in the `/transactions` drawer. No transition is
+added: `PENDING` / `CONFIRMED` → `VOIDED` was already legal.
+
+- **Allowed on** `PENDING`, `CONFIRMED`. `NEEDS_REVIEW` or any open
+  (`OPEN`/`PENDING_SEND`) review item is 409 ("resolve this transaction through the
+  review endpoint"); the drawer then points to Tinjauan. The target of an `ACTIVE`
+  `reconciliation_merge` is 409 `MERGE_TARGET` (reverse the merge first), so a merged
+  real event can never end with no live transaction. This holds for **every** void path,
+  not only this endpoint: the database trigger (00100) refuses the move, and each caller
+  checks first with `reviewdomain.ActiveMergeTarget` and maps `ErrMergeTargetActive` to a
+  clean refusal (web void/reject/transfer IGNORE → 409; Telegram reject, transfer IGNORE,
+  evidence dispute and salary IGNORE → a plain Indonesian reply or `MERGE_TARGET_ACTIVE`
+  tool status). The endpoint's check runs under the row lock and the merge flow locks its
+  target `FOR UPDATE`, so they cannot race. The merge's own source void is allowed (the
+  insert of the merge precedes it), as is voiding a transaction that is itself the source
+  of an `ACTIVE` merge (chain X → A → B protects B). Reversal: `GET
+  /api/v1/transactions/{id}` returns `activeMerges` (id, role `TARGET`/`SOURCE`, the
+  other transaction's id/label/amount/time) and the drawer's "Pisahkan penggabungan"
+  calls `POST /api/v1/reconciliation-merges/{id}/reverse`, after which the target can be
+  voided. `VOIDED` again is 409 and writes nothing. Another household's transaction is 404.
+- **Writes** (one DB transaction, row locked `FOR UPDATE`): `status='VOIDED'`,
+  `voided_at`, `confirmed_at=NULL`, and an `audit_log` row `VOIDED` with the before/after
+  status. Nothing is deleted; evidence, source events and proposals stay linked.
+- **Side effects, all in that transaction:** `salary_event` follows through
+  `transaction_salary_event_status`; voiding a `CONFIRMED` transaction also re-runs
+  `RefreshOpenCycleResiduals` for its cycle, so an open residual review shows the new
+  basis (or closes as `NO_LONGER_APPLICABLE` when nothing is left to allocate).
+  Every totals query (overview, daily, category/member/cycle analytics, wealth recap,
+  savings destinations, cycle basis) counts `status='CONFIRMED'` only, so a voided row
+  leaves them. Voiding does not touch a residual that was already resolved/allocated.
+- **Authorization:** any member of the household may void; there is no role or source
+  restriction.
+- Un-voiding and Telegram void are not implemented.

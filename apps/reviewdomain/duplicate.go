@@ -132,7 +132,9 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 		}
 	}
 	if _, err := tx.Exec(ctx, "UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'", cmd.TransactionID, cmd.HouseholdID); err != nil {
-		return result, err
+		// The merge row above makes this transaction a source, which the database guard allows
+		// even when it is also the target of an earlier merge (the event continues in the new target).
+		return result, MergeTargetError(err)
 	}
 	if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, cmd.TargetTransactionID); err != nil {
 		return result, err

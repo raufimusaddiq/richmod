@@ -169,8 +169,13 @@ func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeC
 		}
 		action = "CONFIRM_EVIDENCE_DISPUTE"
 	} else {
+		if protected, perr := ActiveMergeTarget(ctx, tx, cmd.HouseholdID, cmd.TransactionID); perr != nil {
+			return perr
+		} else if protected {
+			return ErrMergeTargetActive
+		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',voided_at=now(),updated_at=now() WHERE id=$1::uuid`, cmd.TransactionID); err != nil {
-			return err
+			return MergeTargetError(err)
 		}
 		if err = ResolveByID(ctx, tx, Command{HouseholdID: cmd.HouseholdID, ActorUserID: cmd.ActorUserID, ReviewItemID: cmd.ReviewItemID, RequestID: cmd.RequestID, SubjectID: cmd.TransactionID, Action: action}); err != nil {
 			return err
