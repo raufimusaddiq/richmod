@@ -12,15 +12,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// capturingGateway is a scripted conversational model that records every request
-// it was given, so a test can assert exactly what the model was shown.
 type capturingGateway struct {
 	requests []gateway.AgentRequest
 	script   []gateway.AgentResponse
 	err      error
-	// respond, when set, decides each response from what the model was shown, so a
-	// test can act on a ref the server issued this turn.
-	respond func(call int, request gateway.AgentRequest) gateway.AgentResponse
+	respond  func(call int, request gateway.AgentRequest) gateway.AgentResponse
 }
 
 func (*capturingGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -64,8 +60,6 @@ func (g *capturingGateway) toolNames(call int) map[string]bool {
 
 var turnCounter int64
 
-// runEvidenceTurn delivers one typed Telegram message through the real
-// ProcessAgent lane, as a new source event.
 func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixture, p *Processor, text string, replyTo int64) (string, error) {
 	t.Helper()
 	turnCounter++
@@ -81,8 +75,8 @@ func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixtur
 	mustAgentTest(t, err)
 	stamp := time.Now().UnixNano()
 	var sourceID string
-	// Production text intake never sets source_event.telegram_chat_id or telegram_message_id
-	// (only image intake does); keep the fixture faithful so no lane can depend on them.
+	// Production text intake never sets source_event.telegram_chat_id or telegram_message_id; keep the
+	// fixture faithful.
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`,
 		f.householdID, fmt.Sprintf("turn-%d-%d", stamp, turnCounter), []byte(fmt.Sprintf("turn-%d-%d", stamp, turnCounter))).Scan(&sourceID))
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
@@ -118,7 +112,6 @@ func TestTurnReplyToUploadShowsTheModelOnlyThatEvidence(t *testing.T) {
 	if turn["explicit_reply_unbound"] != nil || turn["evidence_ambiguous"] != nil || turn["recent_evidence"] != nil {
 		t.Fatalf("an exact reply carried unbound/ambiguity state: %v", turn)
 	}
-	// The user's own words stay data; the evidence is a separate, wrapped block.
 	if text, _ := turn["current_user_text"].(string); !strings.Contains(text, "<untrusted_user_message>makan</untrusted_user_message>") {
 		t.Fatalf("current_user_text = %q", text)
 	}
@@ -142,7 +135,6 @@ func TestTurnWithoutReplyBindsUniqueRecentEvidenceAsContextOnly(t *testing.T) {
 	if bound == nil || bound["binding"] != evidenceBindingImmediate {
 		t.Fatalf("bound_evidence = %v, want an IMMEDIATE binding", turn["bound_evidence"])
 	}
-	// Inferred binding is context: the tool catalog is the ordinary one.
 	if model.toolNames(0)["resolve_review"] {
 		t.Fatal("an inferred evidence binding exposed a review mutation tool")
 	}
@@ -228,12 +220,10 @@ func testNaturalCategoryReviewReply(t *testing.T, replyTo int64) {
 	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
 		t.Fatalf("the correction created a second transaction: %d -> %d", before, after)
 	}
-	// The reply itself is stored as text evidence; the receipt must stay linked once.
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1 AND evidence_type='RECEIPT_IMAGE'`, transactionID); n != 1 {
 		t.Fatalf("receipt evidence links = %d, want 1", n)
 	}
 
-	// Duplicate delivery of the same Telegram update is a no-op.
 	mustAgentTest(t, p.ProcessAgent(ctx, sourceID))
 	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
 		t.Fatalf("a replayed update changed the ledger: %d -> %d", before, after)
@@ -249,16 +239,14 @@ func TestModelFailureOnAnEvidenceTurnCreatesNoReviewAndNoTransaction(t *testing.
 
 	state := `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1)+(SELECT count(*) FROM review_item WHERE household_id=$1)`
 	before := countRows(t, ctx, f, state, f.householdID)
-	_, _ = runEvidenceTurn(t, ctx, f, p, "makan", 101) // a model failure is not human work
+	_, _ = runEvidenceTurn(t, ctx, f, p, "makan", 101)
 	if after := countRows(t, ctx, f, state, f.householdID); after != before {
 		t.Fatalf("a model failure changed ledger/review state: %d -> %d", before, after)
 	}
 }
 
-// The prompt asks the model not to record a second transaction for a document that
-// already has one. This proves the ledger, not the prompt: a model that records
-// the receipt's amount again anyway must not produce a second ledger row, while a
-// genuinely different purchase is left alone.
+// Proves the ledger, not the prompt, blocks a second row when the model re-records a document's amount; a
+// different purchase is left alone.
 func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -278,7 +266,6 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 			ctx := context.Background()
 			f := newAgentIntegrationFixture(t, "turn-dup-"+strings.ReplaceAll(c.name, " ", "-"))
 			a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
-			// A real receipt-created transaction carries its merchant.
 			_, err := f.pool.Exec(ctx, "UPDATE transaction SET counterparty_name='Mirota' WHERE id=$1", a.transactionID)
 			mustAgentTest(t, err)
 			if c.ageMinutes > 0 {
@@ -297,8 +284,6 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 			}}
 			p := evidenceTurnProcessor(f, model)
 
-			// The CEU guard itself only applies to fresh evidence: for an old receipt it
-			// stands down, and the existing same-merchant edit guard answers instead.
 			candidates, err := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, f.chatID)
 			mustAgentTest(t, err)
 			guard := p.evidenceAlreadyRecorded(ctx, f.householdID, freshEvidenceDocuments(candidates), "EXPENSE", "125000", fmt.Sprint(c.merchant))
@@ -315,8 +300,6 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 	}
 }
 
-// Only evidence from the immediate window counts as fresh for the duplicate
-// guard: an ordinary new expense typed long after an upload is not refused.
 func TestOnlyFreshEvidenceCountsForTheDuplicateGuard(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-fresh")
@@ -341,8 +324,6 @@ func TestOnlyFreshEvidenceCountsForTheDuplicateGuard(t *testing.T) {
 	}
 }
 
-// When the model call fails, the user must still be able to tell a refusal from a
-// recording (AGENTS.md: deterministic flows survive an unavailable model).
 func TestRefusedDuplicateHasADeterministicMessageThatIsNotTheGenericOne(t *testing.T) {
 	refused := agentMutationFallback(agentToolResult{Status: "ALREADY_RECORDED_FROM_EVIDENCE"})
 	generic := agentMutationFallback(agentToolResult{Status: "OK"})
@@ -351,9 +332,6 @@ func TestRefusedDuplicateHasADeterministicMessageThatIsNotTheGenericOne(t *testi
 	}
 }
 
-// The merchant match is bounded: whole words only, and the shorter name must
-// carry a distinctive word, so an unrelated merchant at the same price is not
-// refused as a duplicate.
 func TestMerchantEquivalenceIsBoundedToWholeDistinctiveWords(t *testing.T) {
 	words := func(s string) []string { return strings.Fields(strings.ToLower(s)) }
 	for _, c := range []struct {

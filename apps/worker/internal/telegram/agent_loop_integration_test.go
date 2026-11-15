@@ -12,11 +12,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Regression tests for the Telegram agent loop hardening (ADR-033/052/055
-// amendments, 2026-11). Each names the finding it pins.
-
-// lastReply is the newest conversational reply in the chat (review cards, which
-// are their own projection, are left out).
+// lastReply is the newest conversational reply in the chat, excluding review cards.
 func lastReply(t *testing.T, ctx context.Context, f agentIntegrationFixture) string {
 	t.Helper()
 	var text string
@@ -37,9 +33,6 @@ func seedCategory(t *testing.T, ctx context.Context, f agentIntegrationFixture, 
 	return id
 }
 
-// A5/A6/T7/A4: a clear record is one model call, the reply is deterministic and
-// shows merchant, category and date, the reply and the ASSISTANT turn commit
-// with the mutation, and the Indonesian "15.00" time is accepted.
 func TestRecordTurnIsOneModelCallWithADeterministicDetailedReply(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-record")
@@ -59,14 +52,11 @@ func TestRecordTurnIsOneModelCallWithADeterministicDetailedReply(t *testing.T) {
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM telegram_conversation_turn WHERE source_event_id=$1 AND role='ASSISTANT' AND message_text=$2`, sourceID, reply); n != 1 {
 		t.Fatalf("the reply must be stored once as the ASSISTANT turn, got %d", n)
 	}
-	// Item 13 / merchant learning: the typed merchant got the household identity.
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction t JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND m.normalized_name='Kopi Kenangan'`, f.householdID); n != 1 {
 		t.Fatalf("the typed merchant was not resolved to a merchant row (%d)", n)
 	}
 }
 
-// A6: a transaction left for review points at the card sent to this chat, not
-// at the Inbox.
 func TestNeedsReviewReplyPointsAtTheCardBelow(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-review-reply")
@@ -81,8 +71,6 @@ func TestNeedsReviewReplyPointsAtTheCardBelow(t *testing.T) {
 	}
 }
 
-// A2/A1: a failure reply is stored as a marked ASSISTANT turn, bookkeeping ref
-// rows never reach the model, and the memory window counts user exchanges.
 func TestMemoryKeepsFailuresAndSkipsBookkeepingRows(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-memory")
@@ -116,10 +104,6 @@ func TestMemoryKeepsFailuresAndSkipsBookkeepingRows(t *testing.T) {
 	}
 }
 
-// A3: with the gateway unreachable nothing is recorded from free text. The
-// message is kept, the household is told once that it was saved, the job is
-// deferred, and when the gateway is back the same message runs the normal
-// agent path.
 func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-defer")
@@ -133,7 +117,6 @@ func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 		t.Fatalf("a deferral must never become terminal by attempts: %v", permanent)
 	}
 	mustAgentTest(t, func() error {
-		// The worker retries the same event later; the outage continues.
 		err := NewProcessor(f.pool, down).ProcessAgent(ctx, sourceID)
 		if !IsGatewayDeferral(err) {
 			return fmt.Errorf("second attempt: %v", err)
@@ -151,7 +134,6 @@ func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 	if status != "RECEIVED" {
 		t.Fatalf("a deferred message stays unprocessed, got %s", status)
 	}
-	// The gateway is back: the deferred message is processed normally.
 	up := &capturingGateway{script: []gateway.AgentResponse{{ToolCalls: []gateway.ToolCall{recordCall("r1", kopiRecordArgs)}}}}
 	mustAgentTest(t, NewProcessor(f.pool, up).ProcessAgent(ctx, sourceID))
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND counterparty_name='Kopi Kenangan' AND status='CONFIRMED'`, f.householdID); n != 1 {
@@ -169,7 +151,6 @@ func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 	}
 }
 
-// A3: a message waits at most a day; then it fails with an honest notice.
 func TestGatewayOutageGivesUpAfterADay(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-defer-giveup")
@@ -194,8 +175,6 @@ func TestGatewayOutageGivesUpAfterADay(t *testing.T) {
 	}
 }
 
-// A3: an outage while a typed answer is bound to a review card creates nothing
-// and leaves the card open; the answer is applied when the gateway is back.
 func TestGatewayOutageWithABoundCardCreatesNothing(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-defer-card")
@@ -214,8 +193,6 @@ func TestGatewayOutageWithABoundCardCreatesNothing(t *testing.T) {
 	}
 }
 
-// A4: periods Go cannot serve are tool results the model can act on, never a
-// failed job.
 func TestUnservablePeriodsAreRecoverableReadResults(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-periods")
@@ -235,7 +212,6 @@ func TestUnservablePeriodsAreRecoverableReadResults(t *testing.T) {
 	}
 }
 
-// A4: date/time shape errors are argument errors (ADR-055 repair), not job errors.
 func TestValidateCreateCoversDateAndTimeRules(t *testing.T) {
 	base := createArgs{Type: "EXPENSE", Amount: "1000"}
 	ok := base
@@ -259,8 +235,6 @@ func TestValidateCreateCoversDateAndTimeRules(t *testing.T) {
 	}
 }
 
-// A7: amount and merchant corrections apply only to self-entered transactions,
-// through the confirmation token, audited; source-backed ones are refused.
 func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-correct")
@@ -307,8 +281,6 @@ func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
 	}
 }
 
-// A8a: an unrelated question while a batch is pending is a normal turn: the
-// model answers it and the batch stays pending, with one merged batch tool.
 func TestPendingBatchDoesNotSwallowAnUnrelatedQuestion(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-batch-unrelated")
@@ -326,8 +298,6 @@ func TestPendingBatchDoesNotSwallowAnUnrelatedQuestion(t *testing.T) {
 	}
 }
 
-// A8b: a reply to an ordinary bot message gets the general catalog; a reply to
-// a closed review card stays narrowed and the model is told why.
 func TestExplicitReplyToANonWorkflowMessageIsAnOrdinaryTurn(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-reply-general")
@@ -349,10 +319,6 @@ func TestExplicitReplyToANonWorkflowMessageIsAnOrdinaryTurn(t *testing.T) {
 	}
 }
 
-// R5: binding a typed answer is deterministic. One category card plus a category
-// name binds; an expense text does not; two category cards ask with buttons
-// and the tap resolves the chosen card without any model call; expired cards
-// do not count.
 func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-cards")
@@ -410,8 +376,6 @@ func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
 	}
 }
 
-// T7: a turn whose mutation committed but whose answer was lost is answered on
-// retry, once, from the stored side-effect result.
 func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-recover")
@@ -436,9 +400,6 @@ func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
 	}
 }
 
-// Item 13: a confirmed batch records categorized items, routes a category-less
-// item to review with a card, shows a likely duplicate before confirmation, and
-// resolves merchants.
 func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-batch")
@@ -478,8 +439,7 @@ func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
 	}
 }
 
-// Item 14: the resolve_review residual audit statement prepares with every
-// parameter typed. The old statement fails exactly as production did.
+// The resolve_review audit statement must prepare with every parameter typed; the untyped one failed in production.
 func TestCycleResidualAuditStatementIsTyped(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-42p18")
@@ -499,8 +459,6 @@ func TestCycleResidualAuditStatementIsTyped(t *testing.T) {
 	}
 }
 
-// Item 16: an identical repeated read runs once; the final phase answers from
-// what was gathered instead of a fixed "one part at a time" refusal.
 func TestRepeatedReadsRunOnceAndTheLastPhaseAnswers(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-reads")
@@ -525,7 +483,6 @@ func TestRepeatedReadsRunOnceAndTheLastPhaseAnswers(t *testing.T) {
 	}
 }
 
-// Item 16: recent transactions list the member's own entries first.
 func TestRecentTransactionsPreferTheMembersOwnEntries(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-recent")

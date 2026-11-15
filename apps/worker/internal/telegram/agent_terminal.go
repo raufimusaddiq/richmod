@@ -12,11 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Typed-message failure classes. Each has its own terminal copy, because the
-// household acts differently on each: a slow assistant is worth a retry soon, an
-// unreachable one is waited for (the message is deferred, then given up after a
-// day), and a system fault is never the household's wording. Every copy says nothing was
-// recorded: the terminal step only runs for an event no mutation finalized.
+// Typed-message failure classes each get their own terminal copy because the household acts differently on each.
+// Every copy says nothing was recorded: the terminal step only runs for events no mutation finalized.
 type textFailureClass string
 
 const (
@@ -41,16 +38,13 @@ func terminalTextFailureCopy(class textFailureClass) (message, reason string) {
 	return terminalTextErrorMessage, "ERROR"
 }
 
-// errModelPhase marks a failure of the conversational model call. runAgentLoop
-// wraps it, so the retry rule keys on this value and not on message text.
+// errModelPhase marks a conversational model call failure; the retry rule keys on it, not on message text.
 var errModelPhase = errors.New("conversational model phase")
 
-// errConversationalGatewayMissing is a processor wired without a conversational
-// gateway; it is unavailability, not a bug in the household's message.
+// errConversationalGatewayMissing marks a processor without a conversational gateway: unavailability, not a
+// bug in the message.
 var errConversationalGatewayMissing = &gateway.UnavailableError{Err: errors.New("conversational gateway unavailable")}
 
-// IsModelTimeout reports whether a typed-message failure was the conversational
-// model call running out of time.
 func IsModelTimeout(err error) bool {
 	if err == nil || !errors.Is(err, errModelPhase) {
 		return false
@@ -58,8 +52,7 @@ func IsModelTimeout(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded")
 }
 
-// IsGatewayUnavailable reports whether a typed-message failure was the AI
-// gateway being unreachable, unconfigured, or refusing work (HTTP 408/429/5xx).
+// IsGatewayUnavailable covers an unreachable, unconfigured, or refusing (HTTP 408/429/5xx) AI gateway.
 func IsGatewayUnavailable(err error) bool {
 	return err != nil && gateway.IsUnavailable(err)
 }
@@ -74,27 +67,12 @@ func classifyTextFailure(err error) textFailureClass {
 	return textFailureError
 }
 
-// MaxGatewayUnavailableAttempts bounds retries of an unavailability that was
-// not deferred (it happened after the turn wrote something, or the deferral
-// window ended): one quick retry, then the terminal notice.
+// MaxGatewayUnavailableAttempts bounds retries of an undeferred unavailability: one quick retry, then the
+// terminal notice.
 const MaxGatewayUnavailableAttempts = 2
 
-// TextFailurePolicy is the retry taxonomy for one failed PROCESS_TELEGRAM_TEXT
-// attempt. It returns err unchanged when the queue may retry it, or wrapped as
-// terminal when it must not:
-//
-//   - a model timeout is retried once (MaxModelTimeoutAttempts);
-//   - an unreachable gateway before anything was written is not a failure at
-//     all: ProcessAgent returns a GatewayDeferral and the worker defers the job
-//     (queue.Defer) without spending attempts, for up to a day;
-//   - any other unavailability is retried once (MaxGatewayUnavailableAttempts);
-//   - a gateway rejection (HTTP 4xx) and a permanent validation failure are
-//     never retried: the same request fails the same way;
-//   - anything else (database, network to Postgres) is transient and keeps the
-//     job's normal attempt budget.
-//
-// Model-recoverable failures never reach here: they are returned to the model
-// as tool results inside the turn (agentRecoverable).
+// TextFailurePolicy classifies a failed PROCESS_TELEGRAM_TEXT attempt: an unreachable gateway before any
+// write is deferred (up to a day), else timeouts retry once and permanent failures are terminal.
 func TextFailurePolicy(err error, attempts int) error {
 	if err == nil || IsGatewayDeferral(err) {
 		return err
@@ -108,15 +86,13 @@ func TextFailurePolicy(err error, attempts int) error {
 	return err
 }
 
-// terminalError marks a failure the queue must not retry. The queue treats any
-// error with Permanent() == true as final.
+// terminalError marks a failure the queue must not retry (Permanent() == true).
 type terminalError struct{ err error }
 
 func (e terminalError) Error() string   { return e.err.Error() }
 func (e terminalError) Unwrap() error   { return e.err }
 func (e terminalError) Permanent() bool { return true }
 
-// TerminalError wraps err so the queue stops retrying it.
 func TerminalError(err error) error {
 	if err == nil {
 		return nil
@@ -124,14 +100,8 @@ func TerminalError(err error) error {
 	return terminalError{err: err}
 }
 
-// TerminalTextFailureTx runs inside the transaction that marks a typed-message
-// job FAILED, so the household cannot be left without an answer: either both
-// happen or neither does. If the message is still unanswered it marks the
-// source event FAILED and queues one plain reply; if the event already reached a
-// final state (answered, ignored, sent to review) it does nothing.
-//
-// It only issues statements that cannot abort the transaction: a malformed ID or
-// a missing event is a no-op, never an SQL error.
+// TerminalTextFailureTx runs in the transaction marking the job FAILED: an unanswered message gets its source
+// event FAILED and one plain reply. It only issues statements that cannot abort the transaction.
 func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string, cause error) error {
 	if !reviewdomain.IsSourceEventID(sourceEventID) {
 		return nil
@@ -151,8 +121,7 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	if err := json.Unmarshal([]byte(payloadText), &update); err != nil || update.Message.Chat.ID == 0 {
 		return nil
 	}
-	// Claim the event: only a message nobody has answered gets the notice, and
-	// two workers cannot both send it.
+	// Claim the event: only an unanswered message gets the notice, and two workers cannot both send it.
 	var claimed string
 	err = tx.QueryRow(ctx, `UPDATE source_event SET processing_status='FAILED' WHERE id=$1 AND processing_status IN ('RECEIVED','PROCESSING') RETURNING id::text`, sourceEventID).Scan(&claimed)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -161,35 +130,28 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	if err != nil {
 		return err
 	}
-	// Unconditional on purpose: an earlier progress notice must never suppress the
-	// failure notice (the household would be left with "still working" and then
-	// nothing). Only the progress notice checks for existing replies.
+	// Unconditional on purpose: an earlier progress notice must never suppress the failure notice.
 	message, reason := terminalTextFailureCopy(classifyTextFailure(cause))
 	if err := enqueueReply(ctx, tx, update, message); err != nil {
 		return err
 	}
-	// The failure is part of the conversation: without it the next turn would see
-	// an unanswered question and might answer or act on it again.
+	// Part of the conversation: otherwise the next turn sees an unanswered question and may act on it again.
 	if err := insertTurnTx(ctx, tx, householdID, sourceEventID, update, "ASSISTANT", message, "", map[string]any{
 		"failure": reason, "nothing_recorded": true,
 	}); err != nil {
 		return err
 	}
-	// Leave a dismissable record in the Inbox, so the failure is visible after
-	// the chat scrolls away and analytics has somewhere honest to point.
+	// Leave a dismissable Inbox record so the failure stays visible after the chat scrolls.
 	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
 		HouseholdID: householdID, SourceEventID: sourceEventID, SourceType: "TELEGRAM_TEXT", Reason: reason,
 	})
 }
 
-// terminalCallbackFailureMessage is what the household sees when a button tap
-// could not be processed. It says what happened and what to do.
+// terminalCallbackFailureMessage is what the household sees when a button tap could not be processed.
 const terminalCallbackFailureMessage = "Tombol ini belum bisa diproses. Coba tekan lagi, ya, atau lanjutkan dari Kotak Tinjauan di web."
 
-// TerminalCallbackFailureTx runs inside the transaction that marks a button-tap
-// job FAILED. A tap that is still unfinished is finalized as FAILED, the
-// household is told, the dead buttons are retired, and a dismissable item is left
-// in the Inbox; a tap that already reached a final state is left alone.
+// TerminalCallbackFailureTx runs when a button-tap job is marked FAILED: finalizes the tap, notifies the
+// household, retires dead buttons and leaves an Inbox item. A tap already final is left alone.
 func (p *Processor) TerminalCallbackFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
 	if !reviewdomain.IsSourceEventID(sourceEventID) {
 		return nil
@@ -209,8 +171,7 @@ func (p *Processor) TerminalCallbackFailureTx(ctx context.Context, tx pgx.Tx, so
 	if err := json.Unmarshal([]byte(payloadText), &update); err != nil || update.CallbackQuery == nil || update.CallbackQuery.Message.Chat.ID == 0 {
 		return nil
 	}
-	// A callback carries its chat and message on the callback query; Process
-	// copies them onto the message the same way before replying.
+	// A callback carries chat and message on the callback query; Process copies them onto the message before replying.
 	update.Message.MessageID = update.CallbackQuery.Message.MessageID
 	update.Message.Chat.ID = update.CallbackQuery.Message.Chat.ID
 	update.Message.From.ID = update.CallbackQuery.From.ID

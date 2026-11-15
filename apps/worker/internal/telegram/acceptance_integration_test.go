@@ -168,13 +168,10 @@ func TestTelegramComplexClearExtractionConfirmsWithOneAgentCall(t *testing.T) {
 	runIR04ComplexTransaction(t, "food-drink", "CONFIRMED", nil)
 }
 
-// With no accepted category the transaction is parked, never guessed: Go records
-// the unresolved dimension and the transaction waits for review.
 func TestTelegramCategoryResidualParksTransactionForReview(t *testing.T) {
 	runIR04ComplexTransaction(t, "", "NEEDS_REVIEW", []string{"category"})
 }
 
-// A real open review must survive a new expense in the same chat.
 func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -204,7 +201,6 @@ func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	}
 }
 
-// An exact reply to a category review resolves that review only.
 func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

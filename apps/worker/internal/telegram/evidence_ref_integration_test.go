@@ -20,8 +20,6 @@ type evidenceSeedOptions struct {
 	messageID                 int64
 }
 
-// seedEvidence creates one Telegram image document the way the real intake does,
-// with an optional proposal, linked transaction and open review.
 func seedEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, label string, o evidenceSeedOptions) evidenceSeed {
 	t.Helper()
 	var s evidenceSeed
@@ -73,7 +71,6 @@ func TestEvidenceRefsIssueResolveAndAreIdempotent(t *testing.T) {
 	docs := []canonicalDocumentID{canonicalDocumentID(a.documentID), canonicalDocumentID(b.documentID)}
 	first, err := p.issueEvidenceRefs(ctx, f.householdID, f.sourceID, f.update, docs)
 	mustAgentTest(t, err)
-	// Duplicate delivery / worker retry / stale lease re-run the same issuance.
 	second, err := p.issueEvidenceRefs(ctx, f.householdID, f.sourceID, f.update, docs)
 	mustAgentTest(t, err)
 	if len(first) != 2 || fmt.Sprint(first) != fmt.Sprint(second) || first[0] == first[1] {
@@ -93,7 +90,6 @@ func TestEvidenceRefsIssueResolveAndAreIdempotent(t *testing.T) {
 			t.Fatalf("resolve %s = %q/%s, want document %s", first[index], got, outcome, want)
 		}
 	}
-	// Issuing evidence refs creates no financial state.
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); n != 0 {
 		t.Fatalf("issuing refs created %d transactions", n)
 	}
@@ -156,7 +152,6 @@ func TestEvidenceRefRejectsOtherHouseholdUserAndChat(t *testing.T) {
 			t.Fatalf("%s: resolved %q/%s, want REFERENCE_INVALID and no document", name, got, outcome)
 		}
 	}
-	// A correctly scoped caller still resolves it.
 	got, outcome, err := p.resolveEvidenceRef(ctx, owner.householdID, owner.sourceID, owner.update, refs[0])
 	mustAgentTest(t, err)
 	if outcome != ceuResolved || string(got) != a.documentID {
@@ -173,10 +168,10 @@ func TestForgedWrongTypeAndMalformedEvidenceRefsAreInvalid(t *testing.T) {
 	mustAgentTest(t, err)
 
 	for _, ref := range []evidenceRef{
-		"a00000000_p0r0_ev1",       // well-formed but never issued
-		evidenceRef(txRefs[0].Ref), // a real transaction ref used as evidence
-		evidenceRef(a.documentID),  // a canonical id passed as an argument
-		evidenceRef(a.sourceID),    // another canonical id
+		"a00000000_p0r0_ev1", // well-formed but never issued
+		evidenceRef(txRefs[0].Ref),
+		evidenceRef(a.documentID), // a canonical id passed as an argument
+		evidenceRef(a.sourceID),   // another canonical id
 		"ev_1", "category.3", "", "'; DROP TABLE document;--",
 		evidenceRef(strings.Repeat("a", 200)),
 	} {
@@ -209,7 +204,6 @@ func TestFailedOrMissingEvidenceIsStaleOrNotFound(t *testing.T) {
 		t.Fatalf("failed document outcome = %s, want EVIDENCE_STALE", outcome)
 	}
 
-	// A ref whose document does not exist in this household.
 	missing := "00000000-0000-0000-0000-00000000dead"
 	refs, err = p.issueEvidenceRefs(ctx, f.householdID, f.sourceID, f.update, []canonicalDocumentID{canonicalDocumentID(missing)})
 	mustAgentTest(t, err)
@@ -259,7 +253,6 @@ func TestEvidenceContextIsModelSafeAndKeepsProvenanceSeparate(t *testing.T) {
 	if missing, _ := workflow["missing"].([]string); len(missing) != 1 || missing[0] != "transaction_at" {
 		t.Fatalf("workflow.missing = %v, want only transaction_at", workflow["missing"])
 	}
-	// The refs in the package resolve back server-side to the seeded rows.
 	ref, _ := pkg["evidence_ref"].(string)
 	got, outcome, err := p.resolveEvidenceRef(ctx, f.householdID, f.sourceID, f.update, evidenceRef(ref))
 	mustAgentTest(t, err)
@@ -293,7 +286,6 @@ func TestEvidenceContextWrapsAndDefangsHostileEvidenceText(t *testing.T) {
 			t.Fatalf("%s: forged closing tag survived: %q", name, value)
 		}
 	}
-	// Hostile text is data: it creates no state and no tool is involved.
 	if n := countRows(t, ctx, f, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1)+(SELECT count(*) FROM review_item WHERE household_id=$1)`, f.householdID); n != 0 {
 		t.Fatalf("building context for hostile evidence created %d rows", n)
 	}
@@ -306,7 +298,6 @@ func TestEvidenceLinkedTransactionRefsDoNotCollide(t *testing.T) {
 	b := seedEvidence(t, ctx, f, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan", linkTransaction: true})
 	p := NewProcessor(f.pool, nil)
 
-	// recentAgentTransactions already issued phase-0 refs for this source event.
 	if _, err := p.recentAgentTransactions(ctx, f.householdID, f.sourceID, f.update); err != nil {
 		t.Fatal(err)
 	}

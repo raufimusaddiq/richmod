@@ -19,12 +19,8 @@ func reviewDetailMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
 
-// duplicateChoicesMarkup renders one button per stored duplicate candidate. The
-// candidate transaction IDs never travel through Telegram. The callback carries
-// the list position, and the server-owned ordered candidate list stored with the
-// projection on the first render resolves it. Candidate IDs are revalidated by
-// the shared merge operation, so a stale or retargeted button cannot select a
-// different canonical transaction.
+// duplicateChoicesMarkup renders one button per stored candidate; callbacks carry only the list position, and
+// the shared merge revalidates IDs so a stale button cannot select another transaction.
 func duplicateChoicesMarkup(candidates []string, amounts []string) *InlineKeyboardMarkup {
 	keyboard := make([][]InlineKeyboardButton, 0, len(candidates)+1)
 	for index := range candidates {
@@ -41,8 +37,6 @@ func duplicateChoicesMarkup(candidates []string, amounts []string) *InlineKeyboa
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
-// renderDuplicateChoices writes the candidate buttons and persists the ordered
-// candidate list the callbacks resolve against.
 func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
 	candidateIDs, markup, err := duplicateCandidateChoices(ctx, tx, householdID, transactionID)
 	if err != nil {
@@ -69,10 +63,8 @@ func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, house
 	return enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, text, markup)
 }
 
-// duplicateCandidateChoices finds the confirmed transactions a reviewed
-// transaction may repeat and returns their ordered IDs with one merge button per
-// candidate. The IDs never travel through Telegram: a button carries only its
-// position in the list stored on the review conversation.
+// Finds confirmed transactions a reviewed transaction may repeat; IDs never travel through Telegram, buttons
+// carry only the list position.
 func duplicateCandidateChoices(ctx context.Context, tx pgx.Tx, householdID, transactionID string) ([]string, *InlineKeyboardMarkup, error) {
 	var sourceType, sourceCurrency, sourceAmount string
 	var sourceAt time.Time
@@ -88,14 +80,13 @@ func duplicateCandidateChoices(ctx context.Context, tx pgx.Tx, householdID, tran
 		candidateIDs = append(candidateIDs, candidate.ID)
 		candidateAmounts = append(candidateAmounts, candidate.Amount)
 	}
-	// ponytail: one page of up to 9 candidates; page the list when a review can
-	// legitimately carry more (the API caps financial-email candidates at 10).
+	// One page of up to 9 candidates; page the list when a review can carry more (the API caps financial-
+	// email candidates at 10).
 	return candidateIDs, duplicateChoicesMarkup(candidateIDs, candidateAmounts), nil
 }
 
-// projectDuplicateChoices is the duplicate card markup at send time: it stores the
-// candidates the merge buttons resolve against. A review without a transaction, or
-// with no candidate left, offers only the record-as-new and dismiss intents.
+// The duplicate card markup at send time; with no transaction or no candidate left it offers only record-as-
+// new and dismiss.
 func projectDuplicateChoices(ctx context.Context, tx pgx.Tx, reviewID string) (*InlineKeyboardMarkup, error) {
 	var householdID, transactionID string
 	if err := tx.QueryRow(ctx, `SELECT household_id::text,COALESCE(transaction_id::text,'') FROM review_request WHERE id=$1`, reviewID).Scan(&householdID, &transactionID); err != nil {
@@ -121,10 +112,8 @@ func projectDuplicateChoices(ctx context.Context, tx pgx.Tx, reviewID string) (*
 	return markup, nil
 }
 
-// transactionConfirmableWithoutCategory reports whether the shared confirm rule
-// accepts this transaction with no category. An uncategorized EXPENSE needs a
-// category, so a date-only save must continue to the chooser instead of trying to
-// confirm and failing the expense-category invariant.
+// An uncategorized EXPENSE needs a category, so a date-only save must continue to the chooser instead of
+// failing the expense-category invariant.
 func (p *Processor) transactionConfirmableWithoutCategory(ctx context.Context, tx pgx.Tx, transactionID string) bool {
 	var kind string
 	var categoryID *string
@@ -134,9 +123,8 @@ func (p *Processor) transactionConfirmableWithoutCategory(ctx context.Context, t
 	return kind != "EXPENSE" || categoryID != nil
 }
 
-// reviewNeedsCategory reports whether the stored decision still lists category as
-// an unresolved fact, so a field save only continues to the chooser when the
-// decision actually asked for a category.
+// reviewNeedsCategory reports whether the decision still lists category as unresolved, so a field save
+// continues to the chooser only when asked.
 func reviewNeedsCategory(ctx context.Context, tx pgx.Tx, reviewID string) bool {
 	var decision []byte
 	if err := tx.QueryRow(ctx, `SELECT ri.decision FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, reviewID).Scan(&decision); err != nil {
@@ -151,23 +139,18 @@ func reviewNeedsCategory(ctx context.Context, tx pgx.Tx, reviewID string) bool {
 	return contains(stored.MissingFacts, "category")
 }
 
-// duplicateCandidate is one confirmed transaction that a possible duplicate may
-// merge into.
 type duplicateCandidate struct {
 	ID, Amount, Merchant string
 	At                   time.Time
 }
 
-// duplicateCandidateRows is the single source of duplicate candidates: the
-// Telegram callback flow, and the conversational evidence flow, read the same
-// rows in the same order. Same type, currency and amount within 72 hours, nearest
-// first, at most nine.
+// Single source of candidates for the callback and evidence flows: same type, currency and amount within 72
+// hours, nearest first, at most nine.
 func duplicateCandidateRows(ctx context.Context, q interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }, householdID, transactionID, sourceType, sourceCurrency, sourceAmount string, sourceAt time.Time) ([]duplicateCandidate, error) {
-	// One query: the window rule plus, for a reprocessed document, the
-	// transactions it was already linked to (carried in the review decision),
-	// which are offered first even after amount or date drifted.
+	// The window rule plus a reprocessed document's already-linked transactions (from the review decision),
+	// offered first even after drift.
 	rows, err := q.Query(ctx, `WITH prior AS (SELECT jsonb_array_elements_text(ri.decision->'knownFacts'->'prior_match_transaction_ids') AS id FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array')
 		SELECT t.id::text,t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),t.transaction_at FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND (t.status='CONFIRMED' OR (t.status='NEEDS_REVIEW' AND t.id::text IN (SELECT id FROM prior))) AND ((t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours') OR (t.type=$3 AND t.currency=$4 AND t.id::text IN (SELECT id FROM prior))) ORDER BY (t.id::text IN (SELECT id FROM prior)) DESC,abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 9`, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
 	if err != nil {

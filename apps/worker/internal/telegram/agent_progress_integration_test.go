@@ -11,9 +11,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 )
 
-// The progress notice is a reply to the user's message. It must be sent once
-// per message, never after an answer already exists, and never for another
-// message's turn.
 func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -40,7 +37,6 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 		return count
 	}
 
-	// First call queues the notice; a retry of the same turn does not repeat it.
 	if err := processor.enqueueProgressNotice(f.ctx, update(11), progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +47,6 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 		t.Fatalf("the notice must be queued once per message, got %d", got)
 	}
 
-	// A different message gets its own notice.
 	if err := processor.enqueueProgressNotice(f.ctx, update(12), progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +54,6 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 		t.Fatalf("each message gets its own notice, got %d", got)
 	}
 
-	// If the answer is already queued, the notice must not land after it.
 	if _, err := f.pool.Exec(f.ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',13::bigint,'text','jawaban'))`, f.chatID); err != nil {
 		t.Fatal(err)
 	}
@@ -73,16 +67,12 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 		t.Fatalf("only the answer should exist for that message, got %d replies", got)
 	}
 
-	// Nothing to reply to: a no-op, not an error.
 	var empty telegramUpdate
 	if err := processor.enqueueProgressNotice(f.ctx, empty, progressNoticeMessage); err != nil {
 		t.Fatalf("a message without a chat must be a no-op, got %v", err)
 	}
 }
 
-// A progress notice that was already sent must never swallow the terminal
-// failure notice: the household would be left with "still working" and then
-// nothing.
 func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -115,8 +105,6 @@ func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
 	}
 }
 
-// The notice's existence check is bounded: a reply to the same message that is
-// older than the lookback does not suppress it.
 func TestProgressNoticeIgnoresRepliesOlderThanTheLookback(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -160,8 +148,6 @@ func (f *terminalFixture) failedSourceItems(eventID string) (count int, sourceTy
 	return count, sourceType
 }
 
-// A button tap that dies must say so, retire its dead buttons, and leave a
-// dismissable item, all in the transaction that fails the job.
 func TestDeadButtonTapIsFinalizedAnnouncedAndRecorded(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -193,7 +179,6 @@ func TestDeadButtonTapIsFinalizedAnnouncedAndRecorded(t *testing.T) {
 		t.Fatalf("expected one dismissable item, got %d (%s)", count, kind)
 	}
 
-	// A replay must not announce again, and a tap that finished is left alone.
 	if err := replayCallbackFailure(f, processor, event); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +200,6 @@ func TestDeadButtonTapIsFinalizedAnnouncedAndRecorded(t *testing.T) {
 	}
 }
 
-// A dead typed message also leaves a dismissable item, in the same transaction.
 func TestDeadTypedMessageLeavesADismissableItem(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)

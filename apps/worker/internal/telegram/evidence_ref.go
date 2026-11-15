@@ -14,41 +14,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// CEU reference lifetime classes (ADR-050). They are distinct types so the
-// compiler, not convention, keeps them apart:
-//
-//   - turn-local refs (analytics "category.3") live in one model turn and are
-//     never stored or replayed; they have no type here because nothing in the CEU
-//     path may carry one;
-//   - evidenceRef is cross-turn and bounded: opaque, server-issued, household +
-//     Telegram user + chat scoped, expiring, resolved only by Go;
-//   - canonicalDocumentID is a database identity. It is server-only: it is never
-//     placed in a model-visible payload and never accepted as a model argument.
-//
-// Only resolveEvidenceRef turns an evidenceRef into a canonicalDocumentID.
+// evidenceRef is opaque, server-issued and scoped to household, user and chat (ADR-050).
+// canonicalDocumentID is server-only and never model-visible; only resolveEvidenceRef maps one to the other.
 type evidenceRef string
 
 type canonicalDocumentID string
 
 const (
-	// evidenceRefTTL matches the transaction ref lifetime.
-	evidenceRefTTL = 60 * time.Minute
-	// maxEvidenceItems bounds how much evidence one turn's context carries.
+	evidenceRefTTL   = 60 * time.Minute
 	maxEvidenceItems = 5
-	// evidenceRefPhase is the phase slot evidence refs use; the "_ev" suffix keeps
-	// the key space disjoint from transaction refs ("_tx").
+	// The "_ev" suffix keeps the key space disjoint from transaction refs ("_tx").
 	evidenceRefPhase = "p0r0"
-	// evidenceLinkedTxPhase scopes the transaction refs issued for evidence-linked
-	// transactions. recentAgentTransactions already owns p0r0_tx<n> for the same
-	// source event; sharing it would let a later turn silently re-point an earlier
-	// ref. Read phases are bounded by MaxModelPhases, so p9 can never collide.
+	// Separate phase because recentAgentTransactions owns p0r0_tx<n> for the same source event and sharing it
+	// could re-point an earlier ref; p9 cannot collide (MaxModelPhases).
 	evidenceLinkedTxPhase = "p9r0"
 )
 
 var evidenceRefPattern = regexp.MustCompile(`^a[0-9a-f]{8}_p[0-9]+r[0-9]+_ev[0-9]+$`)
 
-// ceuOutcome is a bounded, allow-listed telemetry action. It never carries text,
-// values, or identifiers.
+// Allow-listed telemetry action; never carries text, values or identifiers.
 type ceuOutcome string
 
 const (
@@ -62,9 +46,7 @@ const (
 	ceuReferenceInvalid      ceuOutcome = "REFERENCE_INVALID"
 	ceuEvidenceNotFound      ceuOutcome = "EVIDENCE_NOT_FOUND"
 	ceuEvidenceStale         ceuOutcome = "EVIDENCE_STALE"
-	// ceuResolved is a successful resolution. It is not a telemetry action: the
-	// binding level that used it is what gets counted.
-	ceuResolved ceuOutcome = "RESOLVED"
+	ceuResolved              ceuOutcome = "RESOLVED"
 )
 
 var ceuTelemetryOutcomes = map[ceuOutcome]bool{
@@ -73,8 +55,7 @@ var ceuTelemetryOutcomes = map[ceuOutcome]bool{
 	ceuReferenceExpired: true, ceuReferenceInvalid: true, ceuEvidenceNotFound: true, ceuEvidenceStale: true,
 }
 
-// recordCEUOutcome stores one bounded counter row. It is best-effort and never
-// fails a turn: telemetry must not change financial behavior.
+// Best-effort: telemetry must not change financial behavior.
 func (p *Processor) recordCEUOutcome(ctx context.Context, householdID, sourceEventID string, outcome ceuOutcome) {
 	if p.pool == nil || !ceuTelemetryOutcomes[outcome] {
 		return
@@ -83,20 +64,14 @@ func (p *Processor) recordCEUOutcome(ctx context.Context, householdID, sourceEve
 		VALUES($1,NULLIF($2,'')::uuid,'CEU_BINDING',$3)`, householdID, sourceEventID, string(outcome))
 }
 
-// evidenceRefKey is the deterministic key for one document within one turn's
-// scope. It depends only on the issuing source event and the document, never on
-// position or call order, so loading a different set of documents later in the
-// same turn can never re-point a ref the model already holds.
+// Depends only on the source event and document, never position, so loading more documents later in a turn
+// cannot re-point a held ref.
 func evidenceRefKey(prefix string, document canonicalDocumentID) string {
 	sum := sha256.Sum256([]byte(document))
 	return prefix + "_ev" + strconv.FormatUint(binary.BigEndian.Uint64(sum[:8]), 10)
 }
 
-// issueEvidenceRefs persists opaque refs for the given documents and returns them
-// in input order. It is idempotent: a retried or duplicate-delivered turn reuses
-// the same TOOL turn and re-upserts the same keys, so it never multiplies rows or
-// re-points a ref. A ref is keyed by the issuing source event and the document, so
-// the same inputs always produce the same refs.
+// Idempotent: a retried turn reuses the same TOOL turn and re-upserts the same keys.
 func (p *Processor) issueEvidenceRefs(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, documents []canonicalDocumentID) ([]evidenceRef, error) {
 	if len(documents) == 0 {
 		return nil, nil
@@ -128,8 +103,6 @@ func issueEvidenceRefsTx(ctx context.Context, tx pgx.Tx, householdID, sourceEven
 		refs[index] = evidenceRef(keys[index])
 	}
 	encoded, _ := json.Marshal(keys)
-	// Serialize concurrent issuers for the same source event, then reuse its one
-	// evidence TOOL turn.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, "telegram_evidence_refs:"+sourceEventID); err != nil {
 		return nil, err
 	}
@@ -151,10 +124,8 @@ func issueEvidenceRefsTx(ctx context.Context, tx pgx.Tx, householdID, sourceEven
 	return refs, nil
 }
 
-// resolveEvidenceRef is the only place an evidenceRef becomes a canonical id. It
-// re-checks household, Telegram user, chat, expiry, and the current state of the
-// document, and returns a bounded outcome instead of ever falling back to "the
-// most recent evidence". Non-resolved outcomes are counted.
+// Re-checks scope, expiry and document state; returns a bounded outcome and never falls back to "the most
+// recent evidence".
 func (p *Processor) resolveEvidenceRef(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, ref evidenceRef) (canonicalDocumentID, ceuOutcome, error) {
 	outcome := func(value ceuOutcome) (canonicalDocumentID, ceuOutcome, error) {
 		p.recordCEUOutcome(ctx, householdID, sourceEventID, value)
@@ -172,8 +143,7 @@ func (p *Processor) resolveEvidenceRef(ctx context.Context, householdID, sourceE
 		ORDER BY t.created_at DESC LIMIT 1`,
 		householdID, update.Message.From.ID, update.Message.Chat.ID, string(ref)).Scan(&documentID, &live)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Unknown, or issued to another household, user or chat: indistinguishable
-		// on purpose, so a probe learns nothing about other scopes.
+		// Indistinguishable on purpose, so a probe learns nothing about other scopes.
 		return outcome(ceuReferenceInvalid)
 	}
 	if err != nil {
@@ -190,7 +160,6 @@ func (p *Processor) resolveEvidenceRef(ctx context.Context, householdID, sourceE
 	if err != nil {
 		return "", "", fmt.Errorf("check evidence state: %w", err)
 	}
-	// A document whose processing failed has nothing for a conversation to act on.
 	if status == "FAILED" {
 		return outcome(ceuEvidenceStale)
 	}

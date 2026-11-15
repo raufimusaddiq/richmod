@@ -4,9 +4,8 @@ import (
 	"testing"
 )
 
-// The ambiguity claim is inverted: only an extraction that is affirmatively
-// complete and unambiguous opens the auto-confirm path, and an exact
-// deterministic merchant-category match is exempt because it never asked.
+// Only an affirmatively complete, unambiguous extraction opens auto-confirm; an exact merchant-category match
+// is exempt because it never asked.
 func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
 	decided := TransactionSemanticDecision{
 		RouteAccepted: true, TransactionType: "EXPENSE", TypeAccepted: true,
@@ -30,8 +29,7 @@ func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
 	}
 }
 
-// The tool catalog must classify every exposed tool, so a new mutation tool
-// cannot silently bypass the read/side-effect policy.
+// The catalog must classify every exposed tool so a new mutation tool cannot bypass the read/side-effect policy.
 func TestEveryExposedMutationToolIsClassified(t *testing.T) {
 	for _, tool := range AgentFinanceTools([]string{"dining"}, true, true, true, "TRANSFER_CLASSIFICATION", true, true, "TRANSFER_CLASSIFICATION") {
 		if _, known := agentToolClassFor(tool.Name); !known {

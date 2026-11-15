@@ -2,7 +2,6 @@ package telegram
 
 import "testing"
 
-// A refused or no-op dispute must never read as the generic success sentence.
 func TestDisputeStatusesHaveSpecificRepliesNotGenericSuccess(t *testing.T) {
 	generic := agentMutationFallback(agentToolResult{Status: "UNKNOWN_STATUS_FOR_TEST"})
 	seen := map[string]string{}

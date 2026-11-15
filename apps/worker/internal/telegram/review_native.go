@@ -48,9 +48,8 @@ type residualAllocation struct {
 	Note            string `json:"note"`
 }
 
-// requiredNativeReviewDetail names the one free-form fact a bound transaction
-// review still needs and the value the model proposed for it. For a date review
-// the value is the proposed date, whichever date argument carried it.
+// requiredNativeReviewDetail names the one free-form fact a bound review still needs and the model's proposed
+// value; for a date review, whichever date argument carried it.
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description, date string) (field, value string, required bool) {
 	if state == "AWAITING_MERCHANT" || (reviewType == "UNKNOWN_MERCHANT" && merchantID == "" && strings.TrimSpace(merchant) != "") {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
@@ -77,18 +76,16 @@ func validReviewTimestamp(value string) bool {
 	return err == nil && !parsed.IsZero() && parsed.Format(time.RFC3339) != ""
 }
 
-// offerCategoryChooser renders the household category chooser for a review whose only
-// unresolved fact is the category, so a merchant-less bank transaction is completable
-// inside Telegram. It reuses the same paged markup the initial send uses.
+// Renders the category chooser when category is the only unresolved fact, so a merchant-less bank transaction
+// completes in Telegram.
 func (p *Processor) offerCategoryChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, reviewType string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// The category chooser itself, never the review's own kind keyboard: a
-	// transfer card's Pengeluaran choice must lead to categories, not back to the
-	// transfer choices.
+	// Use the category chooser, not the review's own kind keyboard: a transfer card's Pengeluaran choice must
+	// lead to categories.
 	markup, err := categoryChooserMarkupErr(ctx, tx, reviewID, 0)
 	if err != nil {
 		return err // retry the callback; never claim there are no categories
@@ -155,14 +152,11 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction, userID string, offerMerchantLearning bool) error {
 	var err error
 	var merchantID *string
-	// A legacy card or a client that omits a field must not confirm while
-	// the stored ReviewDecision still reports a canonical-required residual fact.
-	// The date check uses the parsed pay date only; a fallback timestamp never
-	// satisfies it.
+	// A legacy card or client omitting a field must not confirm while the ReviewDecision reports a required
+	// residual fact; a fallback timestamp never satisfies the date check.
 	var storedDecision []byte
-	// Lock the review_request row first, as the typed-reply (agent) lane does,
-	// so a tap and a typed answer on the same card serialize on one row in one
-	// order and the loser sees the closed review (ADR-046, 2026-11-05).
+	// Lock the review_request row first, as the typed-reply lane does, so a tap and a typed answer serialize
+	// and the loser sees the closed review (ADR-046).
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM review_request WHERE id=$1 AND household_id=$2 FOR UPDATE`, reviewID, householdID); err != nil {
 		return err
 	}
@@ -184,10 +178,8 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		}
 		transactionAt = &parsed
 	}
-	// ADR-046: the transaction mutation and candidate revalidation live in the
-	// shared canonical resolver. Telegram keeps only its own delivery/evidence and
-	// payslip side effects, and defers terminal completion while it asks whether to
-	// remember the merchant.
+	// ADR-046: the shared resolver owns mutation and candidate revalidation; Telegram keeps delivery,
+	// evidence and payslip side effects, and defers completion while asking to remember the merchant.
 	var requestID string
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&requestID); err != nil {
 		return err
@@ -216,14 +208,13 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if confirmResult.MerchantID == "" {
 		merchantID = nil
 	}
-	// A confirmed review also completes the document workflow (ADR-046: shared op).
+	// A confirmed review also completes the document workflow (ADR-046).
 	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, householdID, transactionID); err != nil {
 		return err
 	}
 	if value.PayDate != "" {
-		// A user-supplied pay date completes only a payslip-backed income review.
-		// Evidence and period come from the shared payslip reader; no expected
-		// payday is ever inferred.
+		// A user-supplied pay date completes only a payslip-backed income review; evidence and period come
+		// from the shared payslip reader, never an inferred payday.
 		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, householdID, transactionID)
 		if err != nil {
 			return err
@@ -243,19 +234,16 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	}
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
 	if askRemember {
-		// Do not ask to learn a rule that already exists (the agent lane's rule),
-		// nor one that would be wrong: a merchant already confirmed with another
-		// category sells several kinds of things, so one auto-applied default would
-		// miscategorize; its history row on the chooser answers it in one tap.
+		// Skip learning when a rule exists or the merchant was confirmed with another category (it sells
+		// several kinds of things; its history row answers in one tap).
 		if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)
 			AND NOT EXISTS(SELECT 1 FROM transaction h WHERE h.household_id=$1 AND h.merchant_id=$2 AND h.id<>$4 AND h.status='CONFIRMED' AND h.category_id IS NOT NULL AND h.category_id<>$3)`, householdID, *merchantID, categoryID, transactionID).Scan(&askRemember); err != nil {
 			return err
 		}
 	}
 	if askRemember {
-		// Complete the review item now so a merchant-learning question the user
-		// never answers cannot leave the review open. The pending question
-		// is tracked by conversation state, not by review_request.status.
+		// Complete the review item now so an unanswered merchant-learning question cannot leave it open; the
+		// question is tracked by conversation state.
 		if err := resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err
 		}
@@ -281,9 +269,8 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	}
 	learningMarkup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat kategori", CallbackData: "review:remember"}, {Text: "Hanya kali ini", CallbackData: "review:once"}}}}
 	if update.CallbackQuery != nil {
-		// A tap answers on the card itself: the card becomes the result, and the
-		// optional remember choice is asked inline on it. No further message is
-		// sent and no button is left behind (ADR-046 amendment).
+		// A tap answers on the card itself: it becomes the result with the optional remember choice inline,
+		// and no button is left behind (ADR-046).
 		outcome, err := confirmedCardOutcome(ctx, tx, householdID, transactionID)
 		if err != nil {
 			return err
@@ -297,8 +284,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		return settleReviewCardInPlace(ctx, tx, reviewID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, outcome.text(""), nil)
 	}
 	if askRemember {
-		// A typed confirmation has no tapped card to edit, so the optional
-		// learning question is its own message bound to the request.
+		// A typed confirmation has no tapped card, so the learning question is its own message bound to the request.
 		if err := enqueueMerchantLearningQuestion(ctx, tx, reviewID, update, "✅ Sudah dicatat. Pakai kategori ini juga untuk transaksi berikutnya dari merchant yang sama?", learningMarkup); err != nil {
 			return err
 		}
@@ -308,8 +294,8 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	return nil
 }
 
-// cardOutcome is the result a confirmed expense card shows in place of its
-// question: what was recorded, and the subject facts that stay on screen.
+// cardOutcome is what a confirmed expense card shows instead of its question: what was recorded and the
+// subject facts that stay.
 type cardOutcome struct {
 	Category string
 	Merchant string
@@ -341,14 +327,8 @@ func confirmedCardOutcome(ctx context.Context, tx pgx.Tx, householdID, transacti
 	return outcome, nil
 }
 
-// settleReviewCardInPlace turns one delivered card into its outcome with a
-// single edit. The request was resolved in this transaction, so the retirement
-// trigger (migration 00079) already queued a RETIRE_TELEGRAM_REVIEW_CARD job
-// for this card; that job would strip the inline remember choice in an
-// unordered race, so this card's pending retirement is marked superseded and the
-// outcome edit retires it instead. Other recipients' cards still retire
-// normally. The edit carries no review_request_id: the request is terminal and
-// this edit is the retirement.
+// settleReviewCardInPlace turns a delivered card into its outcome with one edit, marking it superseded first.
+// Otherwise the migration 00079 retirement job could strip the inline remember choice in a race.
 func settleReviewCardInPlace(ctx context.Context, tx pgx.Tx, reviewID string, chatID, messageID int64, text string, markup *InlineKeyboardMarkup) error {
 	if chatID == 0 || messageID == 0 {
 		return nil
@@ -363,8 +343,8 @@ func settleReviewCardInPlace(ctx context.Context, tx pgx.Tx, reviewID string, ch
 	if err != nil {
 		return err
 	}
-	// Bump this card's outcome revision; only the newest outcome edit may be
-	// applied (ApplyCardOutcomeEdit), whatever order the jobs run or retry in.
+	// Bump the card's outcome revision; only the newest outcome edit applies (ApplyCardOutcomeEdit), whatever
+	// order jobs run or retry in.
 	var revision int
 	if err := tx.QueryRow(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{card_outcomes}',COALESCE(context_json->'card_outcomes','{}'::jsonb)||jsonb_build_object($2::text,COALESCE((context_json->'card_outcomes'->>$2)::int,0)+1)),updated_at=now() WHERE review_request_id=$1 RETURNING (context_json->'card_outcomes'->>$2)::int`, reviewID, cardOutcomeKey(chatID, messageID)).Scan(&revision); err != nil {
 		return err
@@ -377,16 +357,8 @@ func cardOutcomeKey(chatID, messageID int64) string {
 	return fmt.Sprintf("%d:%d", chatID, messageID)
 }
 
-// ApplyCardOutcomeEdit applies one queued outcome edit only while it is the
-// card's newest outcome. The conversation row is locked across the check and
-// the Telegram call, and a settle bumps the revision under the same row lock,
-// so an older edit that is delayed, retried, or racing a newer one is dropped
-// and can never bring back buttons the household already answered.
-//
-// Tradeoff: the row lock is held across one Telegram edit call (bounded by the
-// bot client's 15s timeout). Only settles of the same card wait on it; checking
-// before the call and re-checking after it cannot undo an edit already sent, so
-// the lock is what makes the guard hold.
+// ApplyCardOutcomeEdit applies an edit only while it is the card's newest, so stale edits keep buttons gone.
+// The conversation row stays locked across the Telegram edit, since a check before and after cannot undo it.
 func (p *Processor) ApplyCardOutcomeEdit(ctx context.Context, bot *Bot, payload EditPayload) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -404,8 +376,7 @@ func (p *Processor) ApplyCardOutcomeEdit(ctx context.Context, bot *Bot, payload 
 	if current != payload.OutcomeRevision {
 		return nil
 	}
-	// An expired or superseded copy keeps its outcome text but never regains
-	// buttons (the delivery rules of migration 00094 still hold).
+	// An expired or superseded copy keeps its outcome text but never regains buttons (migration 00094).
 	var dead bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient rr WHERE rr.review_request_id=$1 AND rr.telegram_chat_id=$2 AND rr.delivery_status='EXPIRED')
 		OR EXISTS(SELECT 1 FROM review_request_message m WHERE m.review_request_id=$1 AND m.telegram_chat_id=$2 AND m.telegram_message_id=$3 AND m.superseded_at IS NOT NULL)`, payload.OutcomeRequestID, payload.ChatID, payload.MessageID).Scan(&dead); err != nil {
@@ -429,8 +400,7 @@ func (p *Processor) ApplyCardOutcomeEdit(ctx context.Context, bot *Bot, payload 
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	// The edit is delivered; failing to remember its text only costs a later
-	// retirement its closure note.
+	// The edit is delivered; failing to store its text only costs a later retirement its closure note.
 	if err := p.RecordReviewCardText(ctx, payload.ChatID, payload.MessageID, payload.Text); err != nil {
 		slog.Default().Warn("record settled Telegram review card text failed", "review_request_id", payload.OutcomeRequestID, "error", err)
 	}
@@ -475,8 +445,8 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 	if remember {
 		message = "✅ Kategori merchant sudah disimpan untuk transaksi berikutnya. Aturannya bisa dinonaktifkan di Settings."
 	}
-	// The card that asked the question inline settles to its final result, so its
-	// remember buttons never outlive the answer, however the answer arrived.
+	// The card that asked the question inline settles to its final result, so remember buttons never outlive
+	// the answer.
 	outcome, err := confirmedCardOutcome(ctx, tx, householdID, transactionID)
 	if err != nil {
 		return err
@@ -488,8 +458,8 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 	var cardChat, cardMessage int64
 	_ = tx.QueryRow(ctx, `SELECT COALESCE((context_json->'learning_card'->>'chat_id')::bigint,0),COALESCE((context_json->'learning_card'->>'message_id')::bigint,0) FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&cardChat, &cardMessage)
 	if update.CallbackQuery != nil {
-		// The tapped message is the question (the card itself, or a legacy separate
-		// question); it becomes the final result and no reply is sent.
+		// The tapped message is the question (the card or a legacy separate message); it becomes the final
+		// result and no reply is sent.
 		if err = settleReviewCardInPlace(ctx, tx, reviewID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, outcome.text(note), nil); err != nil {
 			return err
 		}
@@ -532,10 +502,8 @@ func reviewSchema(slugs []string, categoriesRequired ...bool) map[string]any {
 	}
 }
 
-// ReviewQuestion is the subject summary a producer passes for a new expense
-// review: the amount and, when known, the merchant. The card adds its own title,
-// reason and instruction around it (review_render.go), so the summary carries no
-// prompt of its own and never a placeholder merchant.
+// ReviewQuestion is the producer's subject summary (amount and known merchant); the card adds its own title,
+// reason and instruction, and never a placeholder merchant.
 func ReviewQuestion(amount, merchant string) string {
 	facts := "Nominal: Rp" + FormatIDR(amount)
 	if merchant = strings.TrimSpace(merchant); merchant != "" {
@@ -563,8 +531,7 @@ func FormatIDR(value string) string {
 	return sign + strings.Join(parts, ".")
 }
 
-// resolveNativeMerchantLearning handles explicit native confirmation without
-// parsing free-form text. It reuses the audited transactional executor.
+// Explicit native confirmation without free-form parsing; reuses the audited transactional executor.
 func (p *Processor) resolveNativeMerchantLearning(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
 	remember, _ := args["remember"].(bool)
 	var reviewID, transactionID string

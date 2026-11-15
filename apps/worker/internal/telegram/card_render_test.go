@@ -9,8 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// Every Telegram-projectable kind renders one coherent card: exactly one
-// title, one Indonesian reason line, and no stacked producer prompt.
 func TestEveryTelegramCardHasOneTitleAndAReason(t *testing.T) {
 	for _, reviewType := range reviewdec.TelegramReasons() {
 		decision, ok := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
@@ -40,8 +38,6 @@ func TestEveryTelegramCardHasOneTitleAndAReason(t *testing.T) {
 	}
 }
 
-// R6: the unknown-merchant card asks for the merchant only, and its
-// instruction names exactly the buttons the card carries.
 func TestUnknownMerchantCardIsCoherent(t *testing.T) {
 	decision, _ := reviewdec.Preset("UNKNOWN_MERCHANT", "transaction", "t")
 	decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
@@ -63,8 +59,7 @@ func TestUnknownMerchantCardIsCoherent(t *testing.T) {
 	}
 }
 
-// A card never shows a button its kind cannot execute: a cycle residual has
-// no IGNORE in its contract, so it has no Abaikan, only its own dismissal.
+// A cycle residual has no IGNORE in its contract, so no Abaikan, only its own dismissal.
 func TestCardOmitsButtonsTheKindCannotExecute(t *testing.T) {
 	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", "c")
 	card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{})
@@ -87,7 +82,6 @@ func TestCardOmitsButtonsTheKindCannotExecute(t *testing.T) {
 	}
 }
 
-// An income card asks Benar/Ubah and says so; it is never a category chooser.
 func TestIncomeCategoryReviewRendersTheIncomeQuestion(t *testing.T) {
 	decision, _ := reviewdec.Preset("AMBIGUOUS_CATEGORY", "transaction", "t")
 	card := buildReviewCard(decision, "AMBIGUOUS_CATEGORY", "Nominal: Rp750.000", reviewSubject{TransactionType: "INCOME"})
@@ -152,8 +146,6 @@ func TestParseReplyDate(t *testing.T) {
 	}
 }
 
-// A cycle card whose contract has no LEAVE_UNALLOCATED neither shows the button
-// nor names it.
 func TestCycleInstructionNamesOnlyItsButtons(t *testing.T) {
 	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", "c")
 	if card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{}); !strings.Contains(card.Instruction, "Biarkan saja") {

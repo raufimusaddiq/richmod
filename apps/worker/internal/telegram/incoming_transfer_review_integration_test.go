@@ -12,9 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// An incoming screenshot row ("dana masuk") is typed INCOME and parked as a
-// transfer-classification review. Its card must offer only answers that apply to
-// money coming in, and each of them must resolve the review from Telegram.
+// An incoming screenshot row is typed INCOME and parked as a transfer-classification review; its card offers
+// only incoming answers.
 func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -36,7 +35,6 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 		{"review:own", "TRANSFER", "CONFIRMED"},
 		{"review:household", "TRANSFER", "CONFIRMED"},
 		{"review:ignore", "INCOME", "VOIDED"},
-		// Outgoing semantics never apply to money coming in: the review stays open.
 		{"review:expense", "INCOME", "NEEDS_REVIEW"},
 		{"review:investment", "INCOME", "NEEDS_REVIEW"},
 	}
@@ -66,7 +64,6 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 			_, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, reviewID)
 			must(err)
 
-			// The card offers the income answers, never the outgoing ones.
 			tx, err := pool.Begin(ctx)
 			must(err)
 			markup := reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0)

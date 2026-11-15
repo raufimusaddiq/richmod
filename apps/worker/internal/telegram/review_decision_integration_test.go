@@ -11,9 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// A Telegram review must carry the same ReviewDecision contract the Inbox
-// renders, so the card asks for the unresolved dimension only. This drives the one
-// place reviews are created and reads the stored decision back.
+// A Telegram review carries the same ReviewDecision contract the Inbox renders, so the card asks for the
+// unresolved dimension only.
 func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -112,8 +111,7 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "BOUNDED_CHOICE" {
 		t.Fatalf("duplicate review contract is incomplete: %+v", decision)
 	}
-	// Transaction-backed duplicate confirmation is Inbox-only; Telegram exposes
-	// only actions its review workflow can safely complete.
+	// Transaction-backed duplicate confirmation is Inbox-only.
 	wantActions := []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
 	if len(decision.AllowedActions) != len(wantActions) {
 		t.Fatalf("duplicate review actions=%v", decision.AllowedActions)
@@ -125,8 +123,7 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	}
 }
 
-// Free-text clarification is still a single unresolved fact, not an excuse to
-// omit the ReviewDecision contract.
+// Free-text clarification is still a single unresolved fact and keeps the ReviewDecision contract.
 func TestTelegramReviewStoresSingleFieldDecision(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

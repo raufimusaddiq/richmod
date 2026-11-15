@@ -9,8 +9,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// ageEvidence moves a document back in time, so recency is tested against the
-// database clock the production query uses.
+// Recency is tested against the database clock the production query uses.
 func ageEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, documentID string, minutes int) {
 	t.Helper()
 	_, err := f.pool.Exec(ctx, `UPDATE document SET created_at=now()-make_interval(mins => $2) WHERE id=$1`, documentID, minutes)
@@ -60,7 +59,6 @@ func TestTwoRecentReceiptsAreAmbiguousAndNeverChosen(t *testing.T) {
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM product_telemetry_event WHERE household_id=$1 AND action='AMBIGUOUS_CONTEXT'`, f.householdID); n != 1 {
 		t.Fatalf("AMBIGUOUS_CONTEXT events = %d, want 1", n)
 	}
-	// Choosing among evidence creates no state.
 	if n := countRows(t, ctx, f, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1)+(SELECT count(*) FROM review_item WHERE household_id=$1)`, f.householdID); n != 0 {
 		t.Fatalf("ambiguity handling created %d rows", n)
 	}
@@ -162,7 +160,6 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 	b := seedEvidence(t, ctx, f, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan"})
 	p := NewProcessor(f.pool, nil)
 
-	// The tool is catalogued, classified READ, and survives a read-only catalog.
 	if class, known := agentToolClassFor("get_evidence_context"); !known || class != agentToolRead {
 		t.Fatalf("class=%s known=%v, want READ", class, known)
 	}
@@ -174,7 +171,6 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 		t.Fatal("get_evidence_context is missing from the read-only catalog")
 	}
 
-	// Argument validation: only an opaque ref, never a database id or free text.
 	for _, bad := range []string{a.documentID, a.sourceID, "ev_1", "", "tx_1", "'; DROP TABLE document;--"} {
 		raw, _ := json.Marshal(map[string]any{"evidence_ref": bad})
 		if _, err := ValidateNativeToolCall(gateway.ToolCall{Name: "get_evidence_context", Arguments: raw}); err == nil {
@@ -185,8 +181,7 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 		t.Fatal("an extra document_id argument was accepted")
 	}
 
-	// A turn first loads both documents, then re-reads only B. A's ref must keep
-	// pointing at A: refs are keyed by document, not by call order.
+	// Refs are keyed by document, not call order: re-reading only B must not re-point A's ref.
 	contexts, err := p.loadEvidenceContexts(ctx, f.householdID, f.sourceID, f.update, []canonicalDocumentID{canonicalDocumentID(a.documentID), canonicalDocumentID(b.documentID)})
 	mustAgentTest(t, err)
 	refA, refB := contexts[0]["evidence_ref"].(string), contexts[1]["evidence_ref"].(string)
@@ -205,7 +200,6 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 		t.Fatalf("tool result leaks a canonical id: %s", rawResult)
 	}
 
-	// Expired and foreign refs are bounded answers with no side effect.
 	_, err = f.pool.Exec(ctx, `UPDATE telegram_turn_reference SET expires_at=now()-interval '1 minute' WHERE household_id=$1 AND entity_type='EVIDENCE'`, f.householdID)
 	mustAgentTest(t, err)
 	state2 := `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1)+(SELECT count(*) FROM review_item WHERE household_id=$1)`
@@ -229,14 +223,11 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 	}
 }
 
-// ADR-050 binds "the newest evidence from this user in this chat". Evidence a
-// different sender recorded must not bind, even when it shares the chat id.
 func TestRecentEvidenceIsScopedToTheSendingUser(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-user")
 	mine := seedEvidence(t, ctx, f, "mine", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	theirs := seedEvidence(t, ctx, f, "theirs", evidenceSeedOptions{amount: "83000", merchant: "Gacoan", messageID: 102})
-	// Same household and chat id, but sent by another Telegram user.
 	_, err := f.pool.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json||jsonb_build_object('telegram_user_id',$2::bigint) WHERE source_event_id=$1`, theirs.sourceID, f.chatID+9)
 	mustAgentTest(t, err)
 	p := NewProcessor(f.pool, nil)
@@ -247,8 +238,6 @@ func TestRecentEvidenceIsScopedToTheSendingUser(t *testing.T) {
 		t.Fatalf("evidence=%+v ambiguous=%v, want only this user's receipt", evidence, ambiguous)
 	}
 
-	// Older uploads that predate the recorded sender fall back to the chat id,
-	// which equals the user id in a private chat.
 	_, err = f.pool.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json-'telegram_user_id' WHERE source_event_id=$1`, mine.sourceID)
 	mustAgentTest(t, err)
 	evidence, _, err = p.bindRecentEvidence(ctx, f.householdID, f.sourceID, f.update)
@@ -258,13 +247,10 @@ func TestRecentEvidenceIsScopedToTheSendingUser(t *testing.T) {
 	}
 }
 
-// Recent evidence is optional context. A broken lookup must degrade to "no
-// context", never fail the household's message.
 func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-broken")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
-	// A non-numeric sender makes the lookup's ::bigint cast fail.
 	_, err := f.pool.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json||'{"telegram_user_id":"not-a-number"}'::jsonb WHERE source_event_id=$1`, a.sourceID)
 	mustAgentTest(t, err)
 	p := NewProcessor(f.pool, nil)
@@ -272,8 +258,6 @@ func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
 	if _, _, err := p.bindRecentEvidence(ctx, f.householdID, f.sourceID, f.update); err == nil {
 		t.Fatal("the poisoned row did not break the lookup; the test would prove nothing")
 	}
-	// The turn loads candidates once and ignores a failed load, so a broken lookup
-	// reaches the wrapper as "no candidates".
 	loaded, loadErr := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, f.chatID)
 	if loadErr == nil {
 		t.Fatal("the poisoned row did not break the candidates load")
@@ -284,7 +268,6 @@ func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
 	}
 }
 
-// bindRecentEvidence loads the candidates and binds them, as a live turn does.
 func (p *Processor) bindRecentEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (*agentEvidenceBinding, []map[string]any, error) {
 	candidates, err := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
 	if err != nil {
