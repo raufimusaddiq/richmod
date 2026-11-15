@@ -8,17 +8,18 @@ import ReviewCards from "../components/ReviewCards";
 import useAuth from "../components/useAuth";
 import { publishInboxCount } from "../components/InboxCountProvider";
 import ReviewHistory from "../components/review/ReviewHistory";
+import EmailDeliveries from "../components/EmailDeliveries";
 import { missingTransactionHref } from "../lib/missingTransaction";
 
 // What the household calls each kind of action; an unknown type keeps its own name.
 const actionKinds = { EMAIL_FORWARDING: "EMAIL", SOURCE_PROCESSING: "SUMBER" };
 const actionKind = type => actionKinds[type] || type;
 
-const currentView = () => { const v = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : null; return v === "actions" || v === "history" ? v : "transactions"; };
+const currentView = () => { const v = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : null; return v === "actions" || v === "history" || v === "email" ? v : "transactions"; };
 
 export default function InboxPage() {
   const user = useAuth();
-  const [view, setView] = useState("transactions");
+  const [rawView, setView] = useState("transactions");
   const [reviews, setReviews] = useState([]), [actions, setActions] = useState([]), [categories, setCategories] = useState([]), [wealthAccounts, setWealthAccounts] = useState([]), [accounts, setAccounts] = useState([]);
   const [error, setError] = useState(""), [toast, setToast] = useState("");
   // One busy flag per card: acting on card B must not release or overwrite card A.
@@ -30,7 +31,11 @@ export default function InboxPage() {
   const [complete, setComplete] = useState(false);
   // Recently resolved: its own state machine so a failed fetch is shown and retried, never cached as "empty".
   const [history, setHistory] = useState({ status: "idle", items: [] }), [historyTick, setHistoryTick] = useState(0);
+  // Email deliveries: owner-only on the server; same state machine as the history so a failure is shown and retried.
+  const [deliveries, setDeliveries] = useState({ status: "idle", items: [] }), [deliveriesTick, setDeliveriesTick] = useState(0);
   const owner = user?.household?.role === "OWNER";
+  // Only the owner has the email tab: a stale ?view=email shows the transactions for anyone else.
+  const view = rawView === "email" && !owner ? "transactions" : rawView;
   // A reload (after a 409, a reopen, a save) is a refresh: the cards stay mounted
   // so a typed note, the merchant and the category hint survive it.
   const loader = useGuardedLoad(async ({ signal, current }) => {
@@ -73,6 +78,16 @@ export default function InboxPage() {
       .catch(failure => { if (failure?.name !== "AbortError") setHistory(current => ({ ...current, status: "error" })); });
     return () => controller.abort();
   }, [historyOpen, historyTick]);
+  const emailOpen = view === "email";
+  useEffect(() => {
+    if (!emailOpen) return undefined;
+    const controller = new AbortController();
+    setDeliveries(current => ({ ...current, status: current.status === "ready" ? "refreshing" : "loading" }));
+    fetch("/api/v1/integrations/email-ingress/deliveries", { signal: controller.signal })
+      .then(async response => { if (!response.ok) throw new Error(); const items = await response.json(); setDeliveries({ status: "ready", items: Array.isArray(items) ? items : [] }); })
+      .catch(failure => { if (failure?.name !== "AbortError") setDeliveries(current => ({ ...current, status: "error" })); });
+    return () => controller.abort();
+  }, [emailOpen, deliveriesTick]);
   async function loadMore() {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true); setError("");
@@ -99,11 +114,11 @@ export default function InboxPage() {
 
   function selectView(next) { setView(next); window.history.pushState({}, "", `/inbox?view=${next}`); }
   function tabKeys(event) {
-    const order = ["transactions", "actions", "history"];
+    const order = owner ? ["transactions", "actions", "history", "email"] : ["transactions", "actions", "history"];
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (!step) return;
     event.preventDefault();
-    const next = order[(order.indexOf(view) + step + order.length) % order.length];
+    const next = order[(Math.max(order.indexOf(view), 0) + step + order.length) % order.length];
     selectView(next);
     event.currentTarget.parentElement?.querySelector(`[data-view="${next}"]`)?.focus();
   }
@@ -142,11 +157,11 @@ export default function InboxPage() {
   }
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const count = view === "actions" ? actions.length : decisions;
-  const title = view === "history" ? "Riwayat tinjauan" : `${count} item menunggu`;
+  const title = view === "history" ? "Riwayat tinjauan" : view === "email" ? "Email masuk" : `${count} item menunggu`;
   return <AppShell user={user} eyebrow="TINJAUAN" title={title} actions={<span className="header-meta">Transaksi dan tindakan tetap diproses terpisah</span>}>
-    <div className="inbox-tabs" role="tablist" aria-label="Jenis tinjauan"><button role="tab" data-view="transactions" tabIndex={view === "transactions" ? 0 : -1} aria-selected={view === "transactions"} className={view === "transactions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("transactions")}>Transaksi <b>{decisions}</b></button><button role="tab" data-view="actions" tabIndex={view === "actions" ? 0 : -1} aria-selected={view === "actions"} className={view === "actions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("actions")}>Tindakan <b>{actions.length}</b></button><button role="tab" data-view="history" tabIndex={view === "history" ? 0 : -1} aria-selected={view === "history"} className={view === "history" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("history")}>Riwayat</button></div>
+    <div className="inbox-tabs" role="tablist" aria-label="Jenis tinjauan"><button role="tab" data-view="transactions" tabIndex={view === "transactions" ? 0 : -1} aria-selected={view === "transactions"} className={view === "transactions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("transactions")}>Transaksi <b>{decisions}</b></button><button role="tab" data-view="actions" tabIndex={view === "actions" ? 0 : -1} aria-selected={view === "actions"} className={view === "actions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("actions")}>Tindakan <b>{actions.length}</b></button><button role="tab" data-view="history" tabIndex={view === "history" ? 0 : -1} aria-selected={view === "history"} className={view === "history" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("history")}>Riwayat</button>{owner && <button role="tab" data-view="email" tabIndex={view === "email" ? 0 : -1} aria-selected={view === "email"} className={view === "email" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("email")}>Email masuk</button>}</div>
     <ErrorNotice message={error || loader.error} retry={() => load()}/>
-    {!loader.hasLoaded && !loader.failed ? <Skeleton cards={2}/> : !loader.hasLoaded ? null : view === "history" ? <section className="review-history" aria-label="Keputusan 30 hari terakhir">{history.status === "error" ? <p role="alert">Riwayat belum dapat dimuat. <button type="button" className="secondary" onClick={() => setHistoryTick(tick => tick + 1)}>Coba lagi</button></p> : history.status === "idle" || history.status === "loading" ? <p className="muted">Memuat…</p> : history.items.length === 0 ? <p className="muted">Belum ada keputusan dalam 30 hari terakhir.</p> : <ReviewHistory items={history.items} busy={busy} reopen={reopen}/>}</section> : view === "transactions" ? <><ReviewCards items={reviews} categories={categories} accounts={accounts} wealthAccounts={wealthAccounts} busy={busy} action={reviewAction}/>{nextCursor && <div className="review-actions"><button className="secondary" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "Memuat…" : "Muat lagi"}</button></div>}</> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{actionKind(item.integrationType)}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={Boolean(busy[item.id])} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik keluarga perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span aria-hidden="true">✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
+    {!loader.hasLoaded && !loader.failed ? <Skeleton cards={2}/> : !loader.hasLoaded ? null : view === "email" ? <section className="email-deliveries" aria-label="Email masuk terakhir"><EmailDeliveries state={deliveries} retry={() => setDeliveriesTick(tick => tick + 1)}/></section> : view === "history" ? <section className="review-history" aria-label="Keputusan 30 hari terakhir">{history.status === "error" ? <p role="alert">Riwayat belum dapat dimuat. <button type="button" className="secondary" onClick={() => setHistoryTick(tick => tick + 1)}>Coba lagi</button></p> : history.status === "idle" || history.status === "loading" ? <p className="muted">Memuat…</p> : history.items.length === 0 ? <p className="muted">Belum ada keputusan dalam 30 hari terakhir.</p> : <ReviewHistory items={history.items} busy={busy} reopen={reopen}/>}</section> : view === "transactions" ? <><ReviewCards items={reviews} categories={categories} accounts={accounts} wealthAccounts={wealthAccounts} busy={busy} action={reviewAction}/>{nextCursor && <div className="review-actions"><button className="secondary" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "Memuat…" : "Muat lagi"}</button></div>}</> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{actionKind(item.integrationType)}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={Boolean(busy[item.id])} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik keluarga perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span aria-hidden="true">✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
     <Toast message={toast} onClose={closeToast}/>
   </AppShell>;
 }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
 import useAuth from "../components/useAuth";
-import { capabilityLabel, emailDeliveryReasonLabel, emailDeliveryStatusLabel, financialSourceStatusLabel, label, labels, relationshipLabel, sideLabel, usageRoleLabel, wealthTypeLabel } from "../lib/labels";
+import { capabilityLabel, financialSourceStatusLabel, label, labels, relationshipLabel, sideLabel, usageRoleLabel, wealthTypeLabel } from "../lib/labels";
 import useDialogs from "../components/useDialogs";
 import { dateTime } from "../lib/format";
 import { LoadError, responseError, useBusyMap, useGuardedLoad } from "../lib/useLoadState";
@@ -23,14 +23,14 @@ const ROTATE_CONFIRM = "Alamat lama akan dinonaktifkan dan alamat baru dibuat. A
 export default function SettingsPage() {
   const { confirm, prompt, dialogs } = useDialogs();
   const user = useAuth();
-  const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], financialSources: [], emailIngress: null, deliveries: [] });
+  const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], financialSources: [], emailIngress: null });
   const [error, setError] = useState(""), [loadNotice, setLoadNotice] = useState(""); const { busy, run: runBusy, isBusy } = useBusyMap(); const [financialPreview, setFinancialPreview] = useState(null); const [editingFinancialSource, setEditingFinancialSource] = useState(null);
   const owner = user?.household?.role === "OWNER";
   // Each endpoint stands alone. A 403/404 means "not available to this role" and
   // is an empty section; a 5xx, 401 or dropped connection means "unknown" and is
   // reported, never painted as an empty household.
   const loader = useGuardedLoad(async ({ signal, current }) => {
-    const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress", "integrations/email-ingress/deliveries"];
+    const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
     const settled = await Promise.all(endpoints.map(async value => {
       try {
         const response = await fetch(`/api/v1/${value}`, { signal });
@@ -45,7 +45,7 @@ export default function SettingsPage() {
     const failed = endpoints.filter((_, index) => !settled[index].ok);
     if (failed.length === endpoints.length) throw new LoadError("Pengaturan belum dapat dimuat. Periksa koneksi lalu coba lagi.");
     const pick = (index, previous, fallback) => (settled[index].ok ? settled[index].value ?? fallback : previous);
-    setData(previous => ({ accounts: pick(0, previous.accounts, []), wealthAccounts: pick(1, previous.wealthAccounts, []), categories: pick(2, previous.categories, []), aliases: pick(3, previous.aliases, []), known: pick(4, previous.known, []), members: pick(5, previous.members, []), operations: pick(6, previous.operations, null), salarySources: pick(7, previous.salarySources, []), listeners: pick(8, previous.listeners, []), financialSources: pick(9, previous.financialSources, []), emailIngress: pick(10, previous.emailIngress, null), deliveries: pick(11, previous.deliveries, []) }));
+    setData(previous => ({ accounts: pick(0, previous.accounts, []), wealthAccounts: pick(1, previous.wealthAccounts, []), categories: pick(2, previous.categories, []), aliases: pick(3, previous.aliases, []), known: pick(4, previous.known, []), members: pick(5, previous.members, []), operations: pick(6, previous.operations, null), salarySources: pick(7, previous.salarySources, []), listeners: pick(8, previous.listeners, []), financialSources: pick(9, previous.financialSources, []), emailIngress: pick(10, previous.emailIngress, null) }));
     setLoadNotice(failed.length ? `Sebagian pengaturan belum termuat (${failed.join(", ")}). Coba lagi.` : "");
   }, { fallback: "Pengaturan belum dapat dimuat. Periksa koneksi lalu coba lagi." });
   const load = loader.run;
@@ -157,7 +157,6 @@ export default function SettingsPage() {
       <SettingsSection title="Email, Telegram, dan gateway" description="Ikuti empat langkah untuk menghubungkan email bank. Alamat baru menerima email setelah pemilik mengaktifkannya.">
         <EmailOnboardingChecklist ingress={data.emailIngress} owner={owner} isBusy={isBusy} onCreate={() => emailIngressAction()} onActivate={activateEmailIngress} onCopy={copyEmailIngress} onResolveForwarding={id => request("forwarding-resolve", `/api/v1/integration-actions/${id}/resolve`, { method: "POST" })}/>
         <div className="integration-grid"><article><span className={`health-dot ${data.emailIngress?.status === "ACTIVE" ? "ok" : ""}`}/><div><b>Email notifikasi bank</b><small>{data.emailIngress?.address || "Alamat belum dibuat"}{data.emailIngress?.status ? ` · ${data.emailIngress.status}` : ""}{data.emailIngress?.lastReceivedAt ? ` · diterima ${dateTime(data.emailIngress.lastReceivedAt)}` : ""}</small></div><div className="integration-actions">{data.emailIngress?.address && <button className="secondary" onClick={copyEmailIngress}>Salin</button>}{owner && data.emailIngress?.address && <button className="secondary" disabled={isBusy("email-ingress-rotate")} onClick={async () => { if (await confirm(ROTATE_CONFIRM, { confirmLabel: "Rotasi alamat", danger: true })) emailIngressAction("rotate"); }}>Rotasi</button>}</div></article><article><span className={`health-dot ${data.members.some(item => item.telegramConnected) ? "ok" : ""}`}/><div><b>Telegram bot</b><small>{data.members.filter(item => item.telegramConnected).length} anggota terhubung</small></div><a className="button secondary" href="/household">Kelola</a></article><article><span className={`health-dot ${data.operations?.worker?.healthy && data.operations?.llmGateway?.configured ? "ok" : ""}`}/><div><b>Worker & LLM gateway</b><small>Worker {data.operations?.worker?.healthy ? "sehat" : "perlu perhatian"} · gateway {data.operations?.llmGateway?.configured ? "terkonfigurasi" : "tidak dikonfigurasi"}</small></div></article></div>
-        {owner && <div className="settings-list"><p className="list-count">Pengiriman terakhir</p>{data.deliveries.length ? data.deliveries.map((item, index) => <article key={`${item.receivedAt}-${index}`}><div><b>{label(emailDeliveryStatusLabel, item.status)}</b><small>{item.sender || "Pengirim tidak diketahui"} · {dateTime(item.receivedAt)}</small></div>{item.reason && <span>{label(emailDeliveryReasonLabel, item.reason, item.reason)}</span>}</article>) : <p className="empty compact">Belum ada email yang diterima.</p>}</div>}
       </SettingsSection>
       <NotificationsSection />
     </div>
