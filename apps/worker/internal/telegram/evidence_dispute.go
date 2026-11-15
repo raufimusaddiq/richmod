@@ -186,6 +186,11 @@ func (p *Processor) resolveEvidenceDispute(ctx context.Context, source, househol
 			return err
 		}
 		return p.finishWithoutTransaction(ctx, source, "IGNORED", update, "Kategori itu tidak tersedia untuk keluarga ini, jadi belum ada yang dicatat. Pilih kategori dari daftar.")
+	case errors.Is(err, reviewdomain.ErrMergeTargetActive):
+		if err = tx.Rollback(ctx); err != nil {
+			return err
+		}
+		return p.finishWithoutTransaction(ctx, source, "IGNORED", update, "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.")
 	case errors.Is(err, reviewdomain.ErrEvidenceDisputeInvalid), errors.Is(err, reviewdomain.ErrAlreadyResolved):
 		if err = tx.Rollback(ctx); err != nil {
 			return err

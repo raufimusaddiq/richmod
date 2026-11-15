@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
-import { createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
+import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
 
 const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
@@ -165,6 +165,87 @@ test("edit: drawer offers Ubah and the dialog keeps drawer key handling out", ()
   assert.match(page, /aria-labelledby="edit-transaction-title"/);
   assert.match(page, /"If-Match": selected\.updatedAt/);
   assert.match(page, /onEditKeyDown[\s\S]{0,80}stopPropagation/);
+});
+
+test("void: the button is offered for PENDING and CONFIRMED only", () => {
+  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canVoidTransaction({ id: "t1", status }), true, status);
+  for (const status of ["NEEDS_REVIEW", "VOIDED", undefined]) assert.equal(canVoidTransaction({ id: "t1", status }), false, String(status));
+  assert.equal(canVoidTransaction({ status: "CONFIRMED" }), false, "no id, no action");
+  assert.equal(canVoidTransaction(null), false);
+  assert.match(page, /\{canVoidTransaction\(selected\) && <button type="button" className="danger"[^>]*>[^<]*\{busyAction === "void" \? "Membatalkan…" : "Batalkan transaksi"\}<\/button>\}/);
+});
+
+test("void: the confirm dialog is danger-styled and says the row leaves the totals but stays in history", () => {
+  assert.match(page, /confirmText: VOID_CONFIRM_MESSAGE, confirmLabel: "Ya, batalkan"/);
+  assert.match(page, /await confirm\(confirmText, \{ confirmLabel, danger: true \}\)/);
+  assert.match(VOID_CONFIRM_MESSAGE, /keluar dari semua total/);
+  assert.match(VOID_CONFIRM_MESSAGE, /tetap tersimpan di riwayat/);
+  assert.match(page, /\{dialogs\}/);
+});
+
+test("void: a refused or failed request is never reported as success", () => {
+  const review = voidFailure(409, { code: "REVIEW_OPEN", error: "resolve this transaction through the review endpoint" });
+  assert.equal(review.kind, "review");
+  assert.match(review.message, /Tinjauan/);
+  assert.doesNotMatch(review.message, /review endpoint/);
+  assert.match(page, /\(actionNotice\.kind === "review" \|\| actionNotice\.inbox\) && <a className="button secondary" href="\/inbox\?view=transactions">Buka Tinjauan<\/a>/);
+  const merged = voidFailure(409, { code: "MERGE_TARGET", error: "raw server text" });
+  assert.equal(merged.kind, "error"); assert.equal(merged.reload, true, "a stale drawer re-reads so activeMerges and the Pisahkan penggabungan button appear");
+  assert.match(merged.message, /penggabungan yang masih aktif/);
+  assert.match(merged.message, /Pisahkan penggabungan/, "the refusal points at the drawer action");
+  assert.doesNotMatch(merged.message, /raw server text|MERGE_TARGET/);
+  assert.notEqual(voidFailure(409, { error: "resolve this transaction through the review endpoint" }).kind, "review", "the code decides, not the text");
+  const stale = voidFailure(409, { error: "invalid transaction status transition" });
+  assert.equal(stale.kind, "error"); assert.equal(stale.reload, true);
+  for (const status of [400, 401, 403, 404, 500, 502]) {
+    const outcome = voidFailure(status, { error: "boom" });
+    assert.equal(outcome.kind, "error", String(status));
+    assert.doesNotMatch(outcome.message, /boom|^Transaksi dibatalkan/, "no raw API text, no success wording");
+  }
+  assert.match(voidFailure(500).message, /Coba lagi/);
+  // Success is declared only from response.ok; a thrown fetch is an error that re-reads the record.
+  assert.match(page, /response\.ok \? \{ kind: "success"/);
+  assert.match(page, /catch \{ outcome = \{ kind: "error", message: "Koneksi terputus\./);
+});
+
+test("void: posts once, then reloads the drawer and the list", () => {
+  assert.match(page, /url: `\/api\/v1\/transactions\/\$\{selected\.id\}\/void`/);
+  assert.match(page, /await fetch\(url, \{ method: "POST" \}\)/);
+  assert.match(page, /if \(actionPending\.current \|\| !id\) return;\s+actionPending\.current = true;/);
+  assert.match(page, /finally \{ actionPending\.current = false; setBusyAction\(""\); \}/);
+  assert.match(page, /const voidTransaction = \(\) => canVoidTransaction\(selected\) && runDrawerAction/);
+  assert.match(page, /drawer\.open\(id\)[\s\S]{0,120}load\(\)/);
+  assert.match(page, /openId\.current === id/, "a drawer closed or moved to another row is not reopened");
+  // The ref follows the drawer from an effect, never from the render body.
+  assert.match(page, /useEffect\(\(\) => \{ openId\.current = drawer\.id; setActionNotice\(null\); \}, \[drawer\.id\]\)/);
+  assert.doesNotMatch(page, /^\s*openId\.current = drawer\.id;/m);
+});
+
+test("merge: the drawer lists active merges and offers Pisahkan penggabungan behind the confirm dialog", () => {
+  const target = { id: "m1", role: "TARGET", otherLabel: "Kopi dobel", otherAmount: "25000" };
+  const source = { id: "m2", role: "SOURCE", otherLabel: "Kopi", otherAmount: "25000" };
+  assert.match(mergeSummary(target, value => `Rp ${value}`), /^Menyerap transaksi duplikat: Kopi dobel · Rp 25000\.$/);
+  assert.match(mergeSummary(source), /^Digabung ke transaksi lain: Kopi · 25000\.$/);
+  assert.match(mergeSummary({ id: "m3", role: "TARGET" }), /Transaksi lain/, "an unnamed counterpart still reads");
+  const message = reverseMergeConfirmMessage(target);
+  assert.match(message, /kembali ke Tinjauan/);
+  assert.match(message, /Tidak ada transaksi yang dihapus/);
+  assert.match(page, /selected\.activeMerges\?\.length > 0 && <section className="merge-links"/);
+  assert.match(page, /<button type="button" className="secondary" disabled=\{Boolean\(busyAction\)\}[^>]*onClick=\{\(\) => reverseMerge\(merge\)\}>\{busyAction === merge\.id \? "Memisahkan…" : "Pisahkan penggabungan"\}<\/button>/);
+  assert.match(page, /url: `\/api\/v1\/reconciliation-merges\/\$\{merge\.id\}\/reverse`/);
+  assert.match(page, /confirmLabel: "Ya, pisahkan"/);
+});
+
+test("merge: a refused or failed reversal is never reported as success and re-reads when the record moved", () => {
+  for (const status of [404, 409]) { const outcome = reverseMergeFailure(status); assert.equal(outcome.kind, "error"); assert.equal(outcome.reload, true, String(status)); }
+  for (const status of [401, 403, 500, 502]) { const outcome = reverseMergeFailure(status); assert.equal(outcome.kind, "error"); assert.notEqual(outcome.reload, true); assert.doesNotMatch(outcome.message, /^Penggabungan dipisahkan/); }
+  assert.match(reverseMergeFailure(500).message, /Coba lagi/);
+  assert.match(page, /success: \{ message: REVERSE_MERGE_SUCCESS_MESSAGE, inbox: true \}/);
+});
+
+test("void: Escape inside the confirm dialog does not also close the drawer", () => {
+  const hook = readFileSync(new URL("../app/components/useDrawerA11y.js", import.meta.url), "utf8");
+  assert.match(hook, /event\.key === "Escape"\) \{ if \(!event\.target\?\.closest\?\.\("dialog"\)\) closeRef\.current\(\)/);
 });
 
 test("every transaction audit action written by Go has an Indonesian label", () => {

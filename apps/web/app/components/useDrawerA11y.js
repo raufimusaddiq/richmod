@@ -18,7 +18,8 @@ export default function useDrawerA11y(open, close) {
     const drawer = ref.current;
     drawer?.focus();
     const onKeyDown = event => {
-      if (event.key === "Escape") { closeRef.current(); return; }
+      // Escape inside a modal <dialog> opened from the drawer (a confirm) closes that dialog only.
+      if (event.key === "Escape") { if (!event.target?.closest?.("dialog")) closeRef.current(); return; }
       if (event.key !== "Tab" || !drawer) return;
       // Skip controls that are not rendered (a closed <details> hides its <pre>), or the last "focusable" would be one Tab can never reach.
       const items = [...drawer.querySelectorAll(focusable)].filter(node => node.getClientRects().length > 0);

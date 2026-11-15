@@ -152,8 +152,16 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 			result.Status, proposalStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 		}
 	}
+	if result.Status == "VOIDED" {
+		// Ignoring a review-held target of an ACTIVE merge would leave the merged event with no live transaction.
+		if protected, perr := ActiveMergeTarget(ctx, tx, cmd.HouseholdID, cmd.TransactionID); perr != nil {
+			return result, perr
+		} else if protected {
+			return result, ErrMergeTargetActive
+		}
+	}
 	if _, err = tx.Exec(ctx, "UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=$4,status=$5,category_id=$6,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'", cmd.TransactionID, result.Type, result.Purpose, wealthAccountID, result.Status, categoryID); err != nil {
-		return result, err
+		return result, MergeTargetError(err)
 	}
 	if _, err = tx.Exec(ctx, "UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, result.Type, proposalStatus, categoryID, cmd.Classification, result.Purpose, result.WealthAccountID); err != nil {
 		return result, err
