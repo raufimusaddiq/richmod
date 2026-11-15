@@ -161,6 +161,22 @@ reports only `WEALTH_SNAPSHOT_BEFORE_CYCLE`. Source-only loose ends are scoped b
 transaction/proposal date is available. No arbitrary
 "stale after N days" threshold, AI confidence score, or semantic label is added.
 
+## Category window and `measuredUntil`
+
+`GET /api/v1/analytics/categories` accepts `period=last_3_cycles` (alongside
+`current_cycle`, `calendar`, `custom` and `range`). The window starts at the
+third most recent primary-salary anchor on or before today and ends after today.
+With fewer anchors it spans those that exist; with none it falls back to 3
+calendar months. Every response carries `X-Window-Start` and `X-Window-End`
+(`YYYY-MM-DD`, both inclusive) so clients label the window they actually got.
+The Home donut uses this and shows the window in its eyebrow.
+
+`cycles[].measuredUntil` and `history[].measuredUntil` intentionally differ
+for closed cycles while the selected cycle is active: `cycles[]` is shortened to
+the elapsed-day count of the active cycle so equal-day comparisons are fair,
+whereas `history[]` reports the full closed cycle (its exclusive `end`). Do not
+read `cycles[].measuredUntil` as data coverage of a closed cycle.
+
 ## Consistency and consumers
 
 All queries run in one read-only `REPEATABLE READ` transaction. The response
