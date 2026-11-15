@@ -1,17 +1,22 @@
-// Pass-through service worker that also receives Web Push. It exists for
-// installability and for notifications while the app is closed; it keeps no cache and
-// intercepts no request, so no release can leave an installed client on a build whose
-// chunks the server deleted. Offline use is not supported.
+// Pass-through service worker that also receives Web Push. It exists so
+// Richmod is installable and a notification can arrive while the app is
+// closed; it keeps no cache and intercepts no request. HTML, chunks, the
+// manifest and the API all come from the network exactly as they would
+// without a worker, so no release can leave an installed client on a build
+// whose chunks the server deleted. Offline use is not supported.
 //
-// Older releases cached /_next/static and kept richmod-generations metadata; activate
-// removes those stores. `push` shows a notification even for a missing or unreadable
-// payload, since iOS drops a subscription after repeated silent pushes. A click focuses
-// the open window and only follows a same-origin path from the payload.
+// Older releases cached /_next/static and kept richmod-generations metadata;
+// activate removes those now-unused stores so they do not hold storage forever.
+// `push` shows a notification even when its payload is missing or unreadable:
+// iOS drops a subscription after repeated pushes that show nothing. A click
+// focuses the open window when there is one and only follows a same-origin
+// path from the payload.
 const FALLBACK = { title: "Richmod", body: "Ada pembaruan di kotak masuk." };
 
-// Return a path that cannot change origin at the call site. A pathname starting with
-// "//" is protocol-relative to openWindow() and navigate() even though new URL()
-// reports this origin, so it is rejected.
+// Return a path that cannot change origin at the call site. A pathname that
+// starts with "//" is protocol-relative to openWindow() and navigate(), even
+// though new URL() reports this origin, so it is rejected rather than handed
+// back as a string that looks local.
 function sameOriginPath(value) {
   try {
     const url = new URL(typeof value === "string" && value ? value : "/inbox", self.location.origin);
