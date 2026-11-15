@@ -1,4 +1,4 @@
-import { amountLabel, changeWidth, collapseQuality, measuredLabel, qualityCopy, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
+import { amountLabel, changeWidth, measuredLabel, qualityCopy, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { dateTime, money, typeLabel } from "../lib/format";
 import { SectionTitle, Metric } from "./shared";
 
@@ -129,7 +129,7 @@ export function SavingsWealth({ facts }) {
 export function QualitySection({ facts }) {
   return <section id="quality" className="review-section" aria-labelledby="quality-title">
     <SectionTitle id="quality-title" about="kelengkapan data" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
-    {!collapseQuality(facts.dataQuality).length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{collapseQuality(facts.dataQuality).map(blocker => {
+    {!facts.dataQuality.length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{facts.dataQuality.map(blocker => {
       const [label, action] = qualityCopy[blocker.kind] || ["Data tinjauan perlu dilengkapi", "Buka Inbox"];
       const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"].includes(blocker.kind);
       return <li key={blocker.kind}><div><strong>{counted ? `${blocker.count} ` : ""}{label}</strong>{blocker.amount != null && <p>{money(blocker.amount)} terkonfirmasi.</p>}</div><a href={blocker.kind === "UNCATEGORIZED_EXPENSE" ? transactionHref(facts.period, { type: "EXPENSE", categoryId: "uncategorized" }) : ["/inbox", "/inbox?view=actions", "/wealth", "/settings"].includes(blocker.action) ? blocker.action : "/inbox"}>{action}</a></li>;

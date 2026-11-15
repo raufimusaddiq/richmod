@@ -374,3 +374,12 @@ test("auth: an unavailable session is announced with a retry, never a silent loa
   assert.match(auth, /role="alert"[\s\S]*Coba lagi/);
   assert.match(auth, /setAttempt\(count => count \+ 1\)/, "retry restarts the load");
 });
+
+test("calendar cashflow chart shows y-axis ticks in Rp juta like the cycle chart", () => {
+  const charts = text("app/components/Charts.js");
+  const start = charts.indexOf("export function MonthlyCashflowChart");
+  const body = charts.slice(start, charts.indexOf("export function CategoryDonutChart"));
+  assert.doesNotMatch(body, /<YAxis hide/);
+  assert.match(body, /<YAxis [^>]*tickFormatter=\{value => compactMillions\(String\(value\)\)\}/);
+  assert.match(body, /value: "Rp juta"/);
+});
