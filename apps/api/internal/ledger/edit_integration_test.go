@@ -179,6 +179,33 @@ func TestEditTransactionDetails(t *testing.T) {
 			}
 		}
 	})
+	t.Run("inactive_current_values_stay_editable_and_account_change_opens_no_review", func(t *testing.T) {
+		id := newTx("EXPENSE", "CONFIRMED")
+		var staleCat, staleAcct string
+		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Lama','lama') RETURNING id`, household).Scan(&staleCat))
+		must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Tutup','BANK','FULL_LEDGER') RETURNING id`, household).Scan(&staleAcct))
+		must(execOnly(pool, `UPDATE transaction SET category_id=$2,account_id=$3,updated_at=now() WHERE id=$1`, id, staleCat, staleAcct))
+		must(execOnly(pool, `UPDATE category SET active=false WHERE id=$1`, staleCat))
+		must(execOnly(pool, `UPDATE account SET active=false WHERE id=$1`, staleAcct))
+		if rec := patch(id, stamp(id), `{"description":"Baru"}`, principal); rec.Code != 200 {
+			t.Fatalf("description-only: %d %s", rec.Code, rec.Body)
+		}
+		if rec := patch(id, stamp(id), fmt.Sprintf(`{"categoryId":%q,"accountId":%q,"note":"x"}`, staleCat, staleAcct), principal); rec.Code != 200 {
+			t.Fatalf("unchanged inactive: %d %s", rec.Code, rec.Body)
+		}
+		if rec := patch(id, stamp(id), fmt.Sprintf(`{"accountId":%q}`, inactive), principal); rec.Code != 400 || code(rec) != codeInvalidAccount {
+			t.Fatalf("to inactive: %d %s", rec.Code, code(rec))
+		}
+		var before, after int
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, household).Scan(&before))
+		if rec := patch(id, stamp(id), fmt.Sprintf(`{"accountId":%q}`, account), principal); rec.Code != 200 {
+			t.Fatalf("account change: %d %s", rec.Code, rec.Body)
+		}
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, household).Scan(&after))
+		if before != after {
+			t.Fatalf("account change created review items: %d -> %d", before, after)
+		}
+	})
 }
 
 func execOnly(pool *pgxpool.Pool, sql string, args ...any) error {

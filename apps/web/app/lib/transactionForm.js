@@ -96,10 +96,14 @@ export function editFormErrors(values) {
 // Body for PATCH: only fields the household may change, "" -> null to clear.
 export function editPayload(transaction, values) {
   const fields = editableFields(transaction), body = {};
-  if (fields.category) body.categoryId = values.categoryId || null;
-  if (fields.account) body.accountId = values.accountId || null;
-  body.description = String(values.description || "").trim();
-  body.note = String(values.note || "").trim() || null;
+  // Only changed fields are sent, so a since-deactivated category/account never
+  // blocks a description-only edit.
+  if (fields.category && (values.categoryId || null) !== (transaction.categoryId || null)) body.categoryId = values.categoryId || null;
+  if (fields.account && (values.accountId || null) !== (transaction.accountId || null)) body.accountId = values.accountId || null;
+  const description = String(values.description || "").trim();
+  if (description !== (transaction.description || "")) body.description = description;
+  const note = String(values.note || "").trim() || null;
+  if (note !== (transaction.note || null)) body.note = note;
   return body;
 }
 

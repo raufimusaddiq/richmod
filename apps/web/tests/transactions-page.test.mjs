@@ -121,7 +121,10 @@ test("edit: validation and payload", () => {
   assert.ok(editFormErrors({ description: "x".repeat(501) }).description);
   assert.ok(editFormErrors({ description: "ok", note: "x".repeat(2001) }).note);
   assert.deepEqual(editFormErrors({ description: "Kopi", note: "" }), {});
-  assert.deepEqual(editPayload({ type: "EXPENSE" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
+  assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", description: "Lama", note: "n" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
+  // Unchanged (possibly deactivated) category/account are never resent.
+  assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", accountId: "a0", description: "Lama", note: null }, { categoryId: "c0", accountId: "a0", description: "Baru", note: "" }), { description: "Baru" });
+  assert.deepEqual(editPayload({ type: "EXPENSE", description: "Lama" }, { categoryId: "", accountId: "", description: "Lama", note: "" }), {});
   assert.deepEqual(Object.keys(editPayload({ type: "TRANSFER" }, { categoryId: "c", accountId: "a", description: "x", note: "n" })).sort(), ["description", "note"]);
 });
 

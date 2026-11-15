@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 // Editable fields of an existing transaction (PATCH /api/v1/transactions/{id}).
@@ -22,7 +21,9 @@ import (
 // Review policy: a transaction with an open review item is rejected with 409
 // (code REVIEW_OPEN, "selesaikan tinjauan dulu"). Review resolution owns those
 // facts; this endpoint never routes around it. Transfers keep their account and
-// have no category, so those two fields are rejected for TRANSFER.
+// have no category, so those two fields are rejected for TRANSFER. An unchanged
+// current category/account is accepted even if deactivated since; only a change
+// TO an inactive one is rejected.
 const (
 	codeInvalidRequest   = "INVALID_REQUEST"
 	codeUnknownField     = "UNKNOWN_FIELD"
@@ -181,13 +182,13 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		kind, status             string
 		accountID, categoryID    *string
 		description, note        *string
-		updatedAt, transactionAt time.Time
+		updatedAt                time.Time
 		reviewOpen               bool
 	)
-	err = tx.QueryRow(ctx, `SELECT t.type,t.status,t.account_id::text,t.category_id::text,t.description,t.note,t.updated_at,t.transaction_at,
+	err = tx.QueryRow(ctx, `SELECT t.type,t.status,t.account_id::text,t.category_id::text,t.description,t.note,t.updated_at,
 		EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND'))
 		FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).
-		Scan(&kind, &status, &accountID, &categoryID, &description, &note, &updatedAt, &transactionAt, &reviewOpen)
+		Scan(&kind, &status, &accountID, &categoryID, &description, &note, &updatedAt, &reviewOpen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return editError{http.StatusNotFound, codeNotFound, "transaction not found"}
 	}
@@ -206,7 +207,7 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	if kind == "TRANSFER" && (in.categoryID.set || in.accountID.set) {
 		return editError{http.StatusConflict, codeTransferLocked, "a transfer's category and account cannot be edited"}
 	}
-	if in.categoryID.set && in.categoryID.value != nil {
+	if in.categoryID.set && in.categoryID.value != nil && !equalPtr(in.categoryID.value, categoryID) {
 		var okCategory bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM category WHERE id=$1 AND household_id=$2 AND active)`, *in.categoryID.value, household).Scan(&okCategory); err != nil {
 			return fmt.Errorf("validate category: %w", err)
@@ -215,7 +216,7 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 			return editError{http.StatusBadRequest, codeInvalidCategory, "categoryId must identify an active household category"}
 		}
 	}
-	if in.accountID.set && in.accountID.value != nil {
+	if in.accountID.set && in.accountID.value != nil && !equalPtr(in.accountID.value, accountID) {
 		var okAccount bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, *in.accountID.value, household).Scan(&okAccount); err != nil {
 			return fmt.Errorf("validate account: %w", err)
@@ -256,13 +257,8 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,'UPDATE_DETAILS','transaction',$3,$4::jsonb,$5::jsonb)`, household, p.UserID, id, string(beforeJSON), string(afterJSON)); err != nil {
 			return fmt.Errorf("audit edit: %w", err)
 		}
-		// Analytics read the ledger live (no materialised category aggregates),
-		// but open cycle residuals depend on which account a spend landed in.
-		if _, moved := after["accountId"]; moved {
-			if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, transactionAt, p.UserID); err != nil {
-				return fmt.Errorf("refresh cycle residuals: %w", err)
-			}
-		}
+		// A detail edit has no residual side effect: analytics read the ledger
+		// live and the cycle basis sums confirmed transactions household-wide.
 	}
 	return tx.Commit(ctx)
 }

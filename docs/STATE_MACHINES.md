@@ -82,14 +82,17 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
   `accountId` on a transfer are 409 `TRANSFER_FIELD_LOCKED`; its description and
   note remain editable.
 - **Validation:** category and account must belong to the household and be
-  active (400 `INVALID_CATEGORY` / `INVALID_ACCOUNT`). Categories carry no
+  active (400 `INVALID_CATEGORY` / `INVALID_ACCOUNT`). An unchanged current
+  category/account is accepted even if deactivated since; only a change TO an
+  inactive one is rejected, and the web form sends only changed fields. Categories carry no
   income/expense kind in the schema, so no type filter applies beyond the
   transfer rule above.
 - **Audit:** a change writes exactly one `audit_log` row, action
   `UPDATE_DETAILS`, whose `before_json`/`after_json` hold only the changed
   fields. A no-op edit writes nothing and leaves `updated_at` untouched.
 - **Derived data:** analytics read the ledger live (no materialised category
-  aggregates). Changing `accountId` re-runs `RefreshOpenCycleResiduals` in the
-  same database transaction because open-cycle residuals depend on the account.
+  aggregates) and the cycle basis sums confirmed transactions household-wide,
+  so a detail edit has no residual side effect: it never reopens a cycle review
+  or creates a `review_item`.
 - **Errors** return `{"error": "...", "code": "..."}`; the web app maps `code`
   to Indonesian copy and never shows the English text. No schema change.
