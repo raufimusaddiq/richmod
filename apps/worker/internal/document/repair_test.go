@@ -30,8 +30,7 @@ func (g *repairGateway) NativeToolCall(_ context.Context, _ string, prompt strin
 	return g.call, gateway.Metadata{Model: "vision-model"}, nil
 }
 
-// Repair must re-read the document: a flagged amount cannot be corrected from
-// an empty prompt with no evidence attached.
+// Repair must re-read the document: a flagged amount cannot be corrected from an empty prompt with no evidence.
 func TestRepairSendsDocumentEvidenceAndFlaggedFields(t *testing.T) {
 	value := receiptExtraction{Merchant: "Solaria", Currency: "IDR", Total: "6500", Confidence: 0.9}
 	issues := validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
@@ -52,7 +51,6 @@ func TestRepairSendsDocumentEvidenceAndFlaggedFields(t *testing.T) {
 			t.Fatalf("repair prompt missing %q: %s", want, llm.prompt)
 		}
 	}
-	// A repair without evidence must fail closed, never proceed unevidenced.
 	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
 	unchanged, _, err := repairExtracted(context.Background(), llm, "doc-no-evidence", "RECEIPT", nil, &value, &issues, func(receiptExtraction) error { return nil })
 	if err != nil || unchanged.Total != value.Total || !issues.has("", repairFailedCode) {
@@ -79,7 +77,6 @@ func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 	if err != nil || !llm.required || metadata.Model != "vision-model" {
 		t.Fatalf("patch=%+v required=%t err=%v", patched, llm.required, err)
 	}
-	// Revalidate failure keeps the original value.
 	llm = &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"95000"}}`)}}
 	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
 	if got, _, err := repairExtracted(context.Background(), llm, "doc-3", "RECEIPT", repairTestContent(), &value, &issues, func(receiptExtraction) error { return fmt.Errorf("still invalid") }); err != nil || got.Total != value.Total || !issues.has("", repairFailedCode) {
@@ -87,7 +84,6 @@ func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 	}
 }
 
-// repairTestContent is the document evidence every successful repair needs.
 func repairTestContent() []map[string]any {
 	return []map[string]any{{"type": "input_text", "text": "Extract this receipt."}, {"type": "input_image", "image_url": "data:image/jpeg;base64,AA=="}}
 }

@@ -1,11 +1,7 @@
 package telegram
 
-// review_card_actions.go executes the card buttons whose kinds had no Telegram
-// lane: IGNORE on a review that is not bound to a transaction, the income
-// Benar/Ubah pair, leaving a cycle residual unallocated, and the source-bound
-// transfer reconciliation chooser. Each binds the exact card by its stored
-// Telegram message, re-checks the household member, and calls the canonical
-// reviewdomain operation; none carries a canonical id in its callback data.
+// Executes card buttons with no earlier Telegram lane (unbound IGNORE, income Benar/Ubah, LEAVE_UNALLOCATED).
+// Each binds the card by its stored message; callback data carries no canonical id.
 
 import (
 	"context"
@@ -19,7 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// cardActionCallback reports a callback this file owns.
 func cardActionCallback(data string) bool {
 	return data == "review:confirm" || data == "review:change" || data == "review:leave" || data == "review:xfer:new" || strings.HasPrefix(data, "review:xfer:merge:")
 }
@@ -35,7 +30,6 @@ func (p *Processor) processCardActionCallback(ctx context.Context, sourceEventID
 	}
 }
 
-// boundCardItem is the exact open review a tapped card belongs to.
 type boundCardItem struct {
 	RequestID, ItemID, UserID, ReviewType string
 	Decision                              []byte
@@ -49,8 +43,6 @@ func (item boundCardItem) allows(action string) bool {
 	return contains(stored.AllowedActions, action)
 }
 
-// bindOpenCardItem locks the open review item bound to the tapped card for the
-// authorized household member who tapped it.
 func bindOpenCardItem(ctx context.Context, tx pgx.Tx, householdID string, update telegramUpdate) (boundCardItem, error) {
 	var item boundCardItem
 	err := tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,ti.user_id::text,ri.review_type,COALESCE(ri.decision,'{}'::jsonb)
@@ -68,11 +60,8 @@ func markCallbackProcessed(ctx context.Context, tx pgx.Tx, sourceEventID string)
 	return err
 }
 
-// ignoreBoundReviewItem is Abaikan for every review that is not bound to a
-// transaction and has no dedicated lane (a missing-amount screenshot row, a
-// wealth observation, a source-bound transfer, ...). The canonical
-// reviewdomain.IgnoreReview owns the transition and refuses a kind whose stored
-// contract does not offer IGNORE.
+// Abaikan for reviews not bound to a transaction; reviewdomain.IgnoreReview owns the transition and refuses
+// kinds whose stored contract lacks IGNORE.
 func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -110,9 +99,8 @@ func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, ho
 	return tx.Commit(ctx)
 }
 
-// processIncomeConfirmCallback answers the income card. Benar confirms the
-// incoming transaction as income through the canonical confirm; Ubah keeps the
-// review open and offers the income/transfer classification on the same card.
+// Benar confirms the incoming transaction as income via the canonical confirm; Ubah keeps the review open and
+// offers income/transfer classification.
 func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, confirm bool) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -134,8 +122,7 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 		return err
 	}
 	if confirm {
-		// Benar is the income answer of the shared income confirm, which takes its
-		// own lock and revalidates the subject; this read only bound the card.
+		// Benar's shared income confirm takes its own lock and revalidates; this read only bound the card.
 		if err := tx.Rollback(ctx); err != nil {
 			return err
 		}
@@ -161,9 +148,8 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 	return tx.Commit(ctx)
 }
 
-// processCycleLeaveCallback is the cycle card's one-tap LEAVE_UNALLOCATED. The
-// shared cycle operation revalidates the basis first, so a stale card refreshes
-// instead of closing on an old residual.
+// The shared cycle operation revalidates the basis first, so a stale card refreshes instead of closing on an
+// old residual.
 func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -213,10 +199,8 @@ func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID
 	return tx.Commit(ctx)
 }
 
-// processTransferReconciliationCallback answers the source-bound transfer
-// chooser: merge into the n-th stored candidate or record a new transfer. The
-// candidate list was stored with the card when it was rendered, and the shared
-// reconciliation revalidates the chosen candidate against the open case.
+// Merges into the n-th candidate stored with the card, or records a new transfer; the shared reconciliation
+// revalidates the candidate.
 func (p *Processor) processTransferReconciliationCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -263,9 +247,8 @@ func (p *Processor) processTransferReconciliationCallback(ctx context.Context, s
 	return tx.Commit(ctx)
 }
 
-// ProjectReviewPayload is one PROJECT_TELEGRAM_REVIEW job: a review item a
-// surface without a Telegram renderer (the API, for a reopened review) asks the
-// worker to project through the shared projection path.
+// A PROJECT_TELEGRAM_REVIEW job: a surface without a Telegram renderer (e.g. an API reopen) asks the worker
+// to project the item.
 type ProjectReviewPayload struct {
 	HouseholdID  string `json:"household_id"`
 	ReviewItemID string `json:"review_item_id"`
@@ -282,8 +265,7 @@ func DecodeProjectReviewPayload(raw json.RawMessage) (ProjectReviewPayload, erro
 	return payload, nil
 }
 
-// ProjectReviewJob projects one review item. It is idempotent: a closed item
-// or an already rendered projection sends nothing.
+// ProjectReviewJob is idempotent: a closed item or an already rendered projection sends nothing.
 func (p *Processor) ProjectReviewJob(ctx context.Context, payload ProjectReviewPayload) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {

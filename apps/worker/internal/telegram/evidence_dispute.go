@@ -23,11 +23,8 @@ func evidenceDisputeMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Konfirmasi transaksi berbeda", CallbackData: "review:dispute:confirm"}, {Text: "Batalkan koreksi", CallbackData: "review:dispute:reject"}}}}
 }
 
-// disputeCategory is the category Go resolves for the disputed screenshot's own
-// extraction, with the same policy the normal screenshot path applies: a
-// validated, active household category slug; household merchant memory
-// overrides it only when both agree, and a disagreement leaves it unresolved
-// (never confirm through a conflict) so the household is asked.
+// Same policy as the normal screenshot path: merchant memory overrides only when both agree; a disagreement
+// stays unresolved so the household is asked.
 type disputeCategory struct{ id string }
 
 func (p *Processor) disputeCategory(ctx context.Context, tx pgx.Tx, household, document string) (disputeCategory, error) {
@@ -142,8 +139,6 @@ const disputeStaleMessage = "Koreksi belum dicatat: tautan screenshot berubah at
 
 var disputeCategoryID = regexp.MustCompile(`^[0-9a-fA-F-]{36}$`)
 
-// disputeRequest locks the open dispute card the callback's message is bound to,
-// for an active household member. Nothing else resolves a dispute.
 func disputeRequest(ctx context.Context, tx pgx.Tx, household string, update telegramUpdate) (request, item, transaction, user string, err error) {
 	err = tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,ri.transaction_id::text,ti.user_id::text
 		FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
@@ -166,8 +161,6 @@ func (p *Processor) processEvidenceDisputeCallback(ctx context.Context, source, 
 	return true, p.resolveEvidenceDispute(ctx, source, household, update, data == "review:dispute:confirm", "")
 }
 
-// resolveEvidenceDispute confirms (optionally with the household's chosen category)
-// or rejects the dispute the callback's card is bound to, atomically.
 func (p *Processor) resolveEvidenceDispute(ctx context.Context, source, household string, update telegramUpdate, confirm bool, categoryID string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -184,7 +177,6 @@ func (p *Processor) resolveEvidenceDispute(ctx context.Context, source, househol
 	err = reviewdomain.ResolveEvidenceDispute(ctx, tx, reviewdomain.EvidenceDisputeCommand{HouseholdID: household, ActorUserID: user, TransactionID: transaction, ReviewItemID: item, RequestID: request, CategoryID: categoryID}, confirm)
 	switch {
 	case errors.Is(err, reviewdomain.ErrMissingCategory):
-		// No policy-resolved category: ask through the existing chooser, record nothing.
 		if err = tx.Rollback(ctx); err != nil {
 			return err
 		}
@@ -215,8 +207,7 @@ func (p *Processor) resolveEvidenceDispute(ctx context.Context, source, househol
 	return tx.Commit(ctx)
 }
 
-// disputeCategoryMarkup is the existing category chooser without its generic
-// asset-purchase/detail/ignore row, which would bypass the dispute contract.
+// Drops the generic asset-purchase/detail/ignore row, which would bypass the dispute contract.
 func disputeCategoryMarkup(markup *InlineKeyboardMarkup) *InlineKeyboardMarkup {
 	if markup == nil {
 		return nil
@@ -251,8 +242,6 @@ func (p *Processor) offerDisputeCategoryChooser(ctx context.Context, source, req
 	return tx.Commit(ctx)
 }
 
-// processDisputeCategoryCallback handles the chooser taps of a dispute card:
-// paging, or the household's explicit category that completes the confirmation.
 func (p *Processor) processDisputeCategoryCallback(ctx context.Context, source, household string, update telegramUpdate, data string) error {
 	if strings.HasPrefix(data, "review:catpage:") {
 		page, err := strconv.Atoi(strings.TrimPrefix(data, "review:catpage:"))

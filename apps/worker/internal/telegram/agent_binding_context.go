@@ -38,10 +38,8 @@ func isAgentCoreSideEffect(name string) bool {
 	}
 }
 
-// loadAgentReviewBinding resolves the server-owned review target before the model
-// is invoked. Exact Telegram reply binding always wins. Without an exact reply,
-// exactly one eligible target for the current Telegram chat is required; reviews
-// belonging to another household member/chat never participate in ambiguity.
+// loadAgentReviewBinding resolves the review target before the model runs: exact reply wins, else
+// exactly one eligible target in this chat; other members' or chats' reviews never add ambiguity.
 func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (*agentReviewBinding, any, int, error) {
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		binding, err := p.exactAgentReviewBinding(ctx, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID)
@@ -53,9 +51,8 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 		}
 	}
 
-	// Without an exact reply, only live cards count (loadLiveReviewCards). This
-	// reports the set; whether free text answers one of them is decided by
-	// matchTypedCardAnswer, never by the model.
+	// Without an exact reply only live cards count; whether free text answers one is decided by
+	// matchTypedCardAnswer, never the model.
 	bindings, err := p.loadLiveReviewCards(ctx, householdID, update.Message.Chat.ID)
 	if err != nil {
 		return nil, nil, 0, err
@@ -116,8 +113,7 @@ func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID str
 	case binding.TransactionID != "":
 		binding.Kind, binding.TargetID = "TRANSACTION", binding.ReviewRequestID
 	case bankItemID != "":
-		// A bank email whose facts could not be verified: no transaction exists
-		// yet, the household supplies the amount and time.
+		// A bank email with unverified facts has no transaction yet; the household supplies amount and time.
 		binding.Kind, binding.TargetID, binding.Label = "BANK_FACTS", bankItemID, "Email bank"
 	default:
 		return nil, nil
@@ -131,9 +127,8 @@ func agentReviewBindingPublic(binding *agentReviewBinding) map[string]any {
 	}
 	out := map[string]any{
 		"review_type": binding.ReviewType,
-		// review_mode is the bound canonical subject/executor (binding.Kind) and
-		// stays separate from the semantic action vocabulary, which is keyed by
-		// review_type. Conflating them exposed generic actions for a typed review.
+		// review_mode is the bound canonical subject/executor (binding.Kind), separate from the action
+		// vocabulary keyed by review_type; conflating them exposed generic actions for a typed review.
 		"review_mode": binding.Kind,
 		"amount_idr":  binding.AmountIDR,
 		"description": binding.Label,
@@ -141,8 +136,7 @@ func agentReviewBindingPublic(binding *agentReviewBinding) map[string]any {
 	if binding.TelegramMessageID != 0 {
 		out["binding"] = "reply_or_server_message"
 	}
-	// Name the one value the card asked the household for, so the model puts the
-	// reply in that argument instead of guessing.
+	// Name the one value the card asked for so the model puts the reply in that argument instead of guessing.
 	if field := awaitedReviewField(binding.ConversationState); field != "" {
 		out["awaiting_field"] = field
 	}
@@ -181,8 +175,7 @@ func (p *Processor) loadAgentMerchantLearningBinding(ctx context.Context, househ
 		  AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		// A reply may target the separate learning question or, for a question
-		// delivered as an edit of the card, the card itself.
+		// A reply may target the separate learning question or, when delivered as an edit of the card, the card itself.
 		base += ` AND (rr.merchant_learning_message_id=$3 OR rr.telegram_message_id=$3)`
 		params = append(params, update.Message.ReplyToMessage.MessageID)
 	}

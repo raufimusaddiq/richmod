@@ -10,10 +10,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// agentResolveBoundBankFacts completes or dismisses a bank-email review whose
-// facts could not be verified. The model extracts the amount and time from the
-// household's answer; Go validates them and queues the same COMPLETE_BANK_REVIEW
-// job the Web uses, which owns resolution and persistence.
+// agentResolveBoundBankFacts completes or dismisses a bank-email review with unverified facts: the model
+// extracts amount and time, Go validates and queues the COMPLETE_BANK_REVIEW job the Web uses.
 func (p *Processor) agentResolveBoundBankFacts(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, binding *agentReviewBinding) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	action, _ := args["action"].(string)
@@ -80,8 +78,7 @@ func (p *Processor) agentResolveBoundBankFacts(ctx context.Context, state *agent
 					result.Status = "BANK_ACCOUNT_UNAVAILABLE"
 					return result, true, nil
 				}
-				// Keep the facts on the review and ask which account the email is for;
-				// the account button completes it through the existing callback lane.
+				// Keep the facts on the review and ask which account the email is for; the account button completes it.
 				if err = p.offerBankAccountChooser(ctx, state.SourceEventID, state.HouseholdID, binding.TargetID, accounts, amountIDR, transactionAt, state.Update); err != nil {
 					return result, true, err
 				}

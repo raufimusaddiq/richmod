@@ -11,9 +11,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// linkBankEvidence writes inside the transaction its caller opened and never
-// commits it: the caller owns commit and rollback. A caller that rolls back
-// therefore leaves no link, proposal or audit row behind.
+// linkBankEvidence writes inside the caller's transaction and never commits it; a caller that rolls back
+// leaves no link, proposal or audit row.
 func TestLinkBankEvidenceLeavesCommitToItsCaller(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -47,7 +46,6 @@ func TestLinkBankEvidenceLeavesCommitToItsCaller(t *testing.T) {
 	must(err)
 	defer tx.Rollback(ctx)
 	must((&Processor{pool: pool}).linkBankEvidence(ctx, tx, listener, source, extraction, reviewdomain.LedgerMatch{ID: existing, Score: .95}, bankLink{household: household, amount: amount, at: at, description: "Belanja"}))
-	// The caller's transaction is still open: linkBankEvidence did not end it.
 	var linked bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction_evidence WHERE transaction_id=$1 AND source_event_id=$2)`, existing, source).Scan(&linked); err != nil {
 		t.Fatalf("linkBankEvidence ended its caller's transaction: %v", err)

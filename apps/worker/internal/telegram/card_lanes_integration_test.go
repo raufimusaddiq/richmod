@@ -13,10 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// Integration tests for what a Telegram review card says and can do: the card
-// is the whole interaction, every button it shows can execute, and a re-render
-// keeps the remaining actions.
-
 type cardFixture struct {
 	t         *testing.T
 	ctx       context.Context
@@ -67,8 +63,6 @@ func (f *cardFixture) id(sql string, args ...any) string {
 	return id
 }
 
-// bindCard creates the open Telegram projection of an item as delivered card
-// messageID, with the conversation in state.
 func (f *cardFixture) bindCard(itemID, transactionID, reviewType, state string, messageID int64, text string) string {
 	f.t.Helper()
 	request := f.id(`INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,NULLIF($3,'')::uuid,$4,'OPEN',$5) RETURNING id`, f.household, itemID, transactionID, reviewType, f.chat)
@@ -77,8 +71,6 @@ func (f *cardFixture) bindCard(itemID, transactionID, reviewType, state string, 
 	return request
 }
 
-// tap processes one button press on card messageID, carrying the card text the
-// way Telegram's callback does.
 func (f *cardFixture) tap(messageID int64, data, text string) {
 	f.t.Helper()
 	source := seedTelegramRaw(f.t, f.pool, f.household, "TELEGRAM_CALLBACK", map[string]any{"callback_query": map[string]any{
@@ -108,9 +100,8 @@ func (f *cardFixture) lastEdit(messageID int64) (string, string) {
 	return text, markup
 }
 
-// R1: one expense review is one card. The category tap turns the card into
-// its result with the remember choice inline; the choice settles it again.
-// No extra message is sent and no button is left behind.
+// One expense review is one card: the category tap turns it into its result with the remember choice inline;
+// no extra message or leftover button.
 func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -147,9 +138,8 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 	}
 }
 
-// R2: a merchant that sells several kinds of things gets its own past
-// categories as the first row, most used first, with the category that every
-// earlier purchase at exactly this amount used marked as the suggestion.
+// A multi-purpose merchant gets its own past categories first, most used first, starring the one every
+// earlier purchase at this amount used.
 func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 	f := newCardFixture(t)
 	galon := f.id(`INSERT INTO category(household_id,name,slug,sort_order) VALUES($1,'Galon Isi Ulang','galon',9) RETURNING id`, f.household)
@@ -166,7 +156,7 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 	confirmed(galon, 34500, 11)
 	confirmed(galon, 23000, 12)
 	confirmed(gas, 23000, 20)
-	// Another household's history for a same-named merchant must not leak in.
+	// Another household's history must not leak in.
 	foreign := f.id(`INSERT INTO household(name) VALUES('foreign') RETURNING id`)
 	foreignCategory := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Asing','asing') RETURNING id`, foreign)
 	foreignMerchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, foreign)
@@ -200,7 +190,7 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 		t.Fatalf("generic rows repeat history or leak another household: %s", encoded)
 	}
 
-	// At 23000 the history is split between Galon and Gas, so nothing is starred.
+	// The history is split at this amount, so nothing is starred.
 	f.exec(`UPDATE transaction SET amount=23000 WHERE id=$1`, transaction)
 	markup = categoryChooserMarkup(f.ctx, tx, request, 0)
 	encoded, _ = json.Marshal(markup.InlineKeyboard[0])
@@ -209,8 +199,7 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 	}
 }
 
-// R4: Abaikan executes for every kind whose contract allows IGNORE, and a
-// kind that cannot be ignored never shows the button.
+// Abaikan executes for every kind whose contract allows IGNORE; other kinds never show it.
 func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 	f := newCardFixture(t)
 	t.Run("missing amount", func(t *testing.T) {
@@ -240,14 +229,11 @@ func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 		salarySource := f.id(`INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'ACME','acme',true) RETURNING id`, f.household, f.user)
 		source := f.id(`INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, f.household, fmt.Sprintf("cycle-%d", f.chat))
 		salary := func(period string) string {
-			// Salary transactions sit outside the window so the basis is exactly
-			// the one income below.
 			paid := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1,'2025-01-01',now()) RETURNING id`, f.household)
 			return f.id(`INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$3::date,1,$4,'CONFIRMED',$5) RETURNING id`, salarySource, f.household, period, paid, source)
 		}
 		start, end := salary("2026-08-25"), salary("2026-09-25")
 		f.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1250000,'2026-09-01T12:00:00+07:00',now())`, f.household)
-		// The stored basis matches the recomputed one, so the tap is not stale.
 		caseID := f.id(`INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-08-25','2026-09-25',1250000,0,0,1250000) RETURNING id`, f.household, start, end)
 		item := f.id(`INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','PENDING_SEND','{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","decisionClass":"HUMAN_POLICY_CHOICE","missingFacts":["residual_allocation"],"allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"],"interactionMode":"POLICY_CHOICE"}'::jsonb) RETURNING id`, f.household, caseID)
 		tx, err := f.pool.Begin(f.ctx)
@@ -275,8 +261,7 @@ func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 	})
 }
 
-// Item 8: a transfer review bound to a source event and a reconciliation case
-// renders its chooser from the case, and the chooser executes.
+// A transfer review bound to a source event and reconciliation case renders its chooser from the case.
 func TestSourceBoundTransferCardHasExecutableButtons(t *testing.T) {
 	f := newCardFixture(t)
 	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
@@ -313,8 +298,6 @@ func TestSourceBoundTransferCardHasExecutableButtons(t *testing.T) {
 	}
 }
 
-// R10: the income card's Benar confirms income; Ubah offers the
-// income/transfer choices on the same card, and those execute.
 func TestIncomeCardConfirmAndChangeExecute(t *testing.T) {
 	f := newCardFixture(t)
 	income := func(messageID int64) (string, string) {
@@ -343,8 +326,7 @@ func TestIncomeCardConfirmAndChangeExecute(t *testing.T) {
 	}
 }
 
-// Item 6: a card re-rendered after a partial answer keeps its remaining
-// actions instead of being sent with an empty keyboard.
+// A card re-rendered after a partial answer keeps its remaining actions rather than an empty keyboard.
 func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',18502,now()) RETURNING id`, f.household)
@@ -368,8 +350,8 @@ func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
 	}
 }
 
-// Item 10: a stale tap on a card that no longer belongs to a live review loses
-// its buttons; a stale choice on a still-open card keeps them.
+// A stale tap on a card no longer tied to a live review loses its buttons; a stale choice on a still-open
+// card keeps them.
 func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',1000,now(),now()) RETURNING id`, f.household)
@@ -383,14 +365,11 @@ func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
 	}
 }
 
-// Item 11: a reopened review gets a fresh decision and is projected through
-// the shared path by its job.
 func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, f.household)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,category_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',42000,now(),$2,$3) RETURNING id`, f.household, f.user, category)
-	// The earlier review asked for the date and category, which were answered
-	// before the merge; reversing it must not ask them again.
+	// Date and category answered before the merge must not be asked again after reversal.
 	f.exec(`INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,decision) VALUES($1,$2,'TRANSACTION_FACTS_MISSING','RESOLVED',now(),'{"version":1,"reasonCode":"TRANSACTION_FACTS_MISSING","knownFacts":{"amount_idr":"1"},"missingFacts":["category","transaction_at"],"allowedActions":["CONFIRM_REVIEW","SET_PAY_DATE","IGNORE"]}'::jsonb)`, f.household, transaction)
 	tx, err := f.pool.Begin(f.ctx)
 	if err != nil {
@@ -428,8 +407,7 @@ func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 	}
 }
 
-// A merchant already confirmed with another category is not offered a single
-// remembered default: it would miscategorize its other purchases.
+// A merchant already confirmed with another category is not offered a single remembered default.
 func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 	f := newCardFixture(t)
 	galon := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -451,9 +429,7 @@ func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 	}
 }
 
-// Outcome edits of one card apply only at their newest revision: a delayed or
-// retried question edit that runs after the final answer is dropped, so the
-// answered remember buttons never come back.
+// A delayed or retried question edit running after the final answer is dropped, so the remember buttons never return.
 func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -485,8 +461,6 @@ func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 	}
 	bot, fake := newFakeTelegram(t, func(string) (int, string) { return 200, `{"ok":true,"result":true}` })
 	processor := NewProcessor(f.pool, nil)
-	// The final answer is delivered first, then the delayed question edit and a
-	// retry of it run.
 	for _, payload := range []EditPayload{payloads[1], payloads[0], payloads[0]} {
 		if err := processor.ApplyCardOutcomeEdit(f.ctx, bot, payload); err != nil {
 			t.Fatal(err)
@@ -498,10 +472,8 @@ func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 	}
 }
 
-// A repeated tap on a card that is asking the remember question does not
-// retire it: the question is live after its request resolved. A button
-// retirement queued before the card's first outcome is dropped once the
-// outcome exists, so out-of-order delivery cannot erase the question.
+// A repeated tap on the remember question does not retire it, and a retirement queued before the first
+// outcome is dropped once the outcome exists.
 func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -510,7 +482,6 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
 	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 95, "card")
 
-	// A retirement queued while the card was still a plain question.
 	update := callbackUpdate(f.chat, 95, "review:edit")
 	if err := enqueueRetireButtons(withCallbackQuestion(f.ctx, `{"callback_query":{"message":{"text":"card"}}}`), f.pool, update, "Tidak lagi berlaku."); err != nil {
 		t.Fatal(err)
@@ -525,7 +496,6 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	f.tap(95, "review:cat:"+category, "card")
 	question, _ := f.lastEdit(95)
 	edits := f.count(`SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95`, f.chat)
-	// A duplicate category tap and a stale detail tap on the question card.
 	f.tap(95, "review:cat:"+category, question)
 	f.tap(95, "review:edit", question)
 	if again := f.count(`SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95`, f.chat); again != edits {
@@ -536,7 +506,6 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	if state != "AWAITING_MERCHANT_DECISION" {
 		t.Fatalf("conversation=%s", state)
 	}
-	// The early retirement delivered late is dropped.
 	bot, fake := newFakeTelegram(t, nil)
 	if err := NewProcessor(f.pool, nil).ApplyCardOutcomeEdit(f.ctx, bot, earlyPayload); err != nil {
 		t.Fatal(err)
@@ -550,8 +519,6 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	}
 }
 
-// An incoming duplicate that also needs its transfer relationship shows the
-// income/transfer choices its instruction names, not Benar/Ubah.
 func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'INCOME','NEEDS_REVIEW',300000,now()) RETURNING id`, f.household)
@@ -574,8 +541,6 @@ func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
 	}
 }
 
-// A retirement claimed before the settle superseded it does not strip the
-// settled card's inline remember choice.
 func TestClaimedRetirementSkipsASettledCard(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -599,7 +564,6 @@ func TestClaimedRetirementSkipsASettledCard(t *testing.T) {
 	}
 }
 
-// An outcome edit on an expired copy keeps its text but never regains buttons.
 func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -626,10 +590,8 @@ func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
 	}
 }
 
-// The Telegram transfer chooser offers a merge button only for a candidate
-// the shared merge rule accepts, so the position it stores always resolves to a
-// mergeable transaction; a case without a proposed purpose offers no
-// record-as-new button, because the card cannot ask for the purpose.
+// The transfer chooser offers merge only for candidates the shared merge rule accepts, and no record-as-new
+// button without a proposed purpose.
 func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
 	f := newCardFixture(t)
 	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
@@ -665,8 +627,7 @@ func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
 	if status != "RESOLVED" || acceptedStatus != "CONFIRMED" || elsewhereStatus != "NEEDS_REVIEW" {
 		t.Fatalf("merge: item=%s accepted=%s elsewhere=%s", status, acceptedStatus, elsewhereStatus)
 	}
-	// Without a proposed purpose an unclassified candidate cannot be merged and
-	// the card cannot choose a purpose for a new transfer: only dismiss remains.
+	// Without a proposed purpose only dismiss remains.
 	_, _, markup, _ = project("", elsewhere)
 	if strings.Contains(markup, "review:xfer:merge:") || strings.Contains(markup, "review:xfer:new") || !strings.Contains(markup, "review:ignore") {
 		t.Fatalf("a purpose-less case with no mergeable candidate offers only dismiss: %s", markup)

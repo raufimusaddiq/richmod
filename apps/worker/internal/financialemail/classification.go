@@ -8,10 +8,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// ObservationClassification is the bounded ruling over one already-extracted
-// provider-email observation. It replaces the generative self-confidence gate:
-// the extractor produces arbitrary facts, this object says whether the evidence
-// supports the semantic claims those facts depend on.
+// ObservationClassification is the bounded ruling over one extracted observation, replacing the generative
+// self-confidence gate: it says whether the evidence supports the claims the facts depend on.
 type ObservationClassification struct {
 	ObservationType    string
 	TypeAccepted       bool
@@ -21,37 +19,30 @@ type ObservationClassification struct {
 	WealthSupported    bool
 	EvidenceSufficient bool
 	MaterialAmbiguity  bool
-	// ClaimOutcomes keeps one entry per bounded predicate so the review can name
-	// the exact unresolved/conflicting dimension instead of collapsing every
-	// unsupported case into transfer classification. Noul predicates store
-	// YES/NO/UNDECIDED; choice predicates store the accepted option label when
-	// AcceptChoice passes and UNDECIDED otherwise, so a rejected choice never reads
-	// as a passing predicate.
+	// ClaimOutcomes keeps one entry per bounded predicate so the review names the failing dimension.
+	// Predicates store YES/NO/UNDECIDED; choice predicates store the label only when AcceptChoice passes.
 	ClaimOutcomes map[string]string
-	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
-	// question, which is the favourable answer. The middle band means the plane
-	// could not tell, and must fail closed rather than read as approval.
+	// AmbiguityDecidedNotAmbiguous records a decided negative on the ambiguous question; the middle band must
+	// fail closed, not read as approval.
 	AmbiguityDecidedNotAmbiguous bool
 
 	Model         string
 	PolicyVersion string
 }
 
-// ProviderEmailClassificationPolicyVersion marks the thresholds behind these
-// rulings so a stored decision stays reproducible.
+// ProviderEmailClassificationPolicyVersion marks the thresholds behind these rulings so stored decisions stay
+// reproducible.
 const ProviderEmailClassificationPolicyVersion = "2026-09-jev4"
 
-// jeverifier is the seam onto the bounded judgment plane, expressed in the terms
-// this package needs so provider email never imports Telegram policy.
+// jeverifier is the seam onto the judgment plane so provider email never imports Telegram policy.
 type jeverifier interface {
 	Evaluate(context.Context, string, judgment.Request) (judgment.Result, error)
 }
 
-// observationTypes is the canonical possibility space for one observation.
 var observationTypes = []string{"CASH_MOVEMENT", "WEALTH_VALUE", "NON_ACTIONABLE"}
 
-// observationTypeCriteria describes each kind for the model. Capabilities only
-// restrict the tool schema; this Choice is what actually rules on the semantics.
+// observationTypeCriteria describes each kind for the model; capabilities only restrict the tool schema, this
+// Choice rules on the semantics.
 var observationTypeCriteria = map[string]string{
 	"CASH_MOVEMENT":    "a real movement of money into, out of, or between the household's accounts",
 	"WEALTH_VALUE":     "an observed current value of a holding, not a movement of money",
@@ -80,10 +71,8 @@ var classificationPolicy = struct {
 	Ambiguity: judgment.NoulPolicy{High: 0.15, Low: 0.05},
 }
 
-// classifyObservation asks one bounded bundle about one extracted observation.
-// The provider never generates merchant/date strings here; it rules on claims Go
-// already holds. `verified=false` means no verifier is configured, and callers
-// must keep their deterministic structural checks in that case.
+// classifyObservation makes one bounded bundle ruling on claims Go already holds.
+// verified=false means no verifier is configured, so callers keep their deterministic structural checks.
 func (p *Processor) classifyObservation(ctx context.Context, requestID string, v observation) (ObservationClassification, bool, error) {
 	if p.verifier == nil {
 		return ObservationClassification{}, false, nil
@@ -109,9 +98,7 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	if strings.EqualFold(v.Kind, "CASH_MOVEMENT") || pointerValue(v.MovementType) != "" {
 		questions["movement_type"] = judgment.Question{Type: "choice", Instructions: "Choose the movement this email describes. Use OTHER_OR_UNCLEAR when the wording does not support one.", Criteria: judgment.ChoiceCriteria(movementTypeCriteria)}
 	}
-	// This is an evidence check over extracted prose, not a re-decision of a
-	// semantic dimension, so the accepted set is explicitly empty. It must never
-	// read as a semantic re-decision.
+	// An evidence check over extracted prose, not a semantic re-decision, so the accepted set is explicitly empty.
 	ctx = judgment.WithPhaseMetadata(ctx, "EVIDENCE_SUPPORT", ProviderEmailClassificationPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, requestID, judgment.Request{State: state, Questions: questions})
 	if err != nil {
@@ -142,11 +129,8 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 			continue
 		}
 		if answer.Type == "choice" {
-			// A choice only clears the gate when AcceptChoice accepts it, exactly
-			// like the booleans below and the ObservationType/MovementType fields
-			// above. Recording the raw label regardless made a rejected choice read
-			// as a passing predicate, so cashResidual() came back empty and the case
-			// fell through to a bogus transfer classification.
+			// A choice clears the gate only when AcceptChoice accepts it; recording the raw label let a
+			// rejected choice read as a passing predicate.
 			criteria, policy := observationTypeCriteria, classificationPolicy.Type
 			if key == "movement_type" {
 				criteria, policy = movementTypeCriteria, classificationPolicy.Movement
@@ -157,10 +141,8 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 			}
 			continue
 		}
-		// material_ambiguity is an inverted claim read through the Ambiguity policy,
-		// so it must use that same policy here; judging it with Supported would make
-		// a noul in the (Low, High) band read as a decided negative to cashResidual
-		// while the boolean gate still treats it as undecided.
+		// material_ambiguity is inverted, so it must use the Ambiguity policy here; Supported would read a
+		// (Low, High) noul as a decided negative while the gate treats it as undecided.
 		policy := classificationPolicy.Supported
 		if key == "material_ambiguity" {
 			policy = classificationPolicy.Ambiguity
@@ -177,17 +159,14 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	return classification, true, nil
 }
 
-// cashResidual names only failed cash-evidence dimensions. Movement/purpose
-// remains a transfer classification choice, not a generic evidence failure.
+// cashResidual names only failed cash-evidence dimensions; movement/purpose stays a transfer classification choice.
 func (c ObservationClassification) cashResidual() []string {
 	var missing []string
 	c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
 	return missing
 }
 
-// cashClaimFacts is the single predicate→fact table behind both the residual
-// name and the guarded fallback, so a rejected predicate always names the same
-// fact whichever caller reads it.
+// cashClaimFacts is the single predicate-to-fact table behind the residual name and the guarded fallback.
 var cashClaimFacts = []struct{ key, fact, expected string }{
 	{"observation_type", "observation_type", "CASH_MOVEMENT"},
 	{"cash_movement_supported", "cash_movement", "YES"},
@@ -195,7 +174,6 @@ var cashClaimFacts = []struct{ key, fact, expected string }{
 	{"material_ambiguity", "transaction_ambiguity", "NO"},
 }
 
-// eachFailedClaim reports the fact for every bounded predicate that did not hold.
 func (c ObservationClassification) eachFailedClaim(report func(fact string)) {
 	for _, claim := range cashClaimFacts {
 		if c.ClaimOutcomes[claim.key] != claim.expected {
@@ -204,19 +182,14 @@ func (c ObservationClassification) eachFailedClaim(report func(fact string)) {
 	}
 }
 
-// reviewFacts returns the review contract for this classification: the
-// exact unsupported dimensions, the validator consequence that follows from
-// them, and whether a rule (rather than a predicate) ruled. Derived here so no
-// call site can hand-roll a contradicting contract.
+// reviewFacts derives the review contract (unsupported dimensions, validator consequence, whether a rule
+// ruled) in one place so no call site hand-rolls a contradicting one.
 func (c ObservationClassification) reviewFacts(residual []string) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
-	// Only a bounded ruling that actually ran reaches here, so it may name
-	// predicate-level facts. A case with no bounded ruling never parks a facts
-	// residual: it takes the recovery lane instead.
+	// Only a ruling that ran may name predicate-level facts; a case with none takes the recovery lane.
 	missing = residual
 	if len(missing) == 0 {
-		// Defensive: derive the contract from the actual claim outcomes rather
-		// than fabricating a fact. A rejected observation_type must be named as
-		// such, never as generic evidence_support.
+		// Defensive: derive from the actual claim outcomes; a rejected observation_type is named as such,
+		// never as generic evidence_support.
 		c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
 		if len(missing) == 0 {
 			missing = []string{"evidence_support"}
@@ -236,15 +209,14 @@ func (c ObservationClassification) reviewFacts(residual []string) (missing, affe
 	return
 }
 
-// cashAllowed reports whether Go may treat this observation as a real cash
-// movement. Every bounded claim must hold; anything undecided fails closed.
+// cashAllowed reports whether Go may treat this as a real cash movement; every bounded claim must hold,
+// undecided fails closed.
 func (c ObservationClassification) cashAllowed() bool {
 	return c.TypeAccepted && c.ObservationType == "CASH_MOVEMENT" && c.CashSupported && c.EvidenceSufficient && c.AmbiguityDecidedNotAmbiguous &&
 		c.MovementAccepted && c.MovementType != ""
 }
 
-// noulSupported reports a decided, affirmative Noul answer. The middle band
-// fails closed, matching the Telegram decision plane.
+// noulSupported reports a decided affirmative Noul; the middle band fails closed like the Telegram decision plane.
 func noulSupported(answers map[string]judgment.Answer, key string) bool {
 	answer, ok := answers[key]
 	if !ok {
@@ -254,9 +226,8 @@ func noulSupported(answers map[string]judgment.Answer, key string) bool {
 	return supported && decided
 }
 
-// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
-// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
-// ruling instead of treating an undecided answer as approval.
+// ambiguityVerdict reads the inverted claim as (isAmbiguous, decidedNotAmbiguous) so callers can require an
+// affirmative not-ambiguous ruling.
 func ambiguityVerdict(answers map[string]judgment.Answer, key string) (bool, bool) {
 	answer, ok := answers[key]
 	if !ok {

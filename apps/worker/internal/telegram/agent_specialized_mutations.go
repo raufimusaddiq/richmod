@@ -21,8 +21,8 @@ func isAgentSpecializedSideEffect(name string) bool {
 	}
 }
 
-// executeAgentSpecializedSideEffect keeps the Go-owned finance policy boundary
-// while returning authoritative structured outcomes for natural LLM synthesis.
+// executeAgentSpecializedSideEffect keeps the Go-owned finance policy boundary while returning structured
+// outcomes for model synthesis.
 func (p *Processor) executeAgentSpecializedSideEffect(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	switch call.Name {
 	case "record_transfer":
@@ -86,15 +86,12 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 			return result, true, nil
 		}
 	}
-	// Purpose is a bounded semantic Choice, so the generative model no longer
-	// asserts it. An in-process caller may already know it deterministically
-	// (a fixed asset-purchase reclassification) and pass it as
-	// reclassification_purpose; that value never comes from model arguments.
+	// Purpose is a bounded semantic Choice the model no longer asserts; an in-process caller may supply it as
+	// reclassification_purpose, never from model arguments.
 	purpose, _ := args["reclassification_purpose"].(string)
 	if !contains(transferPurposes, purpose) {
-		// The purpose is a semantic judgment Go does not make on its own; without
-		// a deterministic reclassification purpose the transfer is not recorded
-		// (ADR-052).
+		// Purpose is a semantic judgment Go does not make itself: without a deterministic reclassification
+		// purpose the transfer is not recorded (ADR-052).
 		result.Status = "JUDGMENT_UNAVAILABLE"
 		return result, true, nil
 	}
@@ -231,8 +228,8 @@ func (p *Processor) agentStageTransferReview(ctx context.Context, state *agentSt
 	if err = tx.QueryRow(ctx, `SELECT id::text FROM review_item WHERE household_id=$1 AND source_event_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, state.HouseholdID, state.SourceEventID).Scan(&itemID); err != nil {
 		return result, true, err
 	}
-	// Project through the one shared path so the transfer review renders
-	// the same decision-driven card as every other review.
+	// Project through the shared path so the transfer review renders the same decision-driven card as every
+	// other review.
 	if err = ProjectReviewItem(ctx, tx, state.HouseholdID, itemID, state.Update.Message.MessageID, "", state.Update.Message.Chat.ID); err != nil {
 		return result, true, err
 	}
@@ -370,8 +367,8 @@ func (p *Processor) agentResolveMerchantLearning(ctx context.Context, state *age
 	return result, true, nil
 }
 
-// transferPurposes is the canonical possibility space for a household-internal
-// transfer purpose, accepted only from an in-process deterministic caller.
+// transferPurposes is the possibility space for a household-internal transfer purpose, accepted only from an
+// in-process deterministic caller.
 var transferPurposes = []string{
 	"SAVINGS_TRANSFER",
 	"INVESTMENT_CONTRIBUTION",

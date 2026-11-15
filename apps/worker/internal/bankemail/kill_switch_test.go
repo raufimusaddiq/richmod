@@ -6,9 +6,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// The bank-email category auto-confirm path has an independent
-// kill-switch. When off, a remembered merchant category must not confirm ledger
-// money; it parks a category-carrying review instead.
+// With the bank-email category kill-switch off, a remembered-merchant category parks as a category-carrying
+// review instead of confirming ledger money.
 func TestCategoryAutoConfirmKillSwitchParksRememberedMerchant(t *testing.T) {
 	channel, direction, merchant := "DEBIT_CARD", "OUTGOING", "Toko Contoh"
 	extraction := Extraction{
@@ -34,8 +33,7 @@ func TestCategoryAutoConfirmKillSwitchParksRememberedMerchant(t *testing.T) {
 	}
 }
 
-// A known-account transfer auto-confirms too, but it has no category. Gating it
-// would park a transfer as a category review with an empty picker.
+// A known-account transfer has no category; gating it would park it as a category review with an empty picker.
 func TestCategoryAutoConfirmKillSwitchLeavesTransfersAlone(t *testing.T) {
 	transfer := PolicyResult{Type: "TRANSFER", Status: "CONFIRMED", AutoConfirm: true, Description: "Transfer antar rekening yang dikenal."}
 	kept := applyCategoryAutoConfirmSwitch(transfer, false)
@@ -52,9 +50,8 @@ func TestCategoryAutoConfirmKillSwitchLeavesReviewsAlone(t *testing.T) {
 	}
 }
 
-// With the switch off the bounded category path must not run either: it also
-// confirms ledger money, so a switch that gated only the remembered-merchant
-// branch would be re-opened by the classifier it exists to stop.
+// With the switch off the bounded category path must not run either, or the classifier would re-open what the
+// switch stops.
 func TestCategoryAutoConfirmKillSwitchGatesTheBoundedPath(t *testing.T) {
 	processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": {
 		Distribution:  map[string]float64{"food-and-drink": 0.9, "groceries": 0.1, "OTHER_OR_UNCLEAR": 0},
@@ -72,8 +69,8 @@ func TestCategoryAutoConfirmKillSwitchGatesTheBoundedPath(t *testing.T) {
 	}
 }
 
-// The zero value must keep auto-confirm on, matching document.Processor. A bare
-// &Processor{} silently disabling ledger writes would be the opposite default.
+// The zero value must keep auto-confirm on, matching document.Processor; a bare &Processor{} must not
+// silently disable ledger writes.
 func TestCategoryAutoConfirmDefaultsOn(t *testing.T) {
 	if (&Processor{}).categoryAutoConfirmOff {
 		t.Fatal("a zero-value Processor must keep auto-confirm on")
@@ -86,8 +83,8 @@ func TestUnverifiedPolicyCannotAutoConfirm(t *testing.T) {
 	if got.AutoConfirm || got.Status != "NEEDS_REVIEW" || got.ReviewType != "UNKNOWN_MERCHANT" {
 		t.Fatalf("unverified policy must remain review with its actual residual: %+v", got)
 	}
-	// An auto-confirm has no review type: the household confirms the policy's
-	// own choice instead of an action-less extraction card.
+	// An auto-confirm has no review type: the household confirms the policy's choice, not an action-less
+	// extraction card.
 	for typ, want := range map[string]string{"TRANSFER": "TRANSFER_CLASSIFICATION", "EXPENSE": "AMBIGUOUS_CATEGORY"} {
 		if got := applyVerificationGate(PolicyResult{Type: typ, Status: "CONFIRMED", AutoConfirm: true}, false); got.ReviewType != want {
 			t.Errorf("unverified %s auto-confirm review=%q, want %q", typ, got.ReviewType, want)

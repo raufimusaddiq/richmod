@@ -32,8 +32,6 @@ func TestImageProcessorCreatesGenericDocumentIdempotently(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Image Worker','unused') RETURNING id`, fmt.Sprintf("worker-image-%d@example.test", stamp)).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	// The worker re-checks the sender at processing time, so the uploader is a
-	// linked, active member.
 	telegramUserID := stamp%7_000_000_000 + 13
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
 		t.Fatal(err)

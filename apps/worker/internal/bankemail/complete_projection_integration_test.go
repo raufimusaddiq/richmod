@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Completing bank facts resolves the Telegram projection with the item, so the
-// delivered cards are queued for retirement and the conversation stops waiting.
+// Completing bank facts resolves the Telegram projection with the item: delivered cards are queued for
+// retirement and the conversation stops waiting.
 func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -63,9 +63,8 @@ func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 	if retirements != 2 || notices != 1 {
 		t.Fatalf("retirements=%d notices=%d, want one retirement per delivered card and one outcome notice", retirements, notices)
 	}
-	// The person who completed the facts gets the credit, not a system
-	// fallback: the item records the completion and the same transaction writes
-	// a TELEGRAM audit row (the surface admin attribution reads).
+	// The completer gets the credit: the item records the completion and the same transaction writes a
+	// TELEGRAM audit row (what admin attribution reads).
 	var resolution string
 	var telegramAudits int
 	must(pool.QueryRow(ctx, `SELECT ri.resolution_action,(SELECT count(*) FROM audit_log a WHERE a.household_id=ri.household_id AND a.created_at=ri.resolved_at AND a.actor_type='TELEGRAM') FROM review_item ri WHERE ri.id=$1`, itemID).Scan(&resolution, &telegramAudits))
@@ -73,7 +72,6 @@ func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 		t.Fatalf("resolution=%s telegramAudits=%d, want COMPLETE_BANK_FACTS credited to TELEGRAM", resolution, telegramAudits)
 	}
 
-	// A replay finds the item closed and changes nothing.
 	must(processor.Complete(ctx, Payload{SourceEventID: sourceEventID, ReviewID: itemID, AmountIDR: &amount, TransactionAt: &at, TelegramChatID: stamp}))
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'review_request_id'=$1`, requestID).Scan(&retirements))
 	if retirements != 2 {

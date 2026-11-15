@@ -24,9 +24,8 @@ type agentContextState struct {
 	ActiveReviewCount   int
 	ReviewType          string
 	ReviewMode          string
-	// RecentTransactions gives the model a structured view of what it just
-	// recorded, so a follow-up ("ibu kantin") can bind to the pending row and a
-	// re-sent line can be recognized as the same event instead of a second row.
+	// RecentTransactions lets a follow-up ("ibu kantin") bind to the pending row and a re-sent line be
+	// recognized as the same event.
 	RecentTransactions []map[string]any
 }
 
@@ -67,11 +66,8 @@ func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sour
 	return state, nil
 }
 
-// recentAgentTransactions lists the household's most recent ledger rows, the
-// sending member's own entries first, as
-// opaque turn refs, mirroring the ref scheme used for freshly recorded
-// transactions. Only model-safe fields are exposed (no canonical UUIDs), so the
-// model can reference an existing row but never address the database directly.
+// recentAgentTransactions lists recent ledger rows, the sending member's first, as opaque turn refs; only
+// model-safe fields are exposed (no canonical UUIDs).
 func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) ([]map[string]any, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT t.id,t.type,t.status,t.amount::text,COALESCE(t.counterparty_name,''),
@@ -109,8 +105,7 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	for i, r := range loaded {
 		ids[i] = r.ID
 	}
-	// The ref_key column constrains keys to the tx phase pattern, so recent rows
-	// use the phase-0 shape ("p0r0") rather than a descriptive prefix.
+	// ref_key is constrained to the tx phase pattern, so recent rows use the phase-0 shape ("p0r0").
 	refs, err := p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, "p0r0", ids)
 	if err != nil {
 		return nil, fmt.Errorf("persist recent transaction references: %w", err)
@@ -122,23 +117,20 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 			"type":       r.Type,
 			"status":     r.Status,
 			"amount_idr": r.Amount,
-			// Merchant and description are user-controlled ledger text, so they are
-			// wrapped in the same untrusted-data boundary as the current message to
-			// keep stored free text from reading as agent instructions.
+			// Merchant and description are user-controlled text: wrap them in the untrusted-data boundary so
+			// stored text cannot read as instructions.
 			"merchant":       untrustedField(r.Merchant),
 			"category_slug":  r.CategorySlug,
 			"description":    untrustedField(r.Description),
 			"transaction_at": r.At.In(jakartaLocation()).Format(time.RFC3339),
-			// Entries this member made come first; another member's entry is
-			// marked so "yang tadi" is not bound to it by mistake.
+			// Own entries come first; another member's is marked so "yang tadi" is not bound to it.
 			"entered_by_you": r.Mine,
 		})
 	}
 	return out, nil
 }
 
-// untrustedField delimits a user-controlled string so the model treats it as
-// data, mirroring the <untrusted_user_message> boundary used for user text.
+// untrustedField delimits a user-controlled string so the model treats it as data, like <untrusted_user_message>.
 func untrustedField(value string) string {
 	return wrapUntrusted(untrustedLedgerTag, value)
 }
@@ -224,9 +216,8 @@ func agentScopedRefPrefix(sourceEventID, prefix string) string {
 	return fmt.Sprintf("a%x_%s", sum[:4], prefix)
 }
 
-// persistAgentTransactionReferences stores opaque refs without exposing UUIDs
-// to the model. The source-event hash scopes refs across user turns while the
-// phase/read suffix keeps parallel reads collision-free inside one turn.
+// persistAgentTransactionReferences stores opaque refs without exposing UUIDs; the source-event hash scopes
+// refs across turns and the phase/read suffix keeps parallel reads collision-free.
 func (p *Processor) persistAgentTransactionReferences(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, prefix string, ids []string) ([]agentPublicRef, error) {
 	if len(ids) == 0 {
 		return nil, nil

@@ -12,9 +12,8 @@ import (
 
 var errEndpointBlocked = errors.New("endpoint is not allowed")
 
-// checkEndpoint pins HTTPS and pre-resolves the host. The dialer below repeats
-// the check on the address it actually connects to, so a DNS answer that
-// changes after this call cannot reach a private service.
+// checkEndpoint pins HTTPS and pre-resolves the host; the dialer rechecks the connected address so a later
+// DNS change cannot reach a private service.
 func checkEndpoint(ctx context.Context, endpoint string) error {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
@@ -24,8 +23,7 @@ func checkEndpoint(ctx context.Context, endpoint string) error {
 	return err
 }
 
-// guardedDialContext resolves the name, rejects any blocked answer, and dials
-// the already-checked IP rather than letting the transport resolve again.
+// guardedDialContext rejects blocked answers and dials the already-checked IP instead of re-resolving.
 func guardedDialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {

@@ -15,16 +15,12 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// pendingConfirmationWindow is how long a staged correction or batch waits for
-// the household's confirmation. Migration 00092 sets the same column default.
+// pendingConfirmationWindow is how long a staged correction or batch waits for confirmation; migration 00092
+// sets the same column default.
 const pendingConfirmationWindow = "30 minutes"
 
-// The Telegram batch lane follows the single-entry rules (ADR-033 amendment,
-// 2026-11): an item without a category is staged and later goes to review
-// instead of rejecting the batch, each item gets the single entry's duplicate
-// checks (shown before confirmation; a document the user just sent is never
-// recorded twice), every confirmed item refreshes open cycle residuals, and the
-// merchant is resolved to the household's merchant identity.
+// The batch lane follows the single-entry rules (ADR-033): uncategorized items are staged for review, each item
+// gets the duplicate checks, and confirmed items refresh cycle residuals and resolve the household merchant.
 
 type agentPendingBatchItem struct {
 	Type          string    `json:"Type"`
@@ -34,11 +30,9 @@ type agentPendingBatchItem struct {
 	Description   string    `json:"Description"`
 	Note          string    `json:"Note"`
 	TransactionAt time.Time `json:"TransactionAt"`
-	// SimilarExisting describes an existing transaction the item may repeat
-	// (same amount and merchant in the last 7 days). Shown before confirmation.
+	// SimilarExisting is an existing transaction the item may repeat (same amount and merchant, last 7 days).
 	SimilarExisting string `json:"SimilarExisting,omitempty"`
-	// AlreadyRecorded marks an item a document the user just sent already
-	// recorded; confirming the batch never records it again.
+	// AlreadyRecorded marks an item a just-sent document already recorded; confirming never records it again.
 	AlreadyRecorded bool `json:"AlreadyRecorded,omitempty"`
 }
 
@@ -72,8 +66,8 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 				UserCopy: "Ada item di daftar yang belum lengkap, jadi belum ada yang dicatat. Sebutkan nominal dan tanggalnya, ya."}
 		}
 		item := agentPendingBatchItem{Type: v.Type, Amount: v.Amount, Merchant: v.Merchant, CategorySlug: v.CategorySlug, Description: v.Description, Note: v.Note, TransactionAt: v.TransactionAt}
-		// A slug the household does not have is not guessed and does not reject
-		// the batch: the item is staged without a category and goes to review.
+		// An unknown category slug is not guessed and does not reject the batch: the item is staged
+		// uncategorized for review.
 		if item.CategorySlug != "" && !contains(categories, item.CategorySlug) {
 			item.CategorySlug = ""
 		}
@@ -107,7 +101,6 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 	return result, false, nil
 }
 
-// batchItemsPublic is the model- and reply-facing view of staged items.
 func batchItemsPublic(items []agentPendingBatchItem) ([]map[string]any, string) {
 	total := big.NewInt(0)
 	public := make([]map[string]any, 0, len(items))
@@ -127,7 +120,6 @@ func batchItemsPublic(items []agentPendingBatchItem) ([]map[string]any, string) 
 	return public, total.String()
 }
 
-// markBatchItemDuplicates runs the single entry's duplicate checks on one item.
 func (p *Processor) markBatchItemDuplicates(ctx context.Context, state *agentState, item *agentPendingBatchItem) error {
 	item.SimilarExisting, item.AlreadyRecorded = "", false
 	if p.evidenceAlreadyRecorded(ctx, state.HouseholdID, state.FreshEvidenceDocuments, item.Type, item.Amount, item.Merchant) {
@@ -145,9 +137,8 @@ func (p *Processor) markBatchItemDuplicates(ctx context.Context, state *agentSta
 	return nil
 }
 
-// similarRecentExpense is the single entry's "did you mean the one you already
-// recorded?" lookup: an expense with the same amount whose merchant or
-// description matches, in the last 7 days, at a different time.
+// similarRecentExpense finds an expense with the same amount and a matching merchant or description, at a
+// different time in the last 7 days.
 func (p *Processor) similarRecentExpense(ctx context.Context, householdID, amount, merchant string, at time.Time) (string, time.Time, bool, error) {
 	if strings.TrimSpace(merchant) == "" {
 		return "", time.Time{}, false, nil
@@ -309,13 +300,8 @@ type batchConfirmOutcome struct {
 	Confirmed, NeedsReview, Skipped int
 }
 
-// confirmPendingBatchTx records a confirmed batch. The household's explicit
-// confirmation is the authority for the facts it was shown; structural checks,
-// merchant memory and the category rule still apply. An expense without a
-// usable category is recorded as NEEDS_REVIEW with a review card in this chat
-// (never rejected, never guessed); an item a just-sent document already
-// recorded is skipped. Every confirmed item refreshes open cycle residuals.
-// Both the agent and the button path use it.
+// confirmPendingBatchTx records a confirmed batch; structural checks and the category rule still apply.
+// A category-less expense becomes NEEDS_REVIEW with a card; an item a just-sent document recorded is skipped.
 func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, householdID, batchID string, items []agentPendingBatchItem, userID string, update telegramUpdate) (batchConfirmOutcome, error) {
 	var outcome batchConfirmOutcome
 	allowedCategories, err := p.categorySlugs(ctx, householdID)
@@ -412,7 +398,6 @@ func batchItemLabel(item agentPendingBatchItem) string {
 	return item.Description
 }
 
-// batchOutcomeMessage is the deterministic reply for a confirmed batch.
 func batchOutcomeMessage(recorded, needsReview, skipped int) string {
 	parts := []string{}
 	switch {
@@ -433,9 +418,8 @@ func batchOutcomeMessage(recorded, needsReview, skipped int) string {
 	return strings.Join(parts, " ")
 }
 
-// batchStagedMessage lists the staged items so the household confirms what it
-// can see, including which items will wait for a category and which look like
-// a transaction already recorded.
+// batchStagedMessage lists staged items so the household sees which wait for a category and which look
+// already recorded.
 func batchStagedMessage(mutation map[string]any, header string) string {
 	items, _ := mutation["items"].([]map[string]any)
 	var b strings.Builder

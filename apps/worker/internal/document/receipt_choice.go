@@ -12,8 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// categoryQuestionCriteria offers every active category by the household's own
-// name, so the model tells categories apart by meaning rather than by slug.
+// categoryQuestionCriteria offers every active category by the household's own name so the model tells them
+// apart by meaning, not slug.
 func categoryQuestionCriteria(categories []categoryOption) ([]string, map[string]any) {
 	slugs := make([]string, 0, len(categories))
 	choices := make([]judgment.CategoryChoice, 0, len(categories))
@@ -24,13 +24,12 @@ func categoryQuestionCriteria(categories []categoryOption) ([]string, map[string
 	return slugs, judgment.CategoryCriteria(choices)
 }
 
-// ReceiptCategoryPolicyVersion marks the bar behind a receipt category rescue, so
-// a stored decision stays reproducible. It reuses the same decisive
-// answer policy as the screenshot row rescue and the Telegram category rescue.
+// ReceiptCategoryPolicyVersion marks the bar behind a receipt category rescue (the same decisive-answer
+// policy as the screenshot and Telegram rescues) so stored decisions stay reproducible.
 const ReceiptCategoryPolicyVersion = "2026-10-receipt-category2"
 
-// errReceiptCategoryProviderUnavailable distinguishes a machine outage from an
-// undecided semantic answer, so the caller retries instead of minting a review.
+// errReceiptCategoryProviderUnavailable separates a machine outage from an undecided answer, so the caller
+// retries instead of minting a review.
 var errReceiptCategoryProviderUnavailable = errors.New("receipt category judgment provider unavailable")
 
 var receiptCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
@@ -43,11 +42,8 @@ type receiptCategoryProvenance struct {
 	ProviderFailed bool
 }
 
-// receiptCategoryRescue asks the bounded plane one category question for a
-// receipt whose only unresolved fact is the category. It returns the matched
-// category ID only for a decisive, well-separated answer; anything undecided or
-// a provider failure returns nil so the receipt keeps its category-only review
-// (BDR-001). A missing date is never a rescue input.
+// receiptCategoryRescue asks one category question for a receipt whose only unresolved fact is the category;
+// only a decisive, well-separated answer returns an ID. A missing date is never a rescue input.
 func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID, householdID string, value receiptExtraction, at time.Time, categories []categoryOption) (string, receiptCategoryProvenance) {
 	if p.verifier == nil || len(categories) < 2 {
 		return "", receiptCategoryProvenance{}
@@ -76,8 +72,7 @@ func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID, ho
 			state["line_items"] = "<untrusted_receipt_items>" + strings.Join(names, "; ") + "</untrusted_receipt_items>"
 		}
 	}
-	// Category is the single open semantic dimension; this phase does not
-	// re-decide an already accepted category.
+	// Category is the single open dimension; this phase does not re-decide an accepted category.
 	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ReceiptCategoryPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-receipt-category", judgment.Request{State: state, Questions: map[string]judgment.Question{
 		"category": {Type: "choice", Instructions: "Which single household category best describes this receipt expense? Answer with the closest supplied category slug, or OTHER_OR_UNCLEAR when no category is safe.", Criteria: criteria},

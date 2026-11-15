@@ -34,9 +34,7 @@ func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, revie
 	return decision, nil
 }
 
-// insertSourceEventReviewDecision writes the shared ReviewDecision contract with the
-// source-event review. Unknown reasons fail closed instead of storing a zero
-// decision.
+// Unknown reasons fail closed instead of storing a zero decision.
 func insertSourceEventReviewDecision(ctx context.Context, tx pgx.Tx, household, source, reason string, known, provenance map[string]any) error {
 	decision, ok := reviewdec.Preset(reason, "source_event", source)
 	if !ok {

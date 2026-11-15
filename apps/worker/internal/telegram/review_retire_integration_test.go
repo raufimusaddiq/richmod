@@ -15,14 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fakeTelegramCall is one Bot API request a fake Telegram server received.
 type fakeTelegramCall struct {
 	Method string
 	Body   map[string]any
 }
 
-// fakeTelegram serves Bot API calls and records them. respond chooses the HTTP
-// status and body per method; nil answers every call with ok.
+// fakeTelegram records Bot API calls; respond picks the HTTP status and body per method, nil answers ok.
 type fakeTelegram struct {
 	mu      sync.Mutex
 	calls   []fakeTelegramCall
@@ -66,9 +64,8 @@ type retireFixture struct {
 	recipientA, recipientB string
 }
 
-// seedRetireFixture creates an OPEN transaction review projected to three
-// chats: two delivered cards (messages 31 and 32, the first with stored text)
-// and one recipient whose send never completed.
+// seedRetireFixture: an OPEN review projected to three chats: two delivered cards (31 with stored text, 32
+// without) and one recipient whose send never completed.
 func seedRetireFixture(t *testing.T) retireFixture {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -153,11 +150,9 @@ func TestClosingReviewRequestQueuesOneRetirementPerDeliveredCard(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("retirement made %d Telegram calls, want 2: %+v", len(calls), calls)
 	}
-	// The card with stored text keeps it and gains the closure note.
 	if calls[0].Method != "editMessageText" || calls[0].Body["text"] != "🟡 Perlu ditinjau\n\n✅ Tinjauan ini sudah selesai." {
 		t.Fatalf("card with known text = %+v", calls[0])
 	}
-	// The card whose text is unknown only loses its keyboard.
 	if calls[1].Method != "editMessageReplyMarkup" || calls[1].Body["text"] != nil {
 		t.Fatalf("card without text = %+v", calls[1])
 	}
@@ -186,8 +181,8 @@ func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
 	if len(jobs) != 2 || jobs[0].Status != "EXPIRED" {
 		t.Fatalf("expire/renew/expire queued %+v, want one EXPIRED retirement per card", jobs)
 	}
-	// Replies renew the projection and the replying members' copies before the
-	// jobs run: those cards are live again (expiry is per copy since 00094).
+	// Replies renew the projection and the replying members' copies before the jobs run (expiry is per copy
+	// since 00094).
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=now()+interval '7 days' WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='SENT',card_expires_at=now()+interval '7 days' WHERE review_request_id=$1 AND telegram_message_id IS NOT NULL`, f.requestID)
@@ -202,7 +197,6 @@ func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
 	}
 	_, err = f.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',finished_at=now() WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'review_request_id'=$1`, f.requestID)
 	mustAgentTest(t, err)
-	// The renewed request closes for good; its cards are retired again.
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	jobs = f.retireJobs(t)
@@ -227,7 +221,6 @@ func TestCardBoundAfterCloseIsRecordedAndRetired(t *testing.T) {
 	_, err := f.pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	processor := NewProcessor(f.pool, nil)
-	// The send for the third recipient completes after the close.
 	mustAgentTest(t, processor.BindReviewMessage(ctx, f.requestID, f.chatC, 33, "  Kartu terlambat  "))
 	var messageID int64
 	var text, status string
@@ -245,7 +238,6 @@ func TestCardBoundAfterCloseIsRecordedAndRetired(t *testing.T) {
 	if len(jobs) != 3 || len(late) != 1 || late[0].ChatID != f.chatC {
 		t.Fatalf("late card retirements=%+v (all=%d), want exactly one for message 33", late, len(jobs))
 	}
-	// A retried send job binds the same message again without a second job.
 	mustAgentTest(t, processor.BindReviewMessage(ctx, f.requestID, f.chatC, 33, "Kartu terlambat"))
 	if jobs := f.retireJobs(t); len(jobs) != 3 {
 		t.Fatalf("rebinding the late card queued a duplicate retirement: %d", len(jobs))
@@ -305,7 +297,6 @@ func TestQueuedReviewEditIsDroppedAfterRetirement(t *testing.T) {
 	if live {
 		t.Fatal("an edit queued before the close must not restore the retired card's buttons")
 	}
-	// The edit text is what a later retirement reproduces.
 	mustAgentTest(t, processor.RecordReviewCardText(ctx, f.chatB, 32, "Pilih kategori pengeluaran:"))
 	var text string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT delivered_text FROM review_request_recipient WHERE id=$1`, f.recipientB).Scan(&text))
@@ -342,7 +333,6 @@ func TestMerchantLearningQuestionIsSeparateFromRetiredCard(t *testing.T) {
 	for _, external := range []*string{&confirmSourceID, &rememberSourceID} {
 		mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("learning-%p-%d", external, stamp), []byte(fmt.Sprintf("%p", external))).Scan(external))
 	}
-	// The category button on card 17 confirms the review.
 	var update telegramUpdate
 	update.Message.MessageID = 17
 	update.Message.From.ID = stamp
@@ -363,7 +353,6 @@ func TestMerchantLearningQuestionIsSeparateFromRetiredCard(t *testing.T) {
 	if question.ChatID != stamp || question.ReplyToMessageID != 17 || question.ReviewRequestID != "" || question.ReplyMarkup == nil || !strings.Contains(raw, "review:remember") {
 		t.Fatalf("learning question payload = %s", raw)
 	}
-	// The worker binds the sent question; its button reaches the pending decision.
 	mustAgentTest(t, processor.BindMerchantLearningMessage(ctx, reviewID, stamp, 18))
 	update.Message.MessageID = 18
 	mustAgentTest(t, processor.processMerchantLearningCallback(ctx, rememberSourceID, householdID, update, "review:remember"))

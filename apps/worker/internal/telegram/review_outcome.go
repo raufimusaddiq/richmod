@@ -8,11 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// reviewOutcome describes, from canonical state only, how a closed review
-// ended: "dicatat sebagai Makan oleh Rina", "diabaikan oleh Budi", "ditutup".
-// It is shown on every member's retired card and to the member whose tap or
-// reply lost the race, so it never names an amount the household did not see
-// on the card and never exposes an identifier. An open review has no outcome.
+// reviewOutcome describes how a closed review ended, from canonical state only ("dicatat sebagai Makan").
+// It never names an amount the household did not see or an identifier; an open review has no outcome.
 func reviewOutcome(ctx context.Context, db authorizationQuerier, reviewRequestID string) (string, error) {
 	var itemStatus, action, resolver, category, transactionStatus string
 	err := db.QueryRow(ctx, `SELECT ri.status,COALESCE(ri.resolution_action,''),COALESCE(u.display_name,''),
@@ -32,7 +29,6 @@ func reviewOutcome(ctx context.Context, db authorizationQuerier, reviewRequestID
 	return describeReviewOutcome(itemStatus, action, resolver, category, transactionStatus), nil
 }
 
-// describeReviewOutcome is the deterministic wording behind reviewOutcome.
 func describeReviewOutcome(itemStatus, action, resolver, category, transactionStatus string) string {
 	var phrase string
 	switch {
@@ -57,10 +53,8 @@ func describeReviewOutcome(itemStatus, action, resolver, category, transactionSt
 	return phrase
 }
 
-// boundReviewForMessage finds the review a Telegram message belongs to in a
-// chat, whether it is the current card or an older message a follow-up
-// replaced. It returns the request id and whether that message is the current
-// card, or "" when the message is not a review message of this household.
+// boundReviewForMessage finds the review a message belongs to (current card or an older replaced message) and
+// whether it is the current card; "" when it is not a review message of this household.
 func boundReviewForMessage(ctx context.Context, db authorizationQuerier, householdID string, chatID, messageID int64) (string, bool, error) {
 	if chatID == 0 || messageID == 0 {
 		return "", false, nil
@@ -78,12 +72,8 @@ func boundReviewForMessage(ctx context.Context, db authorizationQuerier, househo
 	return requestID, current, err
 }
 
-// answeredReviewReply is the deterministic answer for a tap or reply that
-// reached a review message after the review was answered elsewhere (by another
-// member, on the web, or by the same member's other action): it names the
-// outcome. A message replaced by a newer card of a review that is still open
-// points to that card. Anything else returns "" and the caller keeps its own
-// stale copy.
+// answeredReviewReply names the outcome for a tap or reply on a review answered elsewhere, or the newer card.
+// Anything else returns "" and the caller keeps its own stale copy.
 func answeredReviewReply(ctx context.Context, db authorizationQuerier, householdID string, chatID, messageID int64) (string, error) {
 	requestID, current, err := boundReviewForMessage(ctx, db, householdID, chatID, messageID)
 	if err != nil || requestID == "" {
@@ -102,12 +92,10 @@ func answeredReviewReply(ctx context.Context, db authorizationQuerier, household
 	return "", nil
 }
 
-// supersededReviewReply answers a reply to an older message of a review that is
-// still open in a newer message.
+// supersededReviewReply answers a reply to an older message of a review still open in a newer message.
 const supersededReviewReply = "Tinjauan ini masih terbuka di pesan yang lebih baru. Balas pesan terbaru untuk melanjutkan."
 
-// staleReviewReply returns the outcome-aware answer for a stale review action
-// in update's chat, or fallback when no closed review is bound to the message.
+// staleReviewReply returns the outcome-aware answer for a stale action, or fallback when no closed review is bound.
 func staleReviewReply(ctx context.Context, db authorizationQuerier, householdID string, update telegramUpdate, fallback string) string {
 	messageID := int64(0)
 	if update.CallbackQuery != nil {
@@ -122,8 +110,7 @@ func staleReviewReply(ctx context.Context, db authorizationQuerier, householdID 
 	return reply
 }
 
-// staleReviewReplyForSource is staleReviewReply for callers that hold only the
-// source event: the household is the event's own.
+// staleReviewReplyForSource is staleReviewReply for callers holding only the source event.
 func staleReviewReplyForSource(ctx context.Context, db authorizationQuerier, sourceEventID string, update telegramUpdate, fallback string) string {
 	var householdID string
 	if err := db.QueryRow(ctx, `SELECT household_id::text FROM source_event WHERE id=$1`, sourceEventID).Scan(&householdID); err != nil {

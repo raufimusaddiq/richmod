@@ -13,16 +13,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// Bank Email acceptance tests, named by their acceptance case so
-// a reviewer can map each one to the requirement.
-//
-// Every case here is offline and deterministic except B2, which touches the real
-// category table through TEST_DATABASE_URL because policy makes the
-// canonical ID resolution a Go responsibility. The bounded *verdict* is stubbed:
-// asserting what a decisive or undecided answer must land on is the deterministic
-// half this file owns. The answers themselves are exercised against the real
-// provider by the section 23 semantic canary corpus in canary_corpus_test.go (PR #132),
-// which runs the same corpus against the live gateway when it is configured.
+// Bank Email acceptance tests, named by acceptance case; offline except B2, which needs TEST_DATABASE_URL.
+// Bounded verdicts are stubbed; the real provider is covered by canary_corpus_test.go.
 
 // B1 - learn merchant auto-applies its stored category.
 func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
@@ -35,8 +27,7 @@ func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
 	}
 }
 
-// B1 also pins the zero-human-touch property (RHICE = 0): the
-// confirm path must not be a review wearing a different status.
+// B1 also pins zero human touch: the confirm path must not be a review wearing a different status.
 func TestBankEmailB1LearnedMerchantCreatesNoReviewWork(t *testing.T) {
 	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Toko Sumber Rejeki"), nil, MerchantMemory{MerchantID: "m-1", CategoryID: "cat-food", AutoApply: true})
 	if result.ReviewType != "" {
@@ -44,10 +35,7 @@ func TestBankEmailB1LearnedMerchantCreatesNoReviewWork(t *testing.T) {
 	}
 }
 
-// B2 - a new merchant whose category the bounded plane decided must confirm with
-// that category and create no review work. This is the deterministic half of the
-// case: the processor writes these fields onto the policy result when the
-// classifier returns a decisive answer.
+// B2 - a new merchant whose category the bounded plane decided confirms with it and creates no review work.
 func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -69,20 +57,17 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The policy itself still starts the unknown merchant as a category review;
-	// that is unchanged and is what B3 pins.
+	// The policy still starts an unknown merchant as a category review (pinned by B3).
 	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Warung Baru"), nil)
 	if result.Status != "NEEDS_REVIEW" || result.ReviewType != "AMBIGUOUS_CATEGORY" {
 		t.Fatalf("an unknown merchant starts as a category review: %+v", result)
 	}
 
-	// A decisive bounded answer resolves the canonical slug to its ID.
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}})),
 	}}
 	processor := &Processor{pool: pool, verifier: verifier}
-	// The decisive answer must turn the category review into a confirmation with no
-	// review left behind, not merely resolve an id.
+	// The decisive answer must turn the category review into a confirmation with no review left behind.
 	decided, err := processor.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
 	if err != nil {
 		t.Fatal(err)
@@ -91,8 +76,8 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 		t.Fatalf("a decisive category must confirm with no review: %+v", decided)
 	}
 
-	// A provider failure is a machine failure, not a semantic verdict: it must
-	// surface as a retryable error so no category review reaches the household.
+	// A provider failure is a machine failure and must surface as a retryable error, so no category review
+	// reaches the household.
 	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
 	kept, err := undecided.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
 	if err == nil {
@@ -100,9 +85,7 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 	}
 }
 
-// B3 - a new merchant whose category the bounded plane could not decide stays a
-// review, and that review is category-only: the amount and the time are already
-// known and must never be re-requested.
+// B3 - an undecided new merchant stays a category-only review; the known amount and time are never re-requested.
 func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Warung Baru"), nil)
 	if result.Status != "NEEDS_REVIEW" || result.ReviewType != "AMBIGUOUS_CATEGORY" {
@@ -111,11 +94,8 @@ func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	if result.AutoConfirm {
 		t.Fatalf("an undecided category must never auto-confirm: %+v", result)
 	}
-	// The undecided path is a transaction-backed category review: the message the
-	// user sees states the amount and time as context and asks only for a category
-	//. Asserting the rendered message is what proves the amount and date
-	// are not re-requested; asserting a hand-built decision's missingFacts would
-	// only echo the input.
+	// The undecided path is a category review whose rendered message states amount and time as context;
+	// asserting the message, not a hand-built decision, proves they are not re-requested.
 	message := bankReviewMessage(result.ReviewType, "54000", time.Date(2026, 9, 23, 13, 45, 0, 0, time.UTC), "Warung Baru")
 	if !strings.Contains(message, "Rp54.000") || !strings.Contains(message, "WIB") {
 		t.Fatalf("the review must already show the known amount and time: %q", message)
@@ -125,8 +105,8 @@ func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	}
 }
 
-// B4 - merchant absent but every other fact valid. The expense must still be
-// classified; a missing merchant is a missing fact, not an invalid transaction.
+// B4 - merchant absent but every other fact valid: still classified; a missing merchant is a missing fact,
+// not an invalid transaction.
 func TestBankEmailB4MissingMerchantDoesNotBecomeUnknownPurpose(t *testing.T) {
 	channel, direction := "QR", "OUTGOING"
 	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction}
@@ -159,10 +139,8 @@ func TestBankEmailMerchantlessExpenseCollectsMerchantBeforeCategory(t *testing.T
 	}
 }
 
-// B4, second half: the merchant value is nullable in the tool contract, so the
-// model is never forced to invent one. Every property is listed in
-// `required` because a native tool call must be structurally complete; it is the
-// nullable *type* that keeps the value un-fabricated.
+// B4, second half: the merchant is nullable in the tool contract so the model never invents one; every
+// property is still `required` since a native tool call must be complete.
 func TestBankEmailB4MerchantValueIsNullable(t *testing.T) {
 	tool := EmitBankTransactionTool()
 	properties, ok := tool.Parameters["properties"].(map[string]any)
@@ -188,10 +166,8 @@ func TestBankEmailB4MerchantValueIsNullable(t *testing.T) {
 	}
 }
 
-// B6 - provider failure is an infrastructure event, never a semantic verdict.
-// The caller must be able to tell "no ruling" from "ruled safe": a failure is
-// surfaced as an error, and an unconfigured verifier is the disabled case that
-// still never reads as approval.
+// B6 - provider failure is infrastructure, never a semantic verdict: it surfaces as an error, and an
+// unconfigured verifier never reads as approval.
 func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
 	failing := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
 	if _, verified, err := failing.verifyEvidence(context.Background(), "source", Extraction{}, TrustedEmail{}); err == nil || verified {
@@ -199,8 +175,7 @@ func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
 	}
 
 	unconfigured := NewProcessor(nil, nil)
-	// Verification is mandatory for this source contract: a missing plane is a
-	// machine retry state, never a household review and never approval.
+	// Verification is mandatory: a missing plane is machine retry state, never a review or approval.
 	if _, verified, err := unconfigured.verifyEvidence(nil, "source", Extraction{}, TrustedEmail{}); err == nil || verified {
 		t.Fatalf("a nil verifier must be a machine failure, verified=%v err=%v", verified, err)
 	}

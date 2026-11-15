@@ -11,10 +11,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// A NEEDS_REVIEW transaction in a household without Telegram still gets its
-// canonical review_item, written with its ReviewDecision in the same INSERT.
-// The item is idempotent per transaction and an incomplete decision is refused
-// before it reaches the database.
+// A NEEDS_REVIEW transaction in a household without Telegram still gets its review_item with its
+// ReviewDecision, idempotently per transaction.
 func TestCreateTransactionReviewItemWritesCompleteContractOnce(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -87,9 +85,8 @@ func TestCreateTransactionReviewItemWritesCompleteContractOnce(t *testing.T) {
 	}
 }
 
-// The 00078 trigger is the database guard behind reviewdec.Validate: no writer
-// may insert an item without a complete decision or degrade a stored one, while
-// a historical NULL-decision row stays updatable.
+// The 00078 trigger guards reviewdec.Validate: no item without a complete decision, no degrading a stored
+// one; historical NULL-decision rows stay updatable.
 func TestReviewItemDecisionTriggerGuardsNewRowsOnly(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -145,8 +142,7 @@ func TestReviewItemDecisionTriggerGuardsNewRowsOnly(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='IGNORE',decision=NULL WHERE id=$1`, legacy); err != nil {
 		t.Fatalf("a legacy NULL-decision row must stay updatable untouched: %v", err)
 	}
-	// Reopening a legacy row would put a contract-less review back in the Inbox
-	// and Telegram, which render only stored contracts.
+	// Reopening a legacy row would put a contract-less review back in the Inbox and Telegram.
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='OPEN',resolved_at=NULL WHERE id=$1`, legacy); err == nil {
 		t.Fatal("trigger allowed a legacy NULL-decision row to become active")
 	}

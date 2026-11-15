@@ -14,10 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// A re-ask ("reply again with the amount and time") answers a message, not a
-// review. The reply event is handled, so it must end PROCESSED; the review it
-// concerns keeps its own OPEN item. Left NEEDS_REVIEW the event can never get an
-// item and the ledger shows it unfinished forever (#359).
+// A re-ask answers a message, not a review, so the reply event must end PROCESSED or it can never get an item.
 func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -90,14 +87,8 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 	}
 }
 
-// No production path may park a chat reply or button tap as NEEDS_REVIEW: the
-// event is not a review subject, so it can never be resolved. The guard sees both
-// the helper and direct `SET processing_status='NEEDS_REVIEW'` writes, and only
-// covers this package (filepath.Glob is not recursive).
-//
-// The one allowed direct write is agentStageTransferReview, which writes the
-// source event's own review item in the same transaction, so the event is a
-// real review subject. A new site must do the same or settle PROCESSED.
+// No production path may park a chat reply or tap as NEEDS_REVIEW; agentStageTransferReview is the exception.
+// Scans this package only (filepath.Glob is not recursive).
 func TestNoTelegramReplyEventIsParkedAsNeedsReview(t *testing.T) {
 	calls := regexp.MustCompile(`finishWithoutTransaction\([^)]*"NEEDS_REVIEW"|SET\s+processing_status\s*=\s*'NEEDS_REVIEW'`)
 	allowed := map[string]bool{"agent_specialized_mutations.go": true}

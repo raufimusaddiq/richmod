@@ -11,8 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// seedDuplicateReview creates one open POSSIBLE_DUPLICATE review bound to a
-// Telegram message, plus the confirmed transaction it may merge into.
 func seedDuplicateReview(t *testing.T, pool *pgxpool.Pool, stamp int64) (household, userID string, chatID int64, sourceID, duplicateID, targetID, reviewID, dupItemID string) {
 	t.Helper()
 	ctx := context.Background()
@@ -110,9 +108,8 @@ func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
 	}
 }
 
-// A reprocessed document whose original match drifted out of the amount and
-// window rules must still be offered that transaction, because the review
-// decision carries it (#363).
+// A reprocessed document whose match drifted out of the amount and window rules is still offered the
+// transaction its review decision carries.
 func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

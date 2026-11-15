@@ -33,18 +33,8 @@ type evidenceFacts struct {
 	Missing, AllowedActions                    []string
 }
 
-// loadEvidenceContexts issues opaque refs for the given documents and returns
-// their Evidence Context Packages, in input order. It is the single entry point
-// for conversational evidence context: nothing else builds one.
-//
-// The package is the smallest model-safe view of evidence (ADR-050):
-//
-//	observed  what the extractor produced; unverified
-//	canonical what Go stores; present only when a transaction is linked
-//	workflow  what the server will accept (open review, missing facts, actions)
-//
-// It carries no canonical ids, no storage refs, no OCR text, and no confidence.
-// Every evidence-derived string is wrapped as untrusted data and clipped.
+// Single entry point for conversational evidence context (ADR-050).
+// No canonical ids, storage refs, OCR text or confidence; strings are untrusted-wrapped and clipped.
 func (p *Processor) loadEvidenceContexts(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, documents []canonicalDocumentID) ([]map[string]any, error) {
 	if len(documents) == 0 {
 		return nil, nil
@@ -78,9 +68,8 @@ func (p *Processor) loadEvidenceContexts(ctx context.Context, householdID, sourc
 			}
 		}
 	}
-	// One batch for every linked transaction in this turn: refs are keyed by
-	// position inside a single TOOL turn, so two evidence items cannot overwrite
-	// each other's transaction ref.
+	// One batch for all linked transactions: refs are keyed by position within a TOOL turn, so items cannot
+	// overwrite each other's ref.
 	var transactionRefs []agentPublicRef
 	if len(transactionIDs) > 0 {
 		transactionRefs, err = p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, evidenceLinkedTxPhase, transactionIDs)
@@ -127,8 +116,7 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 		return f, fmt.Errorf("load evidence proposal: %w", err)
 	}
 
-	// An album is one document whose later images keep their own source event, so
-	// a transaction linked through any member counts as linked.
+	// An album's later images keep their own source event, so a transaction linked through any member counts.
 	err = p.pool.QueryRow(ctx, `SELECT t.id::text,t.amount::text,COALESCE(c.slug,''),t.status
 		FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id
 		LEFT JOIN category c ON c.id=t.category_id
@@ -151,9 +139,7 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 	case err == nil:
 		_ = json.Unmarshal(missing, &f.Missing)
 		_ = json.Unmarshal(actions, &f.AllowedActions)
-		// A possible-duplicate document carries the existing transactions it may merge
-		// into, from the same query the Telegram flow uses. They reach the model only
-		// as opaque refs and labels.
+		// Merge targets reach the model only as opaque refs and labels.
 		if f.ReviewType == "POSSIBLE_DUPLICATE" {
 			if f.Candidates, err = p.duplicateCandidatesForTransaction(ctx, householdID, f.ReviewTransactionID); err != nil {
 				return f, fmt.Errorf("load evidence candidates: %w", err)
@@ -166,8 +152,7 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 	return f, nil
 }
 
-// public renders the model-visible package. Provenance is structural: observed,
-// canonical and workflow are separate blocks and are never merged.
+// Provenance is structural: observed, canonical and workflow stay separate blocks.
 func (f evidenceFacts) public(ref evidenceRef, transactionRef string, candidateRefs []string) map[string]any {
 	out := map[string]any{
 		"evidence_ref":    string(ref),

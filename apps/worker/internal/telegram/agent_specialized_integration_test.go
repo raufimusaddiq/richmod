@@ -53,8 +53,8 @@ func newAgentIntegrationFixture(t *testing.T, label string) agentIntegrationFixt
 	}
 }
 
-// seedSourceEvent stores a Telegram payload and returns its source event id so a
-// reply or callback can be driven through the real Process/ProcessAgent lanes.
+// seedSourceEvent stores a Telegram payload and returns its source event id for driving the real
+// Process/ProcessAgent lanes.
 func (f agentIntegrationFixture) seedSourceEvent(ctx context.Context, t *testing.T, label string, payload []byte) string {
 	t.Helper()
 	var id string

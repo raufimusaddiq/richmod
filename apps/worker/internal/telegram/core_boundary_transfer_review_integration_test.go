@@ -9,9 +9,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// assetHintGateway answers the generative turn the way the conversational agent
-// would for "itu sebenarnya aku masukin ke emas": one typed resolve_review call
-// with the semantic action plus the freeform wealth hint in the same turn.
+// Answers "itu sebenarnya aku masukin ke emas" with one typed resolve_review call carrying the action and the
+// freeform wealth hint.
 type assetHintGateway struct {
 	lastTools []gateway.ToolDefinition
 	calls     int
@@ -54,11 +53,8 @@ func createTransferClassificationReviewWithType(t *testing.T, ctx context.Contex
 	return reviewID, transactionID, itemID
 }
 
-// T2/T3: an exact TRANSFER_CLASSIFICATION review over "aku masukin ke emas" must
-// reach generative resolve_review with action=ASSET_PURCHASE and the freeform
-// wealth hint, then resolve only against an ACTIVE canonical account in the SAME
-// household. The binding kind is TRANSACTION while the semantic vocabulary is
-// the transfer-classification set.
+// Resolves only against an ACTIVE account in the SAME household; the binding kind is TRANSACTION while the
+// vocabulary is the transfer set.
 func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-asset")
@@ -68,7 +64,6 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 	var otherHousehold, otherGoldID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('other household') RETURNING id`).Scan(&otherHousehold))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,active) VALUES($1,'Emas','Antam','ASSET','GOLD','INVESTMENT',true) RETURNING id`, otherHousehold).Scan(&otherGoldID))
-	// An inactive same-household account must also be rejected.
 	mustAgentTest(t, func() error {
 		_, err := f.pool.Exec(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,active) VALUES($1,'Emas Lama','Antam','ASSET','GOLD','INVESTMENT',false)`, f.householdID)
 		return err
@@ -97,8 +92,6 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 		_ = f.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, f.sourceID).Scan(&status)
 		t.Fatalf("generative turn did not run; source status=%s gateway_calls=%d", status, gatewayStub.calls)
 	}
-	// The exact-head schema is the transfer vocabulary and carries the typed
-	// hint field.
 	var sawResolveReview bool
 	for _, tool := range gatewayStub.lastTools {
 		if tool.Name != "resolve_review" {
@@ -134,10 +127,8 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 	_ = reviewID
 }
 
-// T4: the same exact TRANSFER_CLASSIFICATION binding resolves EXPENSE with the
-// model-supplied typed category slug. Go validates the slug against the
-// household's active categories; there is no phrase parser for "pengeluaran
-// makan". An unknown slug is refused rather than guessed.
+// The model supplies a typed category slug; Go validates it against active categories (no phrase parser), and
+// an unknown slug is refused.
 func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-expense")
@@ -158,7 +149,6 @@ func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
 	}{MessageID: 902}
 	p := NewProcessor(f.pool, nil)
 
-	// An unknown slug must not mutate: Go refuses to invent a category.
 	refused, _, err := p.agentResolveBoundReview(ctx, &state, gateway.ToolCall{CallID: "expense-bad", Name: "resolve_review"}, map[string]any{"action": "EXPENSE", "category_slug": "not-a-category"})
 	mustAgentTest(t, err)
 	if refused.Status != "MISSING_CATEGORY" {
@@ -170,7 +160,6 @@ func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
 		t.Fatalf("a refused category must leave the transaction in review, got %s", stillNeedsReview)
 	}
 
-	// The typed valid slug resolves the canonical category and confirms.
 	resolved, synthesize, err := p.agentResolveBoundReview(ctx, &state, gateway.ToolCall{CallID: "expense-ok", Name: "resolve_review"}, map[string]any{"action": "EXPENSE", "category_slug": "makanan-minuman"})
 	mustAgentTest(t, err)
 	if !synthesize || resolved.Status != "RESOLVED" {
@@ -184,8 +173,6 @@ func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
 	}
 }
 
-// T3 negative cases: an ambiguous active Wealth hint and an inactive-only hint
-// cannot mutate the bound transaction.
 func TestT3TransferReviewRejectsAmbiguousAndInactiveWealthHints(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-wealth-reject")

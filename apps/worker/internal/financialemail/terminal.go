@@ -9,10 +9,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// TerminalFailureTx runs inside the transaction that marks a
-// PROCESS_FINANCIAL_EMAIL job FAILED because its attempts ran out. The source
-// event is finalized as FAILED and the household gets a dismissable Tindakan
-// item; a source that already reached an outcome is left alone.
+// TerminalFailureTx runs in the transaction marking a PROCESS_FINANCIAL_EMAIL job FAILED: the source event is
+// finalized FAILED and the household gets a dismissable Tindakan item; a source with an outcome is left alone.
 func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
 	if !reviewdomain.IsSourceEventID(sourceEventID) {
 		return nil
@@ -30,9 +28,8 @@ func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, sourceEven
 	})
 }
 
-// TerminalPreviewFailureTx runs inside the transaction that marks a
-// PROCESS_FINANCIAL_EMAIL_PREVIEW job FAILED. A preview the job never finished
-// would stay PROCESSING forever and block activating the source.
+// TerminalPreviewFailureTx runs in the transaction marking a PROCESS_FINANCIAL_EMAIL_PREVIEW job FAILED; an
+// unfinished preview would stay PROCESSING and block activating the source.
 func (p *Processor) TerminalPreviewFailureTx(ctx context.Context, tx pgx.Tx, previewID string, cause error) error {
 	if !reviewdomain.IsSourceEventID(previewID) {
 		return nil

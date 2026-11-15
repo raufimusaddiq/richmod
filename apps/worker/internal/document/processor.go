@@ -40,21 +40,14 @@ type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
 	storage *blob.Store
-	// verifier is the bounded judgment plane, used for row-level category
-	// rulings on transaction screenshots. A nil verifier disables auto-confirm
-	// and keeps the review path, so intake still works without the gateway.
+	// verifier is the bounded plane for row-level category rulings on screenshots; nil disables auto-confirm
+	// and keeps the review path, so intake works without the gateway.
 	verifier jeverifier
-	// rowAutoConfirmOff is this source's operational kill-switch, stored
-	// inverted so the zero-value Processor keeps the documented default
-	// (auto-confirm on). When set, a clear row parks a review instead of
-	// confirming, so this source can be rolled back without touching the bank or
-	// receipt switches.
+	// rowAutoConfirmOff is this source's kill-switch, stored inverted so the zero value keeps auto-confirm
+	// on; when set, a clear row parks a review, independent of the bank and receipt switches.
 	rowAutoConfirmOff bool
-	// receiptAutoConfirmOff is the receipt source's operational
-	// kill-switch, stored inverted so the zero-value Processor keeps the
-	// documented default (auto-confirm on). When set, a clear receipt parks a
-	// review instead of confirming, so this source can be rolled back without
-	// touching the bank or screenshot switches.
+	// receiptAutoConfirmOff is the receipt kill-switch, same convention; when set, a clear receipt parks a
+	// review, independent of the bank and screenshot switches.
 	receiptAutoConfirmOff bool
 }
 
@@ -84,15 +77,12 @@ func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Stor
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
 
-// SetRowAutoConfirm is the screenshot row kill-switch. Passing false
-// disables auto-confirm for this source.
+// SetRowAutoConfirm is the screenshot row kill-switch; false disables auto-confirm for this source.
 func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !enabled }
 
-// SetVerifier wires the bounded judgment plane.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
-// SetReceiptAutoConfirm is the receipt new-transaction kill-switch.
-// Passing false disables auto-confirm for this source.
+// SetReceiptAutoConfirm is the receipt kill-switch; false disables auto-confirm for this source.
 func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
@@ -209,10 +199,8 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		}
 		var observationID string
 		observationStatus := "PENDING"
-		// A unique, active, compatible Wealth Account is sufficient canonical
-		// binding: accept the observation instead of asking the household to
-		// confirm what Go already resolved deterministically. Unresolved account
-		// hints still become a review.
+		// A unique, active, compatible Wealth Account is a sufficient binding, so accept the observation;
+		// unresolved account hints still become a review.
 		if resolvedWealthID != "" {
 			observationStatus = "ACCEPTED"
 		}

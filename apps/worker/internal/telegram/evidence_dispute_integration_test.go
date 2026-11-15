@@ -12,7 +12,6 @@ func TestExplicitNewTransactionDisputeOnMergedScreenshotStagesReviewOnly(t *test
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "dispute-staged")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "7500", merchant: "Test Merchant", messageID: 101, linkTransaction: true})
-	// Make the seeded document look like an auto-merged single-row screenshot.
 	_, err := f.pool.Exec(ctx, `UPDATE document SET document_type='EWALLET_SCREENSHOT' WHERE id=$1`, a.documentID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='MERGED',proposal_key='row-001',metadata_json=jsonb_build_object('document_id',$2::uuid,'row_index',0,'date_known',true,'matched_transaction_id',$3::uuid,'match_score',.95) WHERE source_event_id=$1`, a.sourceID, a.documentID, a.transactionID)
@@ -55,7 +54,6 @@ func TestExplicitNewTransactionDisputeOnMergedScreenshotStagesReviewOnly(t *test
 		t.Fatalf("dispute card must offer only dispute buttons: %s", markup)
 	}
 
-	// A retry of the same dispute does not stage a second row.
 	_, err = runEvidenceTurn(t, ctx, f, p, "tapi ini transaksi baru", 101)
 	mustAgentTest(t, err)
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW'`, f.householdID); n != 1 {
@@ -91,8 +89,8 @@ func disputeToolStatus(t *testing.T, ctx context.Context, f agentIntegrationFixt
 	return status
 }
 
-// Regression: production text intake leaves source_event.telegram_chat_id NULL, and
-// authorization must not depend on it (it made every real dispute UNAUTHORIZED).
+// Regression: production text intake leaves source_event.telegram_chat_id NULL, and authorization must not
+// depend on it.
 func TestDisputeAuthorizesWhenTextIntakeHasNoChatID(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "dispute-null-chat")
@@ -116,18 +114,14 @@ func TestDisputeRefusesUnlinkedTelegramUserAndOtherHousehold(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "dispute-auth-neg")
 	a := seedMergedDisputeEvidence(t, ctx, f)
 
-	// A Telegram user with no active identity/membership in this household.
 	stranger := f
 	stranger.update.Message.From.ID = f.update.Message.From.ID + 7777777
 	sourceID, err := runEvidenceTurn(t, ctx, stranger, evidenceTurnProcessor(stranger, disputeModel()), "tapi ini transaksi baru", 101)
 	mustAgentTest(t, err)
-	// The worker re-checks the sender before any tool runs: the turn is
-	// settled IGNORED and never reaches the dispute tool.
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM source_event WHERE id=$1 AND processing_status='IGNORED'`, sourceID); n != 1 {
 		t.Fatalf("stranger turn was not ignored (source %s)", sourceID)
 	}
 
-	// Another household replying to the same message id cannot reach this evidence.
 	other := newAgentIntegrationFixture(t, "dispute-auth-other")
 	otherSource, err := runEvidenceTurn(t, ctx, other, evidenceTurnProcessor(other, disputeModel()), "tapi ini transaksi baru", 101)
 	mustAgentTest(t, err)

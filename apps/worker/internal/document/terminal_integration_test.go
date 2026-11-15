@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// A payslip/receipt/screenshot job that runs out of attempts leaves the document
-// CLASSIFIED and the source PROCESSED (classification settled them early). The
-// final-failure step must fail both and leave the household a Tindakan item;
-// running it twice, or after the document finished, changes nothing.
+// A payslip/receipt/screenshot job out of attempts leaves the document CLASSIFIED and the source PROCESSED; the
+// final-failure step must fail both and leave a Tindakan item, and a repeat or post-finish run changes nothing.
 func TestTerminalDownstreamFailureFailsDocumentAndSource(t *testing.T) {
 	f := seedScreenshotFixture(t, "Terminal downstream failure")
 	ctx := context.Background()
