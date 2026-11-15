@@ -10,12 +10,30 @@ import (
 func TestCursorRoundTrip(t *testing.T) {
 	wantTime := time.Date(2026, 8, 30, 3, 10, 11, 12, time.UTC)
 	wantID := "7ab578ff-10ec-4de0-a046-96f13bedb9c8"
-	got, ok := parseCursor(makeCursor(wantTime, wantID))
-	if !ok || !got.Time.Equal(wantTime) || got.ID != wantID {
-		t.Fatalf("cursor mismatch: %#v, %v", got, ok)
+	got, ok, err := parseCursor(makeCursor(wantTime, wantID), cursorUUID)
+	if err != nil || !ok || !got.Time.Equal(wantTime) || got.ID != wantID {
+		t.Fatalf("cursor mismatch: %#v, %v, %v", got, ok, err)
 	}
-	if _, ok := parseCursor("not-a-cursor"); ok {
-		t.Fatal("invalid cursor accepted")
+	if _, ok, _ := parseCursor("", cursorUUID); ok {
+		t.Fatal("empty cursor reported as present")
+	}
+	for _, bad := range []string{
+		"not-a-cursor",
+		makeCursor(wantTime, ""),
+		makeCursor(wantTime, "not-a-uuid"),
+	} {
+		if _, ok, err := parseCursor(bad, cursorUUID); err == nil || ok {
+			t.Fatalf("invalid cursor %q accepted: %v", bad, err)
+		}
+	}
+	if _, _, err := parseCursor(makeCursor(wantTime, "42"), cursorUUID); err == nil {
+		t.Fatal("non-uuid id accepted for a uuid endpoint")
+	}
+	if _, _, err := parseCursor(makeCursor(wantTime, "42"), cursorNumeric); err != nil {
+		t.Fatalf("numeric id rejected: %v", err)
+	}
+	if _, _, err := parseCursor(makeCursor(wantTime, wantID), cursorNumeric); err == nil {
+		t.Fatal("uuid id accepted for a numeric endpoint")
 	}
 }
 

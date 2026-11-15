@@ -86,7 +86,11 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Jobs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := pageLimit(r, 50, 100)
-	cursor, ok := parseCursor(q.Get("cursor"))
+	cursor, ok, err := parseCursor(q.Get("cursor"), cursorUUID)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	from, _ := dateBound(q.Get("from"), false)
 	to, _ := dateBound(q.Get("to"), true)
 	if from.IsZero() {
@@ -192,7 +196,11 @@ func (h *Handler) LLMSummary(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) LLMCalls(w http.ResponseWriter, r *http.Request) {
 	start := adminRange(r.URL.Query().Get("range"))
 	limit := pageLimit(r, 50, 100)
-	cursor, hasCursor := parseCursor(r.URL.Query().Get("cursor"))
+	cursor, hasCursor, err := parseCursor(r.URL.Query().Get("cursor"), cursorUUID)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE call_kind<>'DECISION' AND created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) AND (NOT $4 OR (created_at,id)<($5,$6::uuid)) ORDER BY created_at DESC,id DESC LIMIT $7`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
@@ -235,7 +243,11 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 	if fromOK {
 		start = from
 	}
-	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	cursor, hasCursor, err := parseCursor(q.Get("cursor"), cursorUUID)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `SELECT * FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE call_kind<>'DECISION' AND status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') events WHERE ($1='' OR event_type=$1) AND ($2='' OR severity=$2) AND ($3='' OR component=$3) AND ($4='' OR reference_id ILIKE '%'||$4||'%') AND created_at >= $5 AND ($6::timestamptz IS NULL OR created_at < $6) AND (NOT $7 OR (created_at,reference_id)<($8,$9)) ORDER BY created_at DESC,reference_id DESC LIMIT $10`, q.Get("type"), q.Get("severity"), q.Get("component"), q.Get("q"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
@@ -414,7 +426,11 @@ func householdOverviewPayload(id, name, timezone string, created time.Time, memb
 func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := pageLimit(r, 50, 100)
-	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	cursor, hasCursor, err := parseCursor(q.Get("cursor"), cursorNumeric)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	start := adminRange(q.Get("range"))
 	if from, ok := dateBound(q.Get("from"), false); ok {
 		start = from
@@ -462,7 +478,11 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := pageLimit(r, 50, 100)
-	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	cursor, hasCursor, err := parseCursor(q.Get("cursor"), cursorUUID)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	start := adminRange(q.Get("range"))
 	if from, ok := dateBound(q.Get("from"), false); ok {
 		start = from
