@@ -282,12 +282,13 @@ async function run() {
       for (const [name, path, scenario, ready] of [
         ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
-        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator(".ledger-cards")],
+        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator("#matrix")],
       ]) {
         const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await ready(statePage).waitFor();
+        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#matrix details").open = true; }); await statePage.locator(".ledger-cards").waitFor(); }
         await compareScreenshot(statePage, name);
         await statePage.close();
       }

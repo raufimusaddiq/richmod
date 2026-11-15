@@ -220,7 +220,7 @@ function AnalyticsReview() {
             </details>
           </section>
           {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
-            <details className="report-disclosure" open={step === "position" || step === "changes" || Boolean(selection.category)}>
+            <details className="report-disclosure" open={step === "position" || step === "changes"}>
             <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>Matriks {facts.history.length} siklus · siklus ke siklus</span></summary>
             <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={[]} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>
             </details>
