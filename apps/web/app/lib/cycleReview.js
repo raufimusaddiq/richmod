@@ -83,7 +83,7 @@ export const qualityCopy = {
   MISSING_SALARY_ANCHOR: ["Belum ada gaji utama terkonfirmasi untuk menentukan siklus", "Buka pengaturan"],
   MISSING_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan untuk periode ini", "Perbarui Kekayaan"],
   MISSING_PREVIOUS_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan sebelum siklus ini", "Buka Kekayaan"],
-  WEALTH_SNAPSHOT_BEFORE_CYCLE: ["Catatan kekayaan terbaru mendahului siklus ini", "Perbarui Kekayaan"],
+  WEALTH_SNAPSHOT_BEFORE_CYCLE: ["Belum ada pengamatan kekayaan di siklus ini", "Perbarui Kekayaan"],
   WEALTH_ACCOUNT_SET_CHANGED: ["Daftar akun kekayaan berubah antar catatan", "Buka Kekayaan"],
 };
 
