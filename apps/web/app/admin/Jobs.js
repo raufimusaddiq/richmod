@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, Badge, Empty, Pending, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
+import { time, duration, ms, Badge, Empty, Pending, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
 
 export default function Jobs({ setError }) {
   const [filters, setFilters] = useState({ status: "", lane: "", type: "", range: "24h", q: "" });
@@ -28,7 +28,7 @@ export default function Jobs({ setError }) {
       <Table
         headers={[
           "Status",
-          "Type",
+          "Jenis",
           "Lane",
           "Attempts",
           "Durasi",
@@ -49,7 +49,7 @@ export default function Jobs({ setError }) {
               </td>
               <td>
                 {item.startedAt && item.finishedAt
-                  ? `${Math.round((new Date(item.finishedAt) - new Date(item.startedAt)) / 1000)} dtk`
+                  ? duration(new Date(item.finishedAt) - new Date(item.startedAt))
                   : "—"}
               </td>
               <td>{time(item.updatedAt)}</td>
@@ -141,7 +141,7 @@ function JobDetail({ id, close, setError }) {
                 <tr key={x.attempt}>
                   <td>{x.attempt}</td>
                   <td>{x.errorClass}</td>
-                  <td>{x.durationMs ?? "—"} ms</td>
+                  <td>{ms(x.durationMs)}</td>
                   <td>{time(x.failedAt)}</td>
                 </tr>
               ))}

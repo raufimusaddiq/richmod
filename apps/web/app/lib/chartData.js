@@ -8,7 +8,7 @@ export function compactCategories(items = [], limit = 5) {
   const compact = sorted.slice(0, limit);
   const rest = sorted.slice(limit);
   if (rest.length) {
-    compact.push({ id: "other", name: "Lainnya", amount: String(rest.reduce((sum, item) => sum + Number(item.amount || 0), 0)) });
+    compact.push({ id: "other", name: "Kategori lain", amount: String(rest.reduce((sum, item) => sum + Number(item.amount || 0), 0)) });
   }
   return compact.map(item => ({ ...item, share: total > 0 ? Number(item.amount || 0) / total : 0 }));
 }
