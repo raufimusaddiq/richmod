@@ -246,7 +246,7 @@ func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
 	if w := f.reopen(item); w.Code != http.StatusConflict {
 		t.Fatalf("an already reopened decision cannot be reopened twice: %d", w.Code)
 	}
-	// IGNORE settles the document instead of leaving it NEEDS_REVIEW (T13).
+	// IGNORE settles the document instead of leaving it NEEDS_REVIEW.
 	source, document, _, item = seed()
 	if w := f.resolve(item, `{"action":"IGNORE"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("ignore=%d %s", w.Code, w.Body.String())

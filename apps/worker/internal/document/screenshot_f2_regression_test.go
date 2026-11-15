@@ -10,8 +10,7 @@ import (
 // amount, printed times 10 minutes apart, the first already a confirmed
 // transaction backed by its own screenshot evidence. A distinct payment must
 // never reach the strong auto-link threshold (>= .90). On the unmodified
-// 66c1a9c matcher this fails with score 0.95 (see
-// docs/audits/F2-screenshot-false-merge-repro.md for the old-code twin).
+// 66c1a9c matcher this fails with score 0.95.
 func TestScreenshotF2DisputedPairMustNotAutoLink(t *testing.T) {
 	at := screenshotRowTime()
 	for _, tc := range []struct {

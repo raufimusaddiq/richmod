@@ -322,8 +322,7 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 	var originalDocument, otherDocument, otherSource, unrelatedSource string
 	must(pool.QueryRow(ctx, `SELECT document_id::text FROM review_item WHERE id=$1`, dateOnly).Scan(&originalDocument))
 	must(pool.QueryRow(ctx, `SELECT document_id::text,source_event_id::text FROM review_item WHERE id=$1`, wrongBinding).Scan(&otherDocument, &otherSource))
-	// ponytail: bind a document no other open review holds; the unique index
-	// forbids stealing another review's document before validation ever runs.
+	// Bind a document no other open review holds; the unique index forbids stealing another review's document before validation runs.
 	var foreignAttachment, foreignOtherDocument string
 	must(pool.QueryRow(ctx, "INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id", household, []byte(fmt.Sprintf("payslip-foreign-%d", stamp)), fmt.Sprintf("%s/payslip-foreign.png", household)).Scan(&foreignAttachment))
 	var foreignSource string
