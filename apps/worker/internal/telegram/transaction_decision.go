@@ -2,12 +2,9 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"math/big"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // decisionPolicyVersion labels the deterministic acceptance contract in stored decision provenance.
@@ -153,28 +150,4 @@ func acceptableTransactionTime(value validatedExtraction, now time.Time) bool {
 		return true
 	}
 	return value.TimePrecision == "OBSERVED_AT_PROCESSING" && value.TransactionAt.Equal(now.Truncate(time.Minute))
-}
-
-// recordJudgmentDecision persists bounded decision provenance in the same transaction as the mutation, never
-// raw user text, email bodies or model state.
-func (p *Processor) recordJudgmentDecision(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, decision TransactionSemanticDecision, confirmed bool) error {
-	outcome := "NEEDS_REVIEW"
-	if confirmed {
-		outcome = "CONFIRMED"
-	}
-	summary, err := json.Marshal(map[string]any{
-		"transaction_type":                decision.TransactionType,
-		"type_accepted":                   decision.TypeAccepted,
-		"amount_supported":                decision.AmountSupported,
-		"date_supported":                  decision.DateSupported,
-		"category":                        decision.CategorySlug,
-		"category_accepted":               decision.CategoryAccepted,
-		"material_ambiguity":              decision.MaterialAmbiguity,
-		"ambiguity_decided_not_ambiguous": decision.AmbiguityDecidedNotAmbiguous,
-	})
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'TRANSACTION_SEMANTICS',NULLIF($3,''),$4,$5,$6::jsonb,$7)`, householdID, sourceEventID, decision.Model, decision.PolicyVersion, []string{"transaction_type", "amount_support", "date_support", "material_ambiguity", "category"}, string(summary), outcome)
-	return err
 }

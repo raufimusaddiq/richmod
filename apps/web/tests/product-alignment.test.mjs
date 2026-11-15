@@ -5,6 +5,15 @@ import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
+// The component half of a page. The settings page also hosts the pure push-state model, which starts at its
+// first exported helper; every other page is one component and is scanned whole.
+const pageView = page => {
+  const source = text(`app/${page}/page.js`);
+  const model = page === "settings" ? source.indexOf("export function notificationState(") : -1;
+  assert.ok(page !== "settings" || model > 0, "settings keeps notificationState below the page component");
+  return model > 0 ? source.slice(0, model) : source;
+};
+
 test("all product routes exist", () => {
   for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
@@ -291,8 +300,7 @@ test("transactions: retry reloads with current filters, the drawer is aborted st
 });
 
 test("settings: request is try/catch/finally with per-key busy, load failures surface, toggles lock while busy", () => {
-  const source = text("app/settings/page.js");
-  const view = source.slice(0, source.indexOf("// The state model."));
+  const view = pageView("settings");
   const request = view.slice(view.indexOf("function request("), view.indexOf("async function createAccount"));
   assert.match(request, /setError\(""\)[\s\S]*try \{[\s\S]*catch/);
   assert.match(view, /useBusyMap\(\)/);
@@ -365,7 +373,7 @@ test("wealth: drawer states, guarded saves, and a failed reload drops the old fi
 });
 
 test("no state-machine page keeps the old single-string `working` or a bare loading boolean", () => {
-  for (const page of pages) assert.doesNotMatch(text(`app/${page}/page.js`).split("// The state model.")[0], /useState\(true\), \[error|const \[loading, setLoading\]/, page);
+  for (const page of pages) assert.doesNotMatch(pageView(page), /useState\(true\), \[error|const \[loading, setLoading\]/, page);
 });
 
 test("auth: an unavailable session is announced with a retry, never a silent loading state", () => {

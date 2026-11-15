@@ -46,7 +46,7 @@ remove them only together with a migration and the code that reads them.
 
 - `review_item` / `review_request`: `CANCELLED` is written (reject/duplicate), `review_item` `EXPIRED` and `CANCELLED` are not.
 - `review_conversation`: `AWAITING_PURPOSE`, `AWAITING_ASSET_WEALTH`.
-- `salary_pending_choice`: the whole table (no producer; two diverged resolvers in `telegram/processor.go` and `agent_specialized_mutations.go` are unreachable). Do not revive without reconciling them.
+- `salary_pending_choice`: the whole table (no producer; the remaining resolver in `agent_specialized_mutations.go` is unreachable). Do not revive without reconciling it with the pending-choice flow.
 - `telegram_pending_*` `EXPIRED`, `integration_action` `DISMISSED` / `EXPIRED`: expiry is a read-time `expires_at` filter.
 - `document` `RECEIVED` after creation, `transaction` `PENDING` (never inserted).
 
@@ -57,3 +57,43 @@ Screens that load data follow ADR-019's addendum: a `useGuardedLoad` status
 `useDrawerRecord` for drawers, and `useBusyMap` for per-action busy state. A
 reload keeps rendered children mounted; every failed request says so and offers
 a retry.
+
+## Editing a transaction's details
+
+`PATCH /api/v1/transactions/{id}` (session auth, household-scoped, owned by
+`apps/api/internal/ledger/edit.go`) lets the household file an existing
+transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
+
+- **Editable:** `categoryId` (UUID or `null`), `accountId` (UUID or `null`),
+  `description` (required, max 500), `note` (max 2000, `null`/empty clears).
+- **Locked (400 `LOCKED_FIELD`):** amount, transaction time, type, currency,
+  status, purpose, related wealth account, merchant, evidence. Correcting these
+  stays void + re-create so evidence integrity is preserved. Any other field is
+  400 `UNKNOWN_FIELD`; an empty body is 400 `EMPTY_EDIT`.
+- **Preconditions:** `If-Match: <updatedAt>` from the last read is required
+  (428 `IF_MATCH_REQUIRED` if absent). A stale value is 409 `STALE_EDIT`; the row
+  is locked `FOR UPDATE`, so two concurrent edits cannot both win.
+- **Status:** allowed on `PENDING`, `CONFIRMED`; `NEEDS_REVIEW` is 409
+  `REVIEW_OPEN` (same boundary as confirm/void, even without a review item);
+  `VOIDED` is 409 `TRANSACTION_VOIDED`. Another household's transaction is 404.
+- **Review boundary (deterministic reject, no bypass):** while the transaction
+  is `NEEDS_REVIEW` or has an `OPEN`/`PENDING_SEND` review item the edit is 409 `REVIEW_OPEN`
+  ("selesaikan tinjauan dulu"); the review resolution path owns those facts.
+  A `TRANSFER` keeps its source account and has no category, so `categoryId` and
+  `accountId` on a transfer are 409 `TRANSFER_FIELD_LOCKED`; its description and
+  note remain editable.
+- **Validation:** category and account must belong to the household and be
+  active (400 `INVALID_CATEGORY` / `INVALID_ACCOUNT`). An unchanged current
+  category/account is accepted even if deactivated since; only a change TO an
+  inactive one is rejected, and the web form sends only changed fields. Categories carry no
+  income/expense kind in the schema, so no type filter applies beyond the
+  transfer rule above.
+- **Audit:** a change writes exactly one `audit_log` row, action
+  `UPDATE_DETAILS`, whose `before_json`/`after_json` hold only the changed
+  fields. A no-op edit writes nothing and leaves `updated_at` untouched.
+- **Derived data:** analytics read the ledger live (no materialised category
+  aggregates) and the cycle basis sums confirmed transactions household-wide,
+  so a detail edit has no residual side effect: it never reopens a cycle review
+  or creates a `review_item`.
+- **Errors** return `{"error": "...", "code": "..."}`; the web app maps `code`
+  to Indonesian copy and never shows the English text. No schema change.

@@ -95,17 +95,6 @@ func TestSalaryChoiceDoesNotOwnOrdinaryTurn(t *testing.T) {
 	}
 }
 
-func TestSalaryChoiceMapsOnlyCanonicalEnums(t *testing.T) {
-	for _, choice := range []string{"PRIMARY", "ORDINARY", "IGNORE"} {
-		if got := salaryChoiceFromJudgment(choice); string(got) != choice {
-			t.Fatalf("%q mapped to %q", choice, got)
-		}
-	}
-	if got := salaryChoiceFromJudgment("gaji utama"); got == salaryChoicePrimary {
-		t.Fatal("natural language must not become canonical salary choice")
-	}
-}
-
 func TestImplicitReviewBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")

@@ -8,6 +8,10 @@ updates:
     directory: /apps/worker
     schedule:
       interval: weekly
+  - package-ecosystem: gomod
+    directory: /apps/reviewdomain
+    schedule:
+      interval: weekly
   - package-ecosystem: npm
     directory: /apps/web
     schedule:

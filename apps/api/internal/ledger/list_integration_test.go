@@ -107,11 +107,20 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 		}
 		drilldownIDs = append(drilldownIDs, id)
 	}
+	// "Tanpa merchant": no merchant and no counterparty. A named but unresolved
+	// counterparty is its own payee, and another household never leaks in.
+	for _, extra := range []struct{ household, category, counterparty string }{{householdID, categoryID, "Warung Tanpa Alias"}, {foreignHousehold, "", ""}} {
+		if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,category_id,counterparty_name,type,status,amount,transaction_at,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,''),'EXPENSE','CONFIRMED',1000,'2026-09-10T08:00:00+07:00',now())`, extra.household, extra.category, extra.counterparty); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, check := range []struct {
 		filter string
-		count int
+		count  int
 	}{
 		{"merchantId=" + merchantID + "&categoryId=" + categoryID, 2},
+		{"merchantId=none", 1},
+		{"merchantId=none&categoryId=uncategorized", 1},
 		{"categoryId=uncategorized", 1},
 		{"merchantId=" + foreignMerchant, 0},
 		{"id=" + drilldownIDs[0], 1},

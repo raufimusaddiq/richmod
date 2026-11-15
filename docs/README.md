@@ -8,7 +8,7 @@ were removed from the tree and are recoverable from git history.
 
 | Document | Read it for |
 | --- | --- |
-| [`README.md`](../README.md) | What Richmod is, how data gets in, quick start and status |
+| [`README.md`](../README.md) | What Richmod is, how it works, quick start, scope and the latest release |
 | [`AGENTS.md`](../AGENTS.md) | Architecture rules, safety invariants and the required worktree workflow |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to propose and verify a change |
 | [`SECURITY.md`](../SECURITY.md) | Reporting a vulnerability |
