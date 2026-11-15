@@ -75,6 +75,8 @@ test("sections source: no money arithmetic, plain model text, fixed order", () =
   assert.match(sections, /role="region" aria-label="Pengeluaran per kategori dan siklus/);
   assert.match(sections, /<caption className="visually-hidden">/);
   assert.match(sections, /Urutan tetap: otomatis dulu, lalu anggota menurut nama/);
+  assert.match(sections, /<table className="merchant-rank">/, "the merchant ranking is a real table");
+  assert.match(sections, /<th scope="col">Merchant<\/th>/, "merchant columns have real headers");
   const card = text("app/components/InsightCard.js");
   assert.doesNotMatch(card, /dangerouslySetInnerHTML|ReactMarkdown/);
   assert.match(card, /Opsional\. Bukan saran keuangan atau keputusan rumah tangga/);

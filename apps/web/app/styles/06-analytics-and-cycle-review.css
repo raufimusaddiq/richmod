@@ -313,22 +313,21 @@
 .heat-table tfoot th, .heat-table tfoot td { border-top: 2px solid var(--ink); font-weight: var(--weight-bold); }
 .heat-legend { margin: var(--space-2) 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.6; }
 .merchant-rank-wrap { margin-top: var(--space-3); }
-.merchant-rank-head, .merchant-rank > li { display: grid; grid-template-columns: minmax(0, 1fr) 76px 132px 152px 132px; align-items: center; gap: var(--space-2) var(--space-3); }
-.merchant-rank-head { padding: 0 var(--space-3) var(--space-2); color: var(--muted); font-size: var(--text-xs); }
-.merchant-rank-head span:not(:first-child) { text-align: right; }
-.merchant-rank { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); overflow: hidden; }
-.merchant-rank > li { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--line); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.merchant-rank > li:first-child { border-top: 0; }
-.merchant-rank > li[data-total] { border-top: 2px solid var(--ink); font-weight: var(--weight-bold); }
-.merchant-rank > li[data-other] .merchant-name > span { color: var(--muted); }
-.merchant-name { min-width: 0; font-weight: var(--weight-semibold); }
-.merchant-name a { color: var(--accent); }
-.merchant-name small { display: block; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
-.merchant-bar { display: block; height: 3px; margin-top: 6px; border-radius: 2px; background: var(--surface-muted); }
+.merchant-rank-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.merchant-rank { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.merchant-rank th, .merchant-rank td { padding: var(--space-2) var(--space-3); text-align: right; vertical-align: top; }
+.merchant-rank thead th { border-bottom: 2px solid var(--ink); color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.merchant-rank thead th:first-child { width: 34%; }
+.merchant-rank tbody th, .merchant-rank tfoot th { text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.merchant-rank tbody td, .merchant-rank tfoot td { font-size: var(--text-sm); }
+.merchant-rank tbody th, .merchant-rank tbody td { border-top: 1px solid var(--line); }
+.merchant-rank tbody tr[data-other] th a { color: var(--muted); }
+.merchant-rank tfoot th, .merchant-rank tfoot td { border-top: 2px solid var(--ink); font-weight: var(--weight-bold); }
+.merchant-rank th a { color: var(--accent); }
+.merchant-rank th small { display: block; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.merchant-bar { display: block; width: min(260px, 100%); height: 3px; margin-top: 6px; border-radius: 2px; background: var(--surface-muted); }
 .merchant-bar i { display: block; height: 100%; border-radius: 2px; background: var(--chart-expense); }
-.merchant-rank > li[data-other] .merchant-bar i { background: var(--line-strong); }
-.merchant-count, .merchant-amount, .merchant-previous, .merchant-delta { text-align: right; }
-.merchant-previous { color: var(--muted); }
+.merchant-rank tr[data-other] .merchant-bar i { background: var(--line-strong); }
 .household-bar { display: flex; height: 14px; gap: 2px; margin: var(--space-3) 0 var(--space-4); overflow: hidden; border-radius: 999px; }
 .household-bar i { min-width: 2px; background: var(--accent); }
 .household-bar i[data-tint="1"] { background: #b98a3e; }
@@ -361,13 +360,9 @@
   .heat-row-delta { display: block; margin-top: 2px; }
   .heat-table tbody th { font-size: var(--text-xs); }
   .heat-cell { padding: 6px 0; font-size: var(--text-xs); }
-  .merchant-rank-head { display: none; }
-  .merchant-rank > li { grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--space-3); }
-  .merchant-count { display: none; }
-  .merchant-amount, .merchant-previous, .merchant-delta { text-align: left; }
-  .merchant-count, .merchant-previous { grid-column: 1; }
-  .merchant-amount, .merchant-delta { grid-column: 2; text-align: right; }
-  .merchant-name { grid-column: 1 / -1; }
+  .merchant-rank th, .merchant-rank td { padding: var(--space-2) var(--space-2); font-size: var(--text-xs); white-space: nowrap; }
+  .merchant-rank thead th:first-child { width: 40%; }
+  .merchant-rank tbody th, .merchant-rank tfoot th { white-space: normal; }
   .household-list > li { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 2px var(--space-2); }
   .household-count { grid-column: 2; grid-row: 2; text-align: left; }
   .household-amount { grid-column: 3; grid-row: 1; }

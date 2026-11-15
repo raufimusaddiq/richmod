@@ -1,67 +1,26 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, paceCurves, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, paceCurves, compactMillions, directionMark, hasPace, mapPace, paceReferences } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-const entry = (start, end, state, income, expense, expenseDelta = null) => ({ start, end, measuredUntil: end ?? "2026-10-03", state, income, grossExpense: expense, refund: "0", expense, netCashflow: String(BigInt(income) - BigInt(expense)), savingsAllocated: "0", expenseDelta });
-
-const history = [
-  entry("2026-05-26", "2026-06-26", "CLOSED", "12000000", "8100000"),
-  entry("2026-06-26", "2026-07-26", "CLOSED", "12500000", "7900000", "-200000"),
-  entry("2026-07-26", "2026-08-26", "CLOSED", "12500000", "7200000", "-700000"),
-  entry("2026-08-26", "2026-09-26", "CLOSED", "12500000", "8600000", "1400000"),
-  entry("2026-09-26", null, "ACTIVE", "12500000", "2900000", "-5700000"),
-];
-
 test("compact amounts are display-only and never invent a value", () => {
   assert.equal(compactMillions("12500000"), "12,5");
   assert.equal(compactMillions("-600000"), "−0,6");
   assert.equal(compactMillions(null), "—");
   assert.equal(compactMillions("abc"), "—");
-  assert.equal(signedMillions("4600000"), "+4,6");
-  assert.equal(signedMillions("-700000"), "−0,7");
-  assert.equal(signedMillions("0"), "0,0");
-  assert.equal(signedMillions("40000"), "0,0", "a rounded zero carries no sign");
-  assert.equal(signedMillions(null), "—");
 });
 
-test("direction is a neutral marker plus a signed value, never a colour", () => {
+test("direction is a neutral marker, never a colour", () => {
   assert.equal(directionMark("-1"), "▼");
   assert.equal(directionMark("5"), "▲");
   assert.equal(directionMark("0"), "");
   assert.equal(directionMark("0.00"), "");
   assert.equal(directionMark(null), "");
-  assert.match(directionText("-1500000"), /^▼ −Rp/);
-  assert.match(directionText("1500000"), /^▲ \+Rp/);
-  assert.equal(directionText(null), "—");
-});
-
-test("ledger columns map served amounts to lengths and mark selection and running cycles", () => {
-  const ledger = buildLedger(history, "2026-08-26", "7900000");
-  assert.equal(ledger.columns.length, 5);
-  assert.equal(ledger.mode, "chart", "four closed cycles are enough for the chart");
-  const selected = ledger.columns.find(column => column.selected);
-  assert.equal(selected.start, "2026-08-26");
-  assert.equal(selected.until, "– 25 Sep");
-  assert.equal(selected.delta, "1400000");
-  assert.ok(Math.abs(selected.expenseLength - 8600000 / 12500000) < 1e-9);
-  assert.equal(selected.incomeLength, 1);
-  assert.ok(Math.abs(ledger.medianLength - 7900000 / 12500000) < 1e-9, "median tick shares the bar scale");
-  const running = ledger.columns.at(-1);
-  assert.equal(running.running, true);
-  assert.equal(running.until, "berjalan");
-  assert.equal(buildLedger(history, "2026-08-26", null).medianLength, null);
-  assert.equal(buildLedger([], "").columns.length, 0);
-});
-
-test("fewer than four closed cycles fall back to cards instead of a chart", () => {
-  assert.equal(buildLedger(history.slice(-4), "2026-09-26").mode, "cards");
-  assert.equal(buildLedger(history.slice(-5), "2026-09-26").mode, "chart");
 });
 
 test("previous and next follow the served newest-first cycle list", () => {
@@ -101,15 +60,7 @@ test("the reviewed cycle survives a Calendar visit", () => {
 test("ledger source: served numbers only, no colour-only direction, accent reserved for interaction", () => {
   const library = text("app/lib/cycleLedger.js");
   assert.doesNotMatch(library, /\.reduce\(|BigInt\(|parseFloat|toFixed/, "the browser formats and sizes; it never derives totals");
-  const component = text("app/components/CycleLedger.js");
-  assert.match(component, /directionMark\(column\.delta\)/);
-  assert.match(component, /aria-pressed=\{column\.selected\}/);
-  assert.match(component, /role="region" aria-label="Perbandingan siklus, geser untuk semua kolom"/);
-  assert.match(component, /<caption className="visually-hidden">/);
   const styles = globalCss();
-  const block = styles.slice(styles.indexOf("/* Cycle ledger:"), styles.indexOf("/* end cycle ledger */"));
-  assert.ok(block.length > 500, "ledger styles present");
-  assert.doesNotMatch(block, /var\(--accent|var\(--danger|var\(--income-soft|var\(--expense-soft/, "no accent or good/bad tinting in the ledger");
   assert.ok(styles.includes(':not([data-meeting-step="changes"]) #matrix'), "the matrix belongs to the position and changes meeting steps");
 });
 
@@ -146,35 +97,6 @@ test("synthetic facts mirror the served contract the ledger and pace chart read"
     });
     assert.equal(facts.history.at(-1).start, facts.period.start, "the selected cycle is listed");
   }
-});
-
-const matrixHistory = [entry("2026-06-26", "2026-07-26", "CLOSED", "12500000", "7900000"), entry("2026-07-26", "2026-08-26", "CLOSED", "12500000", "7200000"), entry("2026-08-26", null, "ACTIVE", "12500000", "2900000")];
-const matrixSeries = {
-  cycleStarts: ["2026-06-26", "2026-07-26", "2026-08-26"],
-  rows: [{ id: "cat-1", name: "Belanja rumah", amounts: ["3000000", "2000000", "1000000"] }, { id: "", name: "Belum dikategorikan", amounts: ["400000", "0", "-100000"] }],
-  other: { amounts: ["4500000", "5200000", "2000000"] },
-};
-
-test("the matrix tints each value within its own row and never invents a category", () => {
-  const matrix = buildMatrix(matrixSeries, matrixHistory, "cat-1", ["cat-1"]);
-  assert.deepEqual(matrix.map(row => row.name), ["Belanja rumah", "Belum dikategorikan", "Kategori lain"]);
-  assert.deepEqual(matrix[0].tints, [1, 2000000 / 3000000, 1000000 / 3000000]);
-  assert.deepEqual(matrix[1].tints, [1, 0, 0], "zero and negative values carry no tint");
-  assert.equal(matrix[0].selected, true);
-  assert.equal(matrix[0].selectable, true);
-  assert.equal(matrix[1].id, "uncategorized", "the empty category id maps to the uncategorized selection");
-  assert.equal(matrix[1].selectable, false, "a row without served evidence is not clickable");
-  assert.equal(matrix[2].other, true);
-  assert.equal(matrix[2].selectable, false, "the remainder opens no evidence");
-});
-
-test("a matrix that does not line up with history or has no rows is not drawn", () => {
-  assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [] }, matrixHistory), []);
-  assert.deepEqual(buildMatrix(undefined, matrixHistory), []);
-  assert.deepEqual(buildMatrix({ ...matrixSeries, cycleStarts: ["2026-06-26", "2026-07-26", "2026-09-01"] }, matrixHistory), [], "columns must match the ribbon");
-  assert.deepEqual(buildMatrix({ ...matrixSeries, cycleStarts: matrixSeries.cycleStarts.slice(1) }, matrixHistory), []);
-  assert.deepEqual(buildMatrix({ ...matrixSeries, other: { amounts: ["1"] } }, matrixHistory), []);
-  assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [{ id: "x", name: "X", amounts: ["1"] }] }, matrixHistory), []);
 });
 
 test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day default", () => {

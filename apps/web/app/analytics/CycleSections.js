@@ -15,7 +15,7 @@ function columnMonth(start) {
 
 function Delta({ value, label }) {
   return <span className="section-delta" data-tone={deltaTone(value)}>
-    <span className="visually-hidden">{label}: </span>
+    {label && <span className="visually-hidden">{label}: </span>}
     {value == null ? "—" : <><span aria-hidden="true">{directionMark(value)} </span>{signedMoney(value)}</>}
   </span>;
 }
@@ -122,13 +122,13 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
             {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>
               <span className="heat-cell" style={{ "--tint": row.tints[index] }}>{compactMillions(row.amounts[index])}</span>
             </td>)}
-            <td className="heat-delta"><Delta value={row.delta} label={deltaLabel}/></td>
+            <td className="heat-delta"><Delta value={row.delta}/></td>
           </tr>)}
         </tbody>
         <tfoot><tr>
           <th scope="row">Total pengeluaran bersih</th>
           {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>{compactMillions(heat.total.amounts[index])}</td>)}
-          <td className="heat-delta"><Delta value={heat.total.delta} label={deltaLabel}/></td>
+          <td className="heat-delta"><Delta value={heat.total.delta}/></td>
         </tr></tfoot>
       </table>
     </div>
@@ -140,24 +140,40 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
 export function MerchantRanking({ ranking, period }) {
   const list = merchantBars(ranking);
   if (!list) return <p className="empty compact">Merchant pendukung belum tersedia.</p>;
-  const row = (item, { other = false, total = false } = {}) => <li key={item.key || "row"} data-other={other || undefined} data-total={total || undefined}>
-    <span className="merchant-name">
-      {item.id ? <a href={transactionHref(period, { merchantId: item.id })}>{item.name}</a> : <span data-muted={other || undefined}>{item.name}</span>}
-      {item.notNamed && <small>transaksi tanpa nama penerima</small>}
-      <span className="merchant-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>
-    </span>
-    <span className="merchant-count"><span className="visually-hidden">Jumlah transaksi: </span>{item.count ?? "—"}</span>
-    <span className="merchant-amount"><span className="visually-hidden">Siklus ini: </span>{money(item.amount)}</span>
-    <span className="merchant-previous"><span className="visually-hidden">{list.compareLabel}: </span>{amountLabel(item.previous)}</span>
-    <span className="merchant-delta"><Delta value={item.deltaVsPrevious} label="Selisih"/></span>
-  </li>;
+  const name = (item, other) => item.id
+    ? <a href={transactionHref(period, { merchantId: item.id })}>{item.name}</a>
+    : <span data-muted={other || undefined}>{item.name}</span>;
+  const bar = item => <span className="merchant-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>;
   return <div className="merchant-rank-wrap">
-    <div className="merchant-rank-head" aria-hidden="true"><span>Merchant</span><span>Transaksi</span><span>Siklus ini</span><span>{list.compareLabel}</span><span>Selisih</span></div>
-    <ul className="merchant-rank" aria-label="Merchant pendukung, terbesar dulu">
-      {list.rows.map(item => row(item))}
-      {list.other && row({ ...list.other, key: "other", name: `Merchant lain · ${list.other.merchantCount}`, notNamed: false }, { other: true })}
-      {list.total && row({ ...list.total, key: "total", name: "Total", count: list.total.count }, { total: true })}
-    </ul>
+    <div className="merchant-rank-scroll" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom">
+      <table className="merchant-rank">
+        <caption className="visually-hidden">Merchant pendukung, terbesar dulu. Pembanding: {list.compareLabel.toLowerCase()}.</caption>
+        <thead><tr><th scope="col">Merchant</th><th scope="col">Transaksi</th><th scope="col">Siklus ini</th><th scope="col">{list.compareLabel}</th><th scope="col">Selisih</th></tr></thead>
+        <tbody>
+          {list.rows.map(item => <tr key={item.key}>
+            <th scope="row">{name(item)}{item.notNamed && <small>transaksi tanpa nama penerima</small>}{bar(item)}</th>
+            <td>{item.count ?? "—"}</td>
+            <td>{money(item.amount)}</td>
+            <td>{amountLabel(item.previous)}</td>
+            <td><Delta value={item.deltaVsPrevious}/></td>
+          </tr>)}
+          {list.other && <tr data-other="true">
+            <th scope="row">{name({ ...list.other, name: `Merchant lain · ${list.other.merchantCount}` }, true)}{bar(list.other)}</th>
+            <td>{list.other.count ?? "—"}</td>
+            <td>{money(list.other.amount)}</td>
+            <td>{amountLabel(list.other.previous)}</td>
+            <td><Delta value={list.other.deltaVsPrevious}/></td>
+          </tr>}
+        </tbody>
+        {list.total && <tfoot><tr>
+          <th scope="row">Total</th>
+          <td>{list.total.count ?? "—"}</td>
+          <td>{money(list.total.amount)}</td>
+          <td>{amountLabel(list.total.previous)}</td>
+          <td><Delta value={list.total.deltaVsPrevious}/></td>
+        </tr></tfoot>}
+      </table>
+    </div>
     <a className="card-link" href={transactionHref(period)}>Semua transaksi siklus ini →</a>
   </div>;
 }

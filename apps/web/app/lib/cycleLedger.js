@@ -1,6 +1,3 @@
-import { money } from "./format.js";
-import { inclusiveEnd, ratioLabel, signedMoney } from "./cycleReview.js";
-
 // Cycle ledger helpers. Every amount, delta, median and total is served by the API
 // (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
 // picks served fields. It never derives a total, delta, median or share.
@@ -22,71 +19,12 @@ export function compactMillions(value) {
   return `${number < 0 ? "−" : ""}${millions.format(Math.abs(number))}`;
 }
 
-export function signedMillions(value) {
-  const text = compactMillions(value);
-  if (text === "—" || text.startsWith("−") || text === "0,0") return text;
-  return `+${text}`;
-}
-
 // Direction is a neutral marker beside the signed value, never a colour alone.
 export function directionMark(value) {
   if (value == null) return "";
   const text = String(value);
   if (text.startsWith("-")) return "▼";
   return /^0+(\.0+)?$/.test(text) ? "" : "▲";
-}
-
-export function directionText(value) {
-  return value == null ? "—" : `${directionMark(value)} ${signedMoney(value)}`.trim();
-}
-
-const CLOSED_FOR_CHART = 4;
-
-// Ledger columns. Lengths are fractions of the largest income/expense shown, so equal
-// amounts have equal bars; the median tick uses the same scale.
-export function buildLedger(history = [], selectedStart = "", median = null) {
-  const amounts = history.flatMap(item => [Number(item.income), Number(item.expense)]).filter(Number.isFinite);
-  const peak = Math.max(0, ...amounts);
-  const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
-  const columns = history.map(item => ({
-    start: item.start,
-    label: dayMonth(item.start),
-    until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
-    running: item.state === "ACTIVE",
-    selected: item.start === selectedStart,
-    income: item.income,
-    expense: item.expense,
-    net: item.netCashflow,
-    delta: item.expenseDelta ?? null,
-    incomeLength: length(item.income),
-    expenseLength: length(item.expense),
-  }));
-  const closed = history.filter(item => item.state === "CLOSED").length;
-  return { columns, mode: closed >= CLOSED_FOR_CHART ? "chart" : "cards", medianLength: median == null ? null : length(median) };
-}
-
-// The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"
-// remainder are served and reconcile to each cycle's net expense; the browser only
-// sizes the tint relative to the largest positive value in its row. A series that does
-// not line up with history[] is not drawn.
-export function buildMatrix(categoryHistory, history = [], selectedCategory = "", selectable = []) {
-  const starts = history.map(item => item.start);
-  const served = categoryHistory?.cycleStarts ?? [];
-  const rows = categoryHistory?.rows ?? [];
-  const other = categoryHistory?.other?.amounts ?? [];
-  if (!rows.length || served.length !== starts.length || served.some((start, index) => start !== starts[index])) return [];
-  if (other.length !== starts.length || rows.some(row => row.amounts?.length !== starts.length)) return [];
-  const tints = amounts => {
-    const peak = Math.max(0, ...amounts.map(Number).filter(Number.isFinite));
-    return amounts.map(value => (peak > 0 && Number.isFinite(Number(value)) ? Math.max(0, Number(value)) / peak : 0));
-  };
-  const pickable = new Set(selectable);
-  const matrix = rows.map(row => {
-    const id = row.id || "uncategorized";
-    return { key: id, id, name: row.name, amounts: row.amounts, tints: tints(row.amounts), other: false, selected: id === selectedCategory, selectable: pickable.has(id) };
-  });
-  matrix.push({ key: "other", id: "", name: "Kategori lain", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
-  return matrix;
 }
 
 // `cycles` is newest first, as served. Older is the next entry, newer the one before.
