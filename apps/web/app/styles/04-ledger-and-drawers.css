@@ -73,3 +73,4 @@
 .transaction-form [aria-invalid="true"] { border-color: var(--danger); }
 
 .date-hint { display: block; min-height: 1.2em; margin-top: 4px; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.date-hint::after { content: attr(data-date); }
