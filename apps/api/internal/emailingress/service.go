@@ -89,7 +89,7 @@ func (s *Service) Current(ctx context.Context, householdID string) (Address, boo
 // verification, if any.
 func (s *Service) OpenForwardingAction(ctx context.Context, householdID string) (*ForwardingAction, error) {
 	var out ForwardingAction
-	err := s.pool.QueryRow(ctx, `SELECT id,title,action_url,action_code,created_at FROM integration_action WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' ORDER BY created_at DESC LIMIT 1`, householdID, forwardingIntegrationType, forwardingActionType).Scan(&out.ID, &out.Title, &out.ActionURL, &out.ActionCode, &out.CreatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT id,title,action_url,action_code,created_at FROM integration_action WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' ORDER BY created_at DESC, id DESC LIMIT 1`, householdID, forwardingIntegrationType, forwardingActionType).Scan(&out.ID, &out.Title, &out.ActionURL, &out.ActionCode, &out.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -229,17 +229,8 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		return err
 	}
 	address.Address = address.LocalPart + "@" + s.domain
-	// Any non-control delivery proves forwarding works, so it closes the pending
-	// verification. The Gmail confirmation itself never counts as proof.
-	if address.Status != StatusDisabled {
-		if _, isControl := detectControlAction(in.Email, in.Signed.ContentHash); !isControl {
-			if _, err := integrationaction.AutoResolve(ctx, tx, address.HouseholdID, forwardingIntegrationType, forwardingActionType, "FORWARDING_DELIVERY_RECEIVED"); err != nil {
-				return err
-			}
-		}
-	}
-	var existingDeliveryID string
-	err = tx.QueryRow(ctx, `SELECT id FROM email_ingress_delivery WHERE address_id=$1 AND content_sha256=$2`, address.ID, in.Signed.ContentHash[:]).Scan(&existingDeliveryID)
+	var existingDeliveryID, existingStatus string
+	err = tx.QueryRow(ctx, `SELECT id,status FROM email_ingress_delivery WHERE address_id=$1 AND content_sha256=$2`, address.ID, in.Signed.ContentHash[:]).Scan(&existingDeliveryID, &existingStatus)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -249,6 +240,11 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 				if err := s.persistControlAction(ctx, tx, address.HouseholdID, existingDeliveryID, action); err != nil {
 					return err
 				}
+			}
+		}
+		if acceptedDeliveryStatus(existingStatus) {
+			if err := resolveForwardingProof(ctx, tx, address.HouseholdID, in); err != nil {
+				return err
 			}
 		}
 		_, err = tx.Exec(ctx, `UPDATE email_ingress_address SET last_received_at=now() WHERE id=$1`, address.ID)
@@ -280,6 +276,9 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 					if err := s.persistFinancialActive(ctx, tx, address, financialID, in); err != nil {
 						return err
 					}
+					if err := resolveForwardingProof(ctx, tx, address.HouseholdID, in); err != nil {
+						return err
+					}
 					return tx.Commit(ctx)
 				}
 				if !errors.Is(financialErr, pgx.ErrNoRows) {
@@ -290,6 +289,9 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 				return err
 			} else {
 				if err := s.persistActive(ctx, tx, address, listenerID, in); err != nil {
+					return err
+				}
+				if err := resolveForwardingProof(ctx, tx, address.HouseholdID, in); err != nil {
 					return err
 				}
 				return tx.Commit(ctx)
@@ -308,6 +310,11 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 			if err := s.persistControlAction(ctx, tx, address.HouseholdID, deliveryID, action); err != nil {
 				return err
 			}
+		}
+	}
+	if acceptedDeliveryStatus(status) {
+		if err := resolveForwardingProof(ctx, tx, address.HouseholdID, in); err != nil {
+			return err
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE email_ingress_address SET last_received_at=now() WHERE id=$1`, address.ID); err != nil {
@@ -349,6 +356,27 @@ func (s *Service) persistFinancialActive(ctx context.Context, tx pgx.Tx, address
 		return err
 	}
 	_, err := tx.Exec(ctx, `UPDATE email_ingress_address SET last_received_at=now() WHERE id=$1`, address.ID)
+	return err
+}
+
+// acceptedDeliveryStatus reports whether a delivery outcome proves that mail
+// really reached Richmod through forwarding. Rejected outcomes (IGNORED_*)
+// prove nothing and must not close a pending verification.
+func acceptedDeliveryStatus(status string) bool {
+	switch status {
+	case "PROVISIONED_RECEIVED", "INGESTED", "DUPLICATE":
+		return true
+	}
+	return false
+}
+
+// resolveForwardingProof closes the pending Gmail forwarding verification for
+// an accepted delivery. The Gmail confirmation email itself never counts.
+func resolveForwardingProof(ctx context.Context, tx pgx.Tx, householdID string, in deliveryInput) error {
+	if _, isControl := detectControlAction(in.Email, in.Signed.ContentHash); isControl {
+		return nil
+	}
+	_, err := integrationaction.AutoResolve(ctx, tx, householdID, forwardingIntegrationType, forwardingActionType, "FORWARDING_DELIVERY_RECEIVED")
 	return err
 }
 
