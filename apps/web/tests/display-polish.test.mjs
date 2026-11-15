@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { dateTime, displayDate } from "../app/lib/format.js";
+import { snapshotSourceLabel } from "../app/lib/labels.js";
 import { globalCss } from "./source.mjs";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -57,4 +58,14 @@ test("Indonesian copy replaces raw MANUAL and the Test button", () => {
   assert.match(read("app/wealth/page.js"), /snapshotSourceLabel\[item\.source\]/);
   assert.match(read("app/settings/page.js"), /testFinancialSource\(item\)\}>Uji</);
   assert.doesNotMatch(read("app/settings/page.js"), />Test</);
+});
+
+test("displayDate's date-only guard is a real digit pattern", () => {
+  // A date-only value must be read as a Jakarta calendar day, never as UTC midnight.
+  assert.match(read("app/lib/format.js"), /\/\^\d\{4\}-\d\{2\}-\d\{2\}\$\//);
+  assert.equal(displayDate("2026-12-31"), "31 Des 2026");
+});
+
+test("snapshot source labels cover exactly the values the schema allows", () => {
+  assert.deepEqual(Object.keys(snapshotSourceLabel).sort(), ["DOCUMENT", "MANUAL", "SYSTEM"]);
 });
