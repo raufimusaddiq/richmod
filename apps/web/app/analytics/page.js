@@ -206,7 +206,7 @@ function AnalyticsReview() {
           {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
             <details className="report-disclosure" open={step === "position" || step === "changes"}>
             <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>{facts.history.length} siklus · {facts.categoryHistory?.rows?.length || 0} kategori + kategori lain</span></summary>
-            <CategoryHeatmap facts={facts} selectedCategory={selection.category} onSelectCategory={chooseCategory}/>
+            <CategoryHeatmap key={facts.period.start} facts={facts} selectedCategory={selection.category} onSelectCategory={chooseCategory}/>
             </details>
           </section>}
           <section id="merchants" className="review-section" aria-labelledby="merchants-title">

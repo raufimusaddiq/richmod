@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, paceCurves, compactMillions, directionMark, hasPace, mapPace, paceReferences } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, paceCurves, compactMillions, directionMark, hasPace, mapPace, paceReferences } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -21,6 +21,23 @@ test("direction is a neutral marker, never a colour", () => {
   assert.equal(directionMark("0"), "");
   assert.equal(directionMark("0.00"), "");
   assert.equal(directionMark(null), "");
+});
+
+test("history columns carry the served expense and a real bar length", () => {
+  const history = [
+    { start: "2026-07-26", end: "2026-08-26", state: "CLOSED", expense: "7200000", netCashflow: "5300000" },
+    { start: "2026-08-26", end: "2026-09-26", state: "CLOSED", expense: "8600000", netCashflow: "3900000" },
+    { start: "2026-09-26", end: null, state: "ACTIVE", expense: "2900000", netCashflow: "9600000" },
+  ];
+  const { columns } = buildLedger(history, "2026-08-26");
+  assert.equal(columns.length, 3);
+  assert.equal(columns[1].expense, "8600000", "the served expense is passed through");
+  assert.equal(columns[1].expenseLength, 1, "the largest served expense fills the bar");
+  assert.ok(Math.abs(columns[0].expenseLength - 7200000 / 8600000) < 1e-9);
+  assert.equal(columns[2].running, true);
+  assert.equal(columns[2].until, "berjalan");
+  assert.equal(columns[1].selected, true);
+  assert.equal(buildLedger([], "").columns.length, 0);
 });
 
 test("previous and next follow the served newest-first cycle list", () => {
@@ -66,7 +83,7 @@ test("ledger source: served numbers only, no colour-only direction, accent reser
 
 test("page wiring: heatmap, stale-while-revalidate, calendar-aware title", () => {
   const page = tree("app/analytics");
-  assert.match(page, /<CategoryHeatmap facts=\{facts\}/);
+  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
   assert.match(page, /facts\.history\?\.length > 0/, "an absent series renders nothing");
   assert.match(page, /\{loading && !facts && <Skeleton/, "the skeleton is only for the first load");
   assert.match(page, /\{facts && !error && <>/);
@@ -105,7 +122,7 @@ test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day 
   assert.match(component, /aria-pressed=\{row\.selected\}/);
   assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
   const page = tree("app/analytics");
-  assert.match(page, /<CategoryHeatmap facts=\{facts\}/);
+  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
   assert.match(page, /<details className="review-daily" ref=\{comparisonRef\} open=\{step === "changes" \|\| undefined\}>\s*<summary>Perbandingan lengkap/);
   for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="diverge"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
   assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");

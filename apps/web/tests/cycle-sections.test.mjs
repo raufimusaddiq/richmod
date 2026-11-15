@@ -89,6 +89,24 @@ test("sections source: no money arithmetic, plain model text, fixed order", () =
   assert.match(styles, /\.decision-columns \{ display: grid/);
 });
 
+test("an empty merchant ranking is not drawn as a zero total", () => {
+  const empty = { mode: "FULL_CYCLE", rows: [], other: { amount: "0", count: 0, merchantCount: 0, previous: null, deltaVsPrevious: null }, total: { amount: "0", count: 0, previous: null, deltaVsPrevious: null } };
+  assert.deepEqual(merchantBars(empty).rows, []);
+  const sections = text("app/analytics/CycleSections.js");
+  assert.match(sections, /if \(!list \|\| !list\.rows\.length\) return <p className="empty compact">/, "a zero-row ranking shows the empty state");
+  assert.doesNotMatch(sections, /export function MerchantTable/, "the unreferenced merchant table is gone");
+});
+
+test("the heatmap resets its mode when the selected cycle changes", () => {
+  const page = text("app/analytics/page.js");
+  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\}/, "a new cycle remounts the heatmap so same-day is re-seeded");
+  const sections = text("app/analytics/CycleSections.js");
+  assert.match(sections, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/);
+  const closed = cycleFacts("2026-08-26");
+  assert.equal(buildHeatmap(closed.categoryHistory, closed.history, "FULL").mode, "FULL");
+  assert.equal(closed.categoryHistory.sameDay, undefined, "a closed cycle has no same-day matrix");
+});
+
 test("fixtures carry the served section fields", () => {
   for (const facts of [cycleFacts(), cycleFacts("2026-08-26"), cycleFacts("2026-09-25"), stableCycleFacts()]) {
     assert.ok(facts.merchantRanking && Array.isArray(facts.merchantRanking.rows));

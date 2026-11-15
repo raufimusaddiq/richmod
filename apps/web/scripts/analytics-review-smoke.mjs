@@ -238,6 +238,23 @@ try {
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
     assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "closing the drawer returns focus to the matrix row");
 
+    // A closed cycle has no same-day matrix; returning to the active cycle re-seeds it.
+    await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
+    await page.locator(".heat-table").waitFor();
+    assert.equal(await page.getByRole("button", { name: "Siklus penuh", exact: true }).count(), 0, "a closed cycle has no same-day toggle");
+    assert.equal(await page.locator(".heat-table thead th[data-running]").count(), 0, "a closed cycle has no running column");
+    await page.getByLabel("Siklus yang ditinjau").selectOption("2026-09-01");
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
+    assert.equal(await page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true }).getAttribute("aria-pressed"), "true", "returning to the active cycle re-seeds same-day");
+
+    // The cycle-columns card shows a served amount and a real bar, not Rp0/NaN.
+    const historyColumn = page.locator("#history .history-cols > li").first();
+    assert.match(await historyColumn.locator("em").textContent(), /[1-9]/, "a history column shows a served amount");
+    assert.ok(await historyColumn.locator(".history-plot i").evaluate(element => element.getBoundingClientRect().height) > 0, "the history bar has a real height");
+
     // Merchant pendukung: a real table, largest first, with the served total.
     await page.evaluate(() => { document.querySelector("#merchants details").open = true; });
     const merchants = page.locator("#merchants table.merchant-rank");

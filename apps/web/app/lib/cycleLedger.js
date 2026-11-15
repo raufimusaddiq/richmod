@@ -35,9 +35,11 @@ export function directionMark(value) {
   return /^0+(\.0+)?$/.test(text) ? "" : "▲";
 }
 
-// History columns: the cycle's range and served net cashflow, for the cycle-columns
-// card. No bar length and no derived total (the matrix owns the category series).
+// History columns: the cycle's range, served net expense and net cashflow, plus a
+// bar length that is a fraction of the largest served expense (visual mapping only).
 export function buildLedger(history = [], selectedStart = "") {
+  const peak = Math.max(0, ...history.map(item => Number(item.expense)).filter(Number.isFinite));
+  const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
   return {
     columns: history.map(item => ({
       start: item.start,
@@ -45,6 +47,8 @@ export function buildLedger(history = [], selectedStart = "") {
       until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
       running: item.state === "ACTIVE",
       selected: item.start === selectedStart,
+      expense: item.expense,
+      expenseLength: length(item.expense),
       net: item.netCashflow,
     })),
   };

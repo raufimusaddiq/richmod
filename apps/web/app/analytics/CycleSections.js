@@ -69,12 +69,6 @@ export function ChangesTable({ items, comparison, selected, select }) {
   </table></div></>;
 }
 
-export function MerchantTable({ items, period, categoryId }) {
-  if (!items.length) return <p className="empty compact">Belum ada merchant pendukung.</p>;
-  const elapsed = period.state === "ACTIVE";
-  return <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th>{elapsed && <><th scope="col">Sebelumnya · hari yang sama</th><th scope="col">Selisih vs hari yang sama</th></>}<th scope="col">{elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus"}</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td>{elapsed && <><td>{amountLabel(item.previous)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></>}<td>{amountLabel(item.median3)}</td></tr>)}</tbody></table></div>;
-}
-
 // Kategori × siklus. Same-day mode is the default while a cycle runs, so every
 // column is cut at the same elapsed day; full mode marks the running column and
 // leaves it out of the tint. Values, deltas and totals are served.
@@ -128,7 +122,7 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
 // Merchant pendukung: one row per payee, largest net amount first, as served.
 export function MerchantRanking({ ranking, period }) {
   const list = merchantBars(ranking);
-  if (!list) return <p className="empty compact">Merchant pendukung belum tersedia.</p>;
+  if (!list || !list.rows.length) return <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p>;
   const name = (item, other) => item.id
     ? <a href={transactionHref(period, { merchantId: item.id })}>{item.name}</a>
     : <span data-muted={other || undefined}>{item.name}</span>;
