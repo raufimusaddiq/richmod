@@ -165,20 +165,20 @@ function AnalyticsReview() {
   return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
     <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
       <div className="range-controls">
-        <div className="range-control-group" aria-label="Tampilan analisis">
+        <div className="range-control-group" role="group" aria-label="Tampilan analisis">
           <button type="button" aria-pressed={selection.view === "cycle"} className={selection.view === "cycle" ? "active" : "secondary"} onClick={() => navigate({ view: "cycle" })}>Siklus Gaji</button>
           <button type="button" aria-pressed={selection.view === "calendar"} className={selection.view === "calendar" ? "active" : "secondary"} onClick={() => navigate({ view: "calendar" })}>Kalender</button>
         </div>
-        {selection.view === "cycle" && <><label className="cycle-selector">Siklus yang ditinjau
-          <select value={selection.cycle} onChange={event => navigate({ cycle: event.target.value, category: "", step: "" })}>
-            <option value="">Siklus berjalan</option>
-            {selection.cycle && !facts?.cycles?.some(item => item.start === selection.cycle) && <option value={selection.cycle}>{dayLabel(selection.cycle)}</option>}
-            {(facts?.cycles || []).map(period => <option key={period.start} value={period.start}>{cycleLabel(period)}</option>)}
-          </select>
-        </label>
-        <div className="cycle-step" role="group" aria-label="Pindah siklus">
-          <button type="button" className="secondary" disabled={!adjacent.older} onClick={() => navigate({ cycle: adjacent.older, category: "", step: "" })}>‹ Siklus sebelumnya</button>
-          <button type="button" className="secondary" disabled={!adjacent.newer} onClick={() => navigate({ cycle: adjacent.newer, category: "", step: "" })}>Siklus berikutnya ›</button>
+        {selection.view === "cycle" && <><div className="cycle-picker">
+          <button type="button" className="secondary cycle-step-button" disabled={!adjacent.older} aria-label="Siklus sebelumnya" title="Siklus sebelumnya" onClick={() => navigate({ cycle: adjacent.older, category: "", step: "" })}><span aria-hidden="true">‹</span></button>
+          <label className="cycle-selector"><span className="visually-hidden">Siklus yang ditinjau</span>
+            <select value={selection.cycle} onChange={event => navigate({ cycle: event.target.value, category: "", step: "" })}>
+              <option value="">Siklus berjalan</option>
+              {selection.cycle && !facts?.cycles?.some(item => item.start === selection.cycle) && <option value={selection.cycle}>{dayLabel(selection.cycle)}</option>}
+              {(facts?.cycles || []).map(period => <option key={period.start} value={period.start}>{cycleLabel(period)}</option>)}
+            </select>
+          </label>
+          <button type="button" className="secondary cycle-step-button" disabled={!adjacent.newer} aria-label="Siklus berikutnya" title="Siklus berikutnya" onClick={() => navigate({ cycle: adjacent.newer, category: "", step: "" })}><span aria-hidden="true">›</span></button>
         </div>
         {facts && !error && <div className="cycle-status" aria-live="polite">
           <strong>{facts.period.state === "ACTIVE" ? `Berjalan · hari ke-${facts.spendingShape.days} · data sampai ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}` : `Ditutup · ${facts.spendingShape.days} hari · data sampai ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}`}</strong>

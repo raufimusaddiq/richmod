@@ -20,10 +20,6 @@
   .cycle-outcome > div { border-left: 0; border-top: 1px solid var(--line); }
   .cycle-outcome > div:first-child { border-top: 0; }
   .cycle-outcome .cycle-net { border-top: 0; }
-  .change-ranking-head, .change-ranking > li { grid-template-columns: minmax(0, 1fr) auto; }
-  .change-ranking-head > span:first-child { grid-column: 1 / -1; }
-  .change-ranking .change-button { grid-column: 1 / -1; }
-  .change-ranking > li > span:nth-child(3) { text-align: right; }
   .comparison-bars > div { grid-template-columns: 74px minmax(0, 1fr); }
   .comparison-bars dd { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .comparison-bars strong { text-align: left; }

@@ -139,6 +139,41 @@ export const cycleCommentary = {
   metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01", period_end: "2026-09-07" }, completedAt: "2026-09-06T12:00:00+07:00",
 };
 
+// §3.7 states, each a small step from the default cycle facts:
+// the first cycle (nothing to compare against), no wealth snapshot at all, and a
+// cycle whose confirmed spending is still zero.
+export function firstCycleFacts(start = "2026-09-01") {
+  const facts = cycleFacts(start);
+  facts.cycles = [facts.period];
+  facts.history = [facts.history.at(-1)];
+  facts.comparison = { mode: "ELAPSED_DAYS", previous: null, previousFullCycle: null, eligibleCycles: 0, median3Available: false, expense: { amount: facts.cashflow.expense, previous: null, deltaVsPrevious: null, relativeDeltaVsPrevious: null, previousFullCycle: null, deltaVsPreviousFullCycle: null, relativeDeltaVsPreviousFullCycle: null, median3: null, deltaVsMedian3: null } };
+  facts.pace = { previousFullCycle: null, median3: null };
+  facts.categoryChanges = facts.categoryChanges.map(item => ({ ...item, median3: null, deltaVsMedian3: null, relativeDeltaVsMedian3: null }));
+  facts.categoryHistory = { cycleStarts: facts.categoryHistory.cycleStarts.slice(-1), rows: facts.categoryHistory.rows.map(row => ({ ...row, amounts: row.amounts.slice(-1) })), other: { amounts: facts.categoryHistory.other.amounts.slice(-1) } };
+  return facts;
+}
+
+export function noWealthFacts() {
+  const facts = cycleFacts();
+  facts.wealth = { previous: null, current: null, netWorthChange: null, confirmedCashflow: null, valuationAndOtherChange: null };
+  return facts;
+}
+
+export function noSpendingFacts() {
+  const facts = cycleFacts();
+  facts.daily = facts.daily.map(day => ({ ...day, expense: "0", grossExpense: "0", refund: "0", cumulativeExpense: "0" }));
+  facts.cashflow = { income: "0", grossExpense: "0", refund: "0", expense: "0", netCashflow: "0", savingsAllocated: "0", unallocatedSurplus: "0" };
+  facts.spendingShape = { days: 6, averageDailyExpense: null, averageDailyExpenseRounded: null, peakDay: null, peakExpense: null, peakShareOfExpense: null, zeroSpendDays: 6 };
+  facts.comparison.expense = { ...facts.comparison.expense, amount: "0", deltaVsPrevious: "-2800000", relativeDeltaVsPrevious: null };
+  facts.categoryChanges = [];
+  facts.merchantDrivers = [];
+  facts.savingsDestinations = [];
+  facts.categoryRanking = { baseline: "SAME_DAY", rows: [], other: { name: "Kategori lain", amount: "0", count: 0, categoryCount: 0 } };
+  facts.pace = { previousFullCycle: null, median3: null };
+  facts.wealth = { previous: null, current: null, netWorthChange: null, confirmedCashflow: null, valuationAndOtherChange: null };
+  return facts;
+}
+
 export function stableCycleFacts() {
   const facts = cycleFacts("2026-08-26");
   const category = { ...facts.categoryChanges[0], amount: "1400000", previous: "1400000", previousFullCycle: "1400000", deltaVsPreviousFullCycle: "0", relativeDeltaVsPreviousFullCycle: "0", median3: "1400000", deltaVsPrevious: "0", deltaVsMedian3: "0", relativeDeltaVsPrevious: "0", relativeDeltaVsMedian3: "0", shareOfExpense: "1", contributionToExpenseChange: null, count: 6, merchants: [], transactions: [] };

@@ -1,4 +1,4 @@
-import { inclusiveEnd } from "./cycleReview.js";
+import { inclusiveEnd, signedMoney } from "./cycleReview.js";
 
 // Cycle ledger helpers. Every amount, delta, median and total is served by the API
 // (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
@@ -35,6 +35,10 @@ export function directionMark(value) {
   return /^0+(\.0+)?$/.test(text) ? "" : "▲";
 }
 
+export function directionText(value) {
+  return value == null ? "—" : `${directionMark(value)} ${signedMoney(value)}`.trim();
+}
+
 // History columns: the cycle's range, served net expense and net cashflow, plus a
 // bar length that is a fraction of the largest served expense (visual mapping only).
 export function buildLedger(history = [], selectedStart = "") {
@@ -52,6 +56,30 @@ export function buildLedger(history = [], selectedStart = "") {
       net: item.netCashflow,
     })),
   };
+}
+
+// The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"
+// remainder are served and reconcile to each cycle's net expense; the browser only
+// sizes the tint relative to the largest positive value in its row. A series that does
+// not line up with history[] is not drawn.
+export function buildMatrix(categoryHistory, history = [], selectedCategory = "", selectable = []) {
+  const starts = history.map(item => item.start);
+  const served = categoryHistory?.cycleStarts ?? [];
+  const rows = categoryHistory?.rows ?? [];
+  const other = categoryHistory?.other?.amounts ?? [];
+  if (!rows.length || served.length !== starts.length || served.some((start, index) => start !== starts[index])) return [];
+  if (other.length !== starts.length || rows.some(row => row.amounts?.length !== starts.length)) return [];
+  const tints = amounts => {
+    const peak = Math.max(0, ...amounts.map(Number).filter(Number.isFinite));
+    return amounts.map(value => (peak > 0 && Number.isFinite(Number(value)) ? Math.max(0, Number(value)) / peak : 0));
+  };
+  const pickable = new Set(selectable);
+  const matrix = rows.map(row => {
+    const id = row.id || "uncategorized";
+    return { key: id, id, name: row.name, amounts: row.amounts, tints: tints(row.amounts), other: false, selected: id === selectedCategory, selectable: pickable.has(id) };
+  });
+  matrix.push({ key: "other", id: "", name: "Kategori lain", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
+  return matrix;
 }
 
 // `cycles` is newest first, as served. Older is the next entry, newer the one before.
@@ -120,9 +148,40 @@ export function paceDateLabel(items, day) {
   return dayMonth(paceDate(items, day));
 }
 
-// Weekly x ticks (day 1, 8, 15 …) up to the last plotted day.
-export function paceTicks(length, step = 7) {
+// Three or four x ticks whatever the cycle length: a phone cannot fit a weekly label
+// on a 30-day axis, and four dates read the same on a wide card.
+export function paceTicks(length, step) {
+  const stride = step || Math.max(1, Math.ceil(length / 4));
   const ticks = [];
-  for (let day = 1; day <= length; day += step) ticks.push(day);
+  for (let day = 1; day <= length; day += stride) ticks.push(day);
   return ticks;
+}
+
+// The visual ceiling of the pace plot: the highest served point of any drawn series or
+// reference. Tick positions only; the values themselves stay served.
+export function paceCeiling({ data = [], levels = [], markers = [], last = null } = {}) {
+  let top = Number(last) || 0;
+  for (const row of data) {
+    for (const key of ["previousTotal", "medianTotal"]) {
+      const value = Number(row?.[key]);
+      if (Number.isFinite(value) && value > top) top = value;
+    }
+  }
+  for (const value of [...levels, ...markers]) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > top) top = number;
+  }
+  return top;
+}
+
+// A round upper bound and its five evenly spaced ticks, for an axis whose top is
+// pushed by a reference level rather than by the series. Tick positions are visual
+// mapping only; the plotted values stay served.
+export function paceAxis(maxValue) {
+  const number = Number(maxValue);
+  if (!Number.isFinite(number) || number <= 0) return { domain: [0, 1], ticks: [0, 1] };
+  const raw = number / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map(multiplier => multiplier * magnitude).find(candidate => raw <= candidate) ?? 10 * magnitude;
+  return { domain: [0, step * 4], ticks: [0, step, step * 2, step * 3, step * 4] };
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, paceCurves, compactMillions, directionMark, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, paceAxis, paceCeiling, paceCurves, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -214,4 +214,78 @@ test("choosing a category opens its evidence without moving the reader; length a
   const insight = text("app/components/InsightCard.js");
   assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
   assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");
+});
+
+
+test("pace x ticks stay at three or four labels on any cycle length", () => {
+  for (const length of [6, 28, 30, 31, 45]) {
+    const ticks = paceTicks(length);
+    assert.ok(ticks.length >= 3 && ticks.length <= 5, `${length} days gives ${ticks.length} ticks`);
+    assert.equal(ticks[0], 1);
+    assert.ok(ticks.every(day => day <= length));
+  }
+  assert.deepEqual(paceTicks(9, 4), [1, 5, 9], "an explicit stride is still honoured");
+});
+
+test("a reference level that extends the axis gets round ticks, not raw served values", () => {
+  const axis = paceAxis(4_300_000);
+  assert.deepEqual(axis.domain, [0, 8_000_000], "the top is a round step above the highest level");
+  assert.deepEqual(axis.ticks, [0, 2_000_000, 4_000_000, 6_000_000, 8_000_000]);
+  assert.deepEqual(paceAxis(0).domain, [0, 1], "no data does not divide by zero");
+  assert.deepEqual(paceAxis(null).domain, [0, 1]);
+  const small = paceAxis(700_000);
+  assert.equal(small.domain[1], 800_000);
+  assert.equal(small.ticks.length, 5);
+});
+
+test("chart units are on screen and the whole-value list is not a tooltip", () => {
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.match(charts, /className="chart-unit">Rp juta</, "the category chart names its unit on screen");
+  assert.match(charts, /LabelList dataKey="amountLabel"/, "each bar prints its amount");
+  assert.doesNotMatch(charts, /rankCategories/, "the chart never sorts money in the browser");
+  assert.match(charts, /const data = items\.map\(/, "server order is used as served");
+  const calendar = readFileSync(new URL("../app/analytics/CalendarReview.js", import.meta.url), "utf8");
+  assert.match(calendar, /Lihat nilai kategori/, "the value list is reachable without a hover");
+});
+
+test("no chart is an unnamed focusable surface: accessibilityLayer is off everywhere", () => {
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  const chartsInFile = charts.match(/<(LineChart|BarChart|AreaChart)\b[^>]*>/g) || [];
+  assert.ok(chartsInFile.length >= 5, "the charts are present");
+  for (const tag of chartsInFile) assert.match(tag, /accessibilityLayer=\{false\}/, `every chart turns the layer off: ${tag.slice(0, 40)}`);
+  for (const component of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "CyclePaceChart", "MonthlyCashflowChart", "CategoryRankingChart", "NetWorthHistoryChart"]) {
+    assert.ok(charts.includes(`export function ${component}`), `${component} exists`);
+  }
+  // The daily bars stay focusable links, so the drill-down survives without the layer.
+  assert.match(charts, /<a href=\{transactionHref\(period/, "daily bars remain links");
+  assert.match(charts, /tabIndex=\{0\}/, "and stay in the tab order");
+});
+
+test("the phone range controls never clip a native month field", () => {
+  const css = globalCss();
+  assert.match(css, /\.cycle-review \.custom-range \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/, "two fields share a row");
+  assert.match(css, /@media \(max-width: 430px\) \{[^}]*\.cycle-review \.custom-range \{ grid-template-columns: minmax\(0, 1fr\)/, "and stack below 430");
+  assert.match(css, /\.cycle-review \.custom-range button \{ grid-column: 1 \/ -1; \}/, "the submit sits under the fields");
+});
+
+
+
+
+
+test("the pace axis covers a comparison curve that ends far above the running cycle", () => {
+  const items = [
+    { period: "2026-09-01", cumulativeExpense: "120000" },
+    { period: "2026-09-02", cumulativeExpense: "200000" },
+  ];
+  // Served curves: the previous cycle runs to 30M over 30 days, the active cycle is on day 2.
+  const pace = { previousFullCycle: Array.from({ length: 30 }, (_, index) => String((index + 1) * 1_000_000)), median3: null };
+  const data = mapPace(items, pace);
+  const ceiling = paceCeiling({ data, last: data.at(-1).exact });
+  assert.equal(ceiling, 30_000_000, "the curve's last served point is the ceiling, not the 200k running total");
+  const axis = paceAxis(ceiling);
+  assert.ok(axis.domain[1] >= 30_000_000, "the axis covers the whole curve");
+  assert.deepEqual(axis.ticks, [0, 10_000_000, 20_000_000, 30_000_000, 40_000_000], "and keeps round ticks");
+  assert.equal(axis.ticks.every(tick => tick % 10_000_000 === 0), true);
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.match(charts, /paceCeiling\(\{ data, levels:/, "the chart asks for the ceiling from the plotted data and references");
 });
