@@ -234,20 +234,25 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	if now.Before(end) {
 		end = now
 	}
-	// current is the newest observation before the measured end; previous is its
-	// immediate predecessor (strictly earlier in the same total order), never the
-	// cycle start boundary, so a snapshot just before the cycle cannot be both.
+	// Boundary rule: current is the newest observation inside the cycle (after
+	// the start day, before the measured end); previous is the newest observation
+	// on or before the cycle start day. Both are household-day based so a snapshot
+	// taken just after midnight on the start date is still the opening baseline.
+	start, _ := time.ParseInLocation("2006-01-02", facts.Period.Start, clock.HouseholdLocation())
+	firstInside := start.AddDate(0, 0, 1)
 	rows, err := tx.Query(ctx, `WITH selected AS (
-		SELECT id,observed_at,row_number() OVER (ORDER BY observed_at DESC,id) AS rn FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 2
+		(SELECT 1 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at>=$3 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 1)
+		UNION ALL
+		(SELECT 2 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$3 ORDER BY observed_at DESC,id LIMIT 1)
 	) SELECT s.rn,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,
 		COALESCE(array_agg(a.id::text ORDER BY a.id) FILTER(WHERE a.id IS NOT NULL),ARRAY[]::text[])
 	FROM selected s LEFT JOIN wealth_snapshot_item i ON i.snapshot_id=s.id LEFT JOIN wealth_account a ON a.id=i.wealth_account_id AND a.household_id=$1
-	GROUP BY s.rn,s.id,s.observed_at ORDER BY s.rn`, household, end)
+	GROUP BY s.rn,s.id,s.observed_at ORDER BY s.rn`, household, end, firstInside)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	var picked []*reviewSnapshot
+	var picked [3]*reviewSnapshot
 	for rows.Next() {
 		v := &reviewSnapshot{}
 		var rn int
@@ -255,20 +260,26 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 			return err
 		}
 		v.AgeDays = daysBetween(v.At.In(clock.HouseholdLocation()).Format("2006-01-02"), end.In(clock.HouseholdLocation()).Format("2006-01-02"))
-		picked = append(picked, v)
+		picked[rn] = v
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	facts.Wealth.Current, facts.Wealth.Previous = pickSnapshots(picked)
 	rows.Close()
-	if facts.Wealth.Current == nil {
-		facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
+	if picked[1] == nil {
+		// No observation inside the cycle: honest empty state, no delta.
+		var any bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2)`, household, end).Scan(&any); err != nil {
+			return err
+		}
+		if any {
+			facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
+		} else {
+			facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
+		}
 		return nil
 	}
-	if facts.Wealth.Current.At.In(clock.HouseholdLocation()).Format("2006-01-02") < facts.Period.Start {
-		facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
-	}
+	facts.Wealth.Current, facts.Wealth.Previous = picked[1], picked[2]
 	if facts.Wealth.Previous == nil {
 		facts.block("MISSING_PREVIOUS_WEALTH_SNAPSHOT", 1, nil, "/wealth")
 		return nil
@@ -291,22 +302,6 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	facts.Wealth.Cashflow = &cash.Surplus
 	facts.Wealth.Other = valuePointer(financialmath.Subtract(*facts.Wealth.Change, cash.Surplus))
 	return nil
-}
-
-// pickSnapshots takes observations ordered newest first and returns the current
-// one and its strict predecessor. A single observation has no predecessor, and
-// the same snapshot is never returned as both.
-func pickSnapshots(ordered []*reviewSnapshot) (current, previous *reviewSnapshot) {
-	if len(ordered) == 0 {
-		return nil, nil
-	}
-	current = ordered[0]
-	for _, s := range ordered[1:] {
-		if s.ID != current.ID {
-			return current, s
-		}
-	}
-	return current, nil
 }
 
 func sameAccounts(a, b []string) bool {

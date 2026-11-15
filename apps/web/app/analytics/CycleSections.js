@@ -111,7 +111,8 @@ export function SavingsWealth({ facts }) {
       <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
         <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/>
       </dl>
-      {wealth.netWorthChange == null && <p>{wealth.current && !wealth.previous ? "Belum ada catatan kekayaan sebelumnya untuk dibandingkan." : "Belum dapat direkonsiliasi."}</p>}
+      <p className="snapshot-context">{wealth.previous && wealth.current ? <>Dibandingkan: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a> → <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.current.id)}`}>{dateTime(wealth.current.observedAt)}</a></> : null}</p>
+      {wealth.netWorthChange == null && <p>{!wealth.current ? "Belum ada pengamatan di siklus ini." : !wealth.previous ? "Belum ada catatan kekayaan sebelum siklus ini untuk dibandingkan." : "Belum dapat direkonsiliasi."}</p>}
       <details className="review-daily"><summary>Rincian saldo & rekonsiliasi</summary><dl className="review-context">
         <Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current?.netWorth)}/>
         <Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>

@@ -137,12 +137,14 @@ net expense reuses the measures query that already loads every comparison cycle.
 
 ## Wealth and quality
 
-The current snapshot is the latest observation before the measured cutoff
-(capped at request time for an active cycle). The previous snapshot is its immediate
-predecessor: the nearest earlier observation (ties on timestamp resolve by ID),
-never the same snapshot, and independent of the cycle start. When there is none,
-`wealth.previous` is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported. No snapshot from after the selected cycle enters
-its review. Each snapshot exposes observation time and age in Jakarta days.
+Snapshots are selected by **cycle boundaries**, in Jakarta household days:
+
+- `wealth.current` is the newest observation inside the cycle: after the cycle start day and before the measured cutoff (capped at request time for an active cycle). Ties on timestamp resolve by ID.
+- `wealth.previous` is the newest observation at or before the cycle start day (the opening baseline). A snapshot taken on the start day, including one exactly at the start, is the baseline, not an in-cycle observation.
+- With no in-cycle observation, `wealth.current` and `wealth.previous` are `null`, `netWorthChange`, `confirmedCashflow` and `valuationAndOtherChange` are `null`, and `WEALTH_SNAPSHOT_BEFORE_CYCLE` is reported (`MISSING_WEALTH_SNAPSHOT` if the household has no snapshot at all). The same delta is therefore never attributed to two cycles.
+- With an in-cycle observation but nothing at or before the start, `wealth.previous` is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported.
+
+No snapshot from after the selected cycle enters its review. Each snapshot exposes observation time and age in Jakarta days; the analytics wealth card shows both observation dates next to the change.
 
 Wealth movement reconciles the **observation interval**, not an invented cycle
 end balance: net-worth delta minus confirmed cashflow in `(previous, current]`
@@ -156,10 +158,7 @@ The ledger's "complete" (`status='CONFIRMED'` with no active review item) and th
 Concrete blockers include open/pending reviews (deduplicated against unresolved
 transactions), uncategorized confirmed expense with amount, incomplete source
 processing, missing salary anchor, missing snapshots, observations preceding the
-cycle, and changed Wealth account sets. `wealth.previous` is the immediate predecessor of `wealth.current` (the newest
-observation strictly before it), never the same snapshot; with no predecessor it
-is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported. A stale `current`
-reports only `WEALTH_SNAPSHOT_BEFORE_CYCLE`. Source-only loose ends are scoped by receipt time when no
+cycle, and changed Wealth account sets. Wealth snapshot selection follows the boundary rule above; a cycle without an in-cycle observation reports only `WEALTH_SNAPSHOT_BEFORE_CYCLE`. Source-only loose ends are scoped by receipt time when no
 transaction/proposal date is available. No arbitrary
 "stale after N days" threshold, AI confidence score, or semantic label is added.
 
