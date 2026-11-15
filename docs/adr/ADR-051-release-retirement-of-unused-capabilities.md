@@ -9,7 +9,7 @@ stays in force.
 ## Context
 
 The release cleanup audit
-([`audits/RELEASE-CLEANUP-AUDIT.md`](../audits/RELEASE-CLEANUP-AUDIT.md))
+(`RELEASE-CLEANUP-AUDIT.md`, removed from the tree; recoverable from git history)
 found three capabilities that ship code nobody can use:
 
 - **Budgets (ADR-014).** ADR-019 removed every budget screen and request from

@@ -58,7 +58,7 @@ export function buildAdrIndex(adrDir = path.join(repoRoot, "docs", "adr")) {
   const out = [
     "# Architecture decision records",
     "",
-    "An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure. Product decisions live in [`../bdr/`](../bdr/) as Business Decision Records.",
+    "An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure.",
     "",
     `- **Adding one:** use the next number, **ADR-${pad(next)}**, and the file name \`ADR-${pad(next)}-short-title.md\` with Context, Decision and Status sections like the existing records.`,
     "- **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.",

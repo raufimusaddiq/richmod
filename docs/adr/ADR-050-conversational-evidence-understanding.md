@@ -17,8 +17,8 @@ transfer proofs) and chat about finances. The two paths barely meet:
 - Evidence-derived text (caption, extracted merchant) has no untrusted-data
   boundary for the model.
 
-[`CEU-00-architecture-audit.md`](../audits/CEU-00-architecture-audit.md) records
-the code-level findings. BDR-005 closed UIR and SAVR before this work.
+The CEU-00 architecture audit (removed from the tree; recoverable from git
+history) recorded the code-level findings. BDR-005 closed UIR and SAVR before this work.
 
 ## Decision
 
@@ -130,8 +130,8 @@ unknown dates fail closed.
 - `get_evidence_context` is classified READ because it changes no financial or review state. It does write a bounded, idempotent ref row (serialized by an advisory lock), so it is not a pure read; this is recorded here instead of hidden.
 - Evidence context is optional: a failure to resolve it never fails a message.
 
-Corpus, metrics, known limits and the freeze condition are recorded in
-[CEU-07](../audits/CEU-07-corpus-and-metrics.md).
+Corpus, metrics, known limits and the freeze condition were recorded in
+CEU-07 (removed from the tree; recoverable from git history).
 
 ## Rejected alternatives
 

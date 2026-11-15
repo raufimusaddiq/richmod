@@ -278,7 +278,7 @@ branches are deleted.
 
 Any future implicit binding MUST follow the same shape: narrow only under its
 matching route, and carry a test proving a new-event message keeps the general
-catalog. See `docs/plans/jev-go-implicit-binding.md`.
+catalog.
 
 - ADR-005: Cloud LLM Gateway boundary — amended to include native System One.
 

@@ -2,17 +2,17 @@
 
 ## Project docs
 
-Before material changes, read the relevant current documentation under `docs/`.
+The code and tests are the primary documentation. Where a document under `docs/`
+(ADRs, runbooks, `DATABASE_SCHEMA.md`, `STATE_MACHINES.md`) covers the area you
+are changing, read it first.
 
 Priority when requirements conflict:
 
 1. latest explicit user instruction;
 2. current repository behavior/state;
-3. current project documentation and ADRs;
-4. older/historical specs.
+3. current project documentation and ADRs.
 
-When behavior or architecture changes, update the relevant docs in the same branch.
-Do not treat an initial design document as permanently authoritative.
+When behavior or architecture changes, update any doc that describes it in the same branch.
 
 ## Stack
 

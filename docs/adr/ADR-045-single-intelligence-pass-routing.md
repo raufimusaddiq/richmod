@@ -11,10 +11,8 @@ Amends:
 - ADR-042 Screenshot row auto-confirm;
 - ADR-040 Bank email zero-touch where merchant absence currently preempts category resolution.
 
-Related product decision:
-
-- docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md
-- docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
+Related product decision: BDR-001 (minimum human interaction, single-pass
+intelligence), removed from the tree; recoverable from git history.
 
 ## Context
 

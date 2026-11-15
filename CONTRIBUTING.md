@@ -2,7 +2,7 @@
 
 Thanks for helping improve Richmod.
 
-Richmod handles financial data, so correctness and evidence preservation matter more than clever shortcuts. Before changing behavior, read [`AGENTS.md`](AGENTS.md) and the relevant current docs under [`docs/`](docs/).
+Richmod handles financial data, so correctness and evidence preservation matter more than clever shortcuts. Before changing behavior, read [`AGENTS.md`](AGENTS.md) and any relevant ADR or runbook under [`docs/`](docs/).
 
 ## Development principles
 

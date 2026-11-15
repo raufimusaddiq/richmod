@@ -132,7 +132,7 @@ from snapshots, or implies live prices, returns or portfolio performance.
 | --- | --- | --- |
 | Overview | Ringkasan | |
 | Transactions | Transaksi | |
-| Analytics | Analisis | Follows the [cycle-review UI contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md) |
+| Analytics | Analisis | Salary-cycle review |
 | Wealth | Kekayaan | |
 | Review Inbox | Tinjauan | **Transactions** tab and **Actions** tab |
 | Documents | Dokumen | |
@@ -345,9 +345,7 @@ The latest release is
 - The web interface is responsive across phones, tablets and desktops. Controls
   are labelled, interface text is 12px or larger (chart axis ticks and a few
   admin helper lines are the known exceptions), and scrolling regions are
-  reachable by keyboard. The
-  [2026-10-02 UI audit](docs/audits/UI-AUDIT-2026-10-02.md) records what remains
-  open.
+  reachable by keyboard.
 - Open hardening items: real second-sender acceptance and another off-host
   backup restore exercise.
 
@@ -375,17 +373,17 @@ residual-to-transaction conversion, and provider-specific production branches.
 ## Documentation
 
 Start with the [documentation index](docs/README.md), which lists the current
-documents; historical PRDs and checklists are in [`docs/archive/`](docs/archive/README.md).
+documents. The code is the primary documentation; earlier PRDs, audits and
+plans were removed from the tree and remain in git history.
 
 | Topic | Documents |
 | --- | --- |
 | Rules and contributing | [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md) |
-| Architecture | [ADR index](docs/adr/README.md), [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md), [Jev / System One PRD](docs/RICHMOD_JEV_SYSTEM_ONE_PRD.md) |
+| Architecture | [ADR index](docs/adr/README.md), [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md) |
 | Email and Telegram | [ADR-033: Cloudflare email ingress](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md) and [ADR-033: Bounded conversational agent](docs/adr/ADR-033-bounded-natural-conversational-agent.md) (two current records share the number) |
 | Data | [Database schema and ERD](docs/DATABASE_SCHEMA.md) |
-| Product | [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md), [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md), [Analytics contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md) |
 | Operations | [Production deployment](docs/runbooks/production-deployment.md), [sprint delivery](docs/runbooks/sprint-delivery.md), [disposable test matrix](docs/runbooks/disposable-test-matrix.md), [Cloudflare email ingress](docs/runbooks/cloudflare-email-ingress.md) and its [CLI setup](docs/runbooks/cloudflare-email-cli.md) |
-| Interface | [Brand guidelines](docs/brand-guidelines.md), [UI audit](docs/audits/UI-AUDIT-2026-10-02.md) |
+| Interface | [Brand guidelines](docs/brand-guidelines.md), [UI motion](docs/UI_MOTION.md) |
 
 ---
 
