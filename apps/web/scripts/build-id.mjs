@@ -18,7 +18,7 @@
 //     the deployed build.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const defaultRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -40,7 +40,7 @@ function walk(root, entry) {
     return [];
   }
   if (!info.isDirectory()) {
-    const name = relative(root, absolute);
+    const name = relative(root, absolute).split(sep).join("/");
     return SKIP.has(name) ? [] : [name];
   }
   return readdirSync(absolute, { withFileTypes: true })

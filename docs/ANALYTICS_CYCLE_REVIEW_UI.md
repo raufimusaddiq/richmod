@@ -426,3 +426,7 @@ meeting drill-down/return, no automatic POST and all four viewport widths.
 No provider change, deployment, restart or production DML. Migration verification
 uses a disposable PostgreSQL database; production application follows the runbook
 only after a separately requested and approved deployment.
+
+## Display dates and route titles
+
+Display dates come from `apps/web/app/lib/format.js` (`displayDate` -> "22 Okt 2026", `dateTime` -> "22 Okt 2026, 14.53", both Asia/Jakarta); cycle ranges stay in `cycleDates.js`. Each route sets its own `<title>` ("Transaksi · Richmod") through a `layout.js` metadata export, and unknown URLs render `app/not-found.js` (Indonesian, links back to Beranda).

@@ -154,6 +154,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/documents/{id}/pages", authHandler.RequireSession(http.HandlerFunc(documentHandler.Pages)))
 	mux.Handle("GET /api/v1/documents/{id}/pages/{index}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.PageContent)))
 	mux.Handle("GET /api/v1/documents/{id}/extraction", authHandler.RequireSession(http.HandlerFunc(documentHandler.Extraction)))
+	mux.Handle("POST /api/v1/documents/{id}/reprocess", authHandler.RequireSession(http.HandlerFunc(documentHandler.Reprocess)))
 	mux.Handle("GET /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("PATCH /api/v1/accounts/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchAccount)))

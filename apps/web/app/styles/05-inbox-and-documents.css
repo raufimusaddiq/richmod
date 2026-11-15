@@ -63,6 +63,17 @@ button.document-card:active:not(:disabled) { transform: none; }
 
 /* The native file picker takes the theme: rounded, outlined button instead of the browser default. */
 input[type="file"] { padding: 6px; cursor: pointer; }
+/* Documents upload: the native input is visually hidden and a themed Indonesian button stands in, so no browser "Choose files / No file chosen" text shows. */
+.file-picker { position: relative; display: grid; gap: 6px; }
+.file-picker input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 0; }
+.file-picker input[type="file"]::file-selector-button { display: none; }
+.file-picker-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--ink); font-weight: var(--weight-semibold); }
+.file-picker:hover .file-picker-button { background: var(--accent-soft); }
+.file-picker:focus-within .file-picker-button { outline: 3px solid var(--focus, var(--ink)); outline-offset: 2px; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.filter-chips .chip { min-height: 36px; padding: 0 14px; }
+.filter-chips .chip.active { background: var(--ink); color: var(--surface); }
+.document-detail .notice button { margin-top: 8px; }
 input[type="file"]::file-selector-button { min-height: 30px; margin-right: 12px; padding: 0 14px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--ink); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; }
 input[type="file"]::file-selector-button:hover { background: var(--accent-soft); }
 
