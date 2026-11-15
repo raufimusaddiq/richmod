@@ -64,10 +64,9 @@ func (e *ErrMissingFacts) Error() string {
 }
 
 // ConfirmTransactionReview performs the canonical transaction-review confirm: it
-// locks the subject, revalidates candidates, mutates the transaction and its
-// proposal, keeps source-event status current, and optionally completes the
-// review item(s) plus Telegram projection. Web and Telegram both call this, so
-// neither surface owns transaction confirm policy (ADR-046).
+// locks the subject, revalidates candidates, mutates the transaction and proposal,
+// keeps source-event status current, and optionally completes the review item(s) and
+// Telegram projection. Web and Telegram both call it (ADR-046).
 func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand) (ConfirmResult, error) {
 	var result ConfirmResult
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
@@ -156,9 +155,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 			return result, err
 		}
 	}
-	// Only overwrite the stored candidate when this turn supplied a category;
-	// otherwise an unmentioned candidate survives the confirm, which is what both
-	// surfaces did before the operation was shared.
+	// Only overwrite the stored candidate when this turn supplied a category.
 	if cmd.CategorySupplied {
 		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, categoryID); err != nil {
 			return result, err

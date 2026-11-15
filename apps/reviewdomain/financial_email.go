@@ -1,7 +1,6 @@
-// Financial email entity resolution. The Review Inbox resolves a
-// financial email observation by supplying only the entities that are still
-// unresolved; this operation owns that merge, validation, alias learning, and
-// replay enqueue so the resolved-fact rules cannot drift per channel.
+// Financial email entity resolution. The Review Inbox supplies only the still-unresolved
+// entities; this operation owns the merge, validation, alias learning, and replay
+// enqueue so the rules cannot drift per channel.
 package reviewdomain
 
 import (
@@ -68,12 +67,11 @@ var (
 	ErrAccountInvalid = errors.New("reviewdomain: account must be active and belong to this household")
 )
 
-// ResolveFinancialEmailEntities merges the supplied entities with the entities
-// already persisted on the observation, validates them against the household,
-// stores them, learns aliases for newly resolved entities, and returns the
-// canonical binding. It does not complete the review item or enqueue replay:
-// those remain the caller's terminal steps so each surface keeps its own
-// transport and job contract.
+// ResolveFinancialEmailEntities merges the supplied entities with those already
+// persisted on the observation, validates them against the household, stores them,
+// learns aliases for newly resolved ones, and returns the canonical binding. It
+// neither completes the review item nor enqueues replay; those stay the caller's
+// terminal steps.
 func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd FinancialEmailCommand) (FinancialEmailResult, error) {
 	var result FinancialEmailResult
 	var observationID, fundingHint, providerHint, knownAccount, knownWealth string
@@ -84,11 +82,9 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if err != nil {
 		return result, err
 	}
-	// The request supplies only the unresolved entities. Already
-	// resolved entities are reloaded from persisted state and merged here, so a
-	// review that already knows the funding account never asks for it again. An
-	// entity that is still unresolved must be supplied: a partial resolution that
-	// leaves one blank would write a half-bound observation.
+	// The request supplies only unresolved entities; resolved ones are reloaded from
+	// persisted state. A still-unresolved entity must be supplied: a partial resolution
+	// would write a half-bound observation.
 	accountID, wealthAccountID := strings.TrimSpace(cmd.AccountID), strings.TrimSpace(cmd.WealthAccountID)
 	if knownAccount == "" && accountID == "" && !cmd.AllowPartial {
 		return result, ErrFundingAccountRequired
@@ -125,8 +121,8 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status=CASE WHEN $4::boolean THEN 'PENDING' ELSE 'REVIEW' END,updated_at=now() WHERE id=$1 AND household_id=$5`, observationID, accountID, wealthAccountID, result.Complete, cmd.HouseholdID); err != nil {
 		return result, err
 	}
-	// An entity that was already known keeps its existing alias: re-learning here
-	// would let a partial resolution rewrite an established mapping.
+	// An already-known entity keeps its existing alias; re-learning would let a partial
+	// resolution rewrite an established mapping.
 	if err := LearnEntityAliasIfNew(ctx, tx, cmd.HouseholdID, "ACCOUNT", accountID, fundingHint, knownAccount); err != nil {
 		return result, err
 	}
@@ -229,8 +225,7 @@ func ValidateFinancialFundingAccount(ctx context.Context, tx pgx.Tx, householdID
 }
 
 // invalidEntityIDError keeps malformed identifier input a client error: an
-// unparseable UUID reaches Postgres as a 22P02 syntax error, so callers map it
-// to 400 rather than reporting bad input as a server error.
+// unparseable UUID reaches Postgres as a 22P02 error, which callers map to 400.
 func invalidEntityIDError(err, invalid error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
@@ -269,10 +264,8 @@ func LearnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, householdID, entityTy
 	return LearnEntityAlias(ctx, tx, householdID, entityType, entityID, alias)
 }
 
-// normalizeAlias folds an alias into its stored comparable form: NFKC
-// compatibility normalization, lower case, letters and digits only,
-// single-spaced. Every surface stores this one key, so the fold lives here
-// rather than at each call site.
+// normalizeAlias folds an alias into its stored comparable form: NFKC, lower case,
+// letters and digits only, single-spaced. Every surface stores this one key.
 func normalizeAlias(value string) string {
 	var b strings.Builder
 	space := false

@@ -1,8 +1,7 @@
-// The prerendered shell for a route whose auth state is not known yet. It is
-// the login card's outer box in the same column of the same grid, so the swap
-// to the real form does not move anything. Nothing here is a control: no
-// inputs, no buttons, no links, nothing focusable. role=status plus the
-// visually hidden text is what a screen reader hears.
+// The prerendered shell for a route whose auth state is not known yet. It is the login
+// card's outer box in the same grid column, so the swap to the real form moves nothing.
+// Nothing here is a control or focusable; role=status plus the visually hidden text is
+// what a screen reader hears.
 export default function LoadingShell({ variant = "page" }) {
   if (variant === "login") {
     return <main className="login-shell">

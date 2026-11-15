@@ -183,9 +183,8 @@ function HouseholdDetail({ id, close, setError }) {
   const drawer = useDrawerA11y(close);
   const pendingOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && !x.enrolled);
   const enrolledOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && x.enrolled);
-  // The link is a one-time secret tied to this household and to the owner state
-  // it was minted for. Once the owner enrolls (or is deactivated) the link is
-  // spent, so it must not stay on screen as if it still worked.
+  // The link is a one-time secret tied to this household and owner state; once the owner
+  // enrolls (or is deactivated) it is spent and must not stay on screen as if it worked.
   useEffect(() => {
     if (!data || !ownerInvite) return;
     if (ownerInvite.kind === "invite" && !pendingOwner) setOwnerInvite(null);

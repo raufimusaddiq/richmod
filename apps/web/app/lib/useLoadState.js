@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Explicit load states for a page or a drawer. A page that "has a boolean
-// loading" cannot tell a first load from a reload, so a reload swaps the whole
-// tree for a skeleton and unmounts any form the user is typing in.
-//
+// Explicit load states for a page or drawer. A single boolean cannot tell a first load
+// from a reload, so a reload would swap the tree for a skeleton and unmount any form
+// being typed in.
 //   idle       nothing requested yet
 //   loading    first request, nothing to show yet: a skeleton is right
 //   refreshing a reload; already-rendered children stay mounted
@@ -18,17 +17,16 @@ export const startingStatus = hasLoaded => (hasLoaded ? LOAD.REFRESHING : LOAD.L
 
 const isAbort = error => error?.name === "AbortError";
 
-// A failure whose message is written for the household. Anything else thrown
-// (a TypeError from fetch, a JSON parse error) is browser jargon, so the hook
-// shows the caller's fallback instead of the raw message.
+// A failure whose message is written for the household. Anything else thrown (a
+// TypeError from fetch, a JSON parse error) is browser jargon, so the hook shows the
+// caller's fallback.
 export class LoadError extends Error {}
 const shown = (failure, fallback) => (failure instanceof LoadError && failure.message ? failure.message : fallback);
 
-// Runs `loader({ signal, current })` with a staleness guard: starting a new run
-// aborts the previous one, and a superseded run can neither set state nor
-// report an error. The loader must apply its results only while `current()`.
-// Throw to fail; the message becomes `error`. `onFailure` lets a page drop data
-// that should not stay under the error banner.
+// Runs `loader({ signal, current })` with a staleness guard: starting a new run aborts
+// the previous one, and a superseded run can neither set state nor report an error. The
+// loader must apply results only while `current()`. Throw to fail; the message becomes
+// `error`. `onFailure` lets a page drop data that should not stay under the error banner.
 export function useGuardedLoad(loader, { onFailure, fallback = "Data belum dapat dimuat. Coba lagi." } = {}) {
   const [status, setStatus] = useState(LOAD.IDLE);
   const [error, setError] = useState("");
@@ -64,8 +62,8 @@ export function useGuardedLoad(loader, { onFailure, fallback = "Data belum dapat
 }
 
 // A drawer that opens on one record: {closed | loading | error | ready, id, data}.
-// Opening or closing aborts the previous request, so a slow response for record
-// A can never repaint a drawer the user closed or pointed at record B.
+// Opening or closing aborts the previous request, so a slow response for record A can
+// never repaint a drawer the user closed or pointed at record B.
 export function useDrawerRecord(fetchRecord, fallback = "Detail belum dapat dimuat. Coba lagi.") {
   const [state, setState] = useState({ status: "closed", id: null, data: null, error: "" });
   const controller = useRef(null), sequence = useRef(0), fetchRef = useRef(fetchRecord);
@@ -97,10 +95,9 @@ export function useDrawerRecord(fetchRecord, fallback = "Detail belum dapat dimu
   return { ...state, open, close, retry: () => state.id != null && open(state.id, state.data) };
 }
 
-// One busy flag per key (a card id, a setting name) instead of a single string
-// that card B overwrites while card A is still saving. `run` refuses a second
-// start for the same key synchronously, so a double click cannot submit twice,
-// and always releases the key in `finally`.
+// One busy flag per key (a card id, a setting name) instead of one string that card B
+// overwrites while card A is saving. `run` refuses a second start for the same key
+// synchronously, so a double click cannot submit twice, and releases the key in `finally`.
 export function useBusyMap() {
   const [busy, setBusy] = useState({});
   const live = useRef(new Set());

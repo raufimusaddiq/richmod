@@ -1,14 +1,10 @@
-/* Motion. One rule per thing the interface has to explain, in the order the
-   issue lists them. Durations and easings are the scale in
-   01-tokens-and-base.css. Every animation moves opacity or transform on an
-   element that is already laid out, so nothing reflows, no 44px target
-   shrinks, and no control waits for an animation. */
+/* Motion. One rule per thing the interface has to explain; durations and easings are
+   the scale in 01-tokens-and-base.css. Every animation moves opacity or transform on
+   an element already laid out, so nothing reflows and no control waits for one. */
 
-/* The one reduced-motion rule, and the only place motion is turned off. It
-   neutralises every animation and transition in the app: nothing is shortened
-   into looking different, and the length stays at one frame so an element
-   still reaches its final state and still fires the animationend that the
-   toast exit relies on. */
+/* The one place motion is turned off. Animations shrink to one frame rather than
+   disappear, so an element still reaches its final state and fires the animationend
+   that the toast exit relies on. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
@@ -23,8 +19,8 @@
 @keyframes list-in { from { opacity: 0; } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(4px); } }
-/* Only the row a create just returned carries this class; a filter re-run
-   fades the whole result panel once instead of animating every row. */
+/* Only the row a create just returned carries this class; a filter re-run fades the
+   whole result panel once instead. */
 .transaction-row.is-new { animation: row-in var(--motion-base) var(--ease-out); }
 .ledger-panel[data-refreshed] { animation: list-in var(--motion-base) var(--ease-out); }
 .toast { animation: toast-in var(--motion-base) var(--ease-out); }
@@ -32,19 +28,16 @@
    animationend, so the timings cannot drift apart. */
 .toast.leaving { animation: toast-out var(--motion-fast) var(--ease-standard) forwards; }
 
-/* 2. A figure the user's own action changed. The page sets data-updated only
-   on a value its save actually moved, so first paint, a plain refetch and an
-   unchanged total all stay still. The text never changes size mid-animation,
-   so the row it sits in cannot move. */
+/* 2. A figure the user's own action changed. The page sets data-updated only on a value
+   its save moved, so first paint, a plain refetch and an unchanged total stay still. */
 @keyframes value-updated { from { background-color: var(--butter); box-shadow: 0 0 0 4px var(--butter); } }
 .wealth-position-primary > strong[data-updated],
 .wealth-balance-summary strong[data-updated],
 [data-updated] .cycle-outcome dd { animation: value-updated var(--motion-slow) var(--ease-out); }
 
-/* 3. Drawer, sheet and dialog entry. The dimmed backdrop appears instantly on
-   purpose: it is a full-screen backdrop-filter, and fading it would re-blur
-   the page every frame on a phone for no information. Exit stays instant
-   because React removes the node; see docs/UI_MOTION.md. */
+/* 3. Drawer, sheet and dialog entry. The dimmed backdrop appears instantly on purpose:
+   fading a full-screen backdrop-filter would re-blur the page every frame on a phone.
+   Exit stays instant because React removes the node; see docs/UI_MOTION.md. */
 @keyframes drawer-in { from { opacity: 0; transform: translateX(18px); } }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(10px); } }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(6px); } }
@@ -52,8 +45,8 @@
 .mobile-more-panel { animation: sheet-in var(--motion-base) var(--ease-out); }
 dialog[open] { animation: dialog-in var(--motion-base) var(--ease-out); }
 
-/* 4. Page entry. app/template.js remounts on navigation, so this plays once
-   per route change. Opacity only: a transform here would become the
-   containing block for the fixed shell and the toast. */
+/* 4. Page entry. app/template.js remounts on navigation, so this plays once per route.
+   Opacity only: a transform would become the containing block for the fixed shell and
+   the toast. */
 @keyframes page-in { from { opacity: 0; } }
 .route-fade .app-main { animation: page-in var(--motion-base) var(--ease-out); }

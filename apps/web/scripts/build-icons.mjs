@@ -1,7 +1,5 @@
-// Rasterises the PWA icon sources into the real PNG files committed under
-// public/icons. Run with `node scripts/build-icons.mjs` after editing an SVG.
-// Chromium is already a dev dependency for the Playwright smokes, so this adds
-// no new dependency and no runtime route: webui.go serves the PNGs as files.
+// Rasterises the PWA icon sources into the PNG files committed under public/icons. Run
+// `node scripts/build-icons.mjs` after editing an SVG. webui.go serves the PNGs as files.
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";

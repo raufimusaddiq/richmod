@@ -10,12 +10,11 @@ import (
 )
 
 // SalaryCommand records one confirmed salary event against a household salary
-// source. Web (payslip confirmation) and both Telegram confirm lanes call it, so
-// salary_source promotion and salary_event ordering stay identical across
-// surfaces (ADR-046).
+// source. Web and both Telegram confirm lanes call it so salary_source promotion
+// and salary_event ordering stay identical (ADR-046).
 //
-// Callers pass already-validated facts: RecordSalaryEvent never parses user text
-// and never creates a transaction, so a bad input cannot fabricate income.
+// Callers pass already-validated facts: RecordSalaryEvent never parses user text or
+// creates a transaction, so bad input cannot fabricate income.
 type SalaryCommand struct {
 	HouseholdID string
 	// UserID owns the salary source. An empty value uses the household owner.
@@ -52,10 +51,8 @@ var (
 )
 
 // RecordSalaryEvent upserts the salary source for the employer and inserts the
-// confirmed salary event. When MakePrimary is false the source still becomes
-// primary if the household has no primary yet, which is the behavior both
-// Telegram confirm lanes relied on; this keeps the first recorded salary
-// primary without an extra caller decision.
+// confirmed salary event. With MakePrimary false the source still becomes primary
+// if the household has none yet, so the first recorded salary is primary.
 func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (SalaryResult, error) {
 	var result SalaryResult
 	employer := cleanText(cmd.Employer, 160)
@@ -95,25 +92,22 @@ func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (Salar
 			return result, err
 		}
 	}
-	// RETURNING id distinguishes a real insert (or the revival of a VOIDED salary
-	// event by a new confirmed payslip) from an ON CONFLICT skip, so a
-	// re-confirmation does not enqueue a duplicate residual review.
+	// RETURNING id tells a real insert (or revival of a VOIDED event) from an ON
+	// CONFLICT skip, so a re-confirmation enqueues no duplicate residual review.
 	if err := tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,to_date($3,'YYYY-MM'),$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id,pay_date=EXCLUDED.pay_date,net_pay=EXCLUDED.net_pay,source_event_id=EXCLUDED.source_event_id,status='CONFIRMED' WHERE salary_event.status='VOIDED' RETURNING id`, result.SalarySourceID, cmd.HouseholdID, period, salaryPayDateArg(cmd.PayDate), cmd.NetPay, cmd.Transaction, cmd.SourceEvent).Scan(&result.SalaryEventID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return result, err
 	}
 	return result, nil
 }
 
-// PromoteEvidenceDocuments marks documents linked to one transaction's evidence
-// as extracted. Both surfaces performed this after a confirmed document-backed
-// review; keeping it here avoids two divergent status filters.
+// PromoteEvidenceDocuments marks documents linked to one transaction's evidence as
+// extracted, after a confirmed document-backed review.
 func PromoteEvidenceDocuments(ctx context.Context, tx pgx.Tx, householdID, transactionID string) error {
 	return RefreshTransactionLifecycle(ctx, tx, householdID, transactionID)
 }
 
 // PayslipFacts reads the employer and payroll period from the payslip evidence
-// attached to one income transaction. Both Telegram confirm lanes derived these
-// facts the same way before recording salary.
+// attached to one income transaction.
 type PayslipFacts struct {
 	Employer string
 	Period   string
@@ -139,10 +133,9 @@ func LoadPayslipFacts(ctx context.Context, tx pgx.Tx, householdID, transactionID
 	return facts, true, nil
 }
 
-// salaryPayDateArg turns an instant into the household-local (Asia/Jakarta)
-// civil date before it reaches `$n::date`. Casting a timestamptz/time.Time
-// directly would use the Postgres session or Go process timezone, so the same
-// payslip could store a different pay_date under UTC and Asia/Jakarta.
+// salaryPayDateArg turns an instant into the household-local (Asia/Jakarta) civil
+// date before `$n::date`; casting a timestamptz directly would use the session or
+// process timezone and store a different pay_date under UTC.
 func salaryPayDateArg(v any) any {
 	var t time.Time
 	switch x := v.(type) {
