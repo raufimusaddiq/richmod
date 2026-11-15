@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
 func TestDeliveryProvisionedActiveAndDuplicate(t *testing.T) {
@@ -279,4 +281,95 @@ func signedInput(raw []byte, recipient, envelope, objectKey, secret string) deli
 	_, _ = mac.Write([]byte(canonical))
 	parsed, _ := parseMIME(raw)
 	return deliveryInput{Signed: SignedRequest{Timestamp: timestamp, Recipient: recipient, EnvelopeFrom: envelope, ContentHash: digest, Signature: mac.Sum(nil), ObjectKey: objectKey}, Email: parsed, Raw: raw}
+}
+
+func TestRecentDeliveriesAreHouseholdScoped(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	create := func(label string) (string, string) {
+		var household, user string
+		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1||substr(gen_random_uuid()::text,1,8)) RETURNING id`, label).Scan(&household); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,password_initialized_at) VALUES((substr(gen_random_uuid()::text,1,8)||'@test.invalid'),$1,'x',now()) RETURNING id`, label).Scan(&user); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
+			t.Fatal(err)
+		}
+		return household, user
+	}
+	householdA, userA := create("Deliveries A ")
+	householdB, userB := create("Deliveries B ")
+	service := NewService(pool, "richmod.link", []string{"mx.test"})
+	addressA, err := service.Provision(ctx, householdA, userA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addressB, err := service.Provision(ctx, householdB, userB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert := func(address Address, key, status, reason, sender string) {
+		if _, err := pool.Exec(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,provider,object_key,content_sha256,observed_sender,status,reason_code,received_at) VALUES($1,$2,'CLOUDFLARE_EMAIL',$3,sha256(convert_to($3,'UTF8')),$4,$5,NULLIF($6,''),now())`, address.ID, address.HouseholdID, key, sender, status, reason); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(addressA, "deliveries/"+householdA+"/a-unmatched.eml", "IGNORED_UNMATCHED", "UNMATCHED_SENDER", "stranger@test.invalid")
+	insert(addressA, "deliveries/"+householdA+"/a-auth.eml", "IGNORED_AUTH", "UNTRUSTED_AUTHENTICATION", "alerts@test.invalid")
+	insert(addressB, "deliveries/"+householdB+"/b-unmatched.eml", "IGNORED_UNMATCHED", "UNMATCHED_SENDER", "other@test.invalid")
+	deliveries, err := service.RecentDeliveries(ctx, householdA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deliveries) != 2 {
+		t.Fatalf("deliveries = %d, want 2", len(deliveries))
+	}
+	for _, delivery := range deliveries {
+		if delivery.Sender == "other@test.invalid" {
+			t.Fatalf("household B delivery leaked into household A: %+v", delivery)
+		}
+	}
+	handler := NewHandler(service, "secret")
+	request := func(role string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/integrations/email-ingress/deliveries", nil)
+		r = r.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: userA, HouseholdID: householdA, HouseholdRole: role, HasHousehold: true}))
+		response := httptest.NewRecorder()
+		handler.Deliveries(response, r)
+		return response
+	}
+	if response := request("MEMBER"); response.Code != http.StatusForbidden {
+		t.Fatalf("member status = %d, want 403", response.Code)
+	}
+	response := request("OWNER")
+	if response.Code != http.StatusOK {
+		t.Fatalf("owner status = %d, body %s", response.Code, response.Body)
+	}
+	var payload []map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) != 2 {
+		t.Fatalf("payload rows = %d, want 2", len(payload))
+	}
+	for _, row := range payload {
+		for key := range row {
+			if key != "status" && key != "reason" && key != "sender" && key != "receivedAt" {
+				t.Fatalf("payload exposes unexpected field %q", key)
+			}
+		}
+	}
+	for _, forbidden := range []string{addressA.ID, householdA, "object_key", "content_sha256"} {
+		if strings.Contains(response.Body.String(), forbidden) {
+			t.Fatalf("payload exposes %q: %s", forbidden, response.Body)
+		}
+	}
 }

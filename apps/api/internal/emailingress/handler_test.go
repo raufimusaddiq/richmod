@@ -19,3 +19,25 @@ func TestProvisionRequiresOwner(t *testing.T) {
 		t.Fatalf("status = %d", response.Code)
 	}
 }
+
+func TestDeliveriesRequiresOwner(t *testing.T) {
+	handler := &Handler{}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/integrations/email-ingress/deliveries", nil)
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", Memberships: []auth.Membership{{HouseholdID: "household", Role: "MEMBER"}}}))
+	response := httptest.NewRecorder()
+	handler.Deliveries(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestDeliveriesRequiresHousehold(t *testing.T) {
+	handler := &Handler{}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/integrations/email-ingress/deliveries", nil)
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user"}))
+	response := httptest.NewRecorder()
+	handler.Deliveries(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
