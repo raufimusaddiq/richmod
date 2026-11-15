@@ -16,8 +16,21 @@ func TestPayslipFinalizerLinksExactDuplicateAndRejectsConflict(t *testing.T) {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
+	// pay_date is a household-local (Asia/Jakarta) civil date; the outcome must
+	// not depend on the Postgres session timezone.
+	for _, tz := range []string{"UTC", "Asia/Jakarta"} {
+		t.Run(tz, func(t *testing.T) { testPayslipFinalizerDuplicateConflict(t, url, tz) })
+	}
+}
+
+func testPayslipFinalizerDuplicateConflict(t *testing.T, url, tz string) {
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["timezone"] = tz
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +83,13 @@ func TestPayslipFinalizerLinksExactDuplicateAndRejectsConflict(t *testing.T) {
 		(SELECT count(*) FROM transaction_evidence WHERE source_event_id IN ($2,$3)),
 		(SELECT count(*) FROM transaction_evidence WHERE source_event_id=$4)`, household, first, duplicate, conflict).Scan(&incomes, &events, &evidence, &conflictEvidence); err != nil {
 		t.Fatal(err)
+	}
+	var payDate string
+	if err := pool.QueryRow(ctx, `SELECT pay_date::text FROM salary_event WHERE household_id=$1`, household).Scan(&payDate); err != nil {
+		t.Fatal(err)
+	}
+	if payDate != "2026-09-25" {
+		t.Fatalf("pay_date must be the Jakarta civil date under session tz %s, got %s", tz, payDate)
 	}
 	if incomes != 1 || events != 1 || evidence != 2 || conflictEvidence != 0 {
 		t.Fatalf("salary state incomes=%d events=%d evidence=%d conflict=%d", incomes, events, evidence, conflictEvidence)

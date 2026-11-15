@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { chromium, webkit } from "playwright";
 
 const base = "http://127.0.0.1:3211";
@@ -51,7 +52,7 @@ try {
       assert.equal(new URL(page.url()).searchParams.get("from"), "2026-09-25");
       assert.equal(new URL(page.url()).searchParams.get("to"), "2026-10-01");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, "ledger fits viewport");
-      await page.screenshot({ path: new URL(`${engine.name()}-${width}-filters.png`, output).pathname, fullPage: true });
+      await page.screenshot({ path: fileURLToPath(new URL(`${engine.name()}-${width}-filters.png`, output)), fullPage: true });
       await page.getByRole("button", { name: "Tambah transaksi", exact: true }).click();
       const dialog = page.locator("dialog[open]");
       const time = dialog.getByLabel("Waktu", { exact: true });
@@ -60,7 +61,7 @@ try {
       await fits(time);
       assert.equal(await time.inputValue(), "2026-09-25T12:30");
       assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth + 1), false, "transaction dialog fits viewport");
-      await page.screenshot({ path: new URL(`${engine.name()}-${width}-dialog.png`, output).pathname, fullPage: true });
+      await page.screenshot({ path: fileURLToPath(new URL(`${engine.name()}-${width}-dialog.png`, output)), fullPage: true });
       await page.keyboard.press("Escape");
       assert.equal(await dialog.count(), 0, "native dialog closes with Escape");
       assert.deepEqual(errors, [], "no transaction runtime errors");
