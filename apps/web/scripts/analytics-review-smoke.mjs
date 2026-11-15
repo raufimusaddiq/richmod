@@ -21,6 +21,19 @@ async function waitForServer() {
   throw new Error("Synthetic review server did not start");
 }
 
+// A disclosure can be closed again by a React re-render that lands after the DOM
+// was opened, so open it and confirm the content is actually visible.
+async function openDisclosure(page, selector, content) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await page.evaluate(sel => { const details = document.querySelector(sel); if (details) details.open = true; }, selector);
+    try {
+      await page.locator(content).first().waitFor({ state: "visible", timeout: 2000 });
+      return;
+    } catch {}
+  }
+  throw new Error(`could not open ${selector}`);
+}
+
 try {
   await mkdir(output, { recursive: true });
   await waitForServer();
@@ -202,9 +215,8 @@ try {
     // toggle that leaves the running column untinted, and served values only.
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Kategori × siklus", exact: true }).waitFor();
-    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
+    await openDisclosure(page, "#matrix details", ".heat-table");
     const heat = page.locator(".heat-table");
-    await heat.waitFor();
     assert.equal(await heat.locator("thead th:not(:first-child):not(.heat-delta-head)").count(), 6, "one column per served cycle");
     assert.equal(await heat.locator('thead th[aria-current="true"]').count(), 1, "the selected cycle is marked");
     const sameDay = page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true });
@@ -242,14 +254,15 @@ try {
 
     // A closed cycle has no same-day matrix; returning to the active cycle re-seeds it.
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
-    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
-    await page.locator(".heat-table").waitFor();
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Ditutup"));
+    await openDisclosure(page, "#matrix details", ".heat-table");
+    await page.waitForFunction(() => !document.querySelector(".heat-section .segmented"));
     assert.equal(await page.getByRole("button", { name: "Siklus penuh", exact: true }).count(), 0, "a closed cycle has no same-day toggle");
     assert.equal(await page.locator(".heat-table thead th[data-running]").count(), 0, "a closed cycle has no running column");
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-09-01");
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
-    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Berjalan"));
+    await openDisclosure(page, "#matrix details", ".heat-section .segmented");
+    await page.waitForFunction(() => document.querySelector('.heat-section .segmented button[aria-pressed="true"]')?.textContent.includes("Hari ke-6"));
     assert.equal(await page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true }).getAttribute("aria-pressed"), "true", "returning to the active cycle re-seeds same-day");
 
     // The cycle-columns card shows a served amount and a real bar, not Rp0/NaN.
@@ -258,9 +271,8 @@ try {
     assert.ok(await historyColumn.locator(".history-plot i").evaluate(element => element.getBoundingClientRect().height) > 0, "the history bar has a real height");
 
     // Merchant pendukung: a real table, largest first, with the served total.
-    await page.evaluate(() => { document.querySelector("#merchants details").open = true; });
+    await openDisclosure(page, "#merchants details", "#merchants table.merchant-rank");
     const merchants = page.locator("#merchants table.merchant-rank");
-    await merchants.waitFor();
     for (const header of ["Merchant", "Transaksi", "Siklus ini", "Siklus lalu, hari yang sama", "Selisih"]) assert.equal(await merchants.getByRole("columnheader", { name: header, exact: true }).count(), 1, `merchant column ${header}`);
     assert.equal(await merchants.locator("tbody tr").count(), 2, "one row per served payee plus the remainder");
     assert.equal(await merchants.locator("tfoot th").textContent(), "Total");
@@ -268,7 +280,7 @@ try {
     assert.equal(new URL(await merchants.getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), base).searchParams.get("merchantId"), "22222222-2222-4222-8222-222222222222");
 
     // Catatan rumah tangga: fixed order, automatic bucket first, served shares.
-    await page.evaluate(() => { document.querySelector("#household details").open = true; });
+    await openDisclosure(page, "#household details", "#household .household-list");
     const household = page.locator("#household .household-list > li");
     assert.equal(await household.count(), 2);
     assert.match(await household.first().textContent(), /otomatis/, "the automatic bucket comes first");
@@ -290,19 +302,19 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
     await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
     assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu .penuh./);
-    await page.locator("#decisions > details > summary").click();
+    await openDisclosure(page, "#decisions > details", "#decisions form.decision-form");
     await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat dimuat" }).waitFor();
     assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).count(), 1, "a failed list still allows recording a decision");
     decisionsFail = false;
-    await page.evaluate(() => { document.querySelector("#decisions > details").open = true; });
+    await openDisclosure(page, "#decisions > details", "#decisions form.decision-form");
     await page.locator("#decisions").getByRole("button", { name: "Coba lagi", exact: true }).click();
     await page.locator("#decisions .decision-list, #decisions .empty").first().waitFor();
     assert.equal(await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
     await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).click();
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Berjalan"));
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
     await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).click();
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Ditutup"));
     await page.getByRole("button", { name: "Kalender", exact: true }).click();
     await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26", "Calendar keeps the reviewed cycle in the URL");
