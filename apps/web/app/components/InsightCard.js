@@ -1,5 +1,6 @@
 "use client";
 
+import { dateTime } from "../lib/format";
 import { measuredLabel } from "../lib/cycleReview";
 import { insightPeriod } from "../lib/insightData";
 
@@ -25,5 +26,5 @@ export default function InsightCard({ insight, cycle, loading = false, error = "
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return dateTime(value);
 }

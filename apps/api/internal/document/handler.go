@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 const maxUploadBytes = 10 << 20
@@ -239,7 +240,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT d.id,d.document_type,d.status,a.media_type,a.byte_size,a.width,a.height,d.created_at,
-		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),d.status='NEEDS_REVIEW' OR COALESCE(linked.needs_review,false)
+		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),d.status='NEEDS_REVIEW' OR COALESCE(linked.needs_review,false),
+		       EXISTS(SELECT 1 FROM job j WHERE j.type='PROCESS_DOCUMENT' AND j.payload_json->>'document_id'=d.id::text AND j.status IN ('PENDING','RUNNING'))
 		FROM document d
 		JOIN attachment a ON a.id=d.attachment_id
 		JOIN source_event s ON s.id=d.source_event_id
@@ -263,21 +265,77 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		var confidence *string
 		var summary json.RawMessage
 		var linked []string
-		var needsReview bool
+		var needsReview, reprocessing bool
 		var size int64
 		var width, height int
 		var created any
-		if rows.Scan(&id, &kind, &status, &media, &size, &width, &height, &created, &source, &confidence, &summary, &linked, &needsReview) != nil {
+		if rows.Scan(&id, &kind, &status, &media, &size, &width, &height, &created, &source, &confidence, &summary, &linked, &needsReview, &reprocessing) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list documents"})
 			return
 		}
-		result = append(result, map[string]any{"id": id, "documentType": kind, "status": status, "mediaType": media, "byteSize": size, "width": width, "height": height, "createdAt": created, "sourceType": source, "confidence": confidence, "summary": summary, "linkedTransactionIds": linked, "needsReview": needsReview})
+		result = append(result, map[string]any{"id": id, "documentType": kind, "status": status, "mediaType": media, "byteSize": size, "width": width, "height": height, "createdAt": created, "sourceType": source, "confidence": confidence, "summary": summary, "linkedTransactionIds": linked, "needsReview": needsReview, "reprocessing": reprocessing})
 	}
 	if err := rows.Err(); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list documents"})
 		return
 	}
 	writeJSON(w, 200, result)
+}
+
+// Reprocess re-queues the existing PROCESS_DOCUMENT job for a FAILED document.
+// It is household-scoped, idempotent (no second job while one is PENDING or
+// RUNNING) and audited; source evidence is never touched.
+func (h *Handler) Reprocess(w http.ResponseWriter, r *http.Request) {
+	p, household, ok := principalHousehold(w, r)
+	if !ok {
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var sourceID, status string
+	if err = tx.QueryRow(r.Context(), `SELECT source_event_id::text,status FROM document WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&sourceID, &status); err != nil {
+		writeJSON(w, 404, map[string]string{"error": "document not found"})
+		return
+	}
+	if status != "FAILED" {
+		writeJSON(w, 409, map[string]string{"error": "only failed documents can be reprocessed"})
+		return
+	}
+	// An open document review (the normal state after a failed extraction) is
+	// resolved through the same path /reviews uses, so the Inbox stops offering
+	// REPROCESS/IGNORE for a document that is already being retried.
+	var reviewID string
+	err = tx.QueryRow(r.Context(), `SELECT id::text FROM review_item WHERE document_id=$1 AND household_id=$2 AND review_type IN ('DOCUMENT_CLASSIFICATION','DOCUMENT_EXTRACTION_LOW_CONFIDENCE') AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at LIMIT 1 FOR UPDATE`, r.PathValue("id"), household).Scan(&reviewID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+		return
+	}
+	if reviewID != "" {
+		if _, err = reviewdomain.ResolveDocumentReview(r.Context(), tx, reviewdomain.DocumentReviewCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: reviewID, DocumentID: r.PathValue("id"), ActorType: "USER", Action: "REPROCESS_DOCUMENT"}); err != nil {
+			writeJSON(w, 409, map[string]string{"error": "document review cannot be reprocessed"})
+			return
+		}
+	}
+	tag, err := tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) SELECT 'PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid),5 WHERE NOT EXISTS(SELECT 1 FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1::text AND status IN ('PENDING','RUNNING'))`, r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+		return
+	}
+	if tag.RowsAffected() > 0 {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'REPROCESS_DOCUMENT','source_event',$3,jsonb_build_object('document_id',$4::uuid))`, household, p.UserID, sourceID, r.PathValue("id")); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+			return
+		}
+	}
+	if tx.Commit(r.Context()) != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+		return
+	}
+	writeJSON(w, 202, map[string]string{"status": "QUEUED"})
 }
 
 func (h *Handler) Extraction(w http.ResponseWriter, r *http.Request) {

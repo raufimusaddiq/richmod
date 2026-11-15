@@ -72,3 +72,6 @@ button.admin-link:active:not(:disabled) { border: 0; background: transparent; tr
 .email-checklist li[data-state="current"] .step-index { background: var(--accent); color: var(--surface, #fff); }
 .email-checklist li[data-state="current"] .step-state { color: var(--accent); font-weight: 700; }
 .email-checklist li[data-state="blocked"] { opacity: .72; }
+
+/* Generated addresses (h_...@richmod.link) have no wrap point and overflowed 390px. */
+.integration-grid small, .email-checklist li small, .settings-list small { overflow-wrap: anywhere; }

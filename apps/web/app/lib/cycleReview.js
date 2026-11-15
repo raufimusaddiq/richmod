@@ -84,13 +84,6 @@ export const qualityCopy = {
   MISSING_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan untuk periode ini", "Perbarui Kekayaan"],
   MISSING_PREVIOUS_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan sebelum siklus ini", "Buka Kekayaan"],
   WEALTH_SNAPSHOT_BEFORE_CYCLE: ["Catatan kekayaan terbaru mendahului siklus ini", "Perbarui Kekayaan"],
-  WEALTH_SNAPSHOT_UNCHANGED: ["Belum ada pengamatan kekayaan baru dalam siklus ini", "Perbarui Kekayaan"],
   WEALTH_ACCOUNT_SET_CHANGED: ["Daftar akun kekayaan berubah antar catatan", "Buka Kekayaan"],
 };
 
-// One underlying fact (a stale wealth observation) must read as one notice with
-// one call to action, however many blocker kinds the server attached to it.
-export function collapseQuality(blockers = []) {
-  const kinds = new Set(blockers.map(b => b.kind));
-  return blockers.filter(b => !(b.kind === "WEALTH_SNAPSHOT_UNCHANGED" && (kinds.has("WEALTH_SNAPSHOT_BEFORE_CYCLE") || kinds.has("MISSING_WEALTH_SNAPSHOT"))));
-}

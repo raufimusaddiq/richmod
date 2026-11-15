@@ -110,3 +110,14 @@ The legacy classify-then-extract pipeline remains the production path.
   IDs or mutate canonical state. The existing per-document extractors remain
   the canonical candidate source until their field schemas/validators consume
   the typed dispatch directly; do not enable `primary` ahead of that migration.
+
+### Failed documents on `/documents`
+
+`POST /api/v1/documents/{id}/reprocess` re-queues the existing `PROCESS_DOCUMENT`
+job for a `FAILED` document of the caller's household (404 otherwise, 409 for any
+other status). It is idempotent (no second job while one is `PENDING`/`RUNNING`),
+writes a `REPROCESS_DOCUMENT` audit row, and never touches source evidence.
+`GET /api/v1/documents` adds `reprocessing`. The web UI treats the stored
+classification score as classification confidence only, hides it and the payment
+status for failed documents, titles cards by type plus merchant/amount when known,
+and offers a status filter (Semua/Gagal/Perlu ditinjau/Berhasil).
