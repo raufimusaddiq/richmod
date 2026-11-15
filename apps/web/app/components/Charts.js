@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow } from "../lib/chartData";
-import { compactMillions, hasPace, mapPace, paceAxis, paceCurves, paceDateLabel, paceTicks } from "../lib/cycleLedger";
+import { compactMillions, hasPace, mapPace, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { transactionHref } from "../lib/cycleReview";
 
@@ -87,10 +87,10 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   // A level that a served curve already draws would only repeat it; equal-day markers sit on the curve.
   const levels = references.filter(reference => reference.shape === "line" && !(reference.tone === "previous" && curves.previous) && !(reference.tone === "median" && curves.median));
   const endLabel = (value, position, fill = "var(--chart-axis)") => ({ value: compactMillions(value), position, fill, fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600 });
-  // A reference level can push the top of the plot past the series; a round axis keeps the
-  // ticks readable, and the inline styles below never feed back into a money figure.
-  const top = Math.max(Number(last.exact) || 0, ...levels.map(reference => Number(reference.value) || 0), ...references.filter(reference => reference.shape === "marker").map(reference => Number(reference.value) || 0));
-  const axis = paceAxis(top);
+  // A reference level or a comparison curve can push the top of the plot past the series;
+  // a round axis keeps the ticks readable. Curve points are served values, read only for
+  // the visual ceiling — never written back into a money figure.
+  const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
   // On a phone the label at the last day has no room to the right, so it sits above the line's left side.
   const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: "insideTopLeft", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
   return <div className="cycle-pace">
@@ -144,5 +144,6 @@ export function NetWorthHistoryChart({ items, height = 260 }) {
   const data = [...items].reverse().map(item => ({ label: new Date(item.observedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" }), value: Number(item.netWorthIdr || 0), raw: item.netWorthIdr || "0" }));
   return <div className="chart-wrap" role="img" aria-label="Riwayat kekayaan bersih" style={{ height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip formatter={(_, __, item) => money(item.payload.raw)} contentStyle={defaultTooltipStyle}/><Line type="linear" dataKey="value" stroke="var(--chart-category-2)" strokeWidth={3} dot={{ r: 4, fill: "var(--butter)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
+
 
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow, rankCategories } from "../app/lib/chartData.js";
+import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -18,13 +18,6 @@ test("compactCategories keeps the top five and groups the remainder", () => {
 
 test("compactCategories excludes non-positive amounts", () => {
   assert.deepEqual(compactCategories([{ name: "Nol", amount: "0" }, { name: "Negatif", amount: "-1" }]), []);
-});
-
-test("category ranking keeps real category names without synthetic remainder", () => {
-  const ranked = rankCategories(categories(10));
-  assert.equal(ranked.length, 10);
-  assert.equal(ranked.some(item => item.name === "Kategori lain"), false);
-  assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.share, 0) - 1) < 0.000001);
 });
 
 test("elapsedDaily hides future cycle dates but preserves older API responses", () => {
@@ -64,3 +57,4 @@ test("months before the first confirmed transaction are not drawn as blank slots
   assert.deepEqual(mapMonthlyCashflow(items.map(item => ({ ...item, income: "0", expense: "0" }))), [], "no activity at all is an empty chart, not blank slots");
   assert.deepEqual(mapMonthlyCashflow([{ period: "2026-08", income: "0", expense: "0", refund: "250", netCashflow: "-250" }]).map(month => month.period), ["2026-08"], "a refund alone is activity");
 });
+

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, paceAxis, paceCurves, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, paceAxis, paceCeiling, paceCurves, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -324,3 +324,24 @@ test("the phone range controls never clip a native month field", () => {
   assert.match(css, /\.cycle-review \.custom-range button \{ grid-column: 1 \/ -1; \}/, "the submit sits under the fields");
 });
 
+
+
+
+
+test("the pace axis covers a comparison curve that ends far above the running cycle", () => {
+  const items = [
+    { period: "2026-09-01", cumulativeExpense: "120000" },
+    { period: "2026-09-02", cumulativeExpense: "200000" },
+  ];
+  // Served curves: the previous cycle runs to 30M over 30 days, the active cycle is on day 2.
+  const pace = { previousFullCycle: Array.from({ length: 30 }, (_, index) => String((index + 1) * 1_000_000)), median3: null };
+  const data = mapPace(items, pace);
+  const ceiling = paceCeiling({ data, last: data.at(-1).exact });
+  assert.equal(ceiling, 30_000_000, "the curve's last served point is the ceiling, not the 200k running total");
+  const axis = paceAxis(ceiling);
+  assert.ok(axis.domain[1] >= 30_000_000, "the axis covers the whole curve");
+  assert.deepEqual(axis.ticks, [0, 10_000_000, 20_000_000, 30_000_000, 40_000_000], "and keeps round ticks");
+  assert.equal(axis.ticks.every(tick => tick % 10_000_000 === 0), true);
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.match(charts, /paceCeiling\(\{ data, levels:/, "the chart asks for the ceiling from the plotted data and references");
+});

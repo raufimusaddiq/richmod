@@ -164,6 +164,23 @@ export function paceTicks(length, step) {
   return ticks;
 }
 
+// The visual ceiling of the pace plot: the highest served point of any drawn series or
+// reference. Tick positions only; the values themselves stay served.
+export function paceCeiling({ data = [], levels = [], markers = [], last = null } = {}) {
+  let top = Number(last) || 0;
+  for (const row of data) {
+    for (const key of ["previousTotal", "medianTotal"]) {
+      const value = Number(row?.[key]);
+      if (Number.isFinite(value) && value > top) top = value;
+    }
+  }
+  for (const value of [...levels, ...markers]) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > top) top = number;
+  }
+  return top;
+}
+
 // A round upper bound and its five evenly spaced ticks, for an axis whose top is
 // pushed by a reference level rather than by the series. Tick positions are visual
 // mapping only; the plotted values stay served.

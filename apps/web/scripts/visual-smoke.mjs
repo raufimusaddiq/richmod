@@ -314,7 +314,7 @@ async function run() {
       await compareScreenshot(regressionMobile, "analytics-cycle-mobile");
       // The lead figure is the answer to "are we on track?"; it must be on the first screen at 390x844.
       const lead = await regressionMobile.locator(".kpi-cell[data-lead]").boundingBox();
-      assert.ok(lead && lead.y + lead.height <= 844, "the lead KPI is fully visible without scrolling at 390x844");
+      assert.ok(lead && lead.y >= 0 && lead.y + lead.height <= 844, "the lead KPI is fully visible without scrolling at 390x844");
       // The phone control row: arrows and the picker are 44px targets.
       const controlTargets = await regressionMobile.evaluate(() => [...document.querySelectorAll(".cycle-picker button, .cycle-picker select, .range-control-group button")].map(element => Math.round(element.getBoundingClientRect().height)));
       assert.deepEqual(controlTargets.filter(height => height < 44), [], "phone controls are at least 44px tall");
@@ -330,7 +330,7 @@ async function run() {
         await statePage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
         assert.equal(await statePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} has horizontal overflow`);
         const stateLead = await statePage.locator(".kpi-cell[data-lead]").boundingBox();
-        assert.ok(stateLead && stateLead.y + stateLead.height <= 844, `${name}: the lead KPI is fully visible without scrolling`);
+        assert.ok(stateLead && stateLead.y >= 0 && stateLead.y + stateLead.height <= 844, `${name}: the lead KPI is fully visible without scrolling`);
         await compareScreenshot(statePage, name);
         await statePage.close();
       }
@@ -346,13 +346,20 @@ async function run() {
         const stop = await keyboardPage.evaluate(() => {
           const element = document.activeElement;
           if (!element || element === document.body) return null;
-          const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();
           const tag = element.tagName.toLowerCase();
           const labelledBy = element.getAttribute("aria-labelledby");
           // An svg's text content is its plotted labels, not an accessible name.
           const name = (element.getAttribute("aria-label") || (labelledBy ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ") : "") || (tag === "svg" ? "" : element.textContent) || "").trim();
-          return { name: name.slice(0, 40), tag, role: element.getAttribute("role") || "", visible: rect.width > 0 && rect.height > 0, ring: style.outlineStyle !== "none" || style.boxShadow !== "none" };
+          // A focus ring is a change, not any pre-existing card shadow: compare the focused
+          // style with the same element's unfocused style, then put the focus back so Tab
+          // keeps walking the page.
+          const signature = () => { const style = getComputedStyle(element); return [style.outlineStyle, style.outlineWidth, style.boxShadow, style.backgroundColor, style.borderColor].join("|"); };
+          const focused = signature();
+          element.blur();
+          const unfocused = signature();
+          element.focus();
+          return { name: name.slice(0, 40), tag, role: element.getAttribute("role") || "", visible: rect.width > 0 && rect.height > 0, ring: focused !== unfocused };
         });
         if (stop) stops.push(stop);
       }
