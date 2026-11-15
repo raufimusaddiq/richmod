@@ -141,7 +141,7 @@ Snapshots are selected by **cycle boundaries**, in Jakarta household days:
 
 - `wealth.current` is the newest observation inside the cycle: after the cycle start day and before the measured cutoff (capped at request time for an active cycle). Ties on timestamp resolve by ID.
 - `wealth.previous` is the newest observation at or before the cycle start day (the opening baseline). A snapshot taken on the start day, including one exactly at the start, is the baseline, not an in-cycle observation.
-- With no in-cycle observation, `wealth.current` and `wealth.previous` are `null`, `netWorthChange`, `confirmedCashflow` and `valuationAndOtherChange` are `null`, and `WEALTH_SNAPSHOT_BEFORE_CYCLE` is reported (`MISSING_WEALTH_SNAPSHOT` if the household has no snapshot at all). The same delta is therefore never attributed to two cycles.
+- With no in-cycle observation, `wealth.current` is `null`, `wealth.previous` still carries the newest earlier observation (the latest observation, shown as such and never used as a comparison), `netWorthChange`, `confirmedCashflow` and `valuationAndOtherChange` are `null`, and `WEALTH_SNAPSHOT_BEFORE_CYCLE` is reported (`MISSING_WEALTH_SNAPSHOT` if the household has no snapshot at all). The same delta is therefore never attributed to two cycles.
 - With an in-cycle observation but nothing at or before the start, `wealth.previous` is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported.
 
 No snapshot from after the selected cycle enters its review. Each snapshot exposes observation time and age in Jakarta days; the analytics wealth card shows both observation dates next to the change.

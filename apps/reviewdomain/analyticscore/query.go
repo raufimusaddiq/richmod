@@ -267,7 +267,9 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	}
 	rows.Close()
 	if picked[1] == nil {
-		// No observation inside the cycle: honest empty state, no delta.
+		// No observation inside the cycle: no delta. The newest earlier observation
+		// is still exposed as the latest observation, never as a comparison.
+		facts.Wealth.Previous = picked[2]
 		var any bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2)`, household, end).Scan(&any); err != nil {
 			return err

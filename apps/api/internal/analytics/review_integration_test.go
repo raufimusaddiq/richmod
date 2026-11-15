@@ -209,8 +209,8 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 		}
 	}
 	// The only snapshot predates the cycle start, so it is the opening baseline,
-	// never an in-cycle observation: no delta and the honest empty-state blocker.
-	if unchanged.Wealth.Current != nil || unchanged.Wealth.Previous != nil || unchanged.Wealth.Change != nil || !hasBlocker(unchanged, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
+	// never an in-cycle observation: no delta, the blocker, and it stays visible as the latest observation.
+	if unchanged.Wealth.Current != nil || unchanged.Wealth.Previous == nil || unchanged.Wealth.Previous.ID != unchangedSnapshot || unchanged.Wealth.Change != nil || !hasBlocker(unchanged, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
 		t.Fatalf("wealth=%+v quality=%+v", unchanged.Wealth, unchanged.Quality)
 	}
 	f.transaction(t, "2026-09-08", "EXPENSE", "CONFIRMED", "2500", false)
@@ -406,9 +406,9 @@ func TestCycleReviewWealthUsesCycleBoundaries(t *testing.T) {
 		f := setup(t)
 		f.snapshot(t, "2026-07-25T00:31:00+07:00", "115941203")
 		f.snapshot(t, "2026-08-09T20:02:00+07:00", "125913093")
-		f.snapshot(t, "2026-08-22T14:53:00+07:00", "123135095")
+		lastBefore := f.snapshot(t, "2026-08-22T14:53:00+07:00", "123135095")
 		facts := f.review(t, "?cycle_start=2026-08-23")
-		if facts.Wealth.Change != nil || facts.Wealth.Cashflow != nil || facts.Wealth.Other != nil || facts.Wealth.Current != nil {
+		if facts.Wealth.Change != nil || facts.Wealth.Cashflow != nil || facts.Wealth.Other != nil || facts.Wealth.Current != nil || facts.Wealth.Previous == nil || facts.Wealth.Previous.ID != lastBefore {
 			t.Fatalf("wealth=%+v", facts.Wealth)
 		}
 		if !hasBlocker(facts, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
