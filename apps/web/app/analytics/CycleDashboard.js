@@ -1,7 +1,8 @@
 import { CyclePaceChart } from "../components/Charts";
-import { paceReferences } from "../lib/cycleLedger";
+import { paceCurves, paceReferences } from "../lib/cycleLedger";
 import { kpiCells } from "../lib/cycleKpi";
 import { amountLabel, measuredLabel, qualityCopy, signedMoney, transactionHref } from "../lib/cycleReview";
+import { dayLabel } from "../lib/chartData";
 import { displayDate, money } from "../lib/format";
 import { SectionTitle, Metric } from "./shared";
 
@@ -35,9 +36,10 @@ export function QualityFooter({ facts, step }) {
 }
 
 function Delta({ delta }) {
-  if (!delta) return null;
+  if (!delta || (delta.empty && !delta.note)) return null;
+  // A missing comparison is named in words; it does not also draw a second grey dash.
   return <p className="kpi-delta" data-tone={delta.tone}>
-    <strong>{delta.mark && <span aria-hidden="true">{delta.mark} </span>}{delta.word && <span className="visually-hidden">{delta.word} </span>}{delta.text}{delta.percent && ` ${delta.percent}`}</strong>
+    {!delta.empty && <strong>{delta.mark && <span aria-hidden="true">{delta.mark} </span>}{delta.word && <span className="visually-hidden">{delta.word} </span>}{delta.text}{delta.percent && ` ${delta.percent}`}</strong>}
     {delta.note && <small>{delta.note}</small>}
   </p>;
 }
@@ -64,6 +66,9 @@ export function KpiStrip({ facts, updated = 0 }) {
 export function PaceCard({ facts }) {
   const { comparison, period, pace } = facts;
   const median = pace?.median3 != null;
+  const curves = paceCurves(pace);
+  const previousCurve = curves.previous ?? [];
+  const medianCurve = curves.median ?? [];
   return <section id="spending-shape" className="dash-card pace-card" aria-labelledby="shape-title">
     <div className="dash-card-head">
       <div>
@@ -76,8 +81,22 @@ export function PaceCard({ facts }) {
         {median && <li data-series="median"><i aria-hidden="true"/>Median 3 siklus</li>}
       </ul>
     </div>
-    <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={pace} period={period} height={200}/>
+    <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={pace} period={period} height={176}/>
     <p className="dash-caption">Garis berhenti di data terakhir; tidak ada proyeksi.{!comparison.median3Available && ` Median 3 siklus tampil setelah 3 siklus penuh (${comparison.eligibleCycles}/3).`}</p>
+    {/* The chart is an image to assistive tech; the same served totals are here as a table. */}
+    <details className="review-daily"><summary>Lihat nilai laju pengeluaran</summary>
+      <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai laju pengeluaran, geser untuk semua kolom"><table>
+        <caption className="visually-hidden">Total pengeluaran bersih sampai setiap hari siklus</caption>
+        <thead><tr><th scope="col">Hari</th><th scope="col">Tanggal</th><th scope="col">Siklus ini</th>{previousCurve.length > 0 && <th scope="col">Siklus lalu</th>}{medianCurve.length > 0 && <th scope="col">Median 3 siklus</th>}</tr></thead>
+        <tbody>{facts.daily.map((day, index) => <tr key={day.period}>
+          <th scope="row">{index + 1}</th>
+          <td>{dayLabel(day.period)}</td>
+          <td>{day.cumulativeExpense == null ? "—" : money(day.cumulativeExpense)}</td>
+          {previousCurve.length > 0 && <td>{previousCurve[index] == null ? "—" : money(previousCurve[index])}</td>}
+          {medianCurve.length > 0 && <td>{medianCurve[index] == null ? "—" : money(medianCurve[index])}</td>}
+        </tr>)}</tbody>
+      </table></div>
+    </details>
   </section>;
 }
 

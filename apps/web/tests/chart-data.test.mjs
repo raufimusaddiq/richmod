@@ -53,3 +53,14 @@ test("dayLabel includes the complete Indonesian date", () => {
   assert.match(dayLabel("2026-08-29"), /2026/);
   assert.equal(dayLabel(null), "");
 });
+
+test("months before the first confirmed transaction are not drawn as blank slots", () => {
+  const items = [
+    { period: "2026-06", income: "0", expense: "0", refund: "0", netCashflow: "0" },
+    { period: "2026-07", income: "0", expense: "0", refund: "0", netCashflow: "0" },
+    { period: "2026-08", income: "1000", expense: "250", refund: "0", netCashflow: "750" },
+  ];
+  assert.deepEqual(mapMonthlyCashflow(items).map(month => month.period), ["2026-08"]);
+  assert.deepEqual(mapMonthlyCashflow(items.map(item => ({ ...item, income: "0", expense: "0" }))), [], "no activity at all is an empty chart, not blank slots");
+  assert.deepEqual(mapMonthlyCashflow([{ period: "2026-08", income: "0", expense: "0", refund: "250", netCashflow: "-250" }]).map(month => month.period), ["2026-08"], "a refund alone is activity");
+});

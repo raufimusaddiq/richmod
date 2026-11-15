@@ -20,8 +20,12 @@ function DailyTooltip({ active, payload, label }) {
 
 function MonthlyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
-  const net = payload[0]?.payload?.netValue || 0;
-  return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}{payload[0]?.payload?.partial && " · berjalan"}</b>{payload.map(item => <div className="chart-tooltip-row" key={item.dataKey}><span>{item.dataKey === "incomeValue" ? "Pemasukan" : "Pengeluaran"}</span><strong>{money(String(Math.round(item.value || 0)))}</strong></div>)}<div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(String(Math.round(net)))}</strong></div></div>;
+  const item = payload[0]?.payload;
+  // Served strings, printed as they arrive: the browser never rounds money.
+  return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}{item?.partial && " · berjalan"}</b>
+    <div className="chart-tooltip-row"><span>Pemasukan</span><strong>{money(item?.income)}</strong></div>
+    <div className="chart-tooltip-row"><span>Pengeluaran</span><strong>{money(item?.expense)}</strong></div>
+    <div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(item?.netCashflow)}</strong></div></div>;
 }
 
 export function DashboardDailySpendingChart({ items, height = 280 }) {
@@ -91,7 +95,9 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
 export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }) {
   const data = mapMonthlyCashflow(items, partialPeriod);
   if (!data.length) return <p className="empty compact">Belum ada data bulanan pada periode ini.</p>;
-  return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend formatter={value => ({ incomeValue: "Pemasukan", expenseValue: "Pengeluaran" }[value])}/><Bar dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
+  // Legend in bar order (income, then expense), not Recharts' reversed payload order.
+  const legend = () => <ul className="dash-legend" aria-label="Keterangan grafik"><li data-series="income"><i aria-hidden="true"/>Pemasukan</li><li data-series="expense"><i aria-hidden="true"/>Pengeluaran</li></ul>;
+  return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }
 
 export function CategoryDonutChart({ items, height = 260 }) {
