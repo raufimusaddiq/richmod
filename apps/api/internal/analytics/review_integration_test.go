@@ -203,14 +203,16 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	unchanged := f.review(t, "?cycle_start=2026-09-01")
-	unchangedFound := false
 	for _, blocker := range unchanged.Quality {
 		if blocker.Kind == "WEALTH_SNAPSHOT_UNCHANGED" {
-			unchangedFound = true
+			t.Fatalf("a snapshot must never be reported as unchanged against itself: %+v", unchanged.Quality)
 		}
 	}
-	if !unchangedFound || unchanged.Wealth.Current.ID != unchangedSnapshot || unchanged.Wealth.Previous.ID != unchangedSnapshot || unchanged.Wealth.Change != nil || unchanged.Wealth.Cashflow != nil || unchanged.Wealth.Other != nil {
-		t.Fatalf("unchanged snapshot blocker missing: %+v", unchanged.Quality)
+	if unchanged.Wealth.Current == nil || unchanged.Wealth.Current.ID != unchangedSnapshot {
+		t.Fatalf("current snapshot = %+v", unchanged.Wealth.Current)
+	}
+	if unchanged.Wealth.Previous != nil && unchanged.Wealth.Previous.ID == unchanged.Wealth.Current.ID {
+		t.Fatalf("previous must be a distinct earlier snapshot: %+v", unchanged.Wealth.Previous)
 	}
 	f.transaction(t, "2026-09-08", "EXPENSE", "CONFIRMED", "2500", false)
 	quality := f.review(t, "")

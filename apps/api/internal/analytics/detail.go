@@ -92,6 +92,10 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	// The resolved window is always reported, so a client never has to guess
+	// which dates a share was computed over. The end is inclusive.
+	w.Header().Set("X-Window-Start", start.Format("2006-01-02"))
+	w.Header().Set("X-Window-End", end.AddDate(0, 0, -1).Format("2006-01-02"))
 	result := make([]rankedValue, 0)
 	total := "0"
 	for rows.Next() {
@@ -204,8 +208,11 @@ func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, 
 		}
 		return cycle.Start, cycle.End, nil
 	}
+	if period == "last_3_cycles" {
+		return h.lastCycles(r.Context(), household, local, 3, current)
+	}
 	if period != "" && period != "calendar" && period != "custom" {
-		return time.Time{}, time.Time{}, fmt.Errorf("period must be current_cycle, calendar, or custom")
+		return time.Time{}, time.Time{}, fmt.Errorf("period must be current_cycle, last_3_cycles, calendar, or custom")
 	}
 	from, to := strings.TrimSpace(r.URL.Query().Get("from")), strings.TrimSpace(r.URL.Query().Get("to"))
 	if from != "" || to != "" {
@@ -235,6 +242,26 @@ func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, 
 		months = value
 	}
 	return current.AddDate(0, -(months - 1), 0), current.AddDate(0, 1, 0), nil
+}
+
+// lastCycles spans the n most recent salary cycles, ending after today. It uses
+// the same primary-salary anchors as the cycle review. Without enough anchors it
+// spans the cycles that exist, and with none it falls back to n calendar months;
+// the caller reports the resolved window so it is never implicit.
+func (h *Handler) lastCycles(ctx context.Context, household string, local time.Time, n int, currentMonth time.Time) (time.Time, time.Time, error) {
+	var anchor *string
+	if err := h.pool.QueryRow(ctx, `SELECT min(pay_date)::text FROM (
+		SELECT DISTINCT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id
+		WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date<=$2::date ORDER BY se.pay_date DESC LIMIT $3
+	) recent`, household, local.Format("2006-01-02"), n).Scan(&anchor); err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	end := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, clock.HouseholdLocation()).AddDate(0, 0, 1)
+	if anchor == nil {
+		return currentMonth.AddDate(0, -(n - 1), 0), currentMonth.AddDate(0, 1, 0), nil
+	}
+	start, err := time.ParseInLocation("2006-01-02", *anchor, clock.HouseholdLocation())
+	return start, end, err
 }
 
 func monthsBetween(start, end time.Time) int {

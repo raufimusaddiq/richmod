@@ -11,6 +11,7 @@ import LoadingShell from "./components/LoadingShell";
 import useAuth from "./components/useAuth";
 import { elapsedDaily } from "./lib/chartData";
 import { money } from "./lib/format";
+import { cycleRangeLabel, windowLabel } from "./lib/cycleDates";
 import LandingPage from "./components/LandingPage";
 
 // Each dashboard section and the endpoint that feeds it. The response order is
@@ -18,7 +19,7 @@ import LandingPage from "./components/LandingPage";
 const sections = [
   ["ringkasan", "/api/v1/analytics/overview"],
   ["pengeluaran harian", "/api/v1/analytics/cycle/daily"],
-  ["kategori", "/api/v1/analytics/categories?range=3"],
+  ["kategori", "/api/v1/analytics/categories?period=last_3_cycles"],
   ["transaksi terbaru", "/api/v1/transactions?limit=8"],
   ["periode siklus", "/api/v1/analytics/cycle"],
   ["kekayaan", "/api/v1/wealth/snapshots/latest"],
@@ -29,6 +30,7 @@ export default function Home() {
   const [overview, setOverview] = useState(null);
   const [cashflow, setCashflow] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [categoryWindow, setCategoryWindow] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [latestWealth, setLatestWealth] = useState(null);
   const [cycle, setCycle] = useState(null);
@@ -45,7 +47,11 @@ export default function Home() {
       const apply = {
         "ringkasan": setOverview,
         "pengeluaran harian": data => setCashflow(elapsedDaily(data.daily || [], data.daysElapsed)),
-        "kategori": setCategories,
+        "kategori": (data, response) => {
+          setCategories(data);
+          const start = response.headers.get("X-Window-Start"), end = response.headers.get("X-Window-End");
+          setCategoryWindow(start && end ? { start, end } : null);
+        },
         "transaksi terbaru": setTransactions,
         "periode siklus": setCycle,
         "kekayaan": setLatestWealth,
@@ -54,7 +60,7 @@ export default function Home() {
       for (const [index, [name]] of sections.entries()) {
         try {
           if (!responses[index].ok) throw new Error();
-          apply[name](await responses[index].json());
+          apply[name](await responses[index].json(), responses[index]);
         } catch { failed.push(name); }
       }
       setError(failed.length ? `Belum termuat: ${failed.join(", ")}. Bagian lain tetap ditampilkan.` : "");
@@ -67,7 +73,8 @@ export default function Home() {
   if (user === false) return <LandingPage />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
   const cycleName = cycle?.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender";
-  const cycleDates = cycle ? `${cycle.start}${cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}` : "Periode belum tersedia";
+  const cycleDates = cycle ? cycleRangeLabel({ start: cycle.start, end: cycle.end, active: !cycle.end }) : "Periode belum tersedia";
+  const categoryEyebrow = windowLabel({ salaryCycles: cycle?.kind === "CURRENT_CYCLE", ...categoryWindow });
   const wealthObservedAt = latestWealth?.observedAt ? new Date(latestWealth.observedAt) : null;
   const wealthDate = wealthObservedAt && !Number.isNaN(wealthObservedAt.valueOf()) ? wealthObservedAt.toLocaleDateString("id-ID") : null;
   const wealthItems = latestWealth?.items || [];
@@ -97,7 +104,7 @@ export default function Home() {
       </article>
     </section>
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka tinjauan <ArrowRight aria-hidden="true"/></strong></Link>}
-    <section className="overview-insights"><article className="surface overview-trend"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface overview-categories"><div className="section-title"><div><span className="eyebrow">Tiga bulan</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
+    <section className="overview-insights"><article className="surface overview-trend"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface overview-categories"><div className="section-title"><div><span className="eyebrow">{categoryEyebrow}</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
     <section className="overview-lower"><article className="surface overview-activity"><div className="section-title"><div><span className="eyebrow">CATATAN TRANSAKSI</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua <ArrowRight aria-hidden="true"/></Link></div><TransactionList compact items={transactions.slice(0, 8)}/></article><Link className="surface overview-wealth" href={latestWealth?.id ? `/wealth?snapshotId=${latestWealth.id}` : "/wealth"}><div><span className="eyebrow">POSISI KEKAYAAN</span><h2>Kekayaan bersih keluarga</h2></div><strong>{latestWealth ? money(latestWealth.netWorthIdr) : "—"}</strong>{latestWealth && <div className="wealth-account-list" aria-label="Ringkasan aset dan kewajiban"><div className="wealth-account-row"><div><b>Total aset</b><small>{wealthAssetCount} akun</small></div><strong className="positive">{money(latestWealth.assetTotalIdr)}</strong></div><div className="wealth-account-row"><div><b>Total kewajiban</b><small>{wealthLiabilityCount} akun</small></div><strong className="negative">{money(latestWealth.liabilityTotalIdr)}</strong></div></div>}<small>{wealthDate ? `Diamati ${wealthDate}` : "Kekayaan belum diinisialisasi"}</small><span className="overview-wealth-link">Buka Kekayaan <ArrowRight aria-hidden="true"/></span></Link></section></>}
   </AppShell>;
 }

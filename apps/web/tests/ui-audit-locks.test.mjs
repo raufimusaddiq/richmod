@@ -220,7 +220,7 @@ test("every dashboard section has a setter and every nav entry has an icon", () 
   const names = [...home.matchAll(/^\s+\["([^"]+)", "\/api\/v1\/[^"]+"\],$/gm)].map(match => match[1]);
   assert.ok(names.length >= 6, "the dashboard sections are listed with their endpoints");
   for (const name of names) assert.match(home, new RegExp(`"${name}": `), `section "${name}" has a setter in apply`);
-  assert.match(home, /apply\[name\]\(await responses\[index\]\.json\(\)\)/);
+  assert.match(home, /apply\[name\]\(await responses\[index\]\.json\(\), responses\[index\]\)/);
 
   const shell = text("app/components/AppShell.js");
   const navKeys = [...shell.matchAll(/^\s+\["\/[^"]*", "[^"]+", "(\w+)"\],$/gm)].map(match => match[1]);

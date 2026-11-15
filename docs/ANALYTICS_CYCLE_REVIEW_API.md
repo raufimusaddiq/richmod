@@ -154,9 +154,10 @@ The ledger's "complete" (`status='CONFIRMED'` with no active review item) and th
 Concrete blockers include open/pending reviews (deduplicated against unresolved
 transactions), uncategorized confirmed expense with amount, incomplete source
 processing, missing salary anchor, missing snapshots, observations preceding the
-cycle, and changed Wealth account sets. An identical current/previous observation
-produces `WEALTH_SNAPSHOT_UNCHANGED`; movement stays unavailable rather than
-implying a zero change. Source-only loose ends are scoped by receipt time when no
+cycle, and changed Wealth account sets. `wealth.previous` is the immediate predecessor of `wealth.current` (the newest
+observation strictly before it), never the same snapshot; with no predecessor it
+is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported. A stale `current`
+reports only `WEALTH_SNAPSHOT_BEFORE_CYCLE`. Source-only loose ends are scoped by receipt time when no
 transaction/proposal date is available. No arbitrary
 "stale after N days" threshold, AI confidence score, or semantic label is added.
 

@@ -234,77 +234,31 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	if now.Before(end) {
 		end = now
 	}
+	// current is the newest observation before the measured end; previous is its
+	// immediate predecessor (strictly earlier in the same total order), never the
+	// cycle start boundary, so a snapshot just before the cycle cannot be both.
 	rows, err := tx.Query(ctx, `WITH selected AS (
-		(SELECT 'current' AS kind,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$3 ORDER BY observed_at DESC,id LIMIT 1)
-		UNION ALL (SELECT 'previous' AS kind,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY observed_at DESC,id LIMIT 1)
-	) SELECT s.kind,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,
+		SELECT id,observed_at,row_number() OVER (ORDER BY observed_at DESC,id) AS rn FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 2
+	) SELECT s.rn,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,
 		COALESCE(array_agg(a.id::text ORDER BY a.id) FILTER(WHERE a.id IS NOT NULL),ARRAY[]::text[])
 	FROM selected s LEFT JOIN wealth_snapshot_item i ON i.snapshot_id=s.id LEFT JOIN wealth_account a ON a.id=i.wealth_account_id AND a.household_id=$1
-	GROUP BY s.kind,s.id,s.observed_at`, household, facts.Period.Start, end)
+	GROUP BY s.rn,s.id,s.observed_at ORDER BY s.rn`, household, end)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	var picked []*reviewSnapshot
 	for rows.Next() {
 		v := &reviewSnapshot{}
-		var kind string
-		if err := rows.Scan(&kind, &v.ID, &v.At, &v.NetWorth, &v.accounts); err != nil {
+		var rn int
+		if err := rows.Scan(&rn, &v.ID, &v.At, &v.NetWorth, &v.accounts); err != nil {
 			return err
 		}
 		v.AgeDays = daysBetween(v.At.In(clock.HouseholdLocation()).Format("2006-01-02"), end.In(clock.HouseholdLocation()).Format("2006-01-02"))
-		if kind == "current" {
-			facts.Wealth.Current = v
-		} else {
-			facts.Wealth.Previous = v
-		}
+		picked = append(picked, v)
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	rows.Close()
-	if facts.Wealth.Current == nil {
-		facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
-		return nil
-	}
-	if facts.Wealth.Current.At.In(clock.HouseholdLocation()).Format("2006-01-02") < facts.Period.Start {
-		facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
-	}
-	if facts.Wealth.Previous == nil {
-		facts.block("MISSING_PREVIOUS_WEALTH_SNAPSHOT", 1, nil, "/wealth")
-		return nil
-	}
-	current, previous := facts.Wealth.Current, facts.Wealth.Previous
-	if !sameAccounts(current.accounts, previous.accounts) {
-		facts.block("WEALTH_ACCOUNT_SET_CHANGED", 1, nil, "/wealth")
-		return nil
-	}
-	if current.ID == previous.ID {
-		facts.block("WEALTH_SNAPSHOT_UNCHANGED", 1, nil, "/wealth")
-		return nil
-	}
-	var income, expense, refund string
-	err = tx.QueryRow(ctx, `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='REFUND'),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at>$2 AND transaction_at<=$3`, household, previous.At, current.At).Scan(&income, &expense, &refund)
-	if err != nil {
-		return err
-	}
-	cash, err := financialmath.CalculateCashflow(income, expense, refund)
-	if err != nil {
-		return err
-	}
-	facts.Wealth.Change = valuePointer(financialmath.Subtract(current.NetWorth, previous.NetWorth))
-	facts.Wealth.Cashflow = &cash.Surplus
-	facts.Wealth.Other = valuePointer(financialmath.Subtract(*facts.Wealth.Change, cash.Surplus))
-	return nil
-}
+	facts.Wealth.Current, facts.Wealth.Previous = pickSnapshots(picked)
 
-func sameAccounts(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
