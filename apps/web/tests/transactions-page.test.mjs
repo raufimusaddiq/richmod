@@ -118,7 +118,7 @@ test("edit: only live transactions are editable and transfers lock category and 
 });
 
 test("edit: validation and payload", () => {
-  assert.ok(editFormErrors({ description: "  " }).description);
+  assert.ok(editFormErrors({ description: "  " }, { description: "Lama" }).description);
   assert.ok(editFormErrors({ description: "x".repeat(501) }).description);
   assert.ok(editFormErrors({ description: "ok", note: "x".repeat(2001) }).note);
   assert.deepEqual(editFormErrors({ description: "Kopi", note: "" }), {});
