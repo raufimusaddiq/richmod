@@ -214,14 +214,13 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	cursor, ok := parseCursor(q.Get("cursor"))
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT rr.id,ri.review_type,ri.status,rr.status,
-		       COALESCE(rc.telegram_message_id,0)>0 AS delivered,
+		       EXISTS (SELECT 1 FROM review_request_recipient rc WHERE rc.review_request_id=rr.id AND COALESCE(rc.telegram_message_id,0)>0) AS delivered,
 		       (SELECT count(*) FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=rr.id::text AND j.status='FAILED') AS failed,
 		       (SELECT count(*) FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=rr.id::text AND j.status='SUCCEEDED') AS sent,
 		       rr.created_at,COALESCE(rr.resolved_at,rr.created_at),
 		       COALESCE(s.surface,'') AS resolved_surface
 		FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id
 		`+resolutionSurfaceSQL+`
-		LEFT JOIN review_request_recipient rc ON rc.review_request_id=rr.id
 		WHERE rr.created_at>=$1 AND ($2='' OR rr.status=$2) AND ($3='' OR ri.review_type=$3) AND ($4='' OR rr.id::text ILIKE '%'||$4||'%') AND (NOT $5 OR (rr.created_at,rr.id)<($6,$7::uuid))
 		ORDER BY rr.created_at DESC,rr.id DESC LIMIT $8`, start, strings.TrimSpace(q.Get("status")), strings.TrimSpace(q.Get("reviewType")), strings.TrimSpace(q.Get("q")), ok, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
