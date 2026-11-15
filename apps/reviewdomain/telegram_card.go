@@ -7,11 +7,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// Telegram review card text (ADR-046 amendment). A card has exactly one title,
-// the facts of its subject, one short reason line, and one instruction that
-// matches the buttons the card carries. The worker renders every card through
-// TelegramCardText; the canonical operations that edit a live card (a refreshed
-// cycle residual) use the same helpers so an edit keeps the card's facts.
+// Telegram review card text (ADR-046 amendment). A card has one title, the facts of
+// its subject, one short reason line, and one instruction matching its buttons. The
+// worker renders every card through TelegramCardText; operations that edit a live
+// card (a refreshed cycle residual) use the same helpers so an edit keeps its facts.
 
 // TelegramCardText joins the card parts, skipping empty ones.
 func TelegramCardText(title, facts, why, instruction string) string {

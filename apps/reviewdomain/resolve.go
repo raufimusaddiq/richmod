@@ -1,7 +1,6 @@
 // Package reviewdomain holds the canonical, channel-neutral review resolution
-// operations for Richmod (ADR-046). Web and Telegram adapters call these
-// functions inside their own transaction; no surface owns financial mutation
-// policy for a review transition.
+// operations (ADR-046). Web and Telegram adapters call them inside their own
+// transaction; no surface owns review-transition policy.
 package reviewdomain
 
 import (
@@ -54,14 +53,13 @@ type Command struct {
 	Values []byte
 }
 
-// ResolveByTransaction completes every open review_item bound to one transaction
-// and household. It takes the canonical lock, verifies the review is still
-// active, records the human actor/action/values, and resolves the Telegram
-// projection in the same transaction.
+// ResolveByTransaction completes every open review_item bound to one transaction and
+// household. It takes the canonical lock, verifies the review is still active,
+// records the human actor/action/values, and resolves the Telegram projection in the
+// same transaction.
 //
-// Financial fact validation and the review-family mutation stay with the caller
-// until each family is migrated; this function owns the terminal review
-// transition, which previously existed twice (API and Telegram).
+// Fact validation and the review-family mutation stay with the caller; this owns the
+// terminal review transition.
 func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	values := cmd.Values
 	if len(values) == 0 {

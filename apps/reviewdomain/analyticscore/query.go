@@ -228,15 +228,14 @@ func loadReviewQuality(ctx context.Context, tx pgx.Tx, household, currentSourceE
 }
 
 func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time.Time, facts *Facts) error {
-	// Snapshot reconciliation is for the actual observation interval, not an
-	// invented cycle-end balance. Future observations never enter a past review.
+	// Reconcile for the actual observation interval, not an invented cycle-end balance;
+	// future observations never enter a past review.
 	end, _ := time.ParseInLocation("2006-01-02", facts.Period.MeasuredUntil, clock.HouseholdLocation())
 	if now.Before(end) {
 		end = now
 	}
-	// current is the newest observation before the measured end; previous is its
-	// immediate predecessor (strictly earlier in the same total order), never the
-	// cycle start boundary, so a snapshot just before the cycle cannot be both.
+	// current is the newest observation before the measured end; previous is its strict
+	// predecessor in the same total order, never the cycle start boundary.
 	rows, err := tx.Query(ctx, `WITH selected AS (
 		SELECT id,observed_at,row_number() OVER (ORDER BY observed_at DESC,id) AS rn FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 2
 	) SELECT s.rn,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,

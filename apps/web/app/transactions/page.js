@@ -25,9 +25,8 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState([]);
   const [wealthAccounts, setWealthAccounts] = useState([]);
   const [members, setMembers] = useState([]);
-  // The drawer is one state machine {closed | loading | error | ready, id, data}
-  // whose request is aborted on close or on opening another row, so a slow
-  // response can neither reopen a closed drawer nor mix two transactions.
+  // The drawer is one state machine {closed | loading | error | ready, id, data} whose
+  // request is aborted on close or on opening another row.
   const drawer = useDrawerRecord(async (id, signal) => {
     const [transaction, evidenceResponse, auditResponse] = await Promise.all([fetch(`/api/v1/transactions/${id}`, { signal }), fetch(`/api/v1/transactions/${id}/evidence`, { signal }), fetch(`/api/v1/transactions/${id}/audit`, { signal })]);
     if (!transaction.ok || !evidenceResponse.ok || !auditResponse.ok) throw new LoadError("Detail transaksi belum dapat dimuat. Coba lagi.");
@@ -43,18 +42,18 @@ export default function TransactionsPage() {
   const [cursorHistory, setCursorHistory] = useState([]);
   const [transactionType, setTransactionType] = useState("EXPENSE");
   const [transferPurpose, setTransferPurpose] = useState("INTERNAL_TRANSFER");
-  // Only the row a create returned, and only a filter, may animate. A first
-  // load keeps both empty so nothing moves on paint.
+  // Only the row a create returned, and only a filter, may animate; a first load keeps
+  // both empty.
   const [createdId, setCreatedId] = useState(""), [refreshToken, setRefreshToken] = useState(0);
-  // The token marks the filter re-run that is currently on screen; the ref is
-  // the last one already painted. A render whose values differ is the one fade.
+  // The token marks the filter re-run on screen; the ref is the last one painted. A
+  // render whose values differ is the one fade.
   const consumedRefresh = useRef(0);
   const refreshPending = refreshToken !== consumedRefresh.current;
   const createDialog = useRef(null), createOpener = useRef(null);
   const [fieldErrors, setFieldErrors] = useState({}), [filterError, setFilterError] = useState(""), [filterKey, setFilterKey] = useState(0);
-  // The add form is a native modal <dialog> (top layer, background inert) that also
-  // carries explicit dialog semantics and the drawer pattern: focus moves in on open,
-  // Tab cycles inside, Escape closes, focus returns to whatever opened it.
+  // The add form is a native modal <dialog> (top layer, background inert) with the
+  // drawer pattern: focus moves in on open, Tab cycles inside, Escape closes, focus
+  // returns to the opener.
   function openCreate() {
     setCreateError(""); setFieldErrors({}); createOpener.current = document.activeElement;
     const dialog = createDialog.current; if (!dialog || dialog.open) return;
@@ -72,13 +71,12 @@ export default function TransactionsPage() {
     const target = trapTarget(items, document.activeElement, event.shiftKey, dialog);
     if (target) { event.preventDefault(); target.focus(); }
   }
-  // Set when the residual review handed off a missing transaction: the form
-  // opens on its own with the date limited to that salary cycle.
+  // Set when the residual review handed off a missing transaction: the form opens with
+  // the date limited to that salary cycle.
   const [missingWindow, setMissingWindow] = useState(null);
 
-  // Superseded loads are aborted and ignored. A failure keeps the rows already on
-  // screen under the error banner (a bad filter must not wipe results); the page keeps its first-load skeleton
-  // only until it has loaded once, and a filter or page change reloads in place.
+  // Superseded loads are aborted and ignored. A failure keeps the rows on screen under
+  // the error banner; the first-load skeleton shows only until one load succeeds.
   const loader = useGuardedLoad(async ({ signal, current }, search = window.location.search) => {
     const requestSearch = listSearch(search);
     const [transactions, categoryResponse, accountResponse, wealthAccountResponse, memberResponse] = await Promise.all([fetch(`/api/v1/transactions${requestSearch}`, { signal }), fetch("/api/v1/categories", { signal }), fetch("/api/v1/accounts", { signal }), fetch("/api/v1/wealth/accounts", { signal }), fetch("/api/v1/household/members", { signal })]);
@@ -92,8 +90,8 @@ export default function TransactionsPage() {
     if (Array.isArray(accountList)) setAccounts(accountList);
     if (Array.isArray(wealthList)) setWealthAccounts(wealthList);
     if (Array.isArray(memberList)) setMembers(memberList);
-  // Keep the visible rows on failure, but drop the cursor: it belongs to the
-  // previous query and must never page into the new one.
+  // Keep the visible rows on failure but drop the cursor, which belongs to the previous
+  // query.
   }, { fallback: "Koneksi terputus saat memuat riwayat transaksi. Coba lagi.", onFailure: () => setNextCursor("") });
   const load = loader.run;
   const loading = loader.loading || loader.refreshing;
@@ -108,11 +106,9 @@ export default function TransactionsPage() {
     const onPopState = event => { setCursorHistory(event.state?.cursorHistory || []); load(); };
     window.addEventListener("popstate", onPopState); return () => window.removeEventListener("popstate", onPopState);
   }, [load]);
-  // Consume the marker once the commit that painted data-refreshed is done.
-  // Mutating the ref, not state, leaves the panel's attribute on screen for the
-  // whole fade; the next render - pagination, a create, a retry - compares
-  // equal and stays still. Skip while loading: the filter's first commit is the
-  // skeleton, where the panel is not on screen to animate.
+  // Consume the marker once the commit that painted data-refreshed is done. Mutating the
+  // ref, not state, keeps the attribute on screen for the whole fade; later renders
+  // compare equal and stay still. Skip while loading: the first commit is the skeleton.
   useEffect(() => {
     if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
   }, [loading, loader.hasLoaded, refreshPending, refreshToken]);

@@ -1,11 +1,8 @@
-// Cross-lane ledger matching. One real purchase can arrive as a bank email, a
-// receipt photo and a transaction screenshot; it must stay one canonical
-// transaction with many evidence rows (AGENTS.md, ADR-004). Every lane asks the
-// same question before it writes a new transaction: does a household
-// transaction of the same type and IDR amount already exist close in time with
-// a compatible merchant? The answer is deterministic Go; a unique strong match
-// is linked as evidence, anything weaker that is still plausible becomes a
-// POSSIBLE_DUPLICATE review, and nothing is ever deleted.
+// Cross-lane ledger matching: one real purchase (bank email, receipt, screenshot)
+// stays one canonical transaction with many evidence rows (AGENTS.md, ADR-004).
+// Every lane asks the same deterministic question before writing; a unique strong
+// match is linked as evidence, a weaker plausible one becomes a POSSIBLE_DUPLICATE
+// review, and nothing is deleted.
 package reviewdomain
 
 import (
@@ -51,9 +48,8 @@ const (
 	strongMatchScore       = 0.90
 	runnerUpCeiling        = 0.80
 	ledgerMatchLimit       = 10
-	// ledgerMatchScanLimit bounds the rows one write reads for a recurring round
-	// amount; reaching it already means far more than ledgerMatchLimit plausible
-	// events, so the strong match fails closed either way.
+	// ledgerMatchScanLimit bounds the rows read for a recurring round amount; reaching
+	// it means the strong match fails closed anyway.
 	ledgerMatchScanLimit = 200
 )
 
@@ -84,29 +80,26 @@ func FindLedgerMatches(ctx context.Context, q rowQueryer, query LedgerMatchQuery
 			continue
 		}
 		match.Score = LedgerMatchScore(match.Hours, match.MerchantMatch)
-		// Every plausible candidate is returned: a strong match must be judged
-		// against all of them, never against a time-ordered prefix.
+		// Return every plausible candidate: a strong match is judged against all of them,
+		// never a time-ordered prefix.
 		out = append(out, match)
 	}
 	return out, rows.Err()
 }
 
-// LockLedgerEvent serializes every lane that may write or link a transaction of
-// this household and IDR amount, for the rest of the caller's transaction. A
-// lane takes it before it matches and inserts, so two lanes ingesting the same
-// purchase concurrently cannot both see "no match" and write two transactions.
+// LockLedgerEvent serializes lanes that may write or link a transaction of this
+// household and IDR amount until the caller's transaction ends, so two lanes cannot
+// both see "no match" and write two transactions.
 func LockLedgerEvent(ctx context.Context, tx pgx.Tx, householdID, amountIDR string) error {
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger-event:'||$1::text||':'||$2::numeric::text,0))`, householdID, amountIDR)
 	return err
 }
 
-// SameLedgerCandidates reports whether a match result taken under the lock is
-// the one the lane decided on: no new or vanished candidate and none whose score
-// changed (another lane may have enriched its merchant meanwhile). Any change
-// means the caller must re-run its decision.
+// SameLedgerCandidates reports whether a match result taken under the lock is still
+// the one the lane decided on: no new or vanished candidate and no changed score.
+// Any change means the caller must re-run its decision.
 func SameLedgerCandidates(decided map[string]float64, now []LedgerMatch) bool {
-	// Both directions: a candidate that vanished (voided or merged by another
-	// lane) is a change too, so a stale strong match is never linked.
+	// Check both directions: a vanished candidate (voided or merged) is a change too.
 	if len(decided) != len(now) {
 		return false
 	}

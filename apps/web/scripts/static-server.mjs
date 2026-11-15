@@ -4,11 +4,10 @@ import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Preview server for the static export, used by the Playwright smoke scripts.
-// It approximates apps/api/internal/webui and is not the reference behaviour:
-// it deliberately does not reproduce the 308 for /path/, the per-class
-// Cache-Control headers, or the security headers. Those live in the Go handler
-// and are tested there; do not "fix" the Go server to match this preview.
+// Preview server for the static export, used by the Playwright smoke scripts. It
+// approximates apps/api/internal/webui and is not the reference: it does not reproduce
+// the 308 for /path/, the per-class Cache-Control or the security headers, which live
+// in the Go handler and are tested there. Do not "fix" the Go server to match this.
 const root = fileURLToPath(new URL("../out/", import.meta.url));
 const portFlag = process.argv.indexOf("-p");
 const port = Number(process.env.PORT || (portFlag >= 0 ? process.argv[portFlag + 1] : 3000));

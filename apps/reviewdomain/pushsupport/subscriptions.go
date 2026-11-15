@@ -10,23 +10,19 @@ import (
 
 // UpsertSubscription registers or refreshes a caller-owned device.
 //
-// A refresh of an already-live subscription keeps its active period: a browser
-// refreshing inside the 30-second batching window must not move active_since
-// past an event that is already pending. Only a disabled subscription starts a
-// new active period. disabled_at is always cleared; failure_count is reset on
-// every refresh because it is diagnostic and the client just proved the
-// endpoint is current. Reactivating a disabled subscription also retires that
-// subscription's PENDING delivery rows in the same transaction, so a retry from
-// the period the user opted out of cannot be sent.
+// Refreshing a live subscription keeps its active period: a browser refreshing inside
+// the 30-second batching window must not move active_since past a pending event. Only
+// a disabled subscription starts a new period, and reactivating it also retires its
+// PENDING delivery rows in the same transaction so a retry from the opted-out period
+// cannot be sent. disabled_at is always cleared and failure_count reset, since the
+// client just proved the endpoint is current.
 //
-// A subscription never changes household: a user belongs to exactly one
-// household for good (migration 00088, ADR-059), so a refresh must match both
-// the stored user and the stored household, and anything else is refused like
-// an endpoint owned by another user.
+// A subscription never changes household (migration 00088, ADR-059): a refresh must
+// match both the stored user and household, else it is refused like an endpoint owned
+// by another user.
 //
-// There is no subscription-level last_error: transient text stays on the
-// event-scoped push_outbox_delivery row, so a stale error cannot read as current
-// device health.
+// There is no subscription-level last_error; transient text stays on the event-scoped
+// push_outbox_delivery row so a stale error cannot read as current device health.
 func UpsertSubscription(ctx context.Context, pool *pgxpool.Pool, userID, householdID, endpoint, p256dh, auth, userAgent string) (string, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

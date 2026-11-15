@@ -1,6 +1,5 @@
-// Wealth observation resolution. The Review Inbox and the Telegram
-// review lanes all mutate wealth_observation the same way; this operation owns
-// those mutations so the Web and Telegram paths cannot drift.
+// Wealth observation resolution, shared by the Review Inbox and the Telegram review
+// lanes so their wealth_observation mutations cannot drift.
 package reviewdomain
 
 import (
@@ -41,7 +40,6 @@ var (
 )
 
 // ValidateWealthAccount confirms the account is active and household-scoped.
-// Web and Telegram both performed this check inline before resolving.
 func ValidateWealthAccount(ctx context.Context, tx pgx.Tx, householdID, wealthAccountID string) error {
 	if strings.TrimSpace(wealthAccountID) == "" {
 		return ErrWealthAccountInvalid
@@ -57,14 +55,12 @@ func ValidateWealthAccount(ctx context.Context, tx pgx.Tx, householdID, wealthAc
 }
 
 // ResolveWealthObservation records the chosen wealth account on a pending
-// observation, accepts it, and completes its review in the same transaction
-// (ADR-036 amendment, 2026-11): choosing the account is the one household
-// decision the review asks for. The accepted observation stays an observation:
-// it is listed on /wealth as a value waiting for the next complete snapshot and
-// never becomes a transaction or a partial snapshot. The observed hint is
-// learned as a household-scoped alias. It returns ErrWealthObservationNotFound
-// when a concurrent decision already dismissed or resolved the observation,
-// which surfaces report as stale.
+// observation, accepts it, and completes its review in one transaction (ADR-036
+// amendment, 2026-11). The accepted observation stays an observation: it is listed
+// on /wealth as a value waiting for the next complete snapshot and never becomes a
+// transaction or partial snapshot. The observed hint is learned as a household
+// alias. It returns ErrWealthObservationNotFound when a concurrent decision already
+// closed the observation, which surfaces report as stale.
 func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand) error {
 	if err := ValidateWealthAccount(ctx, tx, cmd.HouseholdID, cmd.WealthAccountID); err != nil {
 		return err
@@ -79,8 +75,8 @@ func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 	if _, err := tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,status='ACCEPTED',updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ObservationID, cmd.WealthAccountID, cmd.HouseholdID); err != nil {
 		return err
 	}
-	// The provider email behind the value is applied exactly as an observation
-	// that resolved its account deterministically would be.
+	// The provider email behind the value is applied as if its account had resolved
+	// deterministically.
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='APPLIED',updated_at=now() WHERE household_id=$2 AND id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1 AND household_id=$2) AND status IN ('PENDING','REVIEW')`, cmd.ObservationID, cmd.HouseholdID); err != nil {
 		return err
 	}
@@ -144,11 +140,9 @@ func RefreshWealthObservationSource(ctx context.Context, tx pgx.Tx, householdID,
 
 // DismissWealthObservation closes a pending observation, returning
 // ErrWealthObservationNotFound when a concurrent decision already closed it.
-//
-// IgnoreFinancialEmail controls whether the financial email observation behind
-// this wealth observation is also marked ignored. The Review Inbox IGNORE action
-// does that; the asset-purchase reclassification path deliberately does not,
-// because the evidence became a transaction rather than being discarded.
+// IgnoreFinancialEmail controls whether the financial email observation behind this
+// wealth observation is also ignored. Only the Review Inbox IGNORE does; the
+// asset-purchase reclassification keeps it because the evidence became a transaction.
 func DismissWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand) error {
 	result, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, cmd.ObservationID, cmd.HouseholdID)
 	if err != nil {

@@ -42,10 +42,10 @@ var (
 // the same real event (ADR-039 duplicate safety).
 const mergeWindowHours = 72
 
-// MergeDuplicateReview is the canonical duplicate-resolution operation. It locks
-// both transactions, revalidates that the target is still a deterministic
-// duplicate candidate, copies evidence onto the canonical transaction, voids the
-// duplicate, and completes the review. Web and Telegram both call it (ADR-046).
+// MergeDuplicateReview is the canonical duplicate-resolution operation. It locks both
+// transactions, revalidates the target as a deterministic duplicate candidate, copies
+// evidence onto the canonical transaction, voids the duplicate, and completes the
+// review. Web and Telegram both call it (ADR-046).
 func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) (DuplicateResult, error) {
 	var result DuplicateResult
 	if cmd.TargetTransactionID == "" || cmd.TargetTransactionID == cmd.TransactionID {
@@ -69,9 +69,8 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	}
 	var targetType, targetAmount, targetCurrency string
 	var targetTime time.Time
-	// A target still awaiting its own review is accepted only when Go named it as
-	// this review's cross-lane candidate at creation (prior_match_transaction_ids):
-	// one purchase seen by two lanes merges into one event whose own review stays.
+	// A target still awaiting its own review is accepted only when Go named it as this
+	// review's cross-lane candidate (prior_match_transaction_ids); that review stays.
 	err = tx.QueryRow(ctx, `SELECT type,amount::text,currency,transaction_at FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND (t.status='CONFIRMED' OR (t.status='NEEDS_REVIEW' AND EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=$2 AND ri.transaction_id=$3 AND ri.status IN ('OPEN','PENDING_SEND') AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' AND ri.decision->'knownFacts'->'prior_match_transaction_ids' ? t.id::text))) FOR UPDATE`, cmd.TargetTransactionID, cmd.HouseholdID, cmd.TransactionID).Scan(&targetType, &targetAmount, &targetCurrency, &targetTime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrDuplicateTargetInvalid

@@ -1,10 +1,9 @@
 import { money } from "./format.js";
 import { inclusiveEnd, ratioLabel, signedMoney } from "./cycleReview.js";
 
-// Cycle ledger helpers. Every amount, delta, median and total is served by the
-// API (cycle-review-v1). This module only formats numbers for display, maps
-// amounts to visual lengths, and picks which served fields to show. It never
-// derives a total, delta, median or share.
+// Cycle ledger helpers. Every amount, delta, median and total is served by the API
+// (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
+// picks served fields. It never derives a total, delta, median or share.
 
 const millions = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const shortDay = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -43,8 +42,8 @@ export function directionText(value) {
 
 const CLOSED_FOR_CHART = 4;
 
-// Columns for the ledger. Lengths are fractions of the largest income/expense
-// shown, so equal amounts have equal bars. The median tick uses the same scale.
+// Ledger columns. Lengths are fractions of the largest income/expense shown, so equal
+// amounts have equal bars; the median tick uses the same scale.
 export function buildLedger(history = [], selectedStart = "", median = null) {
   const amounts = history.flatMap(item => [Number(item.income), Number(item.expense)]).filter(Number.isFinite);
   const peak = Math.max(0, ...amounts);
@@ -68,8 +67,8 @@ export function buildLedger(history = [], selectedStart = "", median = null) {
 
 // The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"
 // remainder are served and reconcile to each cycle's net expense; the browser only
-// sizes the tint (each cell relative to the largest positive value in its row).
-// A series that does not line up with history[] is not drawn.
+// sizes the tint relative to the largest positive value in its row. A series that does
+// not line up with history[] is not drawn.
 export function buildMatrix(categoryHistory, history = [], selectedCategory = "", selectable = []) {
   const starts = history.map(item => item.start);
   const served = categoryHistory?.cycleStarts ?? [];
@@ -114,9 +113,8 @@ export function verdictPairs({ comparison, period, spendingShape }) {
   return pairs;
 }
 
-// Pace references are the served comparison totals. Equal-day values are totals
-// over the same elapsed days, so they are markers at the latest day; full-cycle
-// values are levels.
+// Pace references are the served comparison totals. Equal-day values are totals over
+// the same elapsed days, so they are markers at the latest day; full-cycle values are levels.
 export function paceReferences({ comparison, period }) {
   const expense = comparison?.expense;
   if (!expense || !period) return [];

@@ -157,9 +157,8 @@ func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) 
 		}
 		return out, err
 	}
-	// ponytail: legacy review items may carry no document binding at all; accept
-	// that only when neither the row nor the caller supplies a document, so a real
-	// mismatch still fails closed.
+	// ponytail: legacy review items may carry no document binding; accept that only when
+	// neither the row nor the caller supplies a document, so a real mismatch fails closed.
 	documentMatches := (document == nil && cmd.DocumentID == "" && documentSource == nil) || (document != nil && *document == cmd.DocumentID && documentSource != nil && *documentSource == cmd.SourceEventID)
 	if (status != "OPEN" && status != "PENDING_SEND") || source == nil || *source != cmd.SourceEventID || reviewSource == nil || *reviewSource != cmd.SourceEventID || !documentMatches || (kind != "PAYSLIP_CONFIRMATION" && kind != "MISSING_PAY_DATE") {
 		return out, ErrPayslipReviewInvalid

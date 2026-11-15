@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { reviewCards } from "./source.mjs";
 
-// The Inbox is proposal-first, and it may render a required
-// input only for a fact the stored ReviewDecision named as missing. These are
-// source-level guards, because the card components are JSX without a test renderer.
+// The Inbox is proposal-first and renders a required input only for a fact the stored
+// ReviewDecision named as missing. These are source-level guards, since the cards are
+// JSX without a test renderer.
 const source = reviewCards();
 
 test("review cards render the review decision proposal and missing facts", () => {
@@ -15,9 +15,9 @@ test("review cards render the review decision proposal and missing facts", () =>
 });
 
 test("proposed values are labelled as a proposal, not as recorded data", () => {
-  // A proposed value is unsupported/contested, so it must not be labelled
-  // "Tercatat" (recorded). The label keys off the row's own proposal state,
-  // never decisionSource, which stays DETERMINISTIC on automated reviews.
+  // A proposed value is unsupported/contested, so it must not be labelled "Tercatat".
+  // The label keys off the row's own proposal state, never decisionSource, which stays
+  // DETERMINISTIC on automated reviews.
   assert.match(source, /proposedRow\.length > 0 && <><p className="review-source">Richmod mengusulkan<\/p><dl className="review-proposal">\{proposedRow\.map/);
   assert.doesNotMatch(source, /decisionSource !== "DETERMINISTIC" \? "Richmod mengusulkan" : "Tercatat"/);
 });
@@ -34,10 +34,9 @@ test("evidence stays behind a secondary disclosure", () => {
 });
 
 test("a known financial entity is never requested again", () => {
-  // The resolved ids come from the item root, which the list API fills from the
-  // stored decision. Reading them from a second path inside `decision` is how the
-  // card once rendered an account select for an already-resolved account and then
-  // posted undefined for it.
+  // The resolved ids come from the item root, which the list API fills from the stored
+  // decision; reading a second path inside `decision` once rendered an account select for
+  // an already-resolved account and posted undefined for it.
   assert.match(source, /item\.resolvedAccountId/);
   assert.match(source, /item\.resolvedWealthAccountId/);
   assert.doesNotMatch(source, /decision\.resolvedAccountId/);
@@ -47,10 +46,9 @@ test("a known financial entity is never requested again", () => {
 
 
 test("the primary accept action never posts a request the server must reject", () => {
-  // A legacy AMBIGUOUS_CATEGORY card has no categoryId and no proposal, so a
-  // one-click accept would post a null category and 400. The primary action is
-  // quick-accept only when the card can satisfy the server contract; otherwise it
-  // opens the edit form.
+  // A legacy AMBIGUOUS_CATEGORY card has no categoryId or proposal, so a one-click accept
+  // would post a null category and 400. The primary action is quick-accept only when the
+  // card can satisfy the server contract; otherwise it opens the edit form.
   assert.match(source, /const canQuickAccept =/);
   assert.match(source, /const quickCategoryId = item\.categoryId \|\| proposed\.categoryId \|\| null/);
   assert.match(source, /canQuickAccept \? <button/);
@@ -73,20 +71,17 @@ test("payslip salary choice appears only when API leaves policy unresolved", () 
 });
 
 test("bank fact completion submits an RFC3339 instant, not a date-only value", () => {
-  // Two different server contracts share the same field name. The residual
-  // date field posts a date-only string to the strict `parseReviewDate`. The
-  // COMPLETE_BANK_FACTS form resolves through canonical.go, which queues a
-  // COMPLETE_BANK_REVIEW job that requires an RFC3339 instant with an explicit
-  // timezone (parseStrictBankRFC3339). Posting a bare `datetime-local` value
-  // there would fail validation, so the card must convert it to an ISO instant.
+  // Two server contracts share the field name. The residual date field posts a date-only
+  // string to the strict `parseReviewDate`; COMPLETE_BANK_FACTS queues a
+  // COMPLETE_BANK_REVIEW job that needs an RFC3339 instant with an explicit timezone
+  // (parseStrictBankRFC3339), so the card must convert a bare `datetime-local` value.
   assert.match(source, /type="datetime-local"/);
   assert.match(source, /transactionAt: raw \? new Date\(raw\)\.toISOString\(\) : null/);
 });
 
 test("legacy items fall back to the API missingFields list", () => {
-  // Legacy transaction-backed reviews carry missingFields, never missingFacts.
-  // Reading only missingFacts made every legacy card demand a merchant, which a
-  // review with reason UNKNOWN_PURPOSE cannot supply.
+  // Legacy transaction-backed reviews carry missingFields, never missingFacts; reading
+  // only missingFacts made every legacy card demand a merchant.
   assert.match(source, /const missing = item\.missingFacts \|\| item\.missingFields/);
 });
 

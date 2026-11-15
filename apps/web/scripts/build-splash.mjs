@@ -1,8 +1,7 @@
-// Rasterises the iOS launch images into public/splash. Run with
-// `node apps/web/scripts/build-splash.mjs` after editing the device table or
-// the brand mark. Chromium is already a dev dependency (build-icons.mjs uses
-// it), so this adds nothing to the runtime: webui.go serves the committed PNGs
-// as ordinary public files, and `next build` copies them into out/.
+// Rasterises the iOS launch images into public/splash. Run
+// `node apps/web/scripts/build-splash.mjs` after editing the device table or the brand
+// mark. webui.go serves the committed PNGs as ordinary public files and `next build`
+// copies them into out/.
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -14,9 +13,8 @@ const output = fileURLToPath(new URL("../public/splash/", import.meta.url));
 const mark = await readFile(new URL("icons/icon-square.svg", import.meta.url), "utf8");
 const markSource = `data:image/svg+xml;base64,${Buffer.from(mark).toString("base64")}`;
 
-// Full-bleed manifest background colour, the mark centred at 20% of the width,
-// nothing else. 22.37% is the corner radius iOS gives a home-screen icon, so
-// the mark keeps the shape the user tapped.
+// Full-bleed manifest background colour with the mark centred at 20% of the width.
+// 22.37% is the corner radius iOS gives a home-screen icon.
 const page = width => {
   const size = Math.round(width * 0.2);
   return `<!doctype html><html><head><style>

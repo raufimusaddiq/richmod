@@ -7,12 +7,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// A source event (a typed message, a button tap, a bank email) that reaches a
-// terminal failure becomes one dismissable item in the Inbox's Tindakan tab. It
-// is an action, not a review: the failure is infrastructure state, not a
-// household fact question (ADR-048), so there is nothing to decide, only
-// something to know and close. Dismissing it finalizes the source event so
-// analytics stops counting it as unfinished.
+// A source event (typed message, button tap, bank email) that reaches a terminal
+// failure becomes one dismissable item in the Inbox's Tindakan tab. It is an action,
+// not a review: the failure is infrastructure state, not a household fact question
+// (ADR-048). Dismissing it finalizes the source event so analytics stops counting it
+// as unfinished.
 const (
 	FailedSourceIntegrationType = "SOURCE_PROCESSING"
 	FailedSourceActionType      = "SOURCE_FAILED"
@@ -100,14 +99,13 @@ type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// SweepFailedSources gives every unfinished source whose processing has
-// permanently stopped its dismissable Tindakan item. The terminal-failure hooks
-// cover typed messages, button taps and bank email; documents, images, financial
-// email, and any hook that itself failed leave a FAILED/RECEIVED source that the
-// cycle review counts but the Inbox cannot show. A source qualifies when it has
-// no queued or running job and is either FAILED or has a FAILED job; a source
-// with no job yet is just new. Idempotent through the per-source dedupe key, so
-// it only ever adds items to dismiss. It returns how many items were created.
+// SweepFailedSources gives every unfinished source whose processing has permanently
+// stopped its dismissable Tindakan item. Terminal-failure hooks cover typed messages,
+// button taps and bank email; documents, images, financial email, and failed hooks
+// leave a FAILED/RECEIVED source the cycle review counts but the Inbox cannot show. A
+// source qualifies with no queued or running job and either FAILED or a FAILED job.
+// Idempotent through the per-source dedupe key; it returns how many items were
+// created.
 func SweepFailedSources(ctx context.Context, pool TxBeginner, limit int) (int, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
