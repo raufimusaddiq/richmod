@@ -308,6 +308,15 @@ test("settings: request is try/catch/finally with per-key busy, load failures su
   assert.match(view, /<form key=\{editingFinancialSource\.id\}/, "the provider edit form remounts per provider");
 });
 
+test("settings: Gmail forwarding verification is shown inline for owners and resolved via the action endpoint", () => {
+  const view = text("app/settings/page.js");
+  assert.match(view, /owner && data\.emailIngress\?\.forwardingAction &&/, "only owners see the code and link");
+  assert.match(view, /forwardingAction\.actionCode/);
+  assert.match(view, /href=\{data\.emailIngress\.forwardingAction\.actionUrl\}[^>]*rel="noopener noreferrer"/);
+  assert.match(view, /\/api\/v1\/integration-actions\/\$\{data\.emailIngress\.forwardingAction\.id\}\/resolve/, "manual fallback reuses the resolve endpoint");
+  assert.match(view, /Tandai selesai/);
+});
+
 test("household: busy map, cleared errors, member load failures, invite expiry ticks", () => {
   const source = text("app/household/page.js");
   assert.match(source, /useBusyMap\(\)/);

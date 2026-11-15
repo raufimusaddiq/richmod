@@ -1,6 +1,7 @@
 package integrationaction
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -126,4 +127,36 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// AutoResolve closes every OPEN action of one type for a household once the
+// system has proof the action is no longer needed (for example, forwarding
+// works because mail arrived). It runs inside the caller's transaction, is
+// idempotent because it only touches OPEN rows, and writes one audit row per
+// action it actually closed. It returns how many actions it closed.
+func AutoResolve(ctx context.Context, tx pgx.Tx, householdID, integrationType, actionType, reason string) (int, error) {
+	rows, err := tx.Query(ctx, `UPDATE integration_action SET status='RESOLVED',resolved_at=now(),updated_at=now() WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' RETURNING id,title`, householdID, integrationType, actionType)
+	if err != nil {
+		return 0, err
+	}
+	type closed struct{ id, title string }
+	var resolved []closed
+	for rows.Next() {
+		var c closed
+		if err := rows.Scan(&c.id, &c.title); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		resolved = append(resolved, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, c := range resolved {
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'SYSTEM','AUTO_RESOLVE_INTEGRATION_ACTION','integration_action',$2,jsonb_build_object('status','RESOLVED','title',$3::text,'reason',$4::text))`, householdID, c.id, c.title, reason); err != nil {
+			return 0, err
+		}
+	}
+	return len(resolved), nil
 }
