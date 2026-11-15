@@ -3,9 +3,9 @@ package reviewdec
 import "slices"
 
 // PayslipPolicy adjusts a payslip review's policy-dependent fields for whether the
-// household already has a primary salary source. The stored decision is a snapshot
-// of that policy, so both the creating worker and the Review Inbox read apply this
-// one function; neither keeps its own copy of the rules (ADR-054).
+// household already has a primary salary source. The stored decision snapshots that
+// policy, so the creating worker and the Review Inbox both apply this one function
+// (ADR-054).
 //
 //   - MISSING_PAY_DATE with no primary salary also needs the first-salary choice.
 //   - MISSING_PAY_DATE with a primary salary asks for the date only.

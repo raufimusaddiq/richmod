@@ -1,12 +1,11 @@
-// Package reviewdec holds the canonical ReviewDecision contract: the
-// structured, bounded explanation of why a review exists. It is deliberately a
-// plain value with JSON tags — the storage shape is a jsonb column on
-// review_item — so every review-creating path can populate the same fields
-// without a new table, service, or migration per source.
+// Package reviewdec holds the canonical ReviewDecision contract: the structured,
+// bounded explanation of why a review exists. It is a plain value with JSON tags
+// (stored in the review_item jsonb column) so every review-creating path fills the
+// same fields without a new table or migration per source.
 //
-// It carries no canonical IDs to the model and performs no mutation; it only
-// records what Go already decided so the Review Inbox can render the proposal,
-// the missing fact, and the reason without re-deriving them.
+// It carries no canonical IDs to the model and performs no mutation; it records what
+// Go already decided so the Review Inbox can render the proposal, the missing fact,
+// and the reason.
 package reviewdec
 
 import (
@@ -82,9 +81,8 @@ type EvidenceRef struct {
 	ID   string `json:"id,omitempty"`
 }
 
-// Decision is the stored contract. Facts use json.RawMessage so a caller can put
-// its own bounded shape in known/proposed/conflicting without this package
-// knowing each domain's fields. Missing and Conflicting stay explicit and
+// Decision is the stored contract. Facts use json.RawMessage so callers can put their
+// own bounded shape in known/proposed/conflicting. Missing and Conflicting stay
 // separate from Known so a UI can request only the unresolved dimensions.
 type Decision struct {
 	Version         int                        `json:"version"`
@@ -115,10 +113,9 @@ type EvidenceValue struct {
 	Evidence string `json:"evidence"`
 }
 
-// Validate enforces the minimum stored contract: every review must say why it
-// exists (ReasonCode) and what the household may do about it (AllowedActions).
-// The review_item trigger from migration 00078 enforces the same rule in the
-// database, so a producer fails here with a clear error instead of at INSERT.
+// Validate enforces the minimum stored contract: every review states why it exists
+// (ReasonCode) and what the household may do (AllowedActions). The review_item
+// trigger from migration 00078 enforces the same rule in the database.
 func (d Decision) Validate() error {
 	if d.ReasonCode == "" {
 		return errors.New("review decision: reasonCode is required")
@@ -129,10 +126,9 @@ func (d Decision) Validate() error {
 	return nil
 }
 
-// JSON marshals the decision for storage in review_item.decision. MissingFacts
-// and KnownFacts are normalized to non-nil so the stored shape always contains
-// the keys the UI reads, which keeps rendering branch-free. A decision that
-// fails Validate is never encoded.
+// JSON marshals the decision for review_item.decision. MissingFacts and KnownFacts
+// are normalized to non-nil so the stored shape always has the keys the UI reads. A
+// decision that fails Validate is never encoded.
 func (d Decision) JSON() ([]byte, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err

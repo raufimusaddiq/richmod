@@ -187,8 +187,8 @@
   .ledger-bar i { width: 14px; }
   .ledger-verdict dd { font-size: var(--text-lg); }
 }
-/* Phones: a whole number of cycle columns fits beside the label (four, three on the narrowest),
-   so no column is cut at the label edge and the end of the scroll lines up with a column. */
+/* Phones: a whole number of cycle columns fits beside the label (four, three on the
+   narrowest), so no column is cut at the label edge. */
 @container (max-width: 520px) {
   .ledger-table { --label: 5.5rem; --visible: 4; --shown: min(var(--visible), var(--cols, 6)); --col: calc((100cqw - var(--label)) / var(--shown)); width: calc(var(--label) + var(--cols, 6) * var(--col)); } /* with fewer cycles than --visible the columns share the whole width */
   .ledger-table thead th:first-child, .ledger-table tbody th { width: var(--label); }

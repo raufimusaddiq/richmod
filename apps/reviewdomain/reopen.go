@@ -9,16 +9,13 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// ErrReopenNotReversible reports a resolved review whose resolution cannot be
-// undone without hard-deleting or silently rewriting a canonical record (ADR-054
-// amendment, 2026-11). The household uses the canonical reversal for that record
-// instead (void, unmerge, snapshot correction).
+// ErrReopenNotReversible reports a resolved review that cannot be undone without
+// hard-deleting or rewriting a canonical record (ADR-054 amendment, 2026-11); the
+// household uses the canonical reversal (void, unmerge, snapshot correction).
 var ErrReopenNotReversible = errors.New("reviewdomain: this resolution is not reversible from review")
 
-// possibleDuplicateDecision is the ReviewDecision for a transaction whose
-// duplicate relationship is undecided. The contract is the shared
-// POSSIBLE_DUPLICATE kind, so a reopened or screenshot-created review cannot
-// advertise different actions or render differently from a freshly created one.
+// possibleDuplicateDecision is the POSSIBLE_DUPLICATE decision from the kind
+// registry, so a reopened review matches a freshly created one.
 func possibleDuplicateDecision(transactionID string, known map[string]any) ([]byte, error) {
 	decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
 	if !ok {
@@ -31,20 +28,14 @@ func possibleDuplicateDecision(transactionID string, known map[string]any) ([]by
 }
 
 // ReopenTransactionReview gives a transaction that a reversal returned to
-// NEEDS_REVIEW its canonical active review_item again. Resolved items are
-// history and stay untouched. Its only caller is Unmerge, and reversing a merge
-// is exactly what makes the duplicate relationship undecided again, so the new
-// OPEN item is a fresh POSSIBLE_DUPLICATE decision from the kind registry. It
-// never copies an old snapshot: every other residual is recomputed from the
-// transaction and its evidence as they are now (an expense with no category, a
-// date that only fell back to the received time, an unclassified transfer), so
-// a fact the household already supplied is not asked again. The previous kind
-// is kept as provenance only.
+// NEEDS_REVIEW a fresh active review_item; resolved items stay as history. Its only
+// caller is Unmerge, so the new item is a POSSIBLE_DUPLICATE decision from the
+// registry. Other residuals are recomputed from the transaction and evidence as
+// they are now, never copied from an old snapshot, so supplied facts are not asked
+// again. The previous kind is kept as provenance only.
 //
-// A newly reopened item is projected to Telegram through the shared projection
-// path by a PROJECT_TELEGRAM_REVIEW job, so the household is asked again where
-// the review started. Idempotent and race-safe: an existing active item is kept
-// as is and is not projected twice.
+// A reopened item is projected to Telegram by a PROJECT_TELEGRAM_REVIEW job.
+// Idempotent and race-safe: an existing active item is kept and not projected twice.
 func ReopenTransactionReview(ctx context.Context, tx pgx.Tx, household, transactionID string) error {
 	_, err := reopenTransaction(ctx, tx, household, transactionID, "")
 	return err
@@ -120,9 +111,8 @@ func auditReopen(ctx context.Context, tx pgx.Tx, household, actorID, itemID stri
 }
 
 // reopenedResiduals lists the facts besides the duplicate relationship that the
-// transaction still lacks, read from canonical state only: an expense without a
-// category, a date that is only the received-time fallback, and an incoming or
-// outgoing row whose transfer relationship was never classified.
+// transaction still lacks, from canonical state only: category, a received-time-only
+// date, and an unclassified transfer.
 func reopenedResiduals(transactionType string, hasCategory, dateFallback bool) []string {
 	var missing []string
 	if transactionType == "EXPENSE" && !hasCategory {
@@ -153,10 +143,9 @@ type ReopenCommand struct {
 }
 
 // ReopenReview reverses a resolved review where that is possible without
-// hard-deleting or silently rewriting a canonical record, and opens a new review
-// item with a freshly built decision. The resolved item stays as history. It
-// returns the new review item id; every reopened item is projected to Telegram
-// through the shared PROJECT_TELEGRAM_REVIEW job.
+// hard-deleting or rewriting a canonical record, and opens a new item with a freshly
+// built decision; the resolved item stays as history. It returns the new item id and
+// projects it to Telegram through PROJECT_TELEGRAM_REVIEW.
 //
 // Reversible (the resolution only changed review or observation state):
 //   - transaction reviews whose transaction is NEEDS_REVIEW again;
@@ -275,19 +264,16 @@ func ReopenReview(ctx context.Context, tx pgx.Tx, cmd ReopenCommand) (string, er
 		if err != nil {
 			return "", err
 		}
-		// The new open item is pending work on the source, so the shared refresh
-		// derives NEEDS_REVIEW itself; reopen never sets the status directly.
+		// The shared refresh derives NEEDS_REVIEW; reopen never sets the status directly.
 		return id, RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, sourceID)
 	}
 	return "", ErrReopenNotReversible
 }
 
-// insertReopened writes the new OPEN item for a non-transaction subject. The
-// decision is rebuilt: the kind's preset contract when one exists, otherwise
-// (evidence-specific producers such as bank email, screenshot missing amount and
-// payslip) the producer's own decision, whose facts come from immutable source
-// evidence, with its resolution-time state cleared. Payslip policy is re-applied
-// against the household's current salary policy.
+// insertReopened writes the new OPEN item for a non-transaction subject, rebuilding
+// the decision: the kind's preset when one exists, otherwise the producer's own
+// decision from immutable source evidence with resolution-time state cleared.
+// Payslip policy is re-applied against the current salary policy.
 func insertReopened(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, kind, column, subjectID, subjectType string, previous []byte) (string, error) {
 	var rebuilt reviewdec.Decision
 	if err := json.Unmarshal(previous, &rebuilt); err != nil || rebuilt.ReasonCode == "" {

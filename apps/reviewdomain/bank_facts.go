@@ -1,9 +1,8 @@
-// Bank fact completion. A bank email whose bounded verification could
-// not confirm the extracted transaction semantics becomes a source-event review
-// (UNKNOWN_BANK_TEMPLATE). Web queues COMPLETE_BANK_REVIEW; this operation owns
-// the same account/household validation, missing-entity linkage, source refresh,
-// and review completion so the Telegram reply lane and the worker job cannot
-// diverge.
+// Bank fact completion. A bank email whose bounded verification could not confirm the
+// extracted semantics becomes a source-event review (UNKNOWN_BANK_TEMPLATE). Web
+// queues COMPLETE_BANK_REVIEW; this operation owns the shared validation, entity
+// linkage, source refresh, and review completion so the Telegram reply lane and the
+// worker job cannot diverge.
 package reviewdomain
 
 import (
@@ -136,12 +135,10 @@ func BindBankSourceAccount(ctx context.Context, tx pgx.Tx, householdID, reviewIt
 }
 
 // ValidateBankSourceAccount checks that a bank-fact reply targets an open
-// UNKNOWN_BANK_TEMPLATE item whose listener is bound to a live funding account,
-// so the caller can fail fast (and re-prompt) before queueing completion. It
-// deliberately does not resolve the review or touch the source: the shared
-// COMPLETE_BANK_REVIEW job is the single owner of linking, persisting the
-// transaction, and resolving the item, and would no-op against an
-// already-resolved item.
+// UNKNOWN_BANK_TEMPLATE item whose listener is bound to a live funding account, so
+// the caller can fail fast before queueing completion. It does not resolve the review
+// or touch the source: the COMPLETE_BANK_REVIEW job owns linking, persisting the
+// transaction, and resolving the item.
 func ValidateBankSourceAccount(ctx context.Context, tx pgx.Tx, cmd BankFactCommand) error {
 	if err := ValidateBankFactValues(cmd.AmountIDR, cmd.TransactionAt); err != nil {
 		return err

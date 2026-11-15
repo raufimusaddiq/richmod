@@ -24,13 +24,11 @@ type IgnoreCommand struct {
 }
 
 var (
-	// ErrUseTransactionAction reports a transaction review whose transaction is
-	// neither awaiting review nor final (for example PENDING): neither a
-	// rejection nor an acknowledgement is correct, so nothing is changed.
+	// ErrUseTransactionAction reports a transaction review whose transaction is neither
+	// awaiting review nor final (for example PENDING); nothing is changed.
 	ErrUseTransactionAction = errors.New("reviewdomain: use the transaction review action")
-	// ErrIgnoreNotAllowed reports a review whose stored contract does not offer
-	// IGNORE (for example a cycle residual, whose only dismissal is
-	// LEAVE_UNALLOCATED). Surfaces must not render a dismiss button for it.
+	// ErrIgnoreNotAllowed reports a review whose stored contract does not offer IGNORE
+	// (for example a cycle residual, whose only dismissal is LEAVE_UNALLOCATED).
 	ErrIgnoreNotAllowed = errors.New("reviewdomain: this review cannot be ignored")
 	// ErrIgnoreTransactionBound reports a transaction-bound review passed to
 	// IgnoreReview; IgnoreReviewItem handles those (reject or acknowledge).
@@ -57,11 +55,10 @@ func IgnoreAllowed(reviewType string, decision []byte) bool {
 	return slices.Contains(actions, "IGNORE")
 }
 
-// IgnoreReviewItem is the IGNORE every surface's generic dismissal shares
-// (ADR-046). A transaction-bound review is handled by the transaction lane: an
-// open transaction is rejected (RejectTransactionReview), and a review whose
-// transaction is already final is only acknowledged (NO_LONGER_APPLICABLE)
-// without touching it. Every other review goes through IgnoreReview.
+// IgnoreReviewItem is the IGNORE every surface's generic dismissal shares (ADR-046).
+// An open transaction review is rejected (RejectTransactionReview); one whose
+// transaction is already final is only acknowledged (NO_LONGER_APPLICABLE). Every
+// other review goes through IgnoreReview.
 func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	var status string
 	var transaction *string
@@ -96,19 +93,16 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,NULLIF($3,'')::uuid,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE','reason','transaction_already_final'))`, cmd.HouseholdID, actorTypeOf(cmd), cmd.ActorUserID, cmd.ReviewItemID); err != nil {
 		return err
 	}
-	// The acknowledged item may have been the last thing holding the
-	// transaction's sources in review.
+	// The acknowledged item may have been the last thing holding the transaction's
+	// sources in review.
 	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, *transaction)
 }
 
-// IgnoreReview is the canonical IGNORE for every review kind that is not bound
-// to a transaction: a missing-amount screenshot row, a wealth observation, a
-// source-bound transfer reconciliation, a financial-email observation, or any
-// other source/proposal/document review. It routes to the kind's own canonical
-// resolver where one exists; otherwise it parks the evidence (never deletes it:
-// observation IGNORED/DISMISSED, proposal REJECTED), completes the item and its
-// Telegram projection, and settles every evidence source through the shared
-// lifecycle (MarkSourceIgnored), which also settles the document.
+// IgnoreReview is the canonical IGNORE for every review kind not bound to a
+// transaction. It routes to the kind's own resolver where one exists; otherwise it
+// parks the evidence (never deletes it: observation IGNORED/DISMISSED, proposal
+// REJECTED), completes the item and its Telegram projection, and settles every
+// source through the shared lifecycle (MarkSourceIgnored).
 func IgnoreReview(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	actorType := actorTypeOf(cmd)
 	var kind, status string
@@ -197,9 +191,8 @@ func actorTypeOf(cmd IgnoreCommand) string {
 	return cmd.ActorType
 }
 
-// notFoundAsResolved reports a vanished binding as an already-resolved review;
-// any other error is returned as is, so a transient failure retries instead of
-// telling the household the review was closed.
+// notFoundAsResolved reports a vanished binding as an already-resolved review; any
+// other error is returned as is so a transient failure retries.
 func notFoundAsResolved(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAlreadyResolved

@@ -17,9 +17,8 @@ type TransferReconciliationCommand struct {
 	// for a case that has no proposed purpose (CONFIRM_NEW_TRANSFER). They are
 	// ignored when the case already proposes one.
 	Purpose, WealthAccountID string
-	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
-	// the chat lanes). Empty defaults to USER so a surface that forgets it is
-	// recorded as a human resolution rather than an unattributed one.
+	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for the chat
+	// lanes). Empty defaults to USER so a missing value is recorded as a human resolution.
 	ActorType string
 }
 
@@ -48,10 +47,10 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	}
 	var id string
 	if cmd.Action != "IGNORE" {
-		// A case with more candidates than a person can compare is narrowed to
-		// the best-ranked bounded set; only that set may be merged into, so a
-		// surface can never merge into a candidate it did not show. Creating a new
-		// transfer beside an overflowing candidate set still fails closed (ADR-036).
+		// A case with more candidates than a person can compare is narrowed to the
+		// best-ranked bounded set, and only that set may be merged into, so a surface never
+		// merges into a candidate it did not show. Creating a new transfer beside an
+		// overflowing set still fails closed (ADR-036).
 		if cmd.Action == "CONFIRM_NEW_TRANSFER" && observationID != "" && len(candidates) > TransferCandidateLimit {
 			return "", ErrTransferCaseUnavailable
 		}
@@ -60,15 +59,13 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			if cmd.CandidateID == "" {
 				return "", ErrTransferCaseUnavailable
 			}
-			// Lock the chosen transaction before reading the verdict, so the
-			// shared merge rule judges its committed state, not a stale one.
+			// Lock the chosen transaction first so the merge rule judges its committed state.
 			var locked string
 			if err := tx.QueryRow(ctx, `SELECT id::text FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, cmd.CandidateID, cmd.HouseholdID).Scan(&locked); err != nil {
 				return "", ErrTransferCaseUnavailable
 			}
-			// The same rule the surfaces use to offer a merge button
-			// (LoadTransferMergeSet / TransferMergeable): only the ranked bounded
-			// set, and only a candidate the merge can actually write.
+			// Same rule the surfaces use to offer a merge button (LoadTransferMergeSet /
+			// TransferMergeable): only the ranked bounded set, and only a writable candidate.
 			set, err := LoadTransferMergeSet(ctx, tx, cmd.HouseholdID, caseID)
 			if err != nil {
 				return "", err
@@ -89,9 +86,9 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			}
 		}
 		if purpose == "" {
-			// A new transfer for a case without a proposed purpose takes the
-			// household's bounded choice; an unknown purpose is refused, and the
-			// compatibility check validates the Wealth target.
+			// A new transfer for a case without a proposed purpose takes the household's
+			// bounded choice; an unknown purpose is refused and the compatibility check
+			// validates the Wealth target.
 			purpose, wealthID = strings.TrimSpace(cmd.Purpose), strings.TrimSpace(cmd.WealthAccountID)
 			if !validTransferPurpose(purpose) {
 				return "", ErrTransferCaseUnavailable
@@ -156,9 +153,9 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
 		return "", err
 	}
-	// The surface is recorded on the canonical review item so Admin
-	// counts a resolution by the channel that performed it. Per-surface audit rows
-	// key off a transaction or source event, which cannot be joined back here.
+	// The surface is recorded on the canonical review item so Admin counts a resolution
+	// by channel; per-surface audit rows key off a transaction or source event and cannot
+	// be joined back here.
 	actorType := cmd.ActorType
 	if actorType == "" {
 		actorType = "USER"
@@ -234,12 +231,11 @@ func (s TransferMergeSet) Mergeable() int {
 }
 
 // TransferMergeable is the one merge rule ReconcileTransfer enforces and every
-// surface uses to offer a merge button: the candidate is the case's account and
-// amount, not voided, and the transfer it would become is valid. When the case
-// proposes no purpose, only an already-classified transfer with a valid purpose
-// can be merged into (its purpose is kept); otherwise an unclassified row or a
-// transfer takes the case's purpose. Either way the resulting purpose/Wealth
-// pair must be compatible.
+// surface uses to offer a merge button: the candidate has the case's account and
+// amount, is not voided, and the transfer it would become is valid. With no
+// proposed purpose only an already-classified transfer with a valid purpose can be
+// merged into (its purpose is kept); otherwise the case's purpose is used. The
+// resulting purpose/Wealth pair must be compatible.
 func TransferMergeable(casePurpose string, c TransferMergeCandidate) bool {
 	if c.Status == "VOIDED" || !c.SameAccount || !c.SameAmount || !c.Compatible {
 		return false
@@ -251,8 +247,8 @@ func TransferMergeable(casePurpose string, c TransferMergeCandidate) bool {
 }
 
 // LoadTransferMergeSet reads an open case's ranked candidates with their merge
-// verdicts. The Web list, the Web dispatcher binding, the Telegram chooser and
-// the resolver all read it, so what is offered is what is accepted.
+// verdicts; the Web list and dispatcher, the Telegram chooser and the resolver all
+// read it, so what is offered is what is accepted.
 func LoadTransferMergeSet(ctx context.Context, q rowQueryer, householdID, caseID string) (TransferMergeSet, error) {
 	var set TransferMergeSet
 	rows, err := q.Query(ctx, `SELECT trc.proposed_purpose,cardinality(trc.candidate_transaction_ids),COALESCE(t.id::text,''),COALESCE(t.type,''),COALESCE(t.status,''),COALESCE(t.amount::text,''),COALESCE(t.purpose,''),COALESCE(t.related_wealth_account_id::text,''),COALESCE(t.transaction_at,trc.transaction_at),t.description,

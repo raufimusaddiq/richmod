@@ -1,7 +1,7 @@
-// The update notice has no service worker state to lean on: the worker
-// skipWaiting()s and keeps no cache, so `registration.waiting` is always null.
-// What is checked here is the comparison itself: the id baked into the page
-// against the id the server serves, with the polling rules around it.
+// The update notice has no service worker state to lean on: the worker skipWaiting()s
+// and keeps no cache, so `registration.waiting` is always null. This checks the
+// comparison itself: the id baked into the page against the id the server serves, with
+// the polling rules around it.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -155,8 +155,7 @@ test("editing a hashed input changes the id; the generated files do not", async 
     const before = computeBuildId(dir);
     assert.equal(computeBuildId(dir), before, "the same tree hashes the same");
 
-    // A generated id file must not feed back into the hash, or it could never
-    // stabilise; writing one changes nothing.
+    // A generated id file must not feed back into the hash, or it could never stabilise.
     writeFileSync(join(dir, GENERATED_MODULE), "export const BUILD_ID = 'x';\n");
     writeFileSync(join(dir, SERVED_FILE), "x\n");
     assert.equal(computeBuildId(dir), before, "generated output is excluded");

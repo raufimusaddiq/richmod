@@ -87,9 +87,9 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
   </section>;
 }
 
-// Category rows share the ribbon's columns. Cells are text; the tint only sizes
-// each value within its own row. A row opens the category's evidence when the
-// served category facts include it.
+// Category rows share the ribbon's columns. Cells are text; the tint only sizes each
+// value within its own row. A row opens the category's evidence when the served facts
+// include it.
 function MatrixRows({ matrix, columns, onSelectCategory }) {
   return matrix.map((row, index) => <tr key={row.key} className={index === 0 ? "ledger-first-category" : undefined} data-selected-row={row.selected || undefined}>
     <th scope="row">{row.selectable && onSelectCategory

@@ -24,10 +24,9 @@ export default function ReviewCard({ item, categories, wealthAccounts, disabled,
   const merchantRecallAllowed = missing.merchant && !categoryRequired;
   const proposed = item.proposedFacts || {};
   const proposalLabel = proposed.categoryId ? (categories.find(category => category.id === proposed.categoryId)?.name || proposed.categoryId) : (proposed.categorySlug || null);
-  // A legacy card (no decision contract) has no proposal to accept, and the
-  // server rejects an EXPENSE without a category and a bank EXPENSE without a
-  // merchant. Offering "Benar, simpan" there posts a request that can only 400,
-  // so the primary action opens the form instead.
+  // A legacy card (no decision contract) has no proposal to accept, and the server rejects
+  // an EXPENSE without a category and a bank EXPENSE without a merchant, so "Benar,
+  // simpan" there could only 400; the primary action opens the form instead.
   const quickCategoryId = item.categoryId || proposed.categoryId || null;
   const canQuickAccept = item.type === "EXPENSE" ? Boolean(quickCategoryId) && !missing.merchant && !missing.category && !missing.transactionAt : !missing.transactionAt;
   const dateChoices = missing.transactionAt ? item.dateChoices || [] : [];

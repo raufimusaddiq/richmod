@@ -1,6 +1,5 @@
-// Cycle residual reconciliation. Web and both Telegram lanes recomputed
-// the same cycle basis and applied the same stale/allocation rules inline; this
-// operation owns that logic so a change cannot drift between surfaces.
+// Cycle residual reconciliation, shared by Web and both Telegram lanes so the
+// basis and stale/allocation rules cannot drift between surfaces.
 package reviewdomain
 
 import (
@@ -92,10 +91,9 @@ const cycleBasisSQL = `SELECT basis_income_idr::text,basis_expense_idr::text,bas
 	(SELECT (COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)-COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0))::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta'))
 	FROM cycle_residual_case c WHERE c.id=$1 AND c.household_id=$2 FOR UPDATE`
 
-// ApplyCycleResidual locks the case, revalidates the recomputed basis, applies
-// any retained-balance allocations, and completes the review. Stale bases are
-// never guessed: a changed positive residual refreshes the stored basis and
-// returns CycleStaleRefreshed, and a non-positive residual closes the review as
+// ApplyCycleResidual locks the case, revalidates the recomputed basis, applies any
+// allocations, and completes the review. A changed positive residual refreshes the
+// stored basis (CycleStaleRefreshed); a non-positive one closes the review as
 // no-longer-applicable.
 func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) (CycleResult, error) {
 	var result CycleResult
@@ -129,9 +127,8 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND household_id=$3 AND cycle_residual_case_id=$4 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 			return result, err
 		}
-		// Edit bound cards in the same commit. The edit is the same card with the
-		// refreshed residual, so the period and instruction stay on screen. The
-		// sender falls back to a new message if Telegram can no longer edit it.
+		// Edit bound cards in the same commit; the sender falls back to a new message if
+		// Telegram can no longer edit.
 		var cycleStart, cycleEnd time.Time
 		if err := tx.QueryRow(ctx, `SELECT cycle_start,cycle_end FROM cycle_residual_case WHERE id=$1 AND household_id=$2`, cmd.CaseID, cmd.HouseholdID).Scan(&cycleStart, &cycleEnd); err != nil {
 			return result, err
@@ -177,12 +174,9 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	return result, nil
 }
 
-// Every path that writes a CONFIRMED transaction (manual, review confirmation
-// and the bank/receipt/screenshot auto-confirm lanes) calls it, with an empty
-// actor for worker writes, so a cycle waiting on "transaksi belum tercatat"
-// reopens whichever lane recorded the transaction.
-// RefreshOpenCycleResiduals re-evaluates only open cycle reviews affected by a
-// newly confirmed transaction. Run inside the transaction's commit boundary.
+// RefreshOpenCycleResiduals re-evaluates open cycle reviews affected by a newly
+// confirmed transaction. Every lane that writes a CONFIRMED transaction calls it
+// (empty actor for worker writes), inside the transaction's commit boundary.
 func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
 	rows, err := tx.Query(ctx, `SELECT c.id::text,ri.id::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id WHERE c.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY c.id`, householdID, at)
 	if err != nil {
@@ -208,8 +202,7 @@ func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID strin
 			return err
 		}
 	}
-	// A cycle the household marked "transaksi belum tercatat" is asked again once
-	// a transaction lands in it, with the recomputed residual.
+	// A cycle marked "transaksi belum tercatat" is asked again once a transaction lands in it.
 	waiting, err := tx.Query(ctx, `SELECT c.id::text FROM cycle_residual_case c WHERE c.household_id=$1
 		AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')
 		AND NOT EXISTS (SELECT 1 FROM review_item o WHERE o.cycle_residual_case_id=c.id AND o.status IN ('PENDING_SEND','OPEN'))
@@ -230,11 +223,9 @@ func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID strin
 	return nil
 }
 
-// MarkCycleTransactionMissing completes a residual review with the household's
-// answer "a transaction is not recorded yet". It writes no transaction and no
-// allocation (ADR-036: residuals stay review metadata). The next step is manual
-// entry; once a transaction lands in the cycle, RefreshOpenCycleResiduals reopens
-// the residual review with the recomputed basis.
+// MarkCycleTransactionMissing completes a residual review with the answer "a
+// transaction is not recorded yet". It writes no transaction or allocation (ADR-036);
+// RefreshOpenCycleResiduals reopens the review once one lands in the cycle.
 func MarkCycleTransactionMissing(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) (CycleResult, error) {
 	var result CycleResult
 	if err := tx.QueryRow(ctx, `SELECT c.basis_residual_idr::text,c.cycle_start::text,c.cycle_end::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id AND ri.household_id=c.household_id
@@ -353,8 +344,7 @@ func ValidateCycleAllocations(ctx context.Context, tx pgx.Tx, householdID, resid
 	return total, nil
 }
 
-// mustCycleValues serializes the canonical resolution values stored on the
-// review item. It mirrors the allocation payload the surfaces already sent and
+// mustCycleValues serializes the resolution values stored on the review item; it
 // cannot fail for the fixed struct shape.
 func mustCycleValues(cmd CycleResidualCommand) []byte {
 	type allocationValues struct {

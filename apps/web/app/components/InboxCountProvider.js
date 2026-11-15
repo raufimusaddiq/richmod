@@ -28,9 +28,8 @@ export function applyBadge(target, count) {
   }
 }
 
-// One shared count for the whole session. The shell used to download both full
-// lists on every navigation; now it loads once, again when the tab regains
-// focus (at most once a minute), and whenever the inbox publishes a new count.
+// One shared count for the whole session: loaded once, again when the tab regains focus
+// (at most once a minute), and whenever the inbox publishes a new count.
 export default function InboxCountProvider({ children }) {
   const { user } = useAuthContext();
   const [count, setCount] = useState(0);
@@ -43,8 +42,7 @@ export default function InboxCountProvider({ children }) {
     loading.current = true;
     try {
       const responses = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions")]);
-      // A 5xx is "unknown", not "zero": keep the last known count instead of
-      // telling the household everything is resolved.
+      // A 5xx is "unknown", not "zero": keep the last known count.
       if (!responses.every(response => response.ok)) return;
       const items = await Promise.all(responses.map(response => response.json()));
       if (!Array.isArray(items[1])) return;

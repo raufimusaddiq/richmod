@@ -1,21 +1,17 @@
-// Build identity for the "reload to update" notice (#413).
+// Build identity for the "reload to update" notice.
 //
-// The id is a hash of the sources that ship, not the release SHA: the container
-// copies `apps/web` without `.git`, so git cannot identify a build there and CI
-// must not plumb one in. Hashing the sources means a rebuild of the same tree
-// keeps the same id, so a rebuild alone never tells open tabs to reload.
+// The id hashes the sources that ship, not the release SHA: the container copies
+// `apps/web` without `.git`, so a rebuild of the same tree keeps the same id and never
+// tells open tabs to reload.
 //
-// The hashed set is everything that feeds the export — `app/`, `public/` and
-// `scripts/` (app/layout.js imports scripts/splash-devices.mjs), plus the build
-// config and lockfiles. Adding a directory here when a new one starts shipping
-// is the one maintenance rule; `hashedFiles()` is exported so a test can assert
-// the set instead of trusting it.
+// The hashed set is everything that feeds the export: `app/`, `public/` and `scripts/`
+// (app/layout.js imports scripts/splash-devices.mjs), plus the build config and
+// lockfiles. Add a directory here when a new one starts shipping; `hashedFiles()` is
+// exported so a test can assert the set.
 //
-// Writes two things from one computation, so they can never disagree:
-//   - app/lib/buildId.generated.js, imported by the page, so a running tab
-//     knows its own id with no network call;
-//   - public/build-id.txt, copied into the export and served by webui.go for
-//     the deployed build.
+// One computation writes both outputs, so they cannot disagree:
+//   - app/lib/buildId.generated.js, imported by the page so a running tab knows its id;
+//   - public/build-id.txt, copied into the export and served by webui.go.
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -27,8 +23,7 @@ export const GENERATED_MODULE = "app/lib/buildId.generated.js";
 export const SERVED_FILE = "public/build-id.txt";
 
 const INPUTS = ["app", "public", "scripts", "next.config.mjs", "package.json", "package-lock.json"];
-// Only generated output and build caches: hashing an id file would be
-// self-referential, and `.next`/`node_modules` are not sources.
+// Only generated output and build caches: an id file would be self-referential.
 const SKIP = new Set([GENERATED_MODULE, SERVED_FILE, ".next", "node_modules", "out", "test-results"]);
 
 function walk(root, entry) {
@@ -48,14 +43,12 @@ function walk(root, entry) {
     .sort();
 }
 
-// Sorted, root-relative, generated output excluded: the same tree hashes the
-// same on any machine, independent of timestamps and directory order.
+// Sorted and root-relative, so the same tree hashes the same on any machine.
 export function hashedFiles(root = defaultRoot) {
   return INPUTS.flatMap(entry => walk(root, entry)).sort();
 }
 
-// 12 hex characters: short enough to read in a log, wide enough that two
-// releases are not going to collide.
+// 12 hex characters: readable in a log, wide enough to avoid collisions between releases.
 export function computeBuildId(root = defaultRoot) {
   const hash = createHash("sha256");
   for (const name of hashedFiles(root)) {
