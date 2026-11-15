@@ -172,3 +172,30 @@ func mustJSON(t *testing.T, value any) string {
 	}
 	return string(encoded)
 }
+
+func TestUnpaidInvoiceOnlyIsNarrow(t *testing.T) {
+	at := time.Now().In(jakarta()).Format(time.RFC3339)
+	valid := screenshotExtraction{Transactions: []screenshotRow{incidentRow(at)}}
+	normalizeScreenshotIdentifiers(&valid)
+	badIdentity := incidentRow(at)
+	badIdentity.TransactionIdentifiers = []screenshotIdentifier{{"CARD", "1"}}
+	for _, test := range []struct {
+		name         string
+		documentType string
+		value        screenshotExtraction
+		want         bool
+	}{
+		{"unpaid, no rows", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .9, PaymentStatus: "UNPAID"}, true},
+		{"unknown status, no rows", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .9, PaymentStatus: "UNKNOWN"}, true},
+		{"unpaid with a valid row", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .9, PaymentStatus: "UNPAID", Transactions: valid.Transactions}, true},
+		{"unpaid but identity is broken", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .9, PaymentStatus: "UNPAID", Transactions: []screenshotRow{badIdentity}}, false},
+		{"paid with no rows", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .9, PaymentStatus: "PAID"}, false},
+		{"screenshot with no rows", "EWALLET_SCREENSHOT", screenshotExtraction{Confidence: .9}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := unpaidInvoiceOnly(test.value, test.documentType); got != test.want {
+				t.Fatalf("unpaidInvoiceOnly = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

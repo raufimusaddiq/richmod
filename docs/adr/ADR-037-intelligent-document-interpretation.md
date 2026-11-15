@@ -87,7 +87,13 @@ The legacy classify-then-extract pipeline remains the production path.
   `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` review item bound to the document
   (reprocess or ignore; Telegram projection when the source has a chat). The
   document stays `FAILED` so a reprocess re-runs the pipeline, and the source
-  event is `NEEDS_REVIEW`. A retried job reuses the open review.
+  event is `NEEDS_REVIEW`. A retried job reuses the open review. Reprocess from
+  that review re-runs classification and extraction; a successful extraction
+  replaces the stored unvalidated `TRANSACTION_SCREENSHOT` extraction row. The
+  exception is a correct extraction of an unpaid bill (`BILL_OR_INVOICE` whose
+  only findings are `PAYMENT_NOT_CONFIRMED` and its zero-row result): an invoice
+  alone is not proof of payment, so it keeps the plain `FAILED` outcome with no
+  review.
 - The typed dispatch contract includes `document_type_confidence` (0..1),
   `quality` (`CLEAR|DEGRADED|UNREADABLE`), complete per-field status/value
   observations, critical-only `field_confidence`, and bounded

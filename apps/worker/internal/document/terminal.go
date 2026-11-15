@@ -57,6 +57,36 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 	})
 }
 
+// unpaidInvoiceOnly reports a correct extraction of an unpaid bill: the document
+// type is BILL_OR_INVOICE, it does not show payment completed, and the only
+// validator findings are PAYMENT_NOT_CONFIRMED and the zero-row result that
+// follows from it. An invoice alone is not proof of payment, so this is not a
+// failure the household can fix and it must not open a review.
+func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
+	if documentType != "BILL_OR_INVOICE" || value.PaymentStatus == "PAID" {
+		return false
+	}
+	for _, issue := range screenshotValidationIssues(value, documentType) {
+		switch {
+		case issue.Field == "payment_status" && issue.Code == "PAYMENT_NOT_CONFIRMED":
+		case issue.Field == "transactions" && issue.Code == "INVALID_ROW_COUNT" && len(value.Transactions) == 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// failScreenshotExtraction routes a screenshot validation failure that survived
+// normalization and repair: an unpaid invoice keeps the plain FAILED outcome
+// with no review; every other failure opens a review instead of a dead end.
+func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, cause error) error {
+	if unpaidInvoiceOnly(value, documentType) {
+		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "TRANSACTION_SCREENSHOT", value, value.Confidence, model, cause)
+	}
+	return p.persistScreenshotExtractionFailure(ctx, documentID, householdID, sourceID, value, model, cause)
+}
+
 // persistScreenshotExtractionFailure settles a TRANSACTION_SCREENSHOT extraction
 // that failed deterministic validation even after identity normalization and the
 // single ADR-037 repair. The model output is kept as unvalidated evidence, no
@@ -76,7 +106,7 @@ func (p *Processor) persistScreenshotExtractionFailure(ctx context.Context, docu
 	if !math.IsNaN(value.Confidence) && value.Confidence >= 0 && value.Confidence <= 1 {
 		storedConfidence = value.Confidence
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,false) ON CONFLICT DO NOTHING`, documentID, string(output), storedConfidence, model); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,false) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model WHERE NOT document_extraction.validated`, documentID, string(output), storedConfidence, model); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET status='FAILED',updated_at=now() WHERE id=$1 AND household_id=$2`, documentID, householdID); err != nil {

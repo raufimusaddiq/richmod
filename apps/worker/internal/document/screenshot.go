@@ -197,7 +197,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			metadata.Model = repairMeta.Model
 		}
 		if issues.has("", repairFailedCode) {
-			return p.persistScreenshotExtractionFailure(ctx, documentID, householdID, sourceID, result, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
+			return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
 		}
 		result = patched
 		if normalized := normalizeScreenshotIdentifiers(&result); len(normalized) > 0 {
@@ -208,7 +208,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	}
 	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
-		return p.persistScreenshotExtractionFailure(ctx, documentID, householdID, sourceID, result, metadata.Model, err)
+		return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, err)
 	}
 	for index := range rows {
 		if rows[index].Type != "EXPENSE" {
@@ -561,7 +561,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if needsReview {
 		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model,validated=true WHERE NOT document_extraction.validated`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
 	if provenance.Questions > 0 {
