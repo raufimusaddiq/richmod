@@ -3,6 +3,7 @@ package emailingress
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/integrationaction"
@@ -25,6 +27,7 @@ const (
 // Activation prerequisites. The handler maps them to specific 409 responses.
 var (
 	ErrAddressRequired = errors.New("provisioned email ingress address required")
+	ErrInvalidCursor   = errors.New("invalid delivery cursor")
 	ErrSenderRequired  = errors.New("add an active bank sender or financial provider source before activating")
 )
 
@@ -82,9 +85,32 @@ type Delivery struct {
 	Reason     string    `json:"reason,omitempty"`
 	Sender     string    `json:"sender,omitempty"`
 	ReceivedAt time.Time `json:"receivedAt"`
+	id         string
 }
 
-const recentDeliveryLimit = 10
+// recentDeliveryLimit is the page size of the deliveries list; older pages are reached with the cursor.
+const recentDeliveryLimit = 20
+
+// DeliveryCursor is the opaque position after the last delivery of a page.
+func deliveryCursor(d Delivery) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(d.ReceivedAt.UTC().Format(time.RFC3339Nano) + "|" + d.id))
+}
+
+func parseDeliveryCursor(value string) (time.Time, string, bool) {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	at, id, found := strings.Cut(string(raw), "|")
+	parsed, err := time.Parse(time.RFC3339Nano, at)
+	if !found || err != nil {
+		return time.Time{}, "", false
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return time.Time{}, "", false
+	}
+	return parsed, id, true
+}
 
 type deliveryInput struct {
 	Signed SignedRequest
@@ -187,22 +213,39 @@ func (s *Service) OpenForwardingAction(ctx context.Context, householdID string) 
 	return &out, nil
 }
 
-// RecentDeliveries lists the household's latest inbound email outcomes.
-func (s *Service) RecentDeliveries(ctx context.Context, householdID string) ([]Delivery, error) {
-	rows, err := s.pool.Query(ctx, `SELECT status,COALESCE(reason_code,''),COALESCE(observed_sender,''),received_at FROM email_ingress_delivery WHERE household_id=$1 ORDER BY received_at DESC LIMIT $2`, householdID, recentDeliveryLimit)
+// RecentDeliveries lists one page of the household's inbound email outcomes, newest first.
+// A non-empty next is the cursor for the following (older) page; an unreadable cursor is ErrInvalidCursor.
+func (s *Service) RecentDeliveries(ctx context.Context, householdID, cursor string) (out []Delivery, next string, err error) {
+	var cursorAt *time.Time
+	cursorID := ""
+	if cursor != "" {
+		at, id, ok := parseDeliveryCursor(cursor)
+		if !ok {
+			return nil, "", ErrInvalidCursor
+		}
+		cursorAt, cursorID = &at, id
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id::text,status,COALESCE(reason_code,''),COALESCE(observed_sender,''),received_at FROM email_ingress_delivery WHERE household_id=$1 AND ($2::timestamptz IS NULL OR (received_at,id) < ($2,NULLIF($3,'')::uuid)) ORDER BY received_at DESC,id DESC LIMIT $4`, householdID, cursorAt, cursorID, recentDeliveryLimit+1)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
-	out := []Delivery{}
+	out = []Delivery{}
 	for rows.Next() {
 		var d Delivery
-		if err := rows.Scan(&d.Status, &d.Reason, &d.Sender, &d.ReceivedAt); err != nil {
-			return nil, err
+		if err := rows.Scan(&d.id, &d.Status, &d.Reason, &d.Sender, &d.ReceivedAt); err != nil {
+			return nil, "", err
 		}
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if len(out) > recentDeliveryLimit {
+		out = out[:recentDeliveryLimit]
+		next = deliveryCursor(out[recentDeliveryLimit-1])
+	}
+	return out, next, nil
 }
 
 func (s *Service) Provision(ctx context.Context, householdID, userID string) (Address, error) {

@@ -16,6 +16,10 @@ export default function DocumentsPage() {
   const user = useAuth();
   const [items, setItems] = useState([]), [visibleCount, setVisibleCount] = useState(12), [page, setPage] = useState(0), [working, setWorking] = useState(false), [error, setError] = useState(""), [toast, setToast] = useState(""), [fileInfo, setFileInfo] = useState(""), [processing, setProcessing] = useState(false), [pollStopped, setPollStopped] = useState(false), [filter, setFilter] = useState("ALL"), [retrying, setRetrying] = useState("");
   const polls = useRef(0);
+  // The server returns documents newest first, one page at a time. Older pages are loaded on request
+  // and survive the status poll, which only refreshes the newest page.
+  const [nextCursor, setNextCursor] = useState(""), [loadingMore, setLoadingMore] = useState(false);
+  const olderLoaded = useRef(false);
   // The drawer is {closed | loading | error | ready}: "still processing" is only
   // true for a ready drawer with no extraction rows, never for a pending or failed request.
   const drawer = useDrawerRecord(async (id, signal) => {
@@ -36,7 +40,11 @@ export default function DocumentsPage() {
     const list = await response.json();
     if (!current()) return;
     const next = Array.isArray(list) ? list : [];
-    setItems(next);
+    const cursor = response.headers.get("X-Next-Cursor") || "";
+    if (olderLoaded.current && next.length) {
+      const boundary = Date.parse(next[next.length - 1].createdAt);
+      setItems(current => [...next, ...current.filter(item => Date.parse(item.createdAt) < boundary && !next.some(fresh => fresh.id === item.id))]);
+    } else { setItems(next); setNextCursor(cursor); }
     // Derived only from a successful response, so a failed poll cannot keep a stale PENDING row polling.
     setProcessing(next.some(item => item.status === "PENDING" || item.status === "PROCESSING" || item.reprocessing));
   }, { fallback: "Dokumen belum dapat dimuat. Periksa koneksi lalu coba lagi." });
@@ -51,6 +59,19 @@ export default function DocumentsPage() {
     const timer = window.setTimeout(() => { polls.current += 1; load(); }, POLL_MS);
     return () => window.clearTimeout(timer);
   }, [processing, loader.status, load]);
+  async function loadOlder() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true); setError("");
+    try {
+      const response = await fetch(`/api/v1/documents?cursor=${encodeURIComponent(nextCursor)}`);
+      if (!response.ok) throw new Error();
+      const older = await response.json();
+      olderLoaded.current = true;
+      setItems(current => [...current, ...(Array.isArray(older) ? older.filter(item => !current.some(existing => existing.id === item.id)) : [])]);
+      setNextCursor(response.headers.get("X-Next-Cursor") || "");
+    } catch { setError("Dokumen yang lebih lama belum dapat dimuat. Coba lagi."); }
+    finally { setLoadingMore(false); }
+  }
   function reloadList() { polls.current = 0; setPollStopped(false); load(); }
   async function upload(event) {
     event.preventDefault(); const formEl = event.currentTarget; const files = formEl.elements.file.files; const total = [...files].reduce((sum, file) => sum + file.size, 0);
@@ -90,6 +111,7 @@ export default function DocumentsPage() {
     <div className="filter-chips" role="group" aria-label="Filter status dokumen">{FILTERS.map(([key, text]) => <button key={key} type="button" className={filter === key ? "chip active" : "chip secondary"} aria-pressed={filter === key} onClick={() => { setFilter(key); setVisibleCount(12); }}>{text}</button>)}</div>
     <section className="document-grid">{visibleItems.slice(0, visibleCount).map(item => <button key={item.id} className="document-card" onClick={() => open(item)}><img src={`/api/v1/documents/${item.id}/content`} alt="Pratinjau dokumen keuangan" loading="lazy" decoding="async"/><div><span className={`status status-${item.status?.toLowerCase()}`}>{statusLabel(item.status)}</span><h2 title={documentTitle(item)}>{documentTitle(item)}</h2><p>{sourceLabel(item.sourceType)} · {dateTime(item.createdAt)}</p>{item.status === "FAILED" ? <p className="document-summary">{item.reprocessing ? "Sedang diproses ulang…" : "Dokumen belum berhasil dibaca."}</p> : summaryText(item.summary) && <p className="document-summary">{summaryText(item.summary)}</p>}<small>{item.status !== "FAILED" && item.confidence ? `Keyakinan ekstraksi ${percent(item.confidence)} · ` : ""}{item.linkedTransactionIds?.length || 0} transaksi terhubung</small>{item.needsReview && item.status !== "NEEDS_REVIEW" && <b className="needs-review">Perlu ditinjau</b>}</div></button>)}{!visibleItems.length && <div className="empty-state"><span>▤</span><h2>{items.length ? "Tidak ada dokumen pada filter ini" : "Belum ada dokumen"}</h2><p>{items.length ? "Pilih filter lain untuk melihat dokumen." : "Unggah gambar keuangan pertama dari web atau Telegram."}</p></div>}</section>
     {visibleItems.length > visibleCount && <div className="list-pagination document-more"><button type="button" className="secondary" onClick={() => setVisibleCount(count => count + 12)}>Tampilkan lebih banyak ({visibleItems.length - visibleCount} lagi)</button></div>}
+    {nextCursor && <div className="list-pagination document-more"><p className="muted" role="status">Menampilkan {items.length} dokumen terbaru; ada dokumen yang lebih lama.</p><button type="button" className="secondary" disabled={loadingMore} onClick={loadOlder}>{loadingMore ? "Memuat…" : "Muat dokumen lebih lama"}</button></div>}
     {selected && <div className="drawer-backdrop" onClick={closeDetail}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer document-detail" role="dialog" aria-modal="true" aria-label="Detail dokumen" onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeDetail}>×</button><img src={`/api/v1/documents/${selected.id}/pages/${page}/content`} alt={`Dokumen keuangan halaman ${page+1}`}/>{pages.length>1&&<div className="page-thumbnails" aria-label="Halaman dokumen">{pages.map(item=><button key={item.index} aria-current={page===item.index} onClick={()=>setPage(item.index)}><img src={`/api/v1/documents/${selected.id}/pages/${item.index}/content`} alt={`Halaman ${item.index+1}`}/><span>{item.index+1}</span></button>)}</div>}<span className="eyebrow">{documentTypeLabel(selected.documentType) || "DOKUMEN"}</span><h2>Ringkasan ekstraksi</h2>{selected.status === "FAILED" && <div className="notice" role="status"><p>Ekstraksi dokumen ini gagal. Klasifikasi di bawah hanya menunjukkan jenis dokumen, bukan hasil baca yang berhasil.</p><button type="button" disabled={Boolean(retrying) || selected.reprocessing} onClick={() => retry(selected)}>{selected.reprocessing || retrying === selected.id ? "Sedang diproses ulang…" : "Proses ulang"}</button></div>}{selected.documentType === "BILL_OR_INVOICE" && <p className="notice">Status pembayaran ditentukan hanya dari bukti yang menyatakan lunas, berhasil, atau selesai. Tagihan yang belum jelas tidak dicatat sebagai pengeluaran.</p>}{drawer.status === "loading" && <p role="status">Memuat ekstraksi…</p>}{drawer.status === "error" && <div role="alert"><p>{drawer.error}</p><button type="button" onClick={drawer.retry}>Coba lagi</button></div>}{extractions.map(item => <article className="extraction" key={`${item.stage}-${item.schemaVersion}`}><div><b>{stageLabel(item.stage)}</b><span>{item.validated ? (selected.status === "FAILED" ? "Jenis dokumen dikenali" : "Diterima") : "Ditolak / perlu ditinjau"}</span></div><p>{summaryText(item.output, selected.status === "FAILED") || "Tidak ada ringkasan yang dapat ditampilkan."}</p><details><summary>Detail teknis</summary><pre tabIndex={0} role="region" aria-label="Hasil ekstraksi, geser untuk semua isi">{JSON.stringify(item.output, null, 2)}</pre></details></article>)}{drawer.status === "ready" && !extractions.length && <p className="empty compact">Ekstraksi masih diproses atau belum tersedia.</p>}<h3>Transaksi terhubung</h3>{selected.linkedTransactionIds?.map(id => <Link key={id} href={`/transactions?id=${id}`}>Buka transaksi {id.slice(0, 8)}… →</Link>)}</aside></div>}
     <Toast message={toast} onClose={closeToast}/>
   </AppShell>;

@@ -65,8 +65,11 @@ function AnalyticsReview() {
     window.history.pushState(null, "", selectionHref({ ...selection, ...change }));
   }
 
+  const loadedKey = useRef("");
   useEffect(() => {
     if (!user || selection.view !== "cycle") return;
+    // The default load rewrites the URL to the cycle it resolved; that is the same payload, so don't refetch it.
+    if (selection.cycle && loadedKey.current === `${selection.cycle}|${reload}`) return;
     const controller = new AbortController();
     setLoading(true); setError("");
     const query = new URLSearchParams();
@@ -78,6 +81,7 @@ function AnalyticsReview() {
         if (result?.version !== "cycle-review-v1" || !result.period || !result.cashflow || !result.spendingShape || !result.comparison?.expense || !result.wealth || !["daily", "cycles", "categoryChanges", "merchantDrivers", "memberAttribution", "savingsDestinations", "dataQuality"].every(key => Array.isArray(result[key]))) throw new Error("Data tinjauan belum dapat dibaca. Coba lagi.");
         if (controller.signal.aborted) return;
         setFacts(result);
+        loadedKey.current = `${result.period.kind === "SALARY_CYCLE" ? result.period.start : selection.cycle}|${reload}`;
         if (!selection.cycle && result.period.kind === "SALARY_CYCLE") {
           window.history.replaceState(null, "", selectionHref({ ...readReviewSelection(window.location.search), cycle: result.period.start }));
         }
