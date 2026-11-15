@@ -552,7 +552,7 @@ func (f *Facts) block(kind string, count int, amount *string, action string) {
 		switch kind {
 		case "PROCESSING_INCOMPLETE":
 			scope, impact = "PROCESSING", "PROCESSING_INCOMPLETE"
-		case "MISSING_WEALTH_SNAPSHOT", "WEALTH_SNAPSHOT_BEFORE_CYCLE", "MISSING_PREVIOUS_WEALTH_SNAPSHOT", "WEALTH_ACCOUNT_SET_CHANGED", "WEALTH_SNAPSHOT_UNCHANGED":
+		case "MISSING_WEALTH_SNAPSHOT", "WEALTH_SNAPSHOT_BEFORE_CYCLE", "MISSING_PREVIOUS_WEALTH_SNAPSHOT", "WEALTH_ACCOUNT_SET_CHANGED":
 			scope, impact = "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE"
 		}
 		f.Quality = append(f.Quality, reviewBlocker{Kind: kind, Count: count, Amount: amount, Scope: scope, Impact: impact, Action: action})
