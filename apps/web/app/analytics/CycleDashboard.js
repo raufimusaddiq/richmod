@@ -48,7 +48,7 @@ export function KpiStrip({ facts, updated = 0 }) {
   const cells = kpiCells(facts);
   return <section id="position" className="kpi-strip" aria-labelledby="position-title" data-updated={updated || undefined}>
     <h2 id="position-title" className="visually-hidden" tabIndex={-1}>Posisi siklus</h2>
-    <dl key={updated}>
+    <dl key={updated} className="surface">
       {cells.map(cell => <div key={cell.key} className="kpi-cell" data-lead={cell.lead || undefined}>
         <dt>{cell.label}</dt>
         <dd>{cell.value}</dd>
@@ -69,7 +69,7 @@ export function PaceCard({ facts }) {
   const curves = paceCurves(pace);
   const previousCurve = curves.previous ?? [];
   const medianCurve = curves.median ?? [];
-  return <section id="spending-shape" className="dash-card pace-card" aria-labelledby="shape-title">
+  return <section id="spending-shape" className="surface dash-card pace-card" aria-labelledby="shape-title">
     <div className="dash-card-head">
       <div>
         <SectionTitle id="shape-title" about="laju pengeluaran" title="Laju pengeluaran" description="Total pengeluaran bersih kumulatif sejak awal siklus, setelah refund; transfer tidak termasuk. Garis berhenti di data terakhir dan tidak ada proyeksi."/>
@@ -110,7 +110,7 @@ function SplitBar({ cashflow }) {
 export function SavingsWealthCard({ facts }) {
   const { wealth, cashflow } = facts;
   const snapshot = wealth.current ?? wealth.previous;
-  return <section id="savings-wealth" className="dash-card savings-card" aria-labelledby="savings-title">
+  return <section id="savings-wealth" className="surface dash-card savings-card" aria-labelledby="savings-title">
     <SectionTitle id="savings-title" about="tabungan dan kekayaan" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
     <p className="dash-sub">Arus kas bersih {facts.period.state === "ACTIVE" ? "sejauh ini " : ""}{amountLabel(cashflow.netCashflow)}</p>
     <SplitBar cashflow={cashflow}/>
