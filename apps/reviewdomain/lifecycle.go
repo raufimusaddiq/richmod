@@ -31,9 +31,7 @@ func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceI
 	}
 	_, err := tx.Exec(ctx, `WITH documents AS (
 		SELECT d.id,d.source_event_id FROM document d WHERE d.household_id=$2 AND (d.source_event_id=$1
-		OR EXISTS(SELECT 1 FROM document_page dp WHERE dp.document_id=d.id AND dp.source_event_id=$1)
-		OR d.id::text IN (SELECT te.metadata_json->>'disputed_document_id' FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id AND t.household_id=$2
-			WHERE te.source_event_id=$1 AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'))
+		OR EXISTS(SELECT 1 FROM document_page dp WHERE dp.document_id=d.id AND dp.source_event_id=$1))
 		AND EXISTS(SELECT 1 FROM source_event WHERE id=$1 AND household_id=$2)
 	), sources AS (
 		SELECT s.id FROM source_event s WHERE s.household_id=$2 AND s.id IN (
