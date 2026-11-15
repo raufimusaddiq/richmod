@@ -2,7 +2,7 @@
 
 Thanks for helping improve Richmod.
 
-Richmod handles financial data, so correctness and evidence preservation matter more than clever shortcuts. Before changing behavior, read [`AGENTS.md`](AGENTS.md) and any relevant ADR or runbook under [`docs/`](docs/).
+Richmod handles financial data, so correctness and evidence preservation matter more than clever shortcuts. Before changing behavior, read [`AGENTS.md`](AGENTS.md) and any relevant decision-log entry or runbook under [`docs/`](docs/).
 
 ## Development principles
 
@@ -76,7 +76,7 @@ A useful PR explains:
 - tests performed;
 - screenshots for material UI changes.
 
-Keep PRs cohesive. Architecture changes should update the relevant ADR or add a new one.
+Keep PRs cohesive. A material architecture change should add a short entry to the [decision log](docs/adr/README.md).
 
 ## Financial correctness checklist
 

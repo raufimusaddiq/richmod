@@ -147,7 +147,7 @@ never looks like a transaction problem, and a transaction ambiguity is never
 hidden inside system setup. The Actions tab also lists source events that failed
 for good, such as an unusable bank email or a job that gave up, as dismissable
 items rather than false reviews
-([ADR-049](docs/adr/ADR-049-failed-sources-surface-as-actions.md)).
+([ADR-049](docs/adr/README.md#adr-049-failed-sources-surface-as-dismissable-actions)).
 
 ## How it works
 
@@ -379,8 +379,8 @@ plans were removed from the tree and remain in git history.
 | Topic | Documents |
 | --- | --- |
 | Rules and contributing | [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md) |
-| Architecture | [ADR index](docs/adr/README.md), [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md) |
-| Email and Telegram | [ADR-033: Cloudflare email ingress](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md) and [ADR-033: Bounded conversational agent](docs/adr/ADR-033-bounded-natural-conversational-agent.md) (two current records share the number) |
+| Architecture | [Decision log](docs/adr/README.md), [ADR-038: System One semantic decision plane](docs/adr/README.md#adr-038-system-one-semantic-decision-plane) |
+| Email and Telegram | [ADR-033: Cloudflare email ingress](docs/adr/README.md#adr-033-cloudflare-email-ingress-and-two-deploy-gmail-sunset) and [ADR-033: Bounded conversational agent](docs/adr/README.md#adr-033-bounded-natural-conversational-finance-agent) (two current entries share the number) |
 | Data | [Database schema and ERD](docs/DATABASE_SCHEMA.md) |
 | Operations | [Production deployment](docs/runbooks/production-deployment.md), [sprint delivery](docs/runbooks/sprint-delivery.md), [disposable test matrix](docs/runbooks/disposable-test-matrix.md), [Cloudflare email ingress](docs/runbooks/cloudflare-email-ingress.md) and its [CLI setup](docs/runbooks/cloudflare-email-cli.md) |
 | Interface | [Brand guidelines](docs/brand-guidelines.md), [UI motion](docs/UI_MOTION.md) |

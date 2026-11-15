@@ -2,7 +2,7 @@
 
 This runbook documents the external Cloudflare resources and delivery contract used by Richmod's production financial-email ingress.
 
-The architecture decision and migration rationale live in [`ADR-033`](../adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md). This document is the operational setup reference; the [Cloudflare CLI runbook](cloudflare-email-cli.md) gives the same setup as commands.
+The architecture decision and migration rationale live in [`ADR-033`](../adr/README.md#adr-033-cloudflare-email-ingress-and-two-deploy-gmail-sunset). This document is the operational setup reference; the [Cloudflare CLI runbook](cloudflare-email-cli.md) gives the same setup as commands.
 
 ## Architecture
 
@@ -477,7 +477,7 @@ The action auto-resolves as soon as any non-Gmail-confirmation email reaches the
 
 ## Related files
 
-- [`ADR-033: Cloudflare email ingress and two-deploy Gmail sunset`](../adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md)
+- [`ADR-033: Cloudflare email ingress and two-deploy Gmail sunset`](../adr/README.md#adr-033-cloudflare-email-ingress-and-two-deploy-gmail-sunset)
 - [`apps/api/internal/emailingress`](../../apps/api/internal/emailingress/)
 - [`db/migrations/00042_cloudflare_email_ingress.sql`](../../db/migrations/00042_cloudflare_email_ingress.sql)
 - [`db/migrations/00043_integration_action_inbox.sql`](../../db/migrations/00043_integration_action_inbox.sql)
