@@ -10,6 +10,11 @@
 -- A -> B) is being voided by that second merge, and its event lives on in B. B is then
 -- the protected target.
 
+-- The guard looks up ACTIVE merges by target on every move to VOIDED (the source side already has
+-- reconciliation_merge_active_source_unique).
+CREATE INDEX reconciliation_merge_active_target_idx
+    ON reconciliation_merge (target_transaction_id) WHERE status = 'ACTIVE';
+
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_transaction_status_transition() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -40,6 +45,8 @@ $$;
 -- +goose StatementEnd
 
 -- +goose Down
+DROP INDEX reconciliation_merge_active_target_idx;
+
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_transaction_status_transition() RETURNS trigger
 LANGUAGE plpgsql AS $$

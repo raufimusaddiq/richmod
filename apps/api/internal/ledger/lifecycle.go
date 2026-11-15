@@ -331,7 +331,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	// A voided CONFIRMED transaction leaves the totals, so an open cycle residual review
 	// built on them is recomputed in the same commit (as a newly recorded one does).
 	if target == "VOIDED" && before == "CONFIRMED" {
-		if err = reviewdomain.RefreshOpenCycleResiduals(r.Context(), tx, household, occurredAt, p.UserID); err != nil {
+		if err = reviewdomain.RefreshOpenCycleResidualsFor(r.Context(), tx, household, occurredAt, p.UserID, reviewdomain.CycleReopenTransactionVoided); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
 			return
 		}

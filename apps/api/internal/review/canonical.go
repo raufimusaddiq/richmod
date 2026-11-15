@@ -514,6 +514,10 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err = errInvalid
 	}
+	if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+		writeMergeTargetRefusal(w)
+		return
+	}
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid or unavailable review action"})
 		return

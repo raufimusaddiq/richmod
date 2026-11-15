@@ -180,3 +180,78 @@ func TestVoidWebManualTransaction(t *testing.T) {
 		}
 	})
 }
+
+// Voiding a confirmed transaction re-asks a cycle the household had answered "transaksi belum
+// tercatat"; the reopened review says why: recording one is TRANSACTION_RECORDED, voiding is TRANSACTION_VOIDED.
+func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var hh, usr, source, salarySource, startEvent, endEvent, caseID string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void reopen') RETURNING id`).Scan(&hh))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Reopener','unused') RETURNING id`, fmt.Sprintf("void-reopen-%d@example.test", time.Now().UnixNano())).Scan(&usr))
+	p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: hh, Role: "OWNER"}}}
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(time.Now().UnixNano())).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Test','test',true) RETURNING id`, hh, usr).Scan(&salarySource))
+	for _, row := range []struct {
+		date string
+		out  *string
+	}{{"2026-01-01", &startEvent}, {"2026-02-01", &endEvent}} {
+		var tx string
+		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,purpose,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1000000,$2::date,'GENERAL',now()) RETURNING id`, hh, row.date).Scan(&tx))
+		must(pool.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$3::date,1000000,$4,'CONFIRMED',$5) RETURNING id`, salarySource, hh, row.date, tx, source).Scan(row.out))
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-01-01','2026-02-01',1000000,0,0,1000000) RETURNING id`, hh, startEvent, endEvent).Scan(&caseID))
+	answeredMissing := func() {
+		t.Helper()
+		_, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,review_type,status,cycle_residual_case_id,decision,resolved_at,resolution_action) VALUES($1,'CYCLE_RESIDUAL_ALLOCATION','RESOLVED',$2,'{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"]}'::jsonb,now(),'TRANSACTION_MISSING')`, hh, caseID)
+		must(err)
+	}
+	reopened := func() (reason, audited string) {
+		t.Helper()
+		must(pool.QueryRow(ctx, `SELECT ri.decision->'decisionProvenance'->>'reopened',(SELECT a.after_json->>'reason' FROM audit_log a WHERE a.entity_id=ri.id AND a.action='REOPEN_REVIEW') FROM review_item ri WHERE ri.cycle_residual_case_id=$1 AND ri.status='OPEN'`, caseID).Scan(&reason, &audited))
+		return reason, audited
+	}
+	h := NewHandler(pool)
+	as := func(r *http.Request) *http.Request { return r.WithContext(auth.ContextWithPrincipal(r.Context(), p)) }
+
+	answeredMissing()
+	// Recording a transaction inside the cycle reopens it as TRANSACTION_RECORDED (unchanged).
+	w := httptest.NewRecorder()
+	h.CreateManualTransaction(w, as(httptest.NewRequest(http.MethodPost, "/api/v1/transactions", strings.NewReader(`{"type":"EXPENSE","amount":"25000","description":"Dalam siklus","transactionAt":"2026-01-15T10:00:00+07:00"}`))))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create %d %s", w.Code, w.Body)
+	}
+	if reason, audited := reopened(); reason != "TRANSACTION_RECORDED" || audited != "TRANSACTION_RECORDED" {
+		t.Fatalf("record reopen reason=%q audited=%q", reason, audited)
+	}
+	var created string
+	must(pool.QueryRow(ctx, `SELECT id FROM transaction WHERE household_id=$1 AND description='Dalam siklus'`, hh).Scan(&created))
+
+	// The household answers "belum tercatat" again; voiding that transaction asks again as TRANSACTION_VOIDED.
+	_, err = pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='TRANSACTION_MISSING' WHERE cycle_residual_case_id=$1 AND status='OPEN'`, caseID)
+	must(err)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/"+created+"/void", nil)
+	r.SetPathValue("id", created)
+	w = httptest.NewRecorder()
+	h.VoidTransaction(w, as(r))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("void %d %s", w.Code, w.Body)
+	}
+	if reason, audited := reopened(); reason != "TRANSACTION_VOIDED" || audited != "TRANSACTION_VOIDED" {
+		t.Fatalf("void reopen reason=%q audited=%q", reason, audited)
+	}
+}
