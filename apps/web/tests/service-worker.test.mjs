@@ -1,6 +1,6 @@
-// Runs the real service worker in a VM. The point of this file is that there
-// is no caching path left to test: a chunk request is never intercepted, and a
-// push with a valid, empty, or malformed body all show a notification.
+// Runs the real service worker in a VM. There is no caching path left to test: a chunk
+// request is never intercepted, and a push with a valid, empty or malformed body shows a
+// notification.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";

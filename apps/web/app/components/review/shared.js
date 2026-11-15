@@ -1,7 +1,6 @@
-// Every review_type the database accepts (review_item_review_type_check) has
-// an Indonesian label and a one-line explanation, so no card ever shows a raw
-// code such as "UNKNOWN BANK TEMPLATE". tests/review-labels.test.mjs keeps this
-// table in step with the latest migration.
+// Every review_type the database accepts (review_item_review_type_check) has an
+// Indonesian label and one-line explanation, so no card shows a raw code.
+// tests/review-labels.test.mjs keeps this table in step with the latest migration.
 export const reviewTypeCopy = {
   UNKNOWN_MERCHANT: ["Tempat transaksi belum dikenal", "Bukti tidak menyebut nama tempat transaksi, jadi kategorinya belum bisa ditentukan."],
   UNKNOWN_PURPOSE: ["Tujuan belum jelas", "Bukti belum cukup untuk menentukan jenis transaksi ini."],
@@ -34,10 +33,9 @@ export const reasons = reviewTypes;
 export function reviewLabel(type) { return reviewTypes[type] || "Perlu ditinjau"; }
 export function reviewExplanation(type) { return reviewTypeCopy[type]?.[1] || "Richmod membutuhkan konfirmasi untuk bukti ini."; }
 
-// Every card answers the same four questions — what happened, what
-// Richmod thinks, why it needs you, and the one primary action. Full editing
-// controls appear only after "Ubah", and `missingFacts` from the
-// stored ReviewDecision decides which inputs a card may require.
+// Every card answers the same four questions: what happened, what Richmod thinks, why
+// it needs you, and the one primary action. Full editing appears only after "Ubah", and
+// `missingFacts` from the stored ReviewDecision decides which inputs a card may require.
 export function ProposalFacts({ item, known, missing }) {
   const text = value => value === undefined || value === null || value === "" ? null : String(value);
   const knownRow = known.filter(([, value]) => text(value));
@@ -52,10 +50,9 @@ const fieldLabels = { amount_idr: "Jumlah", amount: "Jumlah", transaction_at: "W
 function label(key) { if (fieldLabels[key] || reviewTypes[key]) return fieldLabels[key] || reviewTypes[key]; const words = String(key).split("_").join(" ").toLowerCase(); return words.charAt(0).toUpperCase() + words.slice(1); }
 
 export function MissingInputs(item) {
-  // The decision contract uses missingFacts; a legacy transaction-backed review
-  // carries missingFields from the API instead and never gets a decision. Read
-  // whichever the server actually sent; an absent list means the server computed
-  // nothing missing, so the card must not invent a required field.
+  // The decision contract uses missingFacts; a legacy transaction-backed review carries
+  // missingFields from the API instead. Read whichever the server sent; an absent list
+  // means nothing is missing, so the card must not invent a required field.
   const missing = item.missingFacts || item.missingFields || [];
   return { category: missing.includes("category"), merchant: missing.includes("merchant"), transactionAt: missing.includes("transaction_at") };
 }

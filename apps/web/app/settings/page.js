@@ -26,9 +26,8 @@ export default function SettingsPage() {
   const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], financialSources: [], emailIngress: null });
   const [error, setError] = useState(""), [loadNotice, setLoadNotice] = useState(""); const { busy, run: runBusy, isBusy } = useBusyMap(); const [financialPreview, setFinancialPreview] = useState(null); const [editingFinancialSource, setEditingFinancialSource] = useState(null);
   const owner = user?.household?.role === "OWNER";
-  // Each endpoint stands alone. A 403/404 means "not available to this role" and
-  // is an empty section; a 5xx, 401 or dropped connection means "unknown" and is
-  // reported, never painted as an empty household.
+  // Each endpoint stands alone. A 403/404 means "not available to this role" (an empty
+  // section); a 5xx, 401 or dropped connection means "unknown" and is reported.
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
     const settled = await Promise.all(endpoints.map(async value => {
@@ -198,26 +197,22 @@ export function EmailOnboardingChecklist({ ingress, owner = false, isBusy = () =
   </div>;
 }
 
-// The state model. Three independent facts, each of which may be unknown;
-// unknown is not false.
+// The state model: three independent facts, each possibly unknown (unknown is not false).
 //
 //   B — does this browser hold a push endpoint?  true | false
 //   S — what does the server say about this endpoint for this session's
 //       user+household?  live | retired | absent | unknown
 //   E — is push enabled on the server?  enabled | disabled | unknown
 //
-// Four rules, and every branch below is one of them:
+// Every branch below is one of four rules:
 //
-//   1. Opt-out is available whenever B is true. Nothing else may remove it:
-//      it must survive an unreachable server, a disabled server, a stale row
-//      and a wrong account. This is a safety property.
-//   2. The endpoint is discarded only on a definitive answer about that
-//      endpoint: a subscription created in this call and a definitive 4xx.
-//      A 5xx, 429, timeout, thrown request, or any 4xx on a pre-existing
-//      endpoint is unknown, so the endpoint is kept.
+//   1. Opt-out is available whenever B is true, even with an unreachable or disabled
+//      server, a stale row or a wrong account. This is a safety property.
+//   2. The endpoint is discarded only on a definitive answer about it: a subscription
+//      created in this call and a definitive 4xx. A 5xx, 429, timeout, thrown request,
+//      or any 4xx on a pre-existing endpoint is unknown, so the endpoint is kept.
 //   3. "Aktif" is painted only when B is true and S is live.
-//   4. E == disabled means new registrations will not work. It does not mean
-//      this device has no subscription and never removes the opt-out.
+//   4. E == disabled means new registrations will not work; it never removes the opt-out.
 export function notificationState({ supported, ios, installed, permission, browserEndpoint, serverState, serverEnabled }) {
   if (!supported || (ios && !installed)) return "unsupported"; // platform cannot hold an endpoint
   if (permission === "denied") return "denied";
@@ -232,10 +227,9 @@ function base64Key(value) {
   return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
 }
 
-// S for this endpoint. An endpoint the server does not know belongs to
-// another account (or was pruned); a retired row is not live. When the list is
-// unavailable S is unknown. `canDisable` is exactly B: rule 1 keeps the opt-out
-// available even when S is absent, retired, or unknown.
+// S for this endpoint. An endpoint the server does not know belongs to another account
+// (or was pruned); a retired row is not live. With no list S is unknown. `canDisable`
+// is exactly B (rule 1).
 export function reconcileSubscription({ browserEndpoint = null, serverSubscriptions = null }) {
   if (!browserEndpoint) return { serverState: "absent", canDisable: false, issue: "" };
   if (!Array.isArray(serverSubscriptions)) return { serverState: "unknown", canDisable: true, issue: "unknown" };
@@ -246,9 +240,9 @@ export function reconcileSubscription({ browserEndpoint = null, serverSubscripti
     : { serverState: "retired", canDisable: true, issue: "retired" };
 }
 
-// Three outcomes, never collapsed: `ok`, `definitive` (the server answered no)
-// and `unavailable` (5xx/429, thrown, unreadable). Only a definitive answer may
-// change what the user is offered.
+// Three outcomes, never collapsed: `ok`, `definitive` (the server answered no) and
+// `unavailable` (5xx/429, thrown, unreadable). Only a definitive answer may change
+// what the user is offered.
 async function requestOutcome(request, url) {
   let response;
   try {
@@ -274,8 +268,8 @@ export async function loadPushView({ supported, ios, installed, permission, serv
       // No registration means no browser subscription; the server list decides.
     }
   }
-  // Ask for this endpoint, not for a page of the caller's rows: a truncated
-  // list must never make a live endpoint look absent.
+  // Ask for this endpoint, not a page of rows: a truncated list must never make a live
+  // endpoint look absent.
   const endpointQuery = browserEndpoint ? `/api/v1/push/subscriptions?endpoint=${encodeURIComponent(browserEndpoint)}` : null;
   const [key, listed] = await Promise.all([
     requestOutcome(request, "/api/v1/push/public-key"),
@@ -295,11 +289,10 @@ export async function loadPushView({ supported, ios, installed, permission, serv
   };
 }
 
-// Rule 2: only a subscription created in this call may be discarded, and only
-// on a definitive 4xx. A pre-existing endpoint is never discarded on a
-// rejection, because the server may already hold a live row for it. Everything
-// else is unknown: keep the endpoint and let the server list decide on the next
-// refresh. Re-registering the same endpoint is an upsert.
+// Rule 2: only a subscription created in this call may be discarded, and only on a
+// definitive 4xx. A pre-existing endpoint is kept on rejection because the server may
+// hold a live row for it; anything else is unknown and the next refresh decides.
+// Re-registering the same endpoint is an upsert.
 export async function registerSubscription(serviceWorker, publicKey, request = fetch) {
   const registration = await serviceWorker.getRegistration() || await serviceWorker.register("/sw.js", { scope: "/" });
   let subscription = await registration.pushManager.getSubscription();
@@ -318,9 +311,9 @@ export async function registerSubscription(serviceWorker, publicKey, request = f
     }
     let replacedEndpoint = "";
     if (!response.ok && response.status === 409 && body?.code === "ENDPOINT_OWNED_BY_ANOTHER_USER") {
-      // Another account registered this browser endpoint. Never repoint that
-      // row; replace the browser subscription with a new endpoint instead.
-      // The old endpoint is returned for the log line, never its keys.
+      // Another account registered this browser endpoint. Never repoint that row; replace
+      // the browser subscription with a new endpoint. The old endpoint is returned for the
+      // log line, never its keys.
       replacedEndpoint = subscription.endpoint;
       await subscription.unsubscribe();
       subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
@@ -340,9 +333,9 @@ export async function registerSubscription(serviceWorker, publicKey, request = f
   }
 }
 
-// Unsubscribing locally and deleting the server row are one action; either
-// alone leaves a subscription the sender keeps trying to reach. The endpoint
-// stays until the server confirms, so a failed delete can be retried.
+// Unsubscribing locally and deleting the server row are one action; either alone
+// leaves a subscription the sender keeps trying to reach. The endpoint stays until
+// the server confirms, so a failed delete can be retried.
 export async function disableNotifications(serviceWorker, request = fetch) {
   const registration = await serviceWorker.getRegistration();
   const subscription = await registration?.pushManager?.getSubscription();

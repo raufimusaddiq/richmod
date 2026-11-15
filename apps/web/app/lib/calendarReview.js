@@ -1,9 +1,9 @@
 import { monthLabel } from "./format.js";
 
-// Calendar-view helpers. The API decides which months exist and what they total;
-// this module only validates a requested range with the same rules the API
-// enforces (so the user sees the reason beside the field), labels the running
-// month, and turns the API's English 400 reasons into guidance.
+// Calendar-view helpers. The API decides which months exist and what they total; this
+// module validates a requested range with the API's rules (so the reason shows beside
+// the field), labels the running month, and turns the API's English 400 reasons into
+// guidance.
 
 const MAX_CUSTOM_MONTHS = 24;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;

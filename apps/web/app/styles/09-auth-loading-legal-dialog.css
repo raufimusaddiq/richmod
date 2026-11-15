@@ -12,14 +12,10 @@
 .spinner { width: 26px; height: 26px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .75s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* The prerendered loading shells (app/components/LoadingShell.js). The card is
-   the same box, in the same column, as the real login card: min-height is the
-   measured height of that card at each breakpoint, so replacing the shell does
-   not move it, and .loading-nav reserves the public nav's height (18px
-   padding + 48px bar; 14px padding on a phone) so the layout starts where it
-   will start with the nav. Bars shimmer with the existing `skeleton`
-   keyframes, which 15-motion.css already reduces to one frame under
-   prefers-reduced-motion. */
+/* The prerendered loading shells (app/components/LoadingShell.js). The card is the same
+   box as the real login card: min-height is its measured height at each breakpoint, so
+   the swap does not move it, and .loading-nav reserves the public nav's height (18px
+   padding + 48px bar; 14px on a phone). Bars reuse the `skeleton` keyframes. */
 .loading-nav { height: 66px; }
 .loading-card { display: grid; min-height: 523.5px; align-content: start; justify-items: start; gap: 12px; width: 100%; }
 /* The dashboard shell replaces this with the app shell or the landing page, so
@@ -43,10 +39,8 @@
 @media (max-width: 680px) {
   .loading-nav { height: 62px; }
   .loading-card { min-height: 553px; }
-  /* The real context column dissolves into the flex column here and only its
-     back link, kicker and h1 sit above the card; the rest follows it. These
-     three keep the measured heights (18 / 18 / 42.5) so the card lands at the
-     same y whether the shell or the form is on screen. */
+  /* The real context column dissolves into the flex column; the back link, kicker and h1
+       keep their measured heights (18 / 18 / 42.5) so the card lands at the same y. */
   .loading-context { display: contents; }
   .loading-context .loading-title.short,
   .loading-context .loading-copy { display: none; }

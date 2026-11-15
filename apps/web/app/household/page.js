@@ -49,9 +49,8 @@ export default function HouseholdPage() {
   useEffect(() => { setCopied(false); }, [invite?.link]);
   const owner = me?.household?.role === "OWNER";
 
-  // Every handler clears the previous error, holds a per-key busy flag, and
-  // releases it in finally, so a dropped request can neither stick a button nor
-  // leave an old message on screen.
+  // Every handler clears the previous error, holds a per-key busy flag, and releases it
+  // in finally, so a dropped request can neither stick a button nor leave an old message.
   function addMember(event) {
     event.preventDefault(); const formEl = event.currentTarget; const form = new FormData(formEl);
     return runBusy("add-member", async () => {
