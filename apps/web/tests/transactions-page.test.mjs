@@ -109,7 +109,8 @@ test("a failed load keeps rows but drops the stale pager cursor", () => {
 import { canEditTransaction, editErrorMessage, editFormErrors, editPayload, editableFields } from "../app/lib/transactionForm.js";
 
 test("edit: only live transactions are editable and transfers lock category and account", () => {
-  for (const status of ["PENDING", "NEEDS_REVIEW", "CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
+  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
+  assert.equal(canEditTransaction({ id: "t", status: "NEEDS_REVIEW" }), false);
   assert.equal(canEditTransaction({ id: "t", status: "VOIDED" }), false);
   assert.equal(canEditTransaction({ status: "CONFIRMED" }), false);
   assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, description: true, note: true });
@@ -121,6 +122,10 @@ test("edit: validation and payload", () => {
   assert.ok(editFormErrors({ description: "x".repeat(501) }).description);
   assert.ok(editFormErrors({ description: "ok", note: "x".repeat(2001) }).note);
   assert.deepEqual(editFormErrors({ description: "Kopi", note: "" }), {});
+  // NULL description (ingestion) stays blank without error; blanking an existing one errors.
+  assert.deepEqual(editFormErrors({ description: "", note: "" }, { description: null }), {});
+  assert.ok(editFormErrors({ description: "", note: "" }, { description: "Lama" }).description);
+  assert.deepEqual(editPayload({ type: "INCOME", description: null, categoryId: null }, { categoryId: "c1", accountId: "", description: "", note: "" }), { categoryId: "c1" });
   assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", description: "Lama", note: "n" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
   // Unchanged (possibly deactivated) category/account are never resent.
   assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", accountId: "a0", description: "Lama", note: null }, { categoryId: "c0", accountId: "a0", description: "Baru", note: "" }), { description: "Baru" });

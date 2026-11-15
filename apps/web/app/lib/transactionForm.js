@@ -73,9 +73,9 @@ export function trapTarget(items, active, shift, container = null) {
 
 // ---- Edit existing transaction (PATCH /api/v1/transactions/{id}) ----
 
-// Statuses the API accepts for an edit; VOIDED is final.
+// Statuses the API accepts for an edit; NEEDS_REVIEW is resolved through review and VOIDED is final.
 export function canEditTransaction(transaction) {
-  return Boolean(transaction?.id) && ["PENDING", "NEEDS_REVIEW", "CONFIRMED"].includes(transaction.status);
+  return Boolean(transaction?.id) && ["PENDING", "CONFIRMED"].includes(transaction.status);
 }
 
 // Transfers keep their account and have no category; only text fields move.
@@ -84,11 +84,14 @@ export function editableFields(transaction) {
   return { category: !transfer, account: !transfer, description: true, note: true };
 }
 
-export function editFormErrors(values) {
+// Ingestion may leave description NULL, so it is only required once the user
+// changes it (or when the transaction already has one).
+export function editFormErrors(values, transaction = {}) {
   const errors = {};
   const description = String(values.description || "").trim();
-  if (!description) errors.description = "Deskripsi wajib diisi.";
-  else if (description.length > 500) errors.description = "Deskripsi maksimal 500 karakter.";
+  if (!description) {
+    if (description !== (transaction?.description || "")) errors.description = "Deskripsi wajib diisi.";
+  } else if (description.length > 500) errors.description = "Deskripsi maksimal 500 karakter.";
   if (String(values.note || "").trim().length > 2000) errors.note = "Catatan maksimal 2000 karakter.";
   return errors;
 }

@@ -73,10 +73,11 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
 - **Preconditions:** `If-Match: <updatedAt>` from the last read is required
   (428 `IF_MATCH_REQUIRED` if absent). A stale value is 409 `STALE_EDIT`; the row
   is locked `FOR UPDATE`, so two concurrent edits cannot both win.
-- **Status:** allowed on `PENDING`, `NEEDS_REVIEW`, `CONFIRMED`; `VOIDED` is
-  409 `TRANSACTION_VOIDED`. Another household's transaction is 404.
+- **Status:** allowed on `PENDING`, `CONFIRMED`; `NEEDS_REVIEW` is 409
+  `REVIEW_OPEN` (same boundary as confirm/void, even without a review item);
+  `VOIDED` is 409 `TRANSACTION_VOIDED`. Another household's transaction is 404.
 - **Review boundary (deterministic reject, no bypass):** while the transaction
-  has an `OPEN` or `PENDING_SEND` review item the edit is 409 `REVIEW_OPEN`
+  is `NEEDS_REVIEW` or has an `OPEN`/`PENDING_SEND` review item the edit is 409 `REVIEW_OPEN`
   ("selesaikan tinjauan dulu"); the review resolution path owns those facts.
   A `TRANSFER` keeps its source account and has no category, so `categoryId` and
   `accountId` on a transfer are 409 `TRANSFER_FIELD_LOCKED`; its description and

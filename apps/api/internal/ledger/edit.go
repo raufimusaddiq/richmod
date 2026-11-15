@@ -161,12 +161,12 @@ func (h *Handler) EditTransaction(w http.ResponseWriter, r *http.Request) {
 			fail(ee)
 			return
 		}
-		writeJSON(w, 500, map[string]string{"error": "unable to update transaction", "code": "INTERNAL"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to update transaction", "code": "INTERNAL"})
 		return
 	}
 	v, err := h.load(r.Context(), household, id)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to load transaction", "code": "INTERNAL"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load transaction", "code": "INTERNAL"})
 		return
 	}
 	writeJSON(w, 200, v)
@@ -201,7 +201,7 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	if !updatedAt.Equal(expected) {
 		return editError{http.StatusConflict, codeStale, "transaction changed since it was loaded"}
 	}
-	if reviewOpen {
+	if reviewOpen || status == "NEEDS_REVIEW" {
 		return editError{http.StatusConflict, codeReviewOpen, "resolve the open review first (selesaikan tinjauan dulu)"}
 	}
 	if kind == "TRANSFER" && (in.categoryID.set || in.accountID.set) {

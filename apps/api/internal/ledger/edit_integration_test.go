@@ -179,6 +179,13 @@ func TestEditTransactionDetails(t *testing.T) {
 			}
 		}
 	})
+	t.Run("category_only_edit_on_null_description", func(t *testing.T) {
+		id := newTx("INCOME", "CONFIRMED")
+		must(execOnly(pool, `UPDATE transaction SET description=NULL,updated_at=now() WHERE id=$1`, id))
+		if rec := patch(id, stamp(id), fmt.Sprintf(`{"categoryId":%q}`, category), principal); rec.Code != 200 {
+			t.Fatalf("category-only on NULL description: %d %s", rec.Code, rec.Body)
+		}
+	})
 	t.Run("inactive_current_values_stay_editable_and_account_change_opens_no_review", func(t *testing.T) {
 		id := newTx("EXPENSE", "CONFIRMED")
 		var staleCat, staleAcct string
