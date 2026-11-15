@@ -62,7 +62,7 @@ func Parse(privateKey, subject string) (*VAPID, error) {
 }
 
 // PublicKey derives the advertised key. It returns empty when the private key
-// is invalid; callers must gate on Enabled/Parse before trusting it.
+// is invalid; callers must gate on Parse before trusting it.
 func PublicKey(privateKey string) string {
 	config, err := Parse(privateKey, "https://richmod.invalid")
 	if err != nil {
