@@ -277,7 +277,7 @@ test("loading skeletons say they are loading", () => {
 });
 
 test("transaction filters are inert while their data loads", () => {
-  assert.match(text("app/transactions/page.js"), /<form className="filter-bar surface" onSubmit=\{filter\} inert=\{loading\}>/);
+  assert.match(text("app/transactions/page.js"), /<form key=\{filterKey\} className="filter-bar surface" onSubmit=\{filter\} inert=\{loading\}>/);
 });
 
 test("document thumbnails load lazily and the list shows twelve at a time", () => {
