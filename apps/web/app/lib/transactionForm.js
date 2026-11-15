@@ -130,3 +130,46 @@ export function editErrorMessage(status, body = {}) {
   if (status >= 500) return "Perubahan belum dapat disimpan. Coba lagi.";
   return "Perubahan belum dapat disimpan. Periksa isian lalu coba lagi.";
 }
+
+// ---- Void a transaction (POST /api/v1/transactions/{id}/void) ----
+
+export const VOID_CONFIRM_MESSAGE = "Batalkan transaksi ini? Transaksi keluar dari semua total dan tetap tersimpan di riwayat beserta catatan perubahannya.";
+export const VOID_SUCCESS_MESSAGE = "Transaksi dibatalkan. Tidak lagi dihitung dalam total, dan tetap ada di riwayat.";
+
+// Same statuses the API voids. NEEDS_REVIEW is resolved in Tinjauan; VOIDED is already final.
+export function canVoidTransaction(transaction) {
+  return Boolean(transaction?.id) && ["PENDING", "CONFIRMED"].includes(transaction.status);
+}
+
+// What the drawer shows after a refused void. Never raw API text. `review` adds the link to
+// Tinjauan; `reload` means the record changed under us, so the drawer is fetched again.
+export function voidFailure(status, body = {}) {
+  if (status === 409 && body?.code === "REVIEW_OPEN") return { kind: "review", message: "Transaksi ini masih menunggu keputusan, jadi belum bisa dibatalkan di sini. Selesaikan dulu di Tinjauan." };
+  if (status === 409 && body?.code === "MERGE_TARGET") return { kind: "error", reload: true, message: "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan. Pisahkan penggabungannya dulu lewat tombol “Pisahkan penggabungan” di bawah." };
+  if (status === 409) return { kind: "error", message: "Status transaksi sudah berubah. Detail dimuat ulang; coba lagi jika tombol masih tersedia.", reload: true };
+  if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
+  if (status === 404) return { kind: "error", message: "Transaksi tidak ditemukan. Muat ulang daftar transaksi.", reload: true };
+  return { kind: "error", message: "Transaksi belum dibatalkan. Coba lagi." };
+}
+
+// ---- Reverse a reconciliation merge (POST /api/v1/reconciliation-merges/{id}/reverse) ----
+
+export const REVERSE_MERGE_SUCCESS_MESSAGE = "Penggabungan dipisahkan. Transaksi yang tadi digabung kembali ke Tinjauan untuk diputuskan lagi.";
+
+// One line about an ACTIVE merge from GET /transactions/{id}: TARGET absorbed the other
+// transaction, SOURCE was folded into it. `formatAmount` is the page's money formatter.
+export function mergeSummary(merge, formatAmount = value => value) {
+  const other = [merge?.otherLabel || "Transaksi lain", merge?.otherAmount ? formatAmount(merge.otherAmount) : ""].filter(Boolean).join(" · ");
+  return merge?.role === "TARGET" ? `Menyerap transaksi duplikat: ${other}.` : `Digabung ke transaksi lain: ${other}.`;
+}
+
+export function reverseMergeConfirmMessage(merge, formatAmount) {
+  return `Pisahkan penggabungan ini? ${mergeSummary(merge, formatAmount)} Transaksi yang digabung kembali ke Tinjauan, dan bukti yang tadi disalin dilepas lagi. Tidak ada transaksi yang dihapus.`;
+}
+
+export function reverseMergeFailure(status) {
+  if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
+  if (status === 404) return { kind: "error", message: "Penggabungan ini sudah dipisahkan atau tidak ditemukan. Detail dimuat ulang.", reload: true };
+  if (status === 409) return { kind: "error", message: "Transaksi hasil gabungan sudah berubah, jadi penggabungan belum bisa dipisahkan. Detail dimuat ulang.", reload: true };
+  return { kind: "error", message: "Penggabungan belum dipisahkan. Coba lagi." };
+}
