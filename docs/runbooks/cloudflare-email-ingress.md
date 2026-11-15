@@ -311,8 +311,9 @@ Typical setup:
 4. Google sends a forwarding confirmation email to the generated Richmod address.
 5. The normal Cloudflare transport delivers it.
 6. Richmod's deterministic control-email adapter creates an Integration Action.
-7. OWNER opens the allowlisted Google verification URL in their browser or uses the confirmation code.
+7. Settings → Integrasi shows the confirmation code and the allowlisted "Verifikasi penerusan" link inline for OWNERs (`forwardingAction` on `GET /api/v1/integrations/email-ingress`; hidden from non-owner members). The same action remains in the Inbox Actions tab. The OWNER opens the link in their browser or uses the code.
 8. User completes Gmail forwarding configuration.
+   Richmod resolves the action automatically (audit `AUTO_RESOLVE_INTEGRATION_ACTION`, actor `SYSTEM`) when the first non-control email arrives on the address, because that proves forwarding works. A Gmail confirmation email never counts as proof. "Tandai selesai" stays as a manual fallback (`POST /api/v1/integration-actions/{id}/resolve`). Resolution is idempotent per webhook delivery and a replayed confirmation email does not reopen a resolved action.
 9. Send a real configured financial email while still `PROVISIONED` to inspect authentication evidence if needed.
 10. Configure trusted authserv IDs.
 11. Activate the Richmod email ingress.
@@ -404,6 +405,10 @@ Check that:
 - message sender/subject match the deterministic Gmail forwarding adapter;
 - verification URL matches the explicit Google HTTPS host/path allowlist;
 - the Integration Action belongs to the same household selected by the generated recipient.
+
+### The verification card disappeared before I clicked the link
+
+The action auto-resolves as soon as any non-Gmail-confirmation email reaches the address. If forwarding was already working, no click is needed. Otherwise request a new confirmation from Gmail; it creates a new action.
 
 ## Security invariants
 

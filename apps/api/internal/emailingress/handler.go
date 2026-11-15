@@ -75,8 +75,14 @@ func (h *Handler) Integration(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !found {
-			writeJSON(w, 200, map[string]any{"address": nil, "status": nil, "provider": "CLOUDFLARE_EMAIL", "lastReceivedAt": nil})
+			writeJSON(w, 200, map[string]any{"address": nil, "status": nil, "provider": "CLOUDFLARE_EMAIL", "lastReceivedAt": nil, "forwardingAction": nil})
 			return
+		}
+		if p.HouseholdRole == "OWNER" {
+			if address.ForwardingAction, err = h.service.OpenForwardingAction(r.Context(), householdID); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to load email ingress"})
+				return
+			}
 		}
 		writeJSON(w, 200, address)
 		return

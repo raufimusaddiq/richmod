@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/integrationaction"
 )
 
 const (
@@ -36,6 +37,18 @@ type Address struct {
 	Status         string     `json:"status"`
 	Provider       string     `json:"provider"`
 	LastReceivedAt *time.Time `json:"lastReceivedAt"`
+	// ForwardingAction is the open Gmail forwarding verification, set only for
+	// owners. It exposes the confirmation code and verify link inline.
+	ForwardingAction *ForwardingAction `json:"forwardingAction"`
+}
+
+// ForwardingAction is the household's pending forwarding verification.
+type ForwardingAction struct {
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	ActionURL  *string   `json:"actionUrl"`
+	ActionCode *string   `json:"actionCode"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Delivery is the household-visible outcome of one inbound email. It carries no
@@ -70,6 +83,20 @@ func (s *Service) Current(ctx context.Context, householdID string) (Address, boo
 	}
 	out.Address = out.LocalPart + "@" + s.domain
 	return out, true, nil
+}
+
+// OpenForwardingAction returns the household's newest unresolved forwarding
+// verification, if any.
+func (s *Service) OpenForwardingAction(ctx context.Context, householdID string) (*ForwardingAction, error) {
+	var out ForwardingAction
+	err := s.pool.QueryRow(ctx, `SELECT id,title,action_url,action_code,created_at FROM integration_action WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' ORDER BY created_at DESC LIMIT 1`, householdID, forwardingIntegrationType, forwardingActionType).Scan(&out.ID, &out.Title, &out.ActionURL, &out.ActionCode, &out.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // RecentDeliveries lists the household's latest inbound email outcomes.
@@ -202,6 +229,15 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		return err
 	}
 	address.Address = address.LocalPart + "@" + s.domain
+	// Any non-control delivery proves forwarding works, so it closes the pending
+	// verification. The Gmail confirmation itself never counts as proof.
+	if address.Status != StatusDisabled {
+		if _, isControl := detectControlAction(in.Email, in.Signed.ContentHash); !isControl {
+			if _, err := integrationaction.AutoResolve(ctx, tx, address.HouseholdID, forwardingIntegrationType, forwardingActionType, "FORWARDING_DELIVERY_RECEIVED"); err != nil {
+				return err
+			}
+		}
+	}
 	var existingDeliveryID string
 	err = tx.QueryRow(ctx, `SELECT id FROM email_ingress_delivery WHERE address_id=$1 AND content_sha256=$2`, address.ID, in.Signed.ContentHash[:]).Scan(&existingDeliveryID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

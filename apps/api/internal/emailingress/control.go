@@ -10,6 +10,11 @@ import (
 	"golang.org/x/net/html"
 )
 
+const (
+	forwardingIntegrationType = "EMAIL_FORWARDING"
+	forwardingActionType      = "VERIFY_FORWARDING"
+)
+
 const gmailForwardingSubject = "gmail forwarding confirmation - receive mail from "
 
 var (
@@ -48,8 +53,8 @@ func detectControlAction(email ParsedEmail, contentHash [32]byte) (controlAction
 	}
 	dedupeHash := sha256.Sum256([]byte("gmail-forwarding-confirmation\n" + dedupeSource))
 	return controlAction{
-		IntegrationType: "EMAIL_FORWARDING",
-		ActionType:      "VERIFY_FORWARDING",
+		IntegrationType: forwardingIntegrationType,
+		ActionType:      forwardingActionType,
 		Title:           "Verifikasi penerusan email",
 		Description:     "Google meminta konfirmasi sebelum email dapat diteruskan ke Richmod.",
 		ActionURL:       actionURL,
