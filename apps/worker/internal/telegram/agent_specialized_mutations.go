@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -269,8 +270,16 @@ func (p *Processor) agentResolveSalaryChoice(ctx context.Context, state *agentSt
 	}
 	resolvedStatus := choice
 	if choice == "IGNORE" {
+		// The salary transaction may be the target of an ACTIVE merge (a payslip merged into it); ignoring it would leave
+		// the income with no live transaction. Refuse before writing; the database guard (00100) backs this up.
+		if protected, perr := reviewdomain.ActiveMergeTarget(ctx, tx, state.HouseholdID, transactionID); perr != nil {
+			return result, true, perr
+		} else if protected {
+			result.Status = "MERGE_TARGET_ACTIVE"
+			return result, true, nil
+		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',updated_at=now() WHERE id=$1 AND household_id=$2`, transactionID, state.HouseholdID); err != nil {
-			return result, true, err
+			return result, true, reviewdomain.MergeTargetError(err)
 		}
 		resolvedStatus = "IGNORED"
 		if _, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE id=$1`, pendingID); err != nil {

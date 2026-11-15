@@ -54,7 +54,9 @@ test("calendar source: independent sections, controlled range, visible reason, f
   assert.match(page, /calendarErrorMessage\(response\.status, body\?\.error\)/, "the API's reason is read, not replaced by a fixed sentence");
   assert.match(page, /onSubmit=\{submitRange\} noValidate/);
   assert.doesNotMatch(page, /defaultValue=\{selection\.(from|to)\}/, "range inputs follow the URL after Back or a preset");
-  assert.match(page, /useEffect\(\(\) => \{ setFrom\(selection\.from\); setTo\(selection\.to\);/);
+  assert.match(page, /const shown = defaultRange\(\{ from: selectedFrom, to: selectedTo, range: selectedRange \}\)/);
+  assert.match(page, /setFrom\(shown\.from\); setTo\(shown\.to\);/);
+  assert.match(page, /const fallback = defaultRange\(selection\)/, "the month fields open on the range already shown");
   assert.match(page, /aria-pressed=\{custom\}>Kustom/);
   assert.match(page, /max: latest/);
   assert.match(page, /monthRowLabel\(item\.period, now\)/);
@@ -64,4 +66,16 @@ test("calendar source: independent sections, controlled range, visible reason, f
   assert.match(page, /<ErrorNotice message=\{state\.error\} retry=\{state\.retry\}\/>/, "each failed section retries on its own");
   assert.match(page, /const allFailed = sections\.every\(section => section\.error\)/, "a range every section rejects shows one notice, not four");
   assert.match(page, /hideError/, "the table sharing the chart's request does not repeat its error");
+});
+
+test("calendar charts follow the cycle rules: bar-order legend, server ranking, readable values", () => {
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.ok(charts.includes('<li data-series="income"><i aria-hidden="true"/>Pemasukan</li><li data-series="expense">'), "legend order matches bar order");
+  assert.doesNotMatch(charts, /Math\.round\(item\.value/, "the tooltip never rounds a served amount");
+  assert.match(charts, /money\(item\?\.income\)/, "the tooltip prints the served string");
+  const page = tree("app/analytics");
+  assert.match(page, /<CategoryRankingChart items=\{items\} height=\{160\}/, "the calendar category chart keeps the server's amount order");
+  assert.doesNotMatch(page, /serverOwned/, "the web never re-sorts a money ranking");
+  assert.match(page, /Lihat nilai kategori/, "category values are readable without a tooltip");
+  assert.match(page, /role="group" aria-label="Rentang bulan"/);
 });

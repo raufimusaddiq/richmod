@@ -47,9 +47,16 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
+	// A review-held target of an ACTIVE merge must stay live; refuse before writing (the database guard backs this up).
+	if protected, perr := reviewdomain.ActiveMergeTarget(ctx, tx, state.HouseholdID, review.transactionID); perr != nil {
+		return result, true, perr
+	} else if protected {
+		result.Status = "MERGE_TARGET_ACTIVE"
+		return result, true, nil
+	}
 	voided, err := tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'`, review.transactionID, state.HouseholdID)
 	if err != nil {
-		return result, true, err
+		return result, true, reviewdomain.MergeTargetError(err)
 	}
 	if voided.RowsAffected() != 1 {
 		// Resolved elsewhere (the dashboard) since this card was bound: reject nothing, and never reject
@@ -443,6 +450,10 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		}
 		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			result.Status = "INCOMPATIBLE_WEALTH_ACCOUNT"
+			return result, true, nil
+		}
+		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+			result.Status = "MERGE_TARGET_ACTIVE"
 			return result, true, nil
 		}
 		if errors.Is(err, reviewdomain.ErrTransferNotFound) {

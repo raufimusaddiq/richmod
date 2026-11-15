@@ -52,15 +52,17 @@ test("analytics commentary is selected-cycle prose, safely rendered after determ
   assert.match(analytics, /api\/v1\/insights/);
   assert.match(analytics, /pollInsight/);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
-  const ordered = ["<CyclePosition", 'id="spending-shape"', 'id="changes"', 'id="drivers"', 'id="destinations"', 'id="household"', "<SavingsWealth", "<QualitySection", 'id="discussion"', "<InsightCard"];
-  for (let index = 1; index < ordered.length; index += 1) assert.ok(analytics.indexOf(ordered[index - 1]) < analytics.indexOf(ordered[index]), ordered[index]);
+  const page = text("app/analytics/page.js");
+  const ordered = ["<NoticeStrip", "<KpiStrip", "<PaceCard", "<WhereCard", "<ChangesCard", "<DailyCard", "<HistoryCard", 'id="matrix"', 'id="merchants"', "<HouseholdSection", "<QualityFooter", 'id="discussion"', "<InsightCard"];
+  for (let index = 1; index < ordered.length; index += 1) assert.ok(page.indexOf(ordered[index - 1]) < page.indexOf(ordered[index]), ordered[index]);
+  assert.match(page, /<PaceCard facts=\{facts\}\/><SavingsWealthCard/);
 });
 
 test("analytics controls are labelled and charts use theme colour tokens", () => {
   const analytics = tree("app/analytics");
   const charts = text("app/components/Charts.js");
   assert.match(analytics, /aria-labelledby="changes-title"/);
-  assert.match(analytics, /aria-controls="category-drivers"/);
+  assert.match(analytics, /aria-controls="category-drawer"/);
   assert.match(charts, /var\(--chart-income\)/);
   assert.match(charts, /var\(--chart-expense\)/);
   assert.doesNotMatch(charts, /#[0-9a-f]{3,8}/i);

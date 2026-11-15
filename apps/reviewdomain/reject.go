@@ -27,9 +27,16 @@ func RejectTransactionReview(ctx context.Context, tx pgx.Tx, cmd RejectCommand) 
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return err
 	}
+	// A review-held target of an ACTIVE merge (a cross-lane candidate) must not be rejected:
+	// the merged event would end with no live transaction. Refuse before any write.
+	if protected, err := ActiveMergeTarget(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
+		return err
+	} else if protected {
+		return ErrMergeTargetActive
+	}
 	result, err := tx.Exec(ctx, "UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'", cmd.TransactionID, cmd.HouseholdID)
 	if err != nil {
-		return err
+		return MergeTargetError(err)
 	}
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved

@@ -1,7 +1,10 @@
 const rupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
+// One minus sign everywhere: U+2212, never the hyphen Intl emits for negatives.
+export function minusSign(text) { return String(text).replace(/^-/, "−"); }
+
 export function money(value) {
-  try { return rupiah.format(BigInt(String(value ?? "0").trim().split(".")[0] || "0")); } catch { return "Rp0"; }
+  try { return minusSign(rupiah.format(BigInt(String(value ?? "0").trim().split(".")[0] || "0"))); } catch { return "Rp0"; }
 }
 
 export function dateTime(value) {
