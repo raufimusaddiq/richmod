@@ -361,11 +361,15 @@ test("chart ticks follow the 12px type floor", () => {
   assert.doesNotMatch(text("app/components/Charts.js"), /fontSize: (?:[0-9]|1[01])\b/);
 });
 
-test("transaction date inputs carry visible labels and an explicit format hint", () => {
+test("transaction date inputs carry visible labels and the chosen date spelled out", () => {
   const page = text("app/transactions/page.js");
-  assert.match(page, /<label className="filter-date"><span>Dari tanggal<\/span><input name="from" type="date"/);
-  assert.match(page, /<label className="filter-date"><span>Sampai tanggal<\/span><input name="to" type="date"/);
-  assert.equal((page.match(/date-hint/g) || []).length, 3);
+  assert.match(page, /<label className="filter-date"><span>Dari tanggal<\/span><DateInput name="from" type="date"/);
+  assert.match(page, /<label className="filter-date"><span>Sampai tanggal<\/span><DateInput name="to" type="date"/);
+  assert.equal((page.match(/<DateInput /g) || []).length, 3);
+  const field = text("app/components/DateInput.js");
+  assert.match(field, /displayDate\(day\)/);
+  assert.match(field, /className="date-hint"/);
+  assert.doesNotMatch(field, /hh\/bb/);
 });
 
 test("motion uses one scale and one reduced-motion guard", () => {
