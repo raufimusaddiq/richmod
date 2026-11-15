@@ -502,6 +502,7 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AllAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := pageLimit(r, 50, 100)
+	cursor, hasCursor := parseCursor(q.Get("cursor"))
 	start := adminRange(q.Get("range"))
 	if from, ok := dateBound(q.Get("from"), false); ok {
 		start = from
@@ -518,7 +519,8 @@ func (h *Handler) AllAudit(w http.ResponseWriter, r *http.Request) {
 		) e
 		WHERE ($1='' OR action=$1) AND created_at >= $2
 		  AND ($3::timestamptz IS NULL OR created_at < $3)
-		ORDER BY created_at DESC,id DESC LIMIT $4`, q.Get("action"), start, nullableTimeArg(to, toOK), limit)
+		  AND (NOT $4 OR (created_at,id)<($5,$6::text))
+		ORDER BY created_at DESC,id DESC LIMIT $7`, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -542,7 +544,13 @@ func (h *Handler) AllAudit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": ""})
+	next := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		next = makeCursor(last["createdAt"].(time.Time), last["id"].(string))
+		items = items[:limit]
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
 }
 func nullableString(value string) any {
 	if value == "" {
