@@ -2,17 +2,17 @@
 
 ## Project docs
 
-Before material changes, read the relevant current documentation under `docs/`.
+The code and tests are the primary documentation. Where a document under `docs/`
+(the ADR decision log, runbooks, `DATABASE_SCHEMA.md`, `STATE_MACHINES.md`) covers the area you
+are changing, read it first.
 
 Priority when requirements conflict:
 
 1. latest explicit user instruction;
 2. current repository behavior/state;
-3. current project documentation and ADRs;
-4. older/historical specs.
+3. current project documentation and the ADR decision log.
 
-When behavior or architecture changes, update the relevant docs in the same branch.
-Do not treat an initial design document as permanently authoritative.
+When behavior or architecture changes, update any doc that describes it in the same branch.
 
 ## Stack
 
@@ -111,7 +111,9 @@ provider-specific production branches or expose canonical IDs to AI models.
 - Time uses `TIMESTAMPTZ`; household timezone is `Asia/Jakarta`.
 - Schema changes require migrations, relevant tests, and a same-branch update to
   `docs/DATABASE_SCHEMA.md` (schema reference and ERD).
-- Do not materially change architecture or add infrastructure without an ADR.
+- Record a material architecture change or new infrastructure as a short entry in the
+  decision log, [`docs/adr/README.md`](docs/adr/README.md) (next number, decision, key
+  reason, consequence; not a long write-up). Do not add infrastructure without one.
 - Never commit or log secrets.
 - Run relevant tests before marking work complete.
 
