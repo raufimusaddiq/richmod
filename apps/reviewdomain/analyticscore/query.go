@@ -234,17 +234,12 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	if now.Before(end) {
 		end = now
 	}
-<<<<<<< HEAD
 	// Boundary rule: current is the newest observation inside the cycle (after
 	// the start day, before the measured end); previous is the newest observation
 	// on or before the cycle start day. Both are household-day based so a snapshot
 	// taken just after midnight on the start date is still the opening baseline.
 	start, _ := time.ParseInLocation("2006-01-02", facts.Period.Start, clock.HouseholdLocation())
 	firstInside := start.AddDate(0, 0, 1)
-=======
-	// current is the newest observation before the measured end; previous is its strict
-	// predecessor in the same total order, never the cycle start boundary.
->>>>>>> origin/main
 	rows, err := tx.Query(ctx, `WITH selected AS (
 		(SELECT 1 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at>=$3 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 1)
 		UNION ALL
