@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -326,7 +327,7 @@ func TestRecentDeliveriesAreHouseholdScoped(t *testing.T) {
 	insert(addressA, "deliveries/"+householdA+"/a-unmatched.eml", "IGNORED_UNMATCHED", "UNMATCHED_SENDER", "stranger@test.invalid")
 	insert(addressA, "deliveries/"+householdA+"/a-auth.eml", "IGNORED_AUTH", "UNTRUSTED_AUTHENTICATION", "alerts@test.invalid")
 	insert(addressB, "deliveries/"+householdB+"/b-unmatched.eml", "IGNORED_UNMATCHED", "UNMATCHED_SENDER", "other@test.invalid")
-	deliveries, err := service.RecentDeliveries(ctx, householdA)
+	deliveries, _, err := service.RecentDeliveries(ctx, householdA, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,5 +372,63 @@ func TestRecentDeliveriesAreHouseholdScoped(t *testing.T) {
 		if strings.Contains(response.Body.String(), forbidden) {
 			t.Fatalf("payload exposes %q: %s", forbidden, response.Body)
 		}
+	}
+}
+
+// N19: deliveries page with a cursor; every row is reachable and none repeats.
+func TestRecentDeliveriesPageWithCursor(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var household, user string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Delivery paging '||substr(gen_random_uuid()::text,1,8)) RETURNING id`).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,password_initialized_at) VALUES((substr(gen_random_uuid()::text,1,8)||'@test.invalid'),'Paging','x',now()) RETURNING id`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, "richmod.link", []string{"mx.test"})
+	address, err := service.Provision(ctx, household, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := recentDeliveryLimit*2 + 3
+	for i := 0; i < total; i++ {
+		key := "deliveries/" + household + "/p" + strconv.Itoa(i) + ".eml"
+		// Rows in groups of three share a timestamp so the id tiebreak is exercised.
+		if _, err := pool.Exec(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,provider,object_key,content_sha256,observed_sender,status,received_at) VALUES($1,$2,'CLOUDFLARE_EMAIL',$3,sha256(convert_to($3,'UTF8')),'a@test.invalid','IGNORED_UNMATCHED',now()-make_interval(mins => $4))`, address.ID, household, key, i/3); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen, cursor := 0, ""
+	for page := 0; page < 5; page++ {
+		items, next, err := service.RecentDeliveries(ctx, household, cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen += len(items)
+		if next == "" {
+			break
+		}
+		if len(items) != recentDeliveryLimit {
+			t.Fatalf("full page has %d, want %d", len(items), recentDeliveryLimit)
+		}
+		cursor = next
+	}
+	if seen != total {
+		t.Fatalf("reached %d deliveries, want %d", seen, total)
+	}
+	if _, _, err := service.RecentDeliveries(ctx, household, "garbage"); !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("err = %v, want ErrInvalidCursor", err)
 	}
 }

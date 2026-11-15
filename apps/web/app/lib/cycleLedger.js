@@ -85,7 +85,7 @@ export function buildMatrix(categoryHistory, history = [], selectedCategory = ""
     const id = row.id || "uncategorized";
     return { key: id, id, name: row.name, amounts: row.amounts, tints: tints(row.amounts), other: false, selected: id === selectedCategory, selectable: pickable.has(id) };
   });
-  matrix.push({ key: "other", id: "", name: "Lainnya", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
+  matrix.push({ key: "other", id: "", name: "Kategori lain", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
   return matrix;
 }
 
@@ -94,23 +94,6 @@ export function adjacentCycles(cycles = [], start = "") {
   const index = cycles.findIndex(item => item.start === start);
   if (index < 0) return { older: "", newer: "" };
   return { older: cycles[index + 1]?.start || "", newer: index > 0 ? cycles[index - 1].start : "" };
-}
-
-// Label : value pairs from served fields only; no sentence is composed.
-export function verdictPairs({ comparison, period, spendingShape }) {
-  const expense = comparison?.expense;
-  if (!expense || !period) return [];
-  if (period.state === "ACTIVE") {
-    const days = spendingShape?.days;
-    const pairs = [[days ? `Pengeluaran bersih · hari ke-${days}` : "Pengeluaran bersih", money(expense.amount)]];
-    pairs.push(["Siklus sebelumnya di hari yang sama", expense.previous == null ? "Belum ada pembanding" : `${money(expense.previous)} · ${directionText(expense.deltaVsPrevious)}`]);
-    if (expense.median3 != null) pairs.push(["Median 3 siklus di hari yang sama", `${money(expense.median3)} · ${directionText(expense.deltaVsMedian3)}`]);
-    return pairs;
-  }
-  const pairs = [["Pengeluaran bersih", money(expense.amount)]];
-  pairs.push(["Dibanding siklus sebelumnya", expense.deltaVsPreviousFullCycle == null ? "Belum ada pembanding" : `${directionText(expense.deltaVsPreviousFullCycle)} · ${ratioLabel(expense.relativeDeltaVsPreviousFullCycle)}`]);
-  if (expense.deltaVsMedian3 != null) pairs.push(["Dibanding median 3 siklus", directionText(expense.deltaVsMedian3)]);
-  return pairs;
 }
 
 // Pace references are the served comparison totals. Equal-day values are totals over
@@ -159,6 +142,22 @@ export function mapPace(items = [], pace) {
   }));
 }
 
-export function monthMarkers(items = []) {
-  return items.flatMap((item, index) => (index > 0 && item.period?.slice(8) === "01" ? [{ day: index + 1, label: dayMonth(item.period) }] : []));
+// Calendar date of cycle day `day` (1-based), continuing past the measured days for the
+// previous-cycle tail. Date labelling only.
+export function paceDate(items = [], day) {
+  const first = items[0]?.period;
+  if (!first || !(day >= 1)) return "";
+  const time = Date.parse(`${first}T00:00:00Z`);
+  return Number.isNaN(time) ? "" : new Date(time + (day - 1) * 86400000).toISOString().slice(0, 10);
+}
+
+export function paceDateLabel(items, day) {
+  return dayMonth(paceDate(items, day));
+}
+
+// Weekly x ticks (day 1, 8, 15 …) up to the last plotted day.
+export function paceTicks(length, step = 7) {
+  const ticks = [];
+  for (let day = 1; day <= length; day += step) ticks.push(day);
+  return ticks;
 }

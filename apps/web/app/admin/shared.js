@@ -12,14 +12,7 @@ export const time = (v) =>
 
 export const number = (v) => new Intl.NumberFormat("id-ID").format(v || 0);
 
-export const percent = (v) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
-
-export const ms = (v) =>
-  v == null
-    ? "—"
-    : v < 1000
-      ? `${Math.round(v)} ms`
-      : `${(v / 1000).toFixed(1)} dtk`;
+export { percent, ms, duration } from "../lib/adminFormat.js";
 
 export async function get(url, signal) {
   const response = await fetch(url, { signal });

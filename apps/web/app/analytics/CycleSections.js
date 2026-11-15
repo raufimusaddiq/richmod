@@ -1,6 +1,6 @@
-import { amountLabel, changeWidth, measuredLabel, qualityCopy, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
+import { amountLabel, changeWidth, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { dateTime, money, typeLabel } from "../lib/format";
-import { SectionTitle, Metric } from "./shared";
+import { Metric } from "./shared";
 
 export function MeetingNav({ step, selection, navigate }) {
   const index = reviewSteps.findIndex(([id]) => id === step);
@@ -13,23 +13,6 @@ export function MeetingNav({ step, selection, navigate }) {
       <button type="button" className="secondary" onClick={() => navigate({ step: "" })}>{index === reviewSteps.length - 1 ? "Selesai meninjau" : "Tampilkan seluruh tinjauan"}</button>
     </div>
   </div>;
-}
-
-export function CyclePosition({ facts, updated = 0 }) {
-  const active = facts.period.state === "ACTIVE"; // income lands on day 1, so net cashflow is not the headline until the cycle closes
-  return <section id="position" className="review-section cycle-position" aria-labelledby="position-title" data-updated={updated || undefined}>
-    <SectionTitle id="position-title" about="posisi siklus" title="Posisi siklus" description={active ? "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran. Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah." : "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."}/>
-    <dl className="cycle-outcome" key={updated}>
-      {active
-        ? <div className="cycle-net"><dt>Pengeluaran bersih sejauh ini</dt><dd>{money(facts.cashflow.expense)}</dd></div>
-        : <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>}
-      <Metric label="Pemasukan" value={money(facts.cashflow.income)}/>
-      {active ? <Metric label="Arus kas bersih sejauh ini" value={money(facts.cashflow.netCashflow)}/> : <Metric label="Pengeluaran bersih" value={money(facts.cashflow.expense)}/>}
-      <Metric label="Tabungan dialokasikan" value={money(facts.cashflow.savingsAllocated)}/>
-      <Metric label="Surplus belum dialokasikan" value={money(facts.cashflow.unallocatedSurplus)}/>
-    </dl>
-    <div className="cycle-footnote"><span>Refund <strong>{money(facts.cashflow.refund)}</strong></span><details className="review-explainer"><summary>Tentang surplus</summary><p>Surplus belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p></details></div>
-  </section>;
 }
 
 export function ComparisonContext({ comparison, period }) {
@@ -88,52 +71,11 @@ export function MerchantTable({ items, period, categoryId }) {
 export function CategoryDrivers({ item, period }) {
   return <div className="category-evidence">
     <h3>{item.name}</h3>
-    {!period.reviewStep && <a className="evidence-back" href="#ledger">Kembali ke ringkasan siklus</a>}
+    {!period.reviewStep && <a className="evidence-back" href="#matrix">Kembali ke ringkasan siklus</a>}
     <dl className="review-context"><Metric label="Porsi pengeluaran siklus" value={ratioLabel(item.shareOfExpense)}/><Metric label="Jumlah transaksi" value={item.count}/></dl>
     <MerchantTable items={item.merchants} period={period} categoryId={item.id || "uncategorized"}/>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Transaksi pendukung, geser untuk semua kolom"><table><caption>Transaksi pendukung terbesar (maks. 10). Refund ditandai terpisah.</caption><thead><tr><th scope="col">Merchant / tanggal</th><th scope="col">Jenis</th><th scope="col">Jumlah</th><th scope="col">Bukti</th></tr></thead><tbody>{item.transactions.map(transaction => <tr key={transaction.id}><th scope="row">{transaction.merchant}<small>{dateTime(transaction.transactionAt)}</small></th><td>{typeLabel[transaction.type]}</td><td>{money(transaction.amount)}</td><td><a href={transactionHref(period, { categoryId: item.id || "uncategorized", id: transaction.id })}>Buka transaksi</a></td></tr>)}</tbody></table></div>
     {!item.transactions.length && <p className="empty compact">Tidak ada transaksi terkonfirmasi kategori ini pada siklus terpilih.</p>}
     <a href={transactionHref(period, { categoryId: item.id || "uncategorized" })}>Lihat transaksi {item.name} dalam periode ini</a>
   </div>;
-}
-
-export function SavingsWealth({ facts }) {
-  const { wealth, cashflow } = facts;
-  return <section id="savings-wealth" className="review-section" aria-labelledby="savings-title">
-    <SectionTitle id="savings-title" about="tabungan dan kekayaan" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
-    <div className="review-split">
-      <div><h3>Ke mana surplus dialokasikan?</h3><dl className="review-context">
-        <Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
-      </dl>
-      <dl className="review-destinations">{facts.savingsDestinations.map(item => <Metric key={item.id || item.name} label={item.name} value={money(item.amount)}/>)}</dl>
-      {!facts.savingsDestinations.length && <p>Belum ada alokasi tabungan terkonfirmasi.</p>}
-      </div>
-      <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
-        <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/>
-      </dl>
-      <p className="snapshot-context">{wealth.previous && wealth.current ? <>Dibandingkan: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a> → <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.current.id)}`}>{dateTime(wealth.current.observedAt)}</a></> : wealth.previous ? <>Pengamatan terakhir: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a></> : null}</p>
-      {wealth.netWorthChange == null && <p>{!wealth.current ? "Belum ada pengamatan baru setelah awal siklus." : !wealth.previous ? "Belum ada catatan kekayaan sebelum siklus ini untuk dibandingkan." : "Belum dapat direkonsiliasi."}</p>}
-      <details className="review-daily"><summary>Rincian saldo & rekonsiliasi</summary><dl className="review-context">
-        {wealth.current ? <><Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current.netWorth)}/></> : <Metric label="Kekayaan bersih pengamatan terakhir" value={amountLabel(wealth.previous?.netWorth)}/>}
-        <Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
-        <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
-      </dl>
-      <details className="review-explainer"><summary>Tentang rekonsiliasi</summary><p>Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p></details>
-      {(wealth.current ? [["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]] : [["Pengamatan terakhir", wealth.previous]]).map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <>usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
-      {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
-      </details>
-      <a href="/wealth">Buka detail Kekayaan</a></div>
-    </div>
-  </section>;
-}
-
-export function QualitySection({ facts }) {
-  return <section id="quality" className="review-section" aria-labelledby="quality-title">
-    <SectionTitle id="quality-title" about="kelengkapan data" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
-    {!facts.dataQuality.length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{facts.dataQuality.map(blocker => {
-      const [label, action] = qualityCopy[blocker.kind] || ["Data tinjauan perlu dilengkapi", "Buka Inbox"];
-      const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"].includes(blocker.kind);
-      return <li key={blocker.kind}><div><strong>{counted ? `${blocker.count} ` : ""}{label}</strong>{blocker.amount != null && <p>{money(blocker.amount)} terkonfirmasi.</p>}</div><a href={blocker.kind === "UNCATEGORIZED_EXPENSE" ? transactionHref(facts.period, { type: "EXPENSE", categoryId: "uncategorized" }) : ["/inbox", "/inbox?view=actions", "/wealth", "/settings"].includes(blocker.action) ? blocker.action : "/inbox"}>{action}</a></li>;
-    })}</ul>}
-  </section>;
 }

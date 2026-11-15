@@ -7,7 +7,7 @@ import { signedMoney } from "../lib/cycleReview";
 
 // One column per salary cycle. Direction is the sign plus a neutral marker,
 // never a colour. All values are served by the API; see lib/cycleLedger.js.
-export default function CycleLedger({ history, selected, median, verdict, onSelect, categoryHistory, selectedCategory = "", selectable = [], onSelectCategory }) {
+export default function CycleLedger({ history, selected, median, onSelect, categoryHistory, selectedCategory = "", selectable = [], onSelectCategory }) {
   const ledger = buildLedger(history, selected, median);
   const matrix = buildMatrix(categoryHistory, history, selectedCategory, selectable);
   const frame = useRef(null);
@@ -22,7 +22,6 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
   const anyRunning = ledger.columns.some(column => column.running);
   return <section id="ledger" className="review-section ledger" aria-labelledby="ledger-title">
     <div className="section-title"><h2 id="ledger-title" tabIndex={-1}>Siklus ke siklus</h2></div>
-    {verdict.length > 0 && <dl className="ledger-verdict" aria-live="polite">{verdict.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
     {ledger.mode === "chart"
       ? <>
         <div ref={frame} className="ledger-figure" tabIndex={0} role="region" aria-label="Perbandingan siklus, geser untuk semua kolom">

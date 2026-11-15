@@ -163,7 +163,7 @@ async function run() {
   await mkdir(output, { recursive: true });
   await mkdir(regressionOutput, { recursive: true });
   await mkdir(baselines, { recursive: true });
-  const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn("npm", ["run", "start", "--", "-p", port], { stdio: "inherit", shell: process.platform === "win32" });
+  const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: port } });
   try {
     await waitForServer();
     const browser = await chromium.launch({ headless: true });
@@ -228,7 +228,7 @@ async function run() {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} analytics calendar has horizontal overflow`);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-calendar.png`, output)), fullPage: true });
         await page.getByRole("button", { name: "Siklus Gaji" }).click();
-        await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+        await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
         await page.locator(".recharts-bar-rectangle").first().hover();
         await page.locator(".chart-tooltip").waitFor();
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-tooltip.png`, output)), fullPage: true });
@@ -273,21 +273,22 @@ async function run() {
       await regressionPage.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
       await compareScreenshot(regressionPage, "analytics-calendar-desktop");
       await regressionPage.getByRole("button", { name: "Siklus Gaji" }).click();
-      await regressionPage.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+      await regressionPage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
       await regressionPage.locator(".recharts-bar-rectangle").first().hover();
       await regressionPage.locator(".chart-tooltip").waitFor();
       await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
       await regressionPage.close();
       // Cycle-view states the default capture does not reach: a closed cycle, a selected category row, and too few cycles for the ribbon.
       for (const [name, path, scenario, ready] of [
-        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" })],
+        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
-        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator(".ledger-cards")],
+        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator("#matrix")],
       ]) {
         const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await ready(statePage).waitFor();
+        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#matrix details").open = true; }); await statePage.locator(".ledger-cards").waitFor(); }
         await compareScreenshot(statePage, name);
         await statePage.close();
       }

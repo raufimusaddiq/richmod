@@ -131,7 +131,7 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	facts.Members = orderedValues(members)
+	facts.Members = orderedMembers(members)
 	facts.Destinations = orderedValues(destinations)
 	start, _ := time.ParseInLocation("2006-01-02", facts.Period.Start, clock.HouseholdLocation())
 	end, _ := time.ParseInLocation("2006-01-02", facts.Period.MeasuredUntil, clock.HouseholdLocation())
@@ -162,6 +162,7 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 	}
 	facts.SpendingShape.Days = len(facts.Daily)
 	facts.SpendingShape.Average = amountPerDay(total, len(facts.Daily))
+	facts.SpendingShape.AverageRounded = roundedPerDay(total, len(facts.Daily))
 	facts.SpendingShape.PeakShare = positiveRatio(facts.SpendingShape.PeakExpense, total)
 	return nil
 }

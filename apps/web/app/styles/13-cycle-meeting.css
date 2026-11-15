@@ -69,17 +69,19 @@
 .cycle-review .review-table-wrap caption { max-width: 74ch; }
 .cycle-review .insight-card { margin-bottom: var(--space-4); }
 .cycle-review .review-context, .cycle-review .review-values, .cycle-review .review-attribution, .cycle-review .review-destinations { background: var(--surface); }
-.cycle-review[data-meeting-step]:not([data-meeting-step="position"]):not([data-meeting-step="changes"]) > #ledger,
-.cycle-review[data-meeting-step]:not([data-meeting-step="position"]) > #position,
-.cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) > #spending-shape,
-.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]) > #changes,
-.cycle-review[data-meeting-step]:not([data-meeting-step="drivers"]) > #drivers,
-.cycle-review[data-meeting-step]:not([data-meeting-step="savings-wealth"]) > #savings-wealth,
-.cycle-review[data-meeting-step]:not([data-meeting-step="quality"]) > #quality,
-.cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]) > #discussion,
-.cycle-review[data-meeting-step]:not([data-meeting-step="decisions"]) > #decisions,
-.cycle-review[data-meeting-step] > #destinations,
-.cycle-review[data-meeting-step] > #household { display: none; }
+.cycle-review[data-meeting-step]:not([data-meeting-step="position"]) #position,
+.cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) #daily,
+.cycle-review[data-meeting-step]:not([data-meeting-step="position"]):not([data-meeting-step="changes"]) #matrix,
+.cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) #spending-shape,
+.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]) #changes,
+.cycle-review[data-meeting-step]:not([data-meeting-step="drivers"]) #drivers,
+.cycle-review[data-meeting-step]:not([data-meeting-step="savings-wealth"]) #savings-wealth,
+.cycle-review[data-meeting-step]:not([data-meeting-step="quality"]) section#quality,
+.cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]) #discussion,
+.cycle-review[data-meeting-step]:not([data-meeting-step="decisions"]) #decisions,
+.cycle-review[data-meeting-step] #destinations,
+.cycle-review[data-meeting-step] #household { display: none; }
+.cycle-review[data-meeting-step] .dash-row { display: contents; }
 .meeting-controls { margin-bottom: var(--space-6); }
 .meeting-controls ol { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0; list-style: none; }
 .meeting-controls button, .decision-form button, .decision-list button { min-height: 44px; }

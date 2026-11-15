@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`README.md` includes eight product screenshots:
+The capture script produces eight product screenshots. `README.md` shows three of them (dashboard, review inbox, phone dashboard):
 
 - `docs/assets/landing.png`
 - `docs/assets/login.png`

@@ -1,4 +1,4 @@
-import { money } from "./format.js";
+import { minusSign, money } from "./format.js";
 import { dayLabel } from "./chartData.js";
 
 import { inclusiveEnd, cycleRangeLabel } from "./cycleDates.js";
@@ -24,7 +24,7 @@ export function signedMoney(value) {
 
 const percentage = new Intl.NumberFormat("id-ID", { style: "percent", maximumFractionDigits: 1 });
 export function ratioLabel(value) {
-  return value == null ? "—" : percentage.format(Number(value));
+  return value == null ? "—" : minusSign(percentage.format(Number(value)));
 }
 
 // Only visual length: exact values/order remain server-owned. Equal largest
