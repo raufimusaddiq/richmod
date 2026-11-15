@@ -261,4 +261,62 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 		return err
 	}
 	facts.Wealth.Current, facts.Wealth.Previous = pickSnapshots(picked)
+	rows.Close()
+	if facts.Wealth.Current == nil {
+		facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
+		return nil
+	}
+	if facts.Wealth.Current.At.In(clock.HouseholdLocation()).Format("2006-01-02") < facts.Period.Start {
+		facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
+	}
+	if facts.Wealth.Previous == nil {
+		facts.block("MISSING_PREVIOUS_WEALTH_SNAPSHOT", 1, nil, "/wealth")
+		return nil
+	}
+	current, previous := facts.Wealth.Current, facts.Wealth.Previous
+	if !sameAccounts(current.accounts, previous.accounts) {
+		facts.block("WEALTH_ACCOUNT_SET_CHANGED", 1, nil, "/wealth")
+		return nil
+	}
+	var income, expense, refund string
+	err = tx.QueryRow(ctx, `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='REFUND'),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at>$2 AND transaction_at<=$3`, household, previous.At, current.At).Scan(&income, &expense, &refund)
+	if err != nil {
+		return err
+	}
+	cash, err := financialmath.CalculateCashflow(income, expense, refund)
+	if err != nil {
+		return err
+	}
+	facts.Wealth.Change = valuePointer(financialmath.Subtract(current.NetWorth, previous.NetWorth))
+	facts.Wealth.Cashflow = &cash.Surplus
+	facts.Wealth.Other = valuePointer(financialmath.Subtract(*facts.Wealth.Change, cash.Surplus))
+	return nil
+}
 
+// pickSnapshots takes observations ordered newest first and returns the current
+// one and its strict predecessor. A single observation has no predecessor, and
+// the same snapshot is never returned as both.
+func pickSnapshots(ordered []*reviewSnapshot) (current, previous *reviewSnapshot) {
+	if len(ordered) == 0 {
+		return nil, nil
+	}
+	current = ordered[0]
+	for _, s := range ordered[1:] {
+		if s.ID != current.ID {
+			return current, s
+		}
+	}
+	return current, nil
+}
+
+func sameAccounts(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

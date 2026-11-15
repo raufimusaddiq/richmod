@@ -27,11 +27,12 @@ export function cycleRangeLabel({ start, end, active = false }) {
 }
 
 // Eyebrow for a spending window. `end` is inclusive here (already the last day).
-// The window is always spelled out so the donut never silently answers a
+// `kind` and `cycles` are what the server actually resolved, not what was asked
+// for. The window is always spelled out so the donut never silently answers a
 // different question than the cycle-scoped page around it.
-export function windowLabel({ salaryCycles, start, end }) {
-  const kind = salaryCycles ? "3 siklus gaji" : "3 bulan kalender";
+export function windowLabel({ kind, cycles, start, end }) {
+  const label = kind === "SALARY_CYCLES" && cycles > 0 ? `${cycles} siklus gaji` : "3 bulan kalender";
   const from = formatDay(start);
   const to = formatDay(end);
-  return from && to ? `${kind} · ${from} – ${to}` : kind;
+  return from && to ? `${label} · ${from} – ${to}` : label;
 }

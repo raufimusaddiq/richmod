@@ -31,10 +31,11 @@ test("invalid input degrades to a dash", () => {
   assert.equal(cycleRangeLabel({ start: "", end: "2026-10-23" }), "—");
 });
 
-test("the donut window is spelled out", () => {
-  assert.equal(windowLabel({ salaryCycles: true, start: "2026-08-24", end: "2026-11-15" }), "3 siklus gaji · 24 Agu 2026 – 15 Nov 2026");
-  assert.equal(windowLabel({ salaryCycles: false, start: "2026-09-01", end: "2026-11-30" }), "3 bulan kalender · 1 Sep 2026 – 30 Nov 2026");
-  assert.equal(windowLabel({ salaryCycles: true }), "3 siklus gaji");
+test("the donut window is spelled out from what the server resolved", () => {
+  assert.equal(windowLabel({ kind: "SALARY_CYCLES", cycles: 3, start: "2026-08-24", end: "2026-11-15" }), "3 siklus gaji · 24 Agu 2026 – 15 Nov 2026");
+  assert.equal(windowLabel({ kind: "SALARY_CYCLES", cycles: 2, start: "2026-09-25", end: "2026-11-15" }), "2 siklus gaji · 25 Sep 2026 – 15 Nov 2026");
+  assert.equal(windowLabel({ kind: "CALENDAR_MONTHS", cycles: 0, start: "2026-09-01", end: "2026-11-30" }), "3 bulan kalender · 1 Sep 2026 – 30 Nov 2026");
+  assert.equal(windowLabel({}), "3 bulan kalender");
 });
 
 test("one stale-snapshot fact yields one notice", () => {

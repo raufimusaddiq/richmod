@@ -81,7 +81,21 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	start, end, err := h.analyticsRange(household, r)
+	// Window kind and cycle count are always reported with the resolved dates, so
+	// a fallback (fewer than 3 salary anchors) is never labelled as cycles.
+	windowKind, cycles := "CALENDAR_MONTHS", 0
+	var start, end time.Time
+	var err error
+	if strings.TrimSpace(r.URL.Query().Get("period")) == "last_3_cycles" {
+		local := h.now().In(clock.HouseholdLocation())
+		current := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
+		start, end, cycles, err = h.lastCycles(r.Context(), household, local, 3, current)
+		if cycles > 0 {
+			windowKind = "SALARY_CYCLES"
+		}
+	} else {
+		start, end, err = h.analyticsRange(household, r)
+	}
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -96,6 +110,8 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 	// which dates a share was computed over. The end is inclusive.
 	w.Header().Set("X-Window-Start", start.Format("2006-01-02"))
 	w.Header().Set("X-Window-End", end.AddDate(0, 0, -1).Format("2006-01-02"))
+	w.Header().Set("X-Window-Kind", windowKind)
+	w.Header().Set("X-Window-Cycles", strconv.Itoa(cycles))
 	result := make([]rankedValue, 0)
 	total := "0"
 	for rows.Next() {
@@ -208,11 +224,8 @@ func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, 
 		}
 		return cycle.Start, cycle.End, nil
 	}
-	if period == "last_3_cycles" {
-		return h.lastCycles(r.Context(), household, local, 3, current)
-	}
 	if period != "" && period != "calendar" && period != "custom" {
-		return time.Time{}, time.Time{}, fmt.Errorf("period must be current_cycle, last_3_cycles, calendar, or custom")
+		return time.Time{}, time.Time{}, fmt.Errorf("period must be current_cycle, calendar, or custom")
 	}
 	from, to := strings.TrimSpace(r.URL.Query().Get("from")), strings.TrimSpace(r.URL.Query().Get("to"))
 	if from != "" || to != "" {
@@ -248,20 +261,21 @@ func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, 
 // the same primary-salary anchors as the cycle review. Without enough anchors it
 // spans the cycles that exist, and with none it falls back to n calendar months;
 // the caller reports the resolved window so it is never implicit.
-func (h *Handler) lastCycles(ctx context.Context, household string, local time.Time, n int, currentMonth time.Time) (time.Time, time.Time, error) {
+func (h *Handler) lastCycles(ctx context.Context, household string, local time.Time, n int, currentMonth time.Time) (time.Time, time.Time, int, error) {
 	var anchor *string
-	if err := h.pool.QueryRow(ctx, `SELECT min(pay_date)::text FROM (
+	var found int
+	if err := h.pool.QueryRow(ctx, `SELECT min(pay_date)::text,count(*)::int FROM (
 		SELECT DISTINCT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id
 		WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date<=$2::date ORDER BY se.pay_date DESC LIMIT $3
-	) recent`, household, local.Format("2006-01-02"), n).Scan(&anchor); err != nil {
-		return time.Time{}, time.Time{}, err
+	) recent`, household, local.Format("2006-01-02"), n).Scan(&anchor, &found); err != nil {
+		return time.Time{}, time.Time{}, 0, err
 	}
 	end := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, clock.HouseholdLocation()).AddDate(0, 0, 1)
 	if anchor == nil {
-		return currentMonth.AddDate(0, -(n - 1), 0), currentMonth.AddDate(0, 1, 0), nil
+		return currentMonth.AddDate(0, -(n - 1), 0), currentMonth.AddDate(0, 1, 0), 0, nil
 	}
 	start, err := time.ParseInLocation("2006-01-02", *anchor, clock.HouseholdLocation())
-	return start, end, err
+	return start, end, found, err
 }
 
 func monthsBetween(start, end time.Time) int {

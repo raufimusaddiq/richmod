@@ -49,8 +49,8 @@ export default function Home() {
         "pengeluaran harian": data => setCashflow(elapsedDaily(data.daily || [], data.daysElapsed)),
         "kategori": (data, response) => {
           setCategories(data);
-          const start = response.headers.get("X-Window-Start"), end = response.headers.get("X-Window-End");
-          setCategoryWindow(start && end ? { start, end } : null);
+          const h = name => response.headers.get(name);
+          setCategoryWindow({ start: h("X-Window-Start"), end: h("X-Window-End"), kind: h("X-Window-Kind"), cycles: Number(h("X-Window-Cycles")) || 0 });
         },
         "transaksi terbaru": setTransactions,
         "periode siklus": setCycle,
@@ -73,8 +73,8 @@ export default function Home() {
   if (user === false) return <LandingPage />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
   const cycleName = cycle?.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender";
-  const cycleDates = cycle ? cycleRangeLabel({ start: cycle.start, end: cycle.end, active: !cycle.end }) : "Periode belum tersedia";
-  const categoryEyebrow = windowLabel({ salaryCycles: cycle?.kind === "CURRENT_CYCLE", ...categoryWindow });
+  const cycleDates = cycle ? cycleRangeLabel({ start: cycle.start, end: cycle.end, active: cycle.kind === "CURRENT_CYCLE" }) : "Periode belum tersedia";
+  const categoryEyebrow = windowLabel(categoryWindow || {});
   const wealthObservedAt = latestWealth?.observedAt ? new Date(latestWealth.observedAt) : null;
   const wealthDate = wealthObservedAt && !Number.isNaN(wealthObservedAt.valueOf()) ? wealthObservedAt.toLocaleDateString("id-ID") : null;
   const wealthItems = latestWealth?.items || [];

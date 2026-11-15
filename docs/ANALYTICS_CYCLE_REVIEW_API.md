@@ -167,8 +167,11 @@ transaction/proposal date is available. No arbitrary
 `current_cycle`, `calendar`, `custom` and `range`). The window starts at the
 third most recent primary-salary anchor on or before today and ends after today.
 With fewer anchors it spans those that exist; with none it falls back to 3
-calendar months. Every response carries `X-Window-Start` and `X-Window-End`
-(`YYYY-MM-DD`, both inclusive) so clients label the window they actually got.
+calendar months. Every categories response carries `X-Window-Start` and
+`X-Window-End` (`YYYY-MM-DD`, both inclusive), `X-Window-Kind` (`SALARY_CYCLES`
+or `CALENDAR_MONTHS`) and `X-Window-Cycles` (salary cycles covered, 0 for the
+calendar fallback), so clients label the window they actually got. Only the
+categories endpoint accepts `last_3_cycles`.
 The Home donut uses this and shows the window in its eyebrow.
 
 `cycles[].measuredUntil` and `history[].measuredUntil` intentionally differ
