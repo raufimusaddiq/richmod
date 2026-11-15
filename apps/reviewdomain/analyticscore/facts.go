@@ -162,19 +162,22 @@ type Facts struct {
 	Cashflow      reviewCashflow      `json:"cashflow"`
 	Daily         []map[string]string `json:"daily"`
 	SpendingShape struct {
-		Days        int     `json:"days"`
-		Average     string  `json:"averageDailyExpense"`
-		PeakDay     *string `json:"peakDay"`
-		PeakExpense string  `json:"peakExpense"`
-		PeakShare   *string `json:"peakShareOfExpense"`
-		ZeroDays    int     `json:"zeroSpendDays"`
+		Days    int    `json:"days"`
+		Average string `json:"averageDailyExpense"`
+		// AverageRounded is the average in whole rupiah, half away from zero, so the web never rounds money.
+		AverageRounded string  `json:"averageDailyExpenseRounded"`
+		PeakDay        *string `json:"peakDay"`
+		PeakExpense    string  `json:"peakExpense"`
+		PeakShare      *string `json:"peakShareOfExpense"`
+		ZeroDays       int     `json:"zeroSpendDays"`
 	} `json:"spendingShape"`
-	Categories   []reviewCategory `json:"categoryChanges"`
-	Merchants    []reviewChange   `json:"merchantDrivers"`
-	Members      []reviewValue    `json:"memberAttribution"`
-	Destinations []reviewValue    `json:"savingsDestinations"`
-	Wealth       reviewWealth     `json:"wealth"`
-	Quality      []reviewBlocker  `json:"dataQuality"`
+	CategoryRanking categoryRanking  `json:"categoryRanking"`
+	Categories      []reviewCategory `json:"categoryChanges"`
+	Merchants       []reviewChange   `json:"merchantDrivers"`
+	Members         []reviewValue    `json:"memberAttribution"`
+	Destinations    []reviewValue    `json:"savingsDestinations"`
+	Wealth          reviewWealth     `json:"wealth"`
+	Quality         []reviewBlocker  `json:"dataQuality"`
 }
 
 // Completeness retains ADR-015's coverage gate on gross confirmed expense so refunds
@@ -273,7 +276,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if err != nil {
 		return Facts{}, err
 	}
-	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, Members: []reviewValue{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
+	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), CategoryRanking: emptyCategoryRanking(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, Members: []reviewValue{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
 	index := 0
 	if selected != "" {
 		index = -1
@@ -368,6 +371,15 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	measures = measures[:historyCount]
 	facts.Pace = buildPace(full, measures[1:], facts.Comparison.Median3Available)
 	facts.Cashflow = measures[0].cash
+	var rankBase *cycleMeasure
+	if facts.Comparison.Mode == "ELAPSED_DAYS" {
+		if len(measures) > 1 {
+			rankBase = &measures[1]
+		}
+	} else {
+		rankBase = full
+	}
+	facts.CategoryRanking = buildCategoryRanking(measures[0], rankBase, facts.Comparison.Mode)
 	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense }, full)
 	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income }, full)
 	facts.Comparison.NetCashflow = cashChange(measures, func(c reviewCashflow) string { return c.Net }, full)
