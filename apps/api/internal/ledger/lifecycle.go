@@ -76,7 +76,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		  AND ($8='' OR t.account_id::text=$8)
 		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND COALESCE(te2.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND s2.source_type=$9))
 		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
-		  AND ($14='' OR t.merchant_id::text=$14)
+		  AND ($14='' OR t.merchant_id::text=$14 OR (t.merchant_id IS NULL AND $14=(SELECT min(a.normalized_merchant_id::text) FROM merchant_alias a WHERE a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g')) HAVING count(DISTINCT a.normalized_merchant_id)=1)))
 		  AND ($15='' OR t.id::text=$15)
 		  AND ($12::timestamptz IS NULL OR (t.transaction_at,t.id) < ($12,NULLIF($13,'')::uuid))
 		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID)
