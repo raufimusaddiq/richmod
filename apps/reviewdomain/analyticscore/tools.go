@@ -170,7 +170,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 	switch name {
 	case "get_cycle_overview":
 		result["cashflow"], result["spending_shape"], result["cycles"] = f.Cashflow, f.SpendingShape, f.Cycles
-		result["member_attribution"] = modelValues(f.Members, "member")
+		result["member_attribution"] = modelValues(memberValues(f.Members), "member")
 	case "get_cycle_changes":
 		result["comparison"] = map[string]any{"mode": f.Comparison.Mode, "previous": f.Comparison.Previous, "previous_full_cycle": f.Comparison.PreviousFullCycle, "eligible_cycles": f.Comparison.EligibleCycles, "median3_available": f.Comparison.Median3Available,
 			"expense": modelChange(f.Comparison.Expense, "cashflow.expense"), "income": modelChange(f.Comparison.Income, "cashflow.income"), "net_cashflow": modelChange(f.Comparison.NetCashflow, "cashflow.net")}
