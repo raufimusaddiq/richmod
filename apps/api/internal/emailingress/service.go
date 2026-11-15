@@ -22,6 +22,28 @@ const (
 	StatusDisabled    = "DISABLED"
 )
 
+// Activation prerequisites. The handler maps them to specific 409 responses.
+var (
+	ErrAddressRequired = errors.New("provisioned email ingress address required")
+	ErrSenderRequired  = errors.New("add an active bank sender or financial provider source before activating")
+)
+
+// Step states for the onboarding checklist.
+const (
+	StepDone    = "done"
+	StepCurrent = "current"
+	StepBlocked = "blocked"
+)
+
+// Steps is the guided-onboarding state of the household's email ingress. It is
+// derived from canonical rows on every read and never stored.
+type Steps struct {
+	Address    string `json:"address"`
+	Sender     string `json:"sender"`
+	Forwarding string `json:"forwarding"`
+	Activated  string `json:"activated"`
+}
+
 type Service struct {
 	pool             *pgxpool.Pool
 	domain           string
@@ -40,6 +62,8 @@ type Address struct {
 	// ForwardingAction is the open Gmail forwarding verification, set only for
 	// owners. It exposes the confirmation code and verify link inline.
 	ForwardingAction *ForwardingAction `json:"forwardingAction"`
+	// Steps is the onboarding checklist state, set by the handler.
+	Steps *Steps `json:"steps,omitempty"`
 }
 
 // ForwardingAction is the household's pending forwarding verification.
@@ -83,6 +107,69 @@ func (s *Service) Current(ctx context.Context, householdID string) (Address, boo
 	}
 	out.Address = out.LocalPart + "@" + s.domain
 	return out, true, nil
+}
+
+// buildSteps derives checklist states from the address status and two facts.
+// A sender is the only hard prerequisite of activation. Forwarding verification
+// needs only the address (Gmail confirms against a PROVISIONED address).
+func buildSteps(hasAddress bool, addressStatus string, hasSender, forwardingVerified bool) Steps {
+	steps := Steps{Address: StepCurrent, Sender: StepBlocked, Forwarding: StepBlocked, Activated: StepBlocked}
+	if !hasAddress {
+		return steps
+	}
+	steps.Address = StepDone
+	steps.Sender = StepCurrent
+	if hasSender {
+		steps.Sender = StepDone
+	}
+	steps.Forwarding = StepCurrent
+	if forwardingVerified {
+		steps.Forwarding = StepDone
+	}
+	switch {
+	case addressStatus == StatusActive:
+		steps.Activated = StepDone
+	case hasSender:
+		steps.Activated = StepCurrent
+	}
+	return steps
+}
+
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// hasActiveSender reports whether the household has an active bank listener or
+// an active financial provider source, the same sources Deliver matches.
+func hasActiveSender(ctx context.Context, q rowQuerier, householdID string) (bool, error) {
+	var ok bool
+	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM bank_email_listener WHERE household_id=$1 AND active) OR EXISTS(SELECT 1 FROM financial_email_source WHERE household_id=$1 AND status='ACTIVE')`, householdID).Scan(&ok)
+	return ok, err
+}
+
+// forwardingVerified reports whether a real (non-control) email reached the
+// address. A Gmail confirmation email is a delivery too, but proves nothing.
+func (s *Service) forwardingVerified(ctx context.Context, addressID string) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM email_ingress_delivery d WHERE d.address_id=$1 AND d.status IN ('PROVISIONED_RECEIVED','INGESTED','DUPLICATE') AND NOT EXISTS(SELECT 1 FROM integration_action ia WHERE ia.source_delivery_id=d.id))`, addressID).Scan(&ok)
+	return ok, err
+}
+
+// Checklist returns the onboarding step states for the household. address is
+// the household's current address, or nil when none exists.
+func (s *Service) Checklist(ctx context.Context, householdID string, address *Address) (Steps, error) {
+	hasSender, err := hasActiveSender(ctx, s.pool, householdID)
+	if err != nil {
+		return Steps{}, err
+	}
+	if address == nil {
+		return buildSteps(false, "", hasSender, false), nil
+	}
+	verified, err := s.forwardingVerified(ctx, address.ID)
+	if err != nil {
+		return Steps{}, err
+	}
+	return buildSteps(true, address.Status, hasSender, verified), nil
 }
 
 // OpenForwardingAction returns the household's newest unresolved forwarding
@@ -202,7 +289,17 @@ func (s *Service) Activate(ctx context.Context, householdID, userID string) erro
 	defer tx.Rollback(ctx)
 	var addressID string
 	if err = tx.QueryRow(ctx, `SELECT id FROM email_ingress_address WHERE household_id=$1 AND purpose='BANK_EMAIL' AND status='PROVISIONED' FOR UPDATE`, householdID).Scan(&addressID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrAddressRequired
+		}
 		return err
+	}
+	hasSender, err := hasActiveSender(ctx, tx, householdID)
+	if err != nil {
+		return err
+	}
+	if !hasSender {
+		return ErrSenderRequired
 	}
 	if _, err = tx.Exec(ctx, `UPDATE email_ingress_address SET status='ACTIVE',activated_at=now() WHERE id=$1`, addressID); err != nil {
 		return err

@@ -75,9 +75,20 @@ func (h *Handler) Integration(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !found {
-			writeJSON(w, 200, map[string]any{"address": nil, "status": nil, "provider": "CLOUDFLARE_EMAIL", "lastReceivedAt": nil, "forwardingAction": nil})
+			steps, err := h.service.Checklist(r.Context(), householdID, nil)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to load email ingress"})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"address": nil, "status": nil, "provider": "CLOUDFLARE_EMAIL", "lastReceivedAt": nil, "forwardingAction": nil, "steps": steps})
 			return
 		}
+		steps, err := h.service.Checklist(r.Context(), householdID, &address)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to load email ingress"})
+			return
+		}
+		address.Steps = &steps
 		if p.HouseholdRole == "OWNER" {
 			if address.ForwardingAction, err = h.service.OpenForwardingAction(r.Context(), householdID); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to load email ingress"})
@@ -142,8 +153,7 @@ func (h *Handler) change(w http.ResponseWriter, r *http.Request, operation strin
 			return
 		}
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeJSON(w, 409, map[string]string{"error": "provisioned email ingress address required"})
+	if writeActivateError(w, err) {
 		return
 	}
 	if err != nil {
@@ -151,6 +161,20 @@ func (h *Handler) change(w http.ResponseWriter, r *http.Request, operation strin
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeActivateError answers a failed activation with a specific 409 when a
+// prerequisite is missing. It reports whether it handled the error.
+func writeActivateError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, ErrAddressRequired), errors.Is(err, pgx.ErrNoRows):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": ErrAddressRequired.Error(), "code": "ADDRESS_REQUIRED"})
+	case errors.Is(err, ErrSenderRequired):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": ErrSenderRequired.Error(), "code": "SENDER_REQUIRED"})
+	default:
+		return false
+	}
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
