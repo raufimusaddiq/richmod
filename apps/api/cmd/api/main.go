@@ -130,6 +130,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
 	mux.Handle("GET /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ListTransactions)))
 	mux.Handle("GET /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.GetTransaction)))
+	mux.Handle("PATCH /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.EditTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ConfirmTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))

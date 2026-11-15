@@ -162,6 +162,7 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 	}
 	facts.SpendingShape.Days = len(facts.Daily)
 	facts.SpendingShape.Average = amountPerDay(total, len(facts.Daily))
+	facts.SpendingShape.AverageRounded = roundedPerDay(total, len(facts.Daily))
 	facts.SpendingShape.PeakShare = positiveRatio(facts.SpendingShape.PeakExpense, total)
 	return nil
 }

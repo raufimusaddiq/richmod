@@ -217,7 +217,7 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 		       EXISTS (SELECT 1 FROM review_request_recipient rc WHERE rc.review_request_id=rr.id AND COALESCE(rc.telegram_message_id,0)>0) AS delivered,
 		       (SELECT count(*) FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=rr.id::text AND j.status='FAILED') AS failed,
 		       (SELECT count(*) FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=rr.id::text AND j.status='SUCCEEDED') AS sent,
-		       rr.created_at,COALESCE(rr.resolved_at,rr.created_at),rr.resolved_at,
+		       rr.created_at,COALESCE(rr.resolved_at,rr.created_at),COALESCE(rr.resolved_at,ri.resolved_at),
 		       COALESCE(s.surface,'') AS resolved_surface
 		FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id
 		`+resolutionSurfaceSQL+`

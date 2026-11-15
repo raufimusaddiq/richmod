@@ -85,11 +85,11 @@ export default function LLM({ setError }) {
         <Table
           headers={[
             "Waktu",
-            "Task",
+            "Tugas",
             "Protocol",
             "Model",
             "Status",
-            "Latency",
+            "Latensi",
             "Tokens",
           ]}
         >

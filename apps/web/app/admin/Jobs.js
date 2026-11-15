@@ -28,7 +28,7 @@ export default function Jobs({ setError }) {
       <Table
         headers={[
           "Status",
-          "Type",
+          "Jenis",
           "Lane",
           "Attempts",
           "Durasi",
