@@ -61,12 +61,6 @@ func Parse(privateKey, subject string) (*VAPID, error) {
 	}, nil
 }
 
-// Enabled is the single predicate used by the API and worker.
-func Enabled(privateKey, subject string) bool {
-	_, err := Parse(privateKey, subject)
-	return err == nil
-}
-
 // PublicKey derives the advertised key. It returns empty when the private key
 // is invalid; callers must gate on Enabled/Parse before trusting it.
 func PublicKey(privateKey string) string {
