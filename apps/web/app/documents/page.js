@@ -8,6 +8,7 @@ import useAuth from "../components/useAuth";
 import useDrawerA11y from "../components/useDrawerA11y";
 import { dateTime, money, percent } from "../lib/format";
 import { documentTypeLabels, label } from "../lib/labels";
+import { mergeFreshDocuments } from "../lib/documentPaging";
 import { LOAD, LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
 
 const POLL_MS = 5000, MAX_POLLS = 60; // about five minutes
@@ -41,9 +42,8 @@ export default function DocumentsPage() {
     if (!current()) return;
     const next = Array.isArray(list) ? list : [];
     const cursor = response.headers.get("X-Next-Cursor") || "";
-    if (olderLoaded.current && next.length) {
-      const boundary = Date.parse(next[next.length - 1].createdAt);
-      setItems(current => [...next, ...current.filter(item => Date.parse(item.createdAt) < boundary && !next.some(fresh => fresh.id === item.id))]);
+    if (olderLoaded.current) {
+      setItems(current => mergeFreshDocuments(next, current));
     } else { setItems(next); setNextCursor(cursor); }
     // Derived only from a successful response, so a failed poll cannot keep a stale PENDING row polling.
     setProcessing(next.some(item => item.status === "PENDING" || item.status === "PROCESSING" || item.reprocessing));
