@@ -42,7 +42,6 @@ export function labels(map, values) {
 // An action added later falls back to a readable form, never the raw code.
 export const auditActionLabel = {
   CREATE: "Transaksi dibuat",
-  CREATE_MANUAL: "Transaksi dicatat manual",
   CREATE_FROM_BANK_EMAIL: "Dibuat dari email bank",
   UPDATE: "Transaksi diperbarui",
   UPDATE_REVIEW_DETAIL: "Detail tinjauan diperbarui",
