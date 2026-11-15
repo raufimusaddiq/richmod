@@ -283,7 +283,7 @@ test("transaction filters are inert while their data loads", () => {
 test("document thumbnails load lazily and the list shows twelve at a time", () => {
   const page = text("app/documents/page.js");
   assert.match(page, /alt="Pratinjau dokumen keuangan" loading="lazy" decoding="async"/);
-  assert.match(page, /items\.slice\(0, visibleCount\)\.map/);
+  assert.match(page, /visibleItems\.slice\(0, visibleCount\)\.map/);
   assert.match(page, /setVisibleCount\(count => count \+ 12\)/);
 });
 
@@ -379,4 +379,18 @@ test("motion uses one scale and one reduced-motion guard", () => {
   // Every animation the app adds reads the scale; a literal duration outside
   // the guard would be a second timing the scale does not describe.
   assert.doesNotMatch(motion.slice(0, guard), /\b\d*\.?\d+m?s\b/, "motion rules must not hard-code a duration");
+});
+
+test("documents: a failed card never claims success, titles are distinguishable, retry and filter exist", () => {
+  const page = text("app/documents/page.js");
+  assert.match(page, /item\.status === "FAILED" \? <p className="document-summary">/, "failed cards drop the payment summary");
+  assert.match(page, /item\.status !== "FAILED" && item\.confidence \? `Keyakinan klasifikasi/, "stored score is labelled classification and hidden on failure");
+  assert.doesNotMatch(page, /Tingkat keyakinan/);
+  assert.match(page, /function documentTitle\(item\)/);
+  assert.match(page, /\/api\/v1\/documents\/\$\{item\.id\}\/reprocess/, "retry uses the Go reprocess endpoint");
+  assert.match(page, /Proses ulang/);
+  assert.match(page, /FILTERS = \[\["ALL", "Semua"\], \["FAILED", "Gagal"\], \["REVIEW", "Perlu ditinjau"\], \["OK", "Berhasil"\]\]/);
+  assert.match(page, /Klasifikasi/);
+  assert.doesNotMatch(page, /CLASSIFICATION"?\s*[<}]/, "the raw enum is never rendered");
+  assert.match(page, /file-picker-button/, "the native file input is replaced by Indonesian copy");
 });
