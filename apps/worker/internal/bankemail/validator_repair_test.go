@@ -8,8 +8,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// failingThenRepairGateway returns an invalid timestamp first, then asserts the
-// repair attempt receives the exact schema failure for that field.
+// failingThenRepairGateway returns an invalid timestamp, then asserts the repair attempt receives that
+// field's schema failure.
 type failingThenRepairGateway struct {
 	calls    int
 	repairPS string
@@ -24,8 +24,8 @@ func (g *failingThenRepairGateway) NativeToolCall(_ context.Context, _ string, s
 	return gateway.ToolCall{Name: "emit_bank_transaction", Arguments: []byte(`{"kind":"TRANSACTION","direction":"OUTGOING","channel":"DEBIT_CARD","amount_idr":"13120","transaction_at":"2026-08-28T10:00:00+07:00","merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":[],"confidence":0.9}`)}, gateway.Metadata{}, nil
 }
 
-// A malformed transaction time must be repaired by the model, not silently
-// converted, and the repair attempt must receive the precise failure.
+// A malformed transaction time is repaired by the model, not silently converted, and the repair receives the
+// precise failure.
 func TestBankTimeRepairReceivesExactSchemaFailure(t *testing.T) {
 	g := &failingThenRepairGateway{}
 	got, _, err := NewExtractor(g).Extract(context.Background(), "src", Listener{BankName: "Bank"}, TrustedEmail{Body: "notice"})
@@ -43,8 +43,7 @@ func TestBankTimeRepairReceivesExactSchemaFailure(t *testing.T) {
 	}
 }
 
-// A timezone-less or unparseable value is still canonical-invalid: it does not
-// silently become received-at.
+// A timezone-less or unparseable value stays canonical-invalid and never silently becomes received-at.
 func TestTimezoneLessTimestampIsNotSilentlyAccepted(t *testing.T) {
 	for _, raw := range []string{"2026-08-28 10:00", "2026-08-28T10:00:00", "garbage"} {
 		if _, err := parseStrictBankRFC3339(raw); err == nil {

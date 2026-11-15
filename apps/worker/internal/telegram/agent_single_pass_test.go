@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// newRecordState builds the minimal server state agentRecordTransaction needs to
-// route a semantic decision without touching Postgres.
 func newRecordState(text string) *agentState {
 	state := &agentState{
 		SourceEventID: "src",
@@ -20,8 +18,6 @@ func newRecordState(text string) *agentState {
 	return state
 }
 
-// A complete constrained extraction is accepted directly by Go validation: no
-// generative replay. This is the one-generative-call budget.
 func TestDirectAcceptanceNeedsNoReplay(t *testing.T) {
 	processor := &Processor{}
 	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Indomaret", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 24, 12, 30, 0, 0, jakartaLocation())}
@@ -34,9 +30,6 @@ func TestDirectAcceptanceNeedsNoReplay(t *testing.T) {
 	}
 }
 
-// A category that is absent or not an active household slug is a genuine
-// residual: Go records the dimension and parks the transaction for review
-// instead of guessing.
 func TestCategoryResidualIsRecordedAndNotConfirmed(t *testing.T) {
 	processor := &Processor{}
 	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Warung Bu Tini", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 24, 12, 30, 0, 0, jakartaLocation())}
@@ -56,8 +49,6 @@ func TestCategoryResidualIsRecordedAndNotConfirmed(t *testing.T) {
 	}
 }
 
-// An absent model date remains structurally unresolved; a model-resolved typed
-// date is accepted without Go re-parsing the original language.
 func TestTypedSemanticDateDoesNotNeedLexicalProof(t *testing.T) {
 	processor := &Processor{}
 	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Kopi", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation())}
@@ -83,8 +74,6 @@ func TestSelfDeclaredAmbiguousExtractionCannotDirectConfirm(t *testing.T) {
 	}
 }
 
-// Rollback: disabling post-generative direct acceptance parks a complete
-// extraction in review without losing the extracted facts.
 func TestPostGenerativeAutoConfirmSwitchParksReview(t *testing.T) {
 	processor := &Processor{}
 	processor.SetPostGenerativeAutoConfirm(false)

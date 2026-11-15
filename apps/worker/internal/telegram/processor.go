@@ -16,12 +16,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// localTimePattern accepts the clock forms people type: 15:00, 9:30 and the
-// Indonesian 15.00.
+// localTimePattern accepts 15:00, 9:30 and the Indonesian 15.00.
 var localTimePattern = regexp.MustCompile(`^([01]?[0-9]|2[0-3])[:.]([0-5][0-9])$`)
 
-// parseLocalTime reads an exact HH:MM (or H:MM, HH.MM) clock time, or one of the
-// named times of day. Approximate names return their representative hour.
+// parseLocalTime reads an exact clock time or a named time of day; approximate names return their representative hour.
 func parseLocalTime(value string) (hour, minute int, ok bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if approximate, found := approximateLocalTimes[value]; found {
@@ -92,9 +90,7 @@ type telegramUpdate struct {
 	} `json:"callback_query"`
 }
 
-// turnTime is the household-local moment the user sent the message. A queued or
-// retried turn must not move an undated entry onto the day the worker happened to
-// run it, so the Telegram message timestamp wins over the worker clock.
+// turnTime is the household-local send time; the message timestamp wins so a retried turn keeps the sent day.
 func (p *Processor) turnTime(update telegramUpdate) time.Time {
 	if update.Message.Date > 0 {
 		return time.Unix(update.Message.Date, 0).In(jakartaLocation())
@@ -108,14 +104,11 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 
-// SetPostGenerativeAutoConfirm disables direct confirmation after generative extraction.
 func (p *Processor) SetPostGenerativeAutoConfirm(enabled bool) {
 	p.postGenerativeAutoConfirmOff = !enabled
 }
 
-// EnsureSourceEventFinal prevents a queue job from being acknowledged when a
-// Telegram event is still unprocessed. This turns orphaned successful jobs
-// into retryable failures instead of silently losing a user message.
+// EnsureSourceEventFinal turns an acknowledged job with an unprocessed Telegram event into a retryable failure.
 func (p *Processor) EnsureSourceEventFinal(ctx context.Context, sourceEventID string) error {
 	var status string
 	if err := p.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceEventID).Scan(&status); err != nil {
@@ -145,8 +138,8 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	}
 	if update.CallbackQuery != nil {
 		ctx = withCallbackQuestion(ctx, payloadText)
-		// A generic callback can never resolve a staged screenshot-link dispute; refuse it as
-		// stale instead of failing (and endlessly retrying) the job.
+		// A generic callback can never resolve a staged screenshot-link dispute; refuse it as stale so the
+		// job is not retried.
 		defer func() {
 			if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
 				err = p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")
@@ -165,9 +158,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	} else if !authorized {
 		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
 	}
-	// Only a typed reply renews a card past its projection window. A tap never
-	// does: the expiry sweep removes an expired card's buttons, and a tap that
-	// races the sweep must not keep the projection alive forever.
+	// Only a typed reply renews a card past its projection window; a tap racing the expiry sweep must not.
 	if update.CallbackQuery == nil && update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
 			return err
@@ -221,9 +212,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 				return err
 			}
 		}
-		// A review:salary: callback that the policy lane did not handle (the review
-		// is already resolved or the binding changed) is stale; answer it here so it
-		// never falls through to the generic lanes as an unrecognized action.
+		// A review:salary: callback the policy lane did not handle is stale; answer it here.
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
 			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 		}
@@ -231,9 +220,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
-			// Transfer-classification buttons (review:expense / :own / :household /
-			// :asset) carry a bounded intent, not a free-form reply, so they continue
-			// into the bound-review lane instead of being rejected as a stale action.
+			// Transfer-classification buttons carry a bounded intent, so they continue into the bound-review lane.
 			switch update.CallbackQuery.Data {
 			case "review:expense", "review:own", "review:household", "review:asset", "review:investment", "review:income":
 				if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
@@ -252,9 +239,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
-	// Typed finance messages are answered by the conversational agent. Process
-	// owns callbacks; production queues typed text as PROCESS_TELEGRAM_TEXT for
-	// ProcessAgent, so a text event that arrives here is handed to it.
+	// Process owns callbacks; typed text is queued as PROCESS_TELEGRAM_TEXT for ProcessAgent.
 	return p.ProcessAgent(ctx, sourceEventID)
 }
 
@@ -298,8 +283,7 @@ func (p *Processor) executePendingSalaryChoice(ctx context.Context, householdID 
 		err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET is_primary=excluded.is_primary RETURNING id`, householdID, employer, norm, choice == salaryChoicePrimary).Scan(&sid)
 		if err == nil {
 			var salaryEventID string
-			// currency must be listed: the SELECT supplies the 'IDR' literal between
-			// net_pay and transaction_id, so omitting it misaligns every later value.
+			// currency must be listed: the SELECT supplies the 'IDR' literal between net_pay and transaction_id.
 			err = tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 AND t.household_id=$2 ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id RETURNING id`, sid, householdID, period, payDate, sourceID, tid).Scan(&salaryEventID)
 			if err == nil && choice == salaryChoicePrimary {
 				_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, householdID, salaryEventID)
@@ -694,7 +678,6 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 	}
 	reply := message
 	if update.CallbackQuery != nil && message == staleActionMessage {
-		// A tap on a review card that was answered elsewhere names the outcome.
 		reply = staleReviewReplyForSource(ctx, tx, sourceEventID, update, message)
 	}
 	if err := enqueueReply(ctx, tx, update, reply); err != nil {
@@ -709,11 +692,7 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 }
 
 func enqueueReply(ctx context.Context, tx pgx.Tx, update telegramUpdate, message string) error {
-	// Callback queries are acknowledged by the API webhook itself: after durable
-	// capture it answers with answerCallbackQuery as the webhook's HTTP reply
-	// (apps/api/internal/telegram). Do not enqueue a second ACK: Telegram rejects
-	// duplicate answerCallbackQuery calls with HTTP 400. The reply job only sends
-	// the resulting user-facing message.
+	// The API webhook already answers answerCallbackQuery; a second ACK is rejected by Telegram with HTTP 400.
 	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000))
 	return err
 }

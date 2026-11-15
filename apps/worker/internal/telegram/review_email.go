@@ -25,11 +25,8 @@ func (p *Processor) processFinancialEmailPager(ctx context.Context, sourceEventI
 	return true, p.askFinancialEmailEntityPage(ctx, sourceEventID, itemID, householdID, update, page)
 }
 
-// processFinancialEmailCallback resolves a FINANCIAL_EMAIL_RESOLUTION review
-// from the entity chooser. Each button names one dimension (funding account or
-// wealth account) and one household-scoped id, so it delegates straight to the
-// shared resolver and then enqueues the provider-email replay, exactly as the
-// Review Inbox does. Bounded buttons never enter the conversational pipeline.
+// Each button names one dimension and one household-scoped id, resolved like the Review Inbox.
+// Bounded buttons never enter the conversational pipeline.
 func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	dimension, entityID := financialEmailDimension(data)
 	if dimension == "" {
@@ -92,10 +89,8 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 	return true, tx.Commit(ctx)
 }
 
-// processDocumentReviewCallback resolves a document-bound review (classification
-// or extraction failure) from its Telegram card. The buttons carry bounded
-// intents, so it never enters the conversational pipeline: it binds the card by
-// its delivered message id, then delegates to the shared document resolver.
+// Bounded buttons never enter the conversational pipeline: bind the card by delivered message id, then
+// delegate to the shared document resolver.
 func (p *Processor) processDocumentReviewCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	action := map[string]string{"review:reprocess": "REPROCESS_DOCUMENT", "review:ignore": "IGNORE"}[data]
 	if action == "" {
@@ -158,13 +153,8 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	}
 	defer tx.Rollback(ctx)
 	var itemID, observationID, observationSource string
-	// Bind inside the transaction with the open-liveness guards its siblings use
-	// (unexpired request, FOR UPDATE) so an expired card cannot still resolve and
-	// two concurrent taps cannot both commit.
-	// Select the observation's own source_event_id: `sourceEventID` is the
-	// Telegram callback event, whose id never matches the observation's
-	// source_event_id, so settling it left the provider email stuck at
-	// NEEDS_REVIEW.
+	// Bind in the transaction with liveness guards so an expired card cannot resolve and taps cannot race.
+	// Use the observation's source_event_id, not the callback's, or the provider email stays NEEDS_REVIEW.
 	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text,fo.source_event_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_FACTS' AND ri.financial_email_observation_id IS NOT NULL AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, replyID).Scan(&itemID, &observationID, &observationSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -173,8 +163,7 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 		return true, err
 	}
 	var userID string
-	// Require an active household membership, not just an active Telegram
-	// identity, exactly like the sibling resolvers.
+	// Require an active household membership, not just an active Telegram identity.
 	if err = tx.QueryRow(ctx, `SELECT ti.user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.telegram_user_id=$1 AND ti.household_id=$2 AND ti.active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return true, err
 	}
@@ -193,11 +182,8 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'IGNORE_FINANCIAL_EMAIL_FACTS','financial_email_observation',$3,jsonb_build_object('review_item_id',$4::uuid))`, householdID, userID, observationID, itemID); err != nil {
 		return true, err
 	}
-	// The observation's reconciliation case closes with it, as in
-	// reviewdomain.ResolveFinancialEmailReview, and the provider email's own
-	// event settles through the shared lifecycle (ADR-046): an applied sibling
-	// keeps it PROCESSED and an open sibling keeps it in review. The Telegram
-	// callback event is settled below like every sibling lane.
+	// The reconciliation case closes with the observation; the provider email's own event settles through the
+	// shared lifecycle (ADR-046), and the callback event settles below.
 	if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='RESOLVED',updated_at=now() WHERE financial_email_observation_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, observationID, householdID); err != nil {
 		return true, err
 	}
@@ -220,14 +206,7 @@ func documentReviewMarkup() *InlineKeyboardMarkup {
 	}}
 }
 
-// financialEmailEntityMarkup offers the still-unresolved entity dimensions as
-// paged choosers over the household's own accounts and wealth accounts. Only the
-// dimension the decision names as missing is offered, so a review that already
-// knows the funding account asks for the wealth account alone. Callback data is
-// prefixed with the dimension so the resolver sets the right field.
-// askFinancialEmailEntity keeps an unfinished entity review open and re-emits the
-// chooser for the dimension(s) still missing, so a two-dimension resolution can
-// finish in two taps without leaving Telegram.
+// askFinancialEmailEntity keeps an unfinished review open and re-emits the chooser for the missing dimension(s).
 func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, itemID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -250,8 +229,7 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
 		return err
 	}
-	// A dimension resolved on an earlier turn must not be offered again: rebuild
-	// the missing set from the observation's persisted columns.
+	// A dimension resolved on an earlier turn is not offered again: rebuild the missing set from the persisted columns.
 	var resolvedAccount, resolvedWealth string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(fo.resolved_account_id::text,''),COALESCE(fo.resolved_wealth_account_id::text,'') FROM review_item ri JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id WHERE ri.id=$1`, itemID).Scan(&resolvedAccount, &resolvedWealth); err != nil {
 		return err
@@ -280,9 +258,8 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 	return tx.Commit(ctx)
 }
 
-// financialEmailEntityMarkup builds the entity chooser for the still-missing
-// dimensions. page selects the chunk of each dimension, so a household with more
-// accounts than fit one Telegram keyboard can still bind the missing entity.
+// Offers only the dimensions the decision names as missing; page chunks each dimension so large households
+// can still bind.
 func financialEmailEntityMarkup(ctx context.Context, tx pgx.Tx, reviewID string, decision reviewdec.Decision, page int) (*InlineKeyboardMarkup, error) {
 	hasAccount := contains(decision.MissingFacts, "funding_account")
 	hasWealth := contains(decision.MissingFacts, "wealth_account")
@@ -377,8 +354,6 @@ func financialEmailEntityMarkup(ctx context.Context, tx pgx.Tx, reviewID string,
 	return &InlineKeyboardMarkup{InlineKeyboard: buttons}, nil
 }
 
-// askFinancialEmailEntityPage re-renders the chooser on a later page without
-// touching the observation.
 func (p *Processor) askFinancialEmailEntityPage(ctx context.Context, sourceEventID, itemID, householdID string, update telegramUpdate, page int) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -413,8 +388,6 @@ func (p *Processor) askFinancialEmailEntityPage(ctx context.Context, sourceEvent
 	return tx.Commit(ctx)
 }
 
-// financialEmailDimension returns the household-scoped entity dimensions a
-// financial-email chooser callback refers to: an entity id, or "ignore".
 func financialEmailDimension(data string) (string, string) {
 	switch {
 	case strings.HasPrefix(data, "review:fe:account:"):
@@ -428,8 +401,7 @@ func financialEmailDimension(data string) (string, string) {
 	}
 }
 
-// financialEmailPage parses review:fepage:<n>; the negative sentinel means the
-// callback is not a pager.
+// financialEmailPage parses review:fepage:<n>; a negative sentinel means the callback is not a pager.
 func financialEmailPage(data string) int {
 	if !strings.HasPrefix(data, "review:fepage:") {
 		return -1

@@ -13,17 +13,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// TerminalDownstreamFailureTx runs inside the transaction that marks a
-// PROCESS_PAYSLIP / PROCESS_RECEIPT / PROCESS_TRANSACTION_SCREENSHOT job FAILED
-// because its attempts ran out. Classification already settled the source as
-// PROCESSED and left the document CLASSIFIED while the job extracted the
-// details, so without this step a job that never succeeds leaves a document that
-// looks done and a household that is never told.
-//
-// A document that is still CLASSIFIED never produced an outcome; it becomes
-// FAILED. The source follows only when nothing else on it produced evidence, a
-// proposal, a review or a finished sibling document, and then the household
-// gets the same dismissable Tindakan item every other failed source gets.
+// TerminalDownstreamFailureTx marks a still-CLASSIFIED document FAILED when its downstream job fails.
+// The source fails only if nothing else on it produced evidence, a proposal, a review or a finished sibling.
 func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, documentID string) error {
 	if !reviewdomain.IsSourceEventID(documentID) {
 		return nil
@@ -57,11 +48,8 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 	})
 }
 
-// unpaidInvoiceOnly reports a correct extraction of an unpaid bill: the document
-// type is BILL_OR_INVOICE, it does not show payment completed, and the only
-// validator findings are PAYMENT_NOT_CONFIRMED and the zero-row result that
-// follows from it. An invoice alone is not proof of payment, so this is not a
-// failure the household can fix and it must not open a review.
+// unpaidInvoiceOnly reports a correct extraction of an unpaid bill; an invoice is not proof of payment
+// and must not open a review.
 func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
 	if documentType != "BILL_OR_INVOICE" || value.PaymentStatus == "PAID" {
 		return false
@@ -77,9 +65,8 @@ func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
 	return true
 }
 
-// failScreenshotExtraction routes a screenshot validation failure that survived
-// normalization and repair: an unpaid invoice keeps the plain FAILED outcome
-// with no review; every other failure opens a review instead of a dead end.
+// failScreenshotExtraction routes a validation failure that survived normalization and repair: an unpaid
+// invoice stays plain FAILED, anything else opens a review instead of a dead end.
 func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, cause error) error {
 	if unpaidInvoiceOnly(value, documentType) {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "TRANSACTION_SCREENSHOT", value, value.Confidence, model, cause)
@@ -87,14 +74,8 @@ func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, ho
 	return p.persistScreenshotExtractionFailure(ctx, documentID, householdID, sourceID, value, model, cause)
 }
 
-// persistScreenshotExtractionFailure settles a TRANSACTION_SCREENSHOT extraction
-// that failed deterministic validation even after identity normalization and the
-// single ADR-037 repair. The model output is kept as unvalidated evidence, no
-// canonical record is written, and the household gets a document-bound
-// DOCUMENT_EXTRACTION_LOW_CONFIDENCE review (reprocess or ignore) instead of a
-// dead end. The document itself stays FAILED: a reprocess re-runs the pipeline
-// only for a document that is not already EXTRACTED or NEEDS_REVIEW, and the
-// open review is what carries the source in NEEDS_REVIEW.
+// persistScreenshotExtractionFailure keeps an extraction that failed validation after repair as unvalidated
+// evidence with an open review and no canonical write; the document stays FAILED.
 func (p *Processor) persistScreenshotExtractionFailure(ctx context.Context, documentID, householdID, sourceID string, value screenshotExtraction, model string, cause error) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
@@ -130,8 +111,7 @@ func (p *Processor) persistScreenshotExtractionFailure(ctx context.Context, docu
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		// A retried job or a sibling classification review already holds the one
-		// active document review; reuse it rather than open a second.
+		// A retried job or sibling classification review already holds the one active document review; reuse it.
 		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID, householdID).Scan(&reviewItemID); err != nil {
 			return err
 		}

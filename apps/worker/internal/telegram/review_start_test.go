@@ -8,8 +8,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// The renderer follows the stored decision, not the review type, so a date,
-// policy, or duplicate review can never be rendered as a category chooser.
+// The renderer follows the stored decision, not the review type.
 func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 	tests := []struct {
 		name       string

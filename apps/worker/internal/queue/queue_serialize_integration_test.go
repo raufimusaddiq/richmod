@@ -12,9 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// isolatedQueue gives a test its own job table in a private schema that every
-// pooled connection resolves first, so concurrent claims run against real
-// cross-session rows without touching other tests' jobs.
+// isolatedQueue gives a test a private-schema job table that every pooled connection resolves first, so
+// claims run on real cross-session rows.
 func isolatedQueue(t *testing.T) (*Queue, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -64,8 +63,8 @@ func insertTextJob(t *testing.T, pool *pgxpool.Pool, id, household string, age t
 	}
 }
 
-// Two DEFAULT loops must never run two Telegram messages of one household at
-// once, and must still serve another household in parallel.
+// Two DEFAULT loops must never run two Telegram messages of one household at once, yet must serve another
+// household in parallel.
 func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 	q, pool := isolatedQueue(t)
 	ctx := context.Background()
@@ -99,7 +98,6 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 	if len(claimed) != 2 || claimed["20000000-0000-4000-8000-000000000001"] != serialHouseholdA || claimed["20000000-0000-4000-8000-000000000004"] != serialHouseholdB {
 		t.Fatalf("concurrent claims = %v, want A's oldest and B's only", claimed)
 	}
-	// While A's first message runs, its next one stays queued.
 	if job, found, err := q.Claim(ctx, "w9", "DEFAULT"); err != nil || found {
 		t.Fatalf("claimed %s while household A's message was running (err=%v)", job.ID, err)
 	}
@@ -126,8 +124,7 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 	}
 }
 
-// A stale lease (a crashed worker) does not block the household forever: the
-// stale job itself is reclaimed, still before the household's newer message.
+// A stale lease does not block the household forever: the stale job is reclaimed before the household's newer message.
 func TestClaimReclaimsStaleTelegramTextBeforeNewerMessage(t *testing.T) {
 	q, pool := isolatedQueue(t)
 	ctx := context.Background()
@@ -145,10 +142,8 @@ func TestClaimReclaimsStaleTelegramTextBeforeNewerMessage(t *testing.T) {
 	}
 }
 
-// A deferral (AI gateway down) gives the attempt back, backs off from five
-// minutes, and does not block a household's newer, never-deferred message
-// (so deterministic replies still flow); once that one is deferred too, it
-// queues behind the older one again.
+// A deferral gives back the attempt, backs off from five minutes, and does not block a never-deferred newer
+// message; once that is deferred too it queues behind the older one.
 func TestDeferGivesAttemptsBackAndKeepsDeterministicRepliesFlowing(t *testing.T) {
 	q, pool := isolatedQueue(t)
 	ctx := context.Background()
@@ -179,7 +174,6 @@ func TestDeferGivesAttemptsBackAndKeepsDeterministicRepliesFlowing(t *testing.T)
 	if err := q.Defer(ctx, next, errors.New("gateway unavailable")); err != nil {
 		t.Fatal(err)
 	}
-	// Both are due again: the older one goes first and the newer waits for it.
 	if _, err := pool.Exec(ctx, `UPDATE job SET run_after=now()-interval '1 second'`); err != nil {
 		t.Fatal(err)
 	}

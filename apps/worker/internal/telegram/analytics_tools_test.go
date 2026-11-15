@@ -8,8 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Telegram must reuse the shared analytical READ catalog over the same fact
-// engine, expose no analytical mutation tool, and validate the same arguments.
 func TestTelegramExposesSharedAnalyticalReadTools(t *testing.T) {
 	catalog := map[string]bool{}
 	for _, tool := range AgentFinanceTools(nil, false, false, false, "", false, false, "") {

@@ -42,7 +42,7 @@ func TestCategoryReplyToALinkedReceiptStagesACorrectionOnThatTransactionOnly(t *
 	p := evidenceTurnProcessor(f, model)
 
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	_, err := runEvidenceTurn(t, ctx, f, p, "yang ini salah kategorinya, makan", 101) // reply to receipt A, with receipt B also in the chat
+	_, err := runEvidenceTurn(t, ctx, f, p, "yang ini salah kategorinya, makan", 101)
 	mustAgentTest(t, err)
 
 	var staged int
@@ -54,8 +54,6 @@ func TestCategoryReplyToALinkedReceiptStagesACorrectionOnThatTransactionOnly(t *
 	if stagedTransaction == b.transactionID {
 		t.Fatal("the correction targeted receipt B")
 	}
-	// Staging is not applying: the household confirms before anything changes, and
-	// no second ledger row appears.
 	var nowCategory string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT category_id::text FROM transaction WHERE id=$1`, a.transactionID).Scan(&nowCategory))
 	if nowCategory != originalCategory {
@@ -72,7 +70,6 @@ func TestCorrectionRefusesATargetThatIsNotAnIssuedRefForThisHousehold(t *testing
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
 	foreign := newAgentIntegrationFixture(t, "corr-foreign-other")
 	foreignEvidence := seedEvidence(t, ctx, foreign, "x", evidenceSeedOptions{amount: "999000", merchant: "Other", messageID: 101, linkTransaction: true})
-	// The category exists, so a refusal can only be about the target.
 	if _, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan')`, f.householdID); err != nil {
 		t.Fatal(err)
 	}

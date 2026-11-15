@@ -47,9 +47,7 @@ func TestInstrumentedEngineRecordsOneAttributedPhase(t *testing.T) {
 	}
 }
 
-// TestInstrumentedEnginePrefersContextSourceEvent is the attribution regression
-// from the plan: document calls pass their own document ID as the request ID, so
-// the trusted event the caller attached to the context must win.
+// Document calls pass their own document ID as request ID, so the trusted event attached to the context must win.
 func TestInstrumentedEnginePrefersContextSourceEvent(t *testing.T) {
 	const eventID = "22222222-2222-4222-8222-222222222222"
 	var got Metric

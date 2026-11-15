@@ -10,46 +10,41 @@ import (
 	"time"
 )
 
-// AgentToolOutput is one model-safe result returned for a provider-native tool
-// call. Output may contain only the structured projection prepared by the Go
-// finance layer; the gateway never reads canonical state itself.
+// AgentToolOutput is a model-safe tool result: only the structured projection from the Go finance layer; the
+// gateway never reads canonical state.
 type AgentToolOutput struct {
 	CallID string
 	Output any
 }
 
-// AgentReadPhase preserves one completed native READ batch for stateless Chat
-// Completions replay. Responses retains the same history by response ID.
+// AgentReadPhase preserves a completed native READ batch for stateless Chat Completions replay; Responses
+// keeps history by response ID.
 type AgentReadPhase struct {
 	ToolCalls   []ToolCall
 	ToolOutputs []AgentToolOutput
 }
 
-// AgentRequest is the protocol-neutral contract used by the conversational
-// finance lane. Unlike NativeToolCall, a conversational response may contain
-// ordinary assistant text or multiple provider-native tool calls.
+// AgentRequest is the protocol-neutral conversational contract; unlike NativeToolCall, a reply may be text or
+// several native tool calls.
 type AgentRequest struct {
 	SystemPrompt    string
 	Content         any
 	Tools           []ToolDefinition
 	AllowParallel   bool
 	ReasoningEffort string
-	// RequiredTool forces one named native tool for workflow lanes that cannot
-	// safely accept ordinary assistant text.
+	// RequiredTool forces one native tool for lanes that cannot accept ordinary assistant text.
 	RequiredTool string
 
-	// Continuation fields preserve provider-native tool-call semantics between
-	// bounded model phases. Responses uses PreviousResponseID plus
-	// function_call_output; Chat Completions reconstructs the immediately
-	// preceding assistant tool_calls plus role=tool messages.
+	// Continuation fields carry tool-call state across phases: Responses uses PreviousResponseID,
+	// Chat Completions rebuilds the assistant tool_calls plus role=tool messages.
 	PreviousResponseID string
 	PreviousToolCalls  []ToolCall
 	ToolOutputs        []AgentToolOutput
 	ReadHistory        []AgentReadPhase
 }
 
-// AgentResponse intentionally exposes only display text and native tool calls.
-// Provider reasoning/auxiliary fields are never surfaced as finance data.
+// AgentResponse exposes only display text and native tool calls; provider reasoning fields never surface as
+// finance data.
 type AgentResponse struct {
 	ResponseID string
 	Text       string
@@ -71,10 +66,8 @@ func chatToolChoice(name string) any {
 	return map[string]any{"type": "function", "function": map[string]any{"name": name}}
 }
 
-// AgentTurn performs one conversational model phase. It never executes tools.
-// Zero tool calls are valid only when non-empty assistant text is returned.
-// One or more native calls are valid when every call names an allow-listed tool
-// and contains valid JSON arguments.
+// AgentTurn performs one model phase and never executes tools. Zero tool calls need non-empty text;
+// native calls need allow-listed names and valid JSON arguments.
 func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentRequest) (response AgentResponse, err error) {
 	started := time.Now()
 	if sourceEventFrom(ctx) == "" {

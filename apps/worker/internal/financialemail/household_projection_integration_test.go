@@ -1,8 +1,7 @@
 package financialemail
 
-// An observation-scoped FINANCIAL_EMAIL review
-// projects to the household's eligible Telegram identity even when the source
-// event carries no Telegram chat payload.
+// An observation-scoped FINANCIAL_EMAIL review projects to the household's eligible Telegram identity even
+// without a chat payload.
 
 import (
 	"context"

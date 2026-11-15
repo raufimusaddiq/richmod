@@ -13,8 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// deliveryFixture is a two-member household: Rina (the owner, chatA) and Budi
-// (chatB), both linked to Telegram.
+// Two-member household: Rina (owner, chatA) and Budi (chatB), both linked to Telegram.
 type deliveryFixture struct {
 	pool                   *pgxpool.Pool
 	householdID            string
@@ -53,8 +52,6 @@ func seedDeliveryFixture(t *testing.T) *deliveryFixture {
 	return f
 }
 
-// transaction inserts a NEEDS_REVIEW expense whose only evidence is a source
-// event of sourceType.
 func (f *deliveryFixture) transaction(t *testing.T, sourceType string) string {
 	t.Helper()
 	f.transactionSourceCount++
@@ -66,8 +63,6 @@ func (f *deliveryFixture) transaction(t *testing.T, sourceType string) string {
 	return transactionID
 }
 
-// enqueue projects the transaction's review as a producer answering chat's
-// message replyTo would.
 func (f *deliveryFixture) enqueue(t *testing.T, transactionID string, chat, replyTo int64) string {
 	t.Helper()
 	tx, err := f.pool.Begin(f.ctx)
@@ -120,9 +115,8 @@ func (f *deliveryFixture) resolve(t *testing.T, requestID string) {
 	mustAgentTest(t, err)
 }
 
-// R9: every member gets the card, but only the member whose message raised it
-// gets a threaded copy; the spouse's copy names that member and threads to
-// nothing. A household-level source threads no copy and names nobody.
+// Every member gets the card, but only the member whose message raised it gets a threaded copy; household-
+// level sources thread none.
 func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -137,8 +131,7 @@ func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 		t.Fatalf("spouse's copy must not thread and must name Rina: %+v", spouse[0].Payload)
 	}
 
-	// A bank email has no originating member, even though the producer passes
-	// a member's chat to deliver to.
+	// A bank email has no originating member, though the producer passes a member's chat.
 	bankRequest := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	for _, chat := range []int64{f.chatA, f.chatB} {
 		sends := f.sends(t, bankRequest, chat)
@@ -148,8 +141,6 @@ func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 	}
 }
 
-// T4: a second producer run for a transaction whose review is already
-// projected reuses that request and its cards.
 func TestEnqueueReviewRequestReusesTheOpenProjection(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	transactionID := f.transaction(t, "TELEGRAM_TEXT")
@@ -164,9 +155,8 @@ func TestEnqueueReviewRequestReusesTheOpenProjection(t *testing.T) {
 	}
 }
 
-// R8 pacing: a chat holds at most three live review cards; a fourth waits
-// QUEUED and is released when an earlier one closes. The expiry sweep closes
-// stale projections, retires their cards, and leaves the review open.
+// A chat holds at most three live review cards; a fourth waits QUEUED and is released when one closes. Expiry
+// retires cards but leaves the review open.
 func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var requests []string
@@ -182,7 +172,6 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	if f.deliveryStatus(t, fourth, f.chatA) != "QUEUED" || len(f.sends(t, fourth, f.chatA)) != 0 {
 		t.Fatal("the fourth card must wait for a free slot")
 	}
-	// The sweep never releases past the limit.
 	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 100); err != nil || f.deliveryStatus(t, fourth, f.chatA) != "QUEUED" {
 		t.Fatalf("sweep released a card with no free slot: %v", err)
 	}
@@ -191,8 +180,7 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 		t.Fatal("closing a card must release the oldest queued card")
 	}
 
-	// Expiry is per copy. Rina's copy of the second card passes its window
-	// first: it is retired and uncounted while Budi's copy stays live.
+	// Expiry is per copy: Rina's copy is retired and uncounted while Budi's stays live.
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatA, 501, "🟡 Perlu ditinjau"))
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatB, 502, "🟡 Perlu ditinjau"))
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatA)
@@ -218,8 +206,6 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 		t.Fatalf("expired copy retirement = %+v", calls)
 	}
 
-	// Budi's copy passes its window too: the last copy closes the projection,
-	// and the canonical item stays open.
 	_, err = f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatB)
 	mustAgentTest(t, err)
 	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
@@ -235,8 +221,7 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	if retirements(501) != 1 || retirements(502) != 1 {
 		t.Fatal("a second sweep retired the cards again")
 	}
-	// A typed reply to Rina's expired card renews the projection and her copy
-	// only; a tap never does (TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews).
+	// A typed reply to an expired card renews the projection and that copy only; a tap never does.
 	reply := telegramUpdate{}
 	reply.Message.Chat.ID, reply.Message.From.ID, reply.Message.MessageID = f.chatA, f.chatA, 9001
 	reply.Message.ReplyToMessage = &struct {
@@ -249,8 +234,6 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	}
 }
 
-// T3: Telegram accepted the card but binding failed. The retry binds the
-// recorded message and never sends a second card.
 func TestDeliverSendRetryAfterBindFailureDoesNotResend(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -258,7 +241,6 @@ func TestDeliverSendRetryAfterBindFailureDoesNotResend(t *testing.T) {
 	bot, fake := newFakeTelegram(t, func(method string) (int, string) {
 		return 200, `{"ok":true,"result":{"message_id":901}}`
 	})
-	// Make the bind fail once: the recipient row is moved away.
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET telegram_chat_id=-telegram_chat_id WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA)
 	mustAgentTest(t, err)
 	if err := f.processor.DeliverSend(f.ctx, bot, send.JobID, f.householdID, send.Payload); err == nil {
@@ -282,8 +264,6 @@ func TestDeliverSendRetryAfterBindFailureDoesNotResend(t *testing.T) {
 	}
 }
 
-// T2: a card that never reaches its recipient is recorded FAILED with the
-// Telegram reason, frees its pacing slot, and leaves the review open.
 func TestTerminalCardSendFailureIsRecordedAndReleasesTheSlot(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var requests []string
@@ -306,8 +286,6 @@ func TestTerminalCardSendFailureIsRecordedAndReleasesTheSlot(t *testing.T) {
 	}
 }
 
-// R3: a follow-up message becomes the recipient's current card; the message it
-// replaced loses its buttons now, and closing the review retires both.
 func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -326,7 +304,6 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	if len(calls) != 1 || calls[0].Method != "editMessageText" || calls[0].Body["message_id"] != float64(610) || calls[0].Body["text"] != "🟡 Perlu ditinjau\n\n"+supersededCardNote {
 		t.Fatalf("superseded card retirement = %+v", calls)
 	}
-	// The current card is not touched while the review is open.
 	current := payload
 	current.MessageID = 611
 	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot, current))
@@ -344,7 +321,6 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	}
 	rows.Close()
 	if len(messages) != 1 || messages[0] != 611 {
-		// 610 still has its superseded retirement queued; the close adds 611.
 		t.Fatalf("close retirements = %v", messages)
 	}
 	var total int
@@ -352,7 +328,6 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	if total != 2 {
 		t.Fatalf("every message of the review must be retired, got %d", total)
 	}
-	// Every member's copy shows the outcome.
 	closing := RetireCardPayload{ReviewRequestID: requestID, RecipientID: payload.RecipientID, ChatID: f.chatA, MessageID: 611, Status: "RESOLVED"}
 	bot2, fake2 := newFakeTelegram(t, nil)
 	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot2, closing))
@@ -361,8 +336,6 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	}
 }
 
-// R7: "message is not modified" is a success; an uneditable live card is sent
-// again with its buttons and bound, never as an unbound buttonless message.
 func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -398,7 +371,6 @@ func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
 	if bound != 701 {
 		t.Fatalf("re-sent card is not bound: %d", bound)
 	}
-	// A retry of the same job binds the recorded message and sends nothing new.
 	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, jobID, f.householdID, edit))
 	sends := 0
 	for _, call := range fake.recorded() {
@@ -410,8 +382,6 @@ func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
 		t.Fatalf("retry re-sent the card: %d sends", sends)
 	}
 
-	// A plain edit (no review) whose message Telegram rejects fails clearly
-	// instead of being replaced by a new message.
 	bot, fake = newFakeTelegram(t, func(string) (int, string) {
 		return 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities"}`
 	})
@@ -427,9 +397,7 @@ func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
 	}
 }
 
-// T5 and R8: once a tap resolved the card, a second tap (another member's or a
-// late double tap) is answered with the outcome, and an expired card is never
-// renewed by a tap.
+// A second tap (another member's or a double tap) gets the outcome; an expired card is never renewed by a tap.
 func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -470,8 +438,6 @@ func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 		t.Fatalf("late tap reply = %q", reply)
 	}
 
-	// An expired card that is still tapped (before the sweep stripped it) stays
-	// expired.
 	expiredRequest := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 78)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, expiredRequest, f.chatA, 802, "🟡 Perlu ditinjau"))
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request SET status='EXPIRED',expires_at=now()-interval '1 day' WHERE id=$1`, expiredRequest)
@@ -484,8 +450,6 @@ func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 	}
 }
 
-// T5: a reply to an older message of a review that is still open points to the
-// newest message instead of the generic stale copy.
 func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -503,21 +467,17 @@ func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
 	if reply, err = answeredReviewReply(f.ctx, f.pool, f.householdID, f.chatA, 900); err != nil || reply != "Tinjauan ini sudah dijawab: dicatat sebagai Makan oleh Rina." {
 		t.Fatalf("answered reply = %q %v", reply, err)
 	}
-	// Another household never sees this review's outcome.
 	if reply, err = answeredReviewReply(f.ctx, f.pool, "00000000-0000-0000-0000-000000000000", f.chatA, 900); err != nil || reply != "" {
 		t.Fatalf("cross-household lookup = %q %v", reply, err)
 	}
 }
 
-// A member whose copy is still waiting for a pacing slot keeps it when the
-// other members' copies expire, and releasing it never revives an expired copy.
 func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var fillers []string
 	for i := 0; i < 3; i++ {
 		fillers = append(fillers, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
 	}
-	// Only Budi's chat is full: Rina's filler copies are gone.
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET delivery_status='SKIPPED' WHERE telegram_chat_id=$1 AND review_request_id=ANY($2::uuid[])`, f.chatA, fillers)
 	mustAgentTest(t, err)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -536,9 +496,6 @@ func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 		t.Fatalf("expiry dropped the waiting copy: request=%s A=%s B=%s", status, f.deliveryStatus(t, requestID, f.chatA), f.deliveryStatus(t, requestID, f.chatB))
 	}
 
-	// The whole projection can also expire through the lazy tap path; the
-	// waiting copy still survives and its release reopens the request without
-	// making Rina's expired copy live again.
 	_, err = f.pool.Exec(f.ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1`, requestID)
 	mustAgentTest(t, err)
 	if f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
@@ -563,8 +520,7 @@ func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 	}
 }
 
-// A release never waits for a request that another transaction is closing, so
-// a close and a release in the same chat cannot deadlock.
+// A release never waits for a request another transaction is closing, so close and release cannot deadlock.
 func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var live []string
@@ -575,7 +531,6 @@ func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 	if f.deliveryStatus(t, waiting, f.chatA) != "QUEUED" {
 		t.Fatal("setup: the fourth card must wait")
 	}
-	// Another transaction is closing the waiting request and holds its row.
 	closing, err := f.pool.Begin(f.ctx)
 	mustAgentTest(t, err)
 	defer closing.Rollback(f.ctx)
@@ -603,8 +558,7 @@ func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 	}
 }
 
-// A copy's window starts when Telegram first delivers it, not when its send was
-// queued; a follow-up message does not extend it.
+// A copy's window starts at first delivery, not at enqueue, and a follow-up does not extend it.
 func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -613,7 +567,6 @@ func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
 	if !unset {
 		t.Fatal("a queued send must not start the copy's window")
 	}
-	// The send was delayed: the request's own window is nearly over.
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request SET expires_at=now()+interval '1 hour' WHERE id=$1`, requestID)
 	mustAgentTest(t, err)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1200, "🟡 Perlu ditinjau"))
@@ -631,8 +584,7 @@ func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
 	}
 }
 
-// Expiry takes the chat lock before the copy's row, like a delivery failure or
-// skip does, so the two wait in one order instead of deadlocking.
+// Expiry takes the chat lock before the copy's row, like failure and skip, so they wait in one order.
 func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -641,7 +593,6 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 	var recipientA string
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))
 
-	// A failure/skip transaction holds the chat lock first.
 	failing, err := f.pool.Begin(f.ctx)
 	mustAgentTest(t, err)
 	defer failing.Rollback(f.ctx)
@@ -656,8 +607,6 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 		expired <- f.pool.QueryRow(ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done)
 	}()
 	time.Sleep(300 * time.Millisecond)
-	// The failure transaction can still take the copy's row: expiry is waiting
-	// for the chat lock and has not locked any row.
 	ctx, cancel := context.WithTimeout(f.ctx, 3*time.Second)
 	defer cancel()
 	if _, err := failing.Exec(ctx, `UPDATE review_request_recipient SET delivery_error=delivery_error WHERE id=$1`, recipientA); err != nil {
@@ -672,9 +621,7 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 	}
 }
 
-// Projections in one household whose preferred users differ present their
-// recipients in opposite orders; they still take the chat locks in one order,
-// so concurrent projections never deadlock.
+// Projections with differing preferred users take chat locks in one order, so they never deadlock.
 func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	for round := 0; round < 10; round++ {
@@ -701,7 +648,6 @@ func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 					errs <- err
 					return
 				}
-				// Hold the locks a little, as a producer transaction would.
 				time.Sleep(20 * time.Millisecond)
 				errs <- tx.Commit(ctx)
 			}(transactionID)
@@ -715,9 +661,7 @@ func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 	}
 }
 
-// A follow-up delivered after its copy expired (while another member keeps the
-// request open) neither revives the copy nor takes a pacing slot; the late
-// message is retired. Only a typed reply renews an expired copy.
+// A follow-up delivered after its copy expired neither revives it nor takes a slot; only a typed reply renews.
 func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -730,7 +674,6 @@ func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
 	if !done || f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" {
 		t.Fatal("setup: Rina's copy must be expired")
 	}
-	// A follow-up queued before the expiry is delivered now.
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1402, "Pilih kategori pengeluaran:"))
 	var live, retire int
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT review_card_live_count($1::bigint)`, f.chatA).Scan(&live))
@@ -745,8 +688,6 @@ func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
 	}
 }
 
-// An edit queued before a copy expired (or before its message was replaced)
-// must not put buttons back on it.
 func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -755,10 +696,8 @@ func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
 	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	bot, fake := newFakeTelegram(t, nil)
 
-	// Budi's message is superseded by a newer one: the old one stays stripped.
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1502, "Pilih kategori pengeluaran:"))
 	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, "", f.householdID, EditPayload{ChatID: f.chatB, MessageID: 1501, Text: "x", ReplyMarkup: markup, ReviewRequestID: requestID}))
-	// Rina's copy expires while Budi's keeps the request open.
 	var recipientA string
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))
 	var done bool
@@ -767,16 +706,12 @@ func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
 	if calls := fake.recorded(); len(calls) != 0 {
 		t.Fatalf("a queued edit reached an expired or superseded copy: %+v", calls)
 	}
-	// Budi's current card is still editable.
 	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, "", f.householdID, EditPayload{ChatID: f.chatB, MessageID: 1502, Text: "Pilih kategori pengeluaran (halaman 2):", ReplyMarkup: markup, ReviewRequestID: requestID}))
 	if calls := fake.recorded(); len(calls) != 1 || calls[0].Body["message_id"] != float64(1502) {
 		t.Fatalf("the live card was not edited: %+v", calls)
 	}
 }
 
-// A card Telegram delivered but that could not be bound is not an undelivered
-// card: the job's final step binds it from the recorded message and it keeps
-// its pacing slot.
 func TestFinalFailureAfterDeliveryBindsTheRecordedMessage(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -796,8 +731,6 @@ func TestFinalFailureAfterDeliveryBindsTheRecordedMessage(t *testing.T) {
 	}
 }
 
-// A PENDING copy whose send job is gone would hold a slot forever; the sweep
-// fails it and releases the chat.
 func TestSweepRepairsPendingCopyWithoutASendJob(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var requests []string
@@ -815,8 +748,6 @@ func TestSweepRepairsPendingCopyWithoutASendJob(t *testing.T) {
 	}
 }
 
-// When the accepted message cannot be recorded, the job stops instead of
-// sending a second card on retry, and the unrecorded card loses its buttons.
 func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -827,7 +758,6 @@ func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
 		}
 		return 200, `{"ok":true,"result":true}`
 	})
-	// A job id with no job row makes the delivery record fail.
 	err := f.processor.DeliverSend(f.ctx, bot, "00000000-0000-0000-0000-000000000001", f.householdID, send.Payload)
 	var permanent interface{ Permanent() bool }
 	if !errors.As(err, &permanent) || !permanent.Permanent() {
@@ -839,9 +769,6 @@ func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
 	}
 }
 
-// An edit that re-sent a card and then failed to bind it binds that message on
-// retry even when the copy expired in between; the message is retired, never
-// left tappable and unbound.
 func TestEditResendRetryBindsAfterTheCopyExpired(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -849,7 +776,6 @@ func TestEditResendRetryBindsAfterTheCopyExpired(t *testing.T) {
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1801, "🟡 Perlu ditinjau"))
 	var jobID, recipientA string
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `INSERT INTO job(type,payload_json,status) VALUES('EDIT_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'message_id',1800,'text','x','review_request_id',$2::text),'RUNNING') RETURNING id`, f.chatA, requestID).Scan(&jobID))
-	// The re-send was accepted and recorded, then the bind failed.
 	_, err := f.pool.Exec(f.ctx, `INSERT INTO telegram_outbound_delivery(job_id,household_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3,1802)`, jobID, f.householdID, f.chatA)
 	mustAgentTest(t, err)
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))

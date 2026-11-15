@@ -36,8 +36,8 @@ func (e *Extractor) Extract(ctx context.Context, sourceEventID string, listener 
 		return Extraction{}, gateway.Metadata{}, fmt.Errorf("bank email gateway is unavailable")
 	}
 	content := map[string]any{"configured_bank_name": listener.BankName, "sender_address": emailFrom(listener, email), "household_timezone": "Asia/Jakarta", "email_subject": email.Subject, "email_date": email.Date, "authentication_results": email.AuthenticationResults, "email_body": "<untrusted_email_body>" + normalizeVisibleText(email.Body) + "</untrusted_email_body>"}
-	// Reasoning effort is provider/model specific. Keep the portable bank path
-	// free of optional fields unless explicitly introduced at gateway config.
+	// Reasoning effort is provider-specific; keep the portable bank path free of optional fields unless set
+	// in gateway config.
 	options := gateway.NativeToolOptions{Required: true}
 	var lastMeta gateway.Metadata
 	var validationErr error

@@ -10,8 +10,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Telegram must request exactly the stored residual fact and must not
-// treat an internal received-at timestamp as the supplied transaction date.
+// Telegram must request exactly the stored residual fact and not treat the internal received-at timestamp as
+// the transaction date.
 func TestResidualConfirmationBlockersRequestOnlyMissingFacts(t *testing.T) {
 	decision := []byte(`{"missingFacts":["category","transaction_at"]}`)
 	if got := residualConfirmationBlockers(decision, false, false, false); len(got) != 2 || got[0] != "category" || got[1] != "transaction_at" {

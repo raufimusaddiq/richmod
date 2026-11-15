@@ -19,7 +19,6 @@ func turnsOf(n int) []PublicTurn {
 	return turns
 }
 
-// verbatimStart is where the newest verbatimExchanges user exchanges begin.
 func verbatimStart(turns []PublicTurn) int {
 	seen := 0
 	for index := len(turns) - 1; index >= 0; index-- {
@@ -34,10 +33,9 @@ func verbatimStart(turns []PublicTurn) int {
 }
 
 func TestCompactionKeepsTheNewestExchangesWholeAndShrinksTheRest(t *testing.T) {
-	input := turnsOf(6) // 6 exchanges, 18 rows, tool rows of 5,000 characters each
+	input := turnsOf(6)
 	got := compactConversation(input)
 
-	// The newest exchange is untouched, tool result included.
 	tail := got[len(got)-3:]
 	for i, turn := range tail {
 		want := input[len(input)-3+i]
@@ -48,8 +46,6 @@ func TestCompactionKeepsTheNewestExchangesWholeAndShrinksTheRest(t *testing.T) {
 			t.Fatal("the newest exchange must keep its tool result for follow-ups")
 		}
 	}
-	// The verbatim window counts exchanges, not rows: all three newest user
-	// messages are present whole.
 	whole := 0
 	for _, turn := range got {
 		if turn.Role == "USER" && !turn.Compacted {
@@ -59,7 +55,6 @@ func TestCompactionKeepsTheNewestExchangesWholeAndShrinksTheRest(t *testing.T) {
 	if whole != verbatimExchanges {
 		t.Fatalf("want the %d newest user messages whole, got %d", verbatimExchanges, whole)
 	}
-	// Older rows are clipped, marked, stripped of tool data, and never TOOL rows.
 	for _, turn := range got {
 		if !turn.Compacted {
 			continue
@@ -77,8 +72,6 @@ func TestCompactionKeepsTheNewestExchangesWholeAndShrinksTheRest(t *testing.T) {
 	}
 }
 
-// A1: tool JSON counts against the budget. The tool results of older verbatim
-// exchanges are dropped before the newest exchange is touched.
 func TestCompactionCountsToolJSONAgainstTheBudget(t *testing.T) {
 	got := compactConversation(turnsOf(4))
 	total := 0
@@ -116,13 +109,12 @@ func TestCompactionKeepsChronologicalOrder(t *testing.T) {
 }
 
 func TestCompactionBudgetDropsTheOldestCompactedTurnsFirstAndNeverTheNewest(t *testing.T) {
-	input := turnsOf(40) // many exchanges: older text alone exceeds the budget
+	input := turnsOf(40)
 	got := compactConversation(input)
 	last := got[len(got)-1]
 	if last.Role != "ASSISTANT" || !strings.HasPrefix(last.Text, "jawaban 39") {
 		t.Fatalf("the newest turn must survive the budget, got %+v", last)
 	}
-	// Whatever older turns remain are the most recent of the older ones.
 	var older []PublicTurn
 	for _, turn := range got {
 		if turn.Compacted {
@@ -173,8 +165,7 @@ func TestClipRunesDoesNotSplitMultibyteCharacters(t *testing.T) {
 }
 
 func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
-	// The old window was 60 minutes and 20 rows. A follow-up the next morning must
-	// still work; the scan and the budget keep the prompt from growing with it.
+	// The next-morning follow-up must work; the scan and budget keep the prompt bounded.
 	if conversationWindow <= time.Hour {
 		t.Fatalf("window %s is not longer than the old one hour", conversationWindow)
 	}
@@ -183,11 +174,8 @@ func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
 	}
 }
 
-// The budget is in characters, so text with multi-byte characters is not counted
-// as if each were several characters.
+// The budget counts characters, not bytes.
 func TestCompactionBudgetCountsCharactersNotBytes(t *testing.T) {
-	// 40 older turns of 150 two-byte characters: 6,000 characters in total fit the
-	// budget, but the same text measured in bytes (12,000) would not.
 	var turns []PublicTurn
 	for i := 0; i < 40; i++ {
 		turns = append(turns, PublicTurn{Role: "USER", Text: strings.Repeat("é", 150)})
@@ -238,7 +226,7 @@ func TestDroppingExpiredRefsToleratesEmptyAndOddInput(t *testing.T) {
 	if got := dropExpiredAnalyticsRefs("category.2"); got != "category.2" {
 		t.Fatal("a bare string is not a container and must be returned as is")
 	}
-	// Only well-formed refs are expired; text that merely resembles one is not.
+	// Text that merely resembles a ref is not expired.
 	kept := map[string]any{"note": "category.x", "name": "category.1x"}
 	dropExpiredAnalyticsRefs(kept)
 	if len(kept) != 2 {

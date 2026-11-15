@@ -51,7 +51,7 @@ func TestUnresolvedReplyNeverFallsBackToRecentEvidence(t *testing.T) {
 	seedEvidence(t, ctx, f, "recent", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	p := NewProcessor(f.pool, nil)
 
-	update := replyUpdate(f.update, 999) // points at a message Richmod cannot resolve
+	update := replyUpdate(f.update, 999)
 	if _, found, err := p.resolveReplyEvidence(ctx, f.householdID, update); err != nil || found {
 		t.Fatalf("unknown reply resolved: found=%v err=%v", found, err)
 	}
@@ -60,7 +60,6 @@ func TestUnresolvedReplyNeverFallsBackToRecentEvidence(t *testing.T) {
 	if evidence != nil || review != nil {
 		t.Fatalf("an unresolved explicit reply fell back to recent evidence: %+v %+v", evidence, review)
 	}
-	// With no reply this slice binds nothing either: recency binding is tested separately.
 	evidence, _, err = p.bindTurnEvidence(ctx, f.householdID, f.sourceID, f.update, nil, false, false)
 	mustAgentTest(t, err)
 	if evidence != nil {
@@ -73,7 +72,7 @@ func TestReplyBindingIsScopedToTheChat(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "reply-chat")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	b := seedEvidence(t, ctx, f, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan", messageID: 101})
-	// Another household member's private chat reuses message id 101.
+	// Another member's private chat reuses message id 101.
 	otherChat := f.chatID + 11
 	_, err := f.pool.Exec(ctx, `UPDATE source_event SET telegram_chat_id=$2 WHERE id=$1`, b.sourceID, otherChat)
 	mustAgentTest(t, err)
@@ -127,7 +126,6 @@ func TestReplyToBoundNoticeResolvesItsDocumentAndStaysHouseholdScoped(t *testing
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota"})
 	p := NewProcessor(f.pool, nil)
 
-	// A retried send binds the same message twice; the second is a no-op.
 	mustAgentTest(t, p.BindEvidenceMessage(ctx, f.chatID, 777, a.documentID))
 	mustAgentTest(t, p.BindEvidenceMessage(ctx, f.chatID, 777, a.documentID))
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM telegram_message_binding WHERE telegram_chat_id=$1 AND telegram_message_id=777`, f.chatID); n != 1 {
@@ -141,7 +139,6 @@ func TestReplyToBoundNoticeResolvesItsDocumentAndStaysHouseholdScoped(t *testing
 	if _, found, _ := p.resolveReplyEvidence(ctx, other.householdID, replyUpdate(f.update, 777)); found {
 		t.Fatal("another household resolved this household's notice")
 	}
-	// Zero ids and unknown documents never create a binding.
 	mustAgentTest(t, p.BindEvidenceMessage(ctx, 0, 5, a.documentID))
 	mustAgentTest(t, p.BindEvidenceMessage(ctx, f.chatID, 0, a.documentID))
 	mustAgentTest(t, p.BindEvidenceMessage(ctx, f.chatID, 778, "00000000-0000-0000-0000-00000000dead"))
@@ -150,8 +147,6 @@ func TestReplyToBoundNoticeResolvesItsDocumentAndStaysHouseholdScoped(t *testing
 	}
 }
 
-// Receipt reviews are keyed on their transaction and reach the evidence through
-// transaction_evidence, not through review_item.document_id.
 func linkReceiptReview(t *testing.T, ctx context.Context, f agentIntegrationFixture, e evidenceSeed, cardMessageID int64) (reviewID string) {
 	t.Helper()
 	review, transactionID := createAgentTransactionReview(t, ctx, f, "125000", cardMessageID)
@@ -164,7 +159,6 @@ func TestReplyToUploadBindsItsOpenReceiptReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-review")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
-	// Another open review in the chat must not be chosen: the document decides.
 	createAgentTransactionReview(t, ctx, f, "70000", 401)
 	reviewID := linkReceiptReview(t, ctx, f, a, 301)
 	p := NewProcessor(f.pool, nil)
@@ -266,8 +260,7 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 			t.Fatalf("evidence with no linked transaction exposes mutation tool %s", tool.Name)
 		}
 	}
-	// The scope must describe the real catalog: with mutation authority unavailable
-	// the correction tool is absent, so even linked evidence is bound read-only.
+	// With mutation authority unavailable the correction tool is absent, so even linked evidence is bound read-only.
 	readOnlyGeneral := readOnlyAgentTools(general)
 	degraded, scope := applyEvidenceToolPolicy(readOnlyGeneral, filtered, agentWorkflowExplicitUnbound, linked)
 	if scope != agentWorkflowEvidenceReadOnly {
@@ -278,7 +271,6 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 			t.Fatalf("a degraded catalog exposes mutation tool %s", tool.Name)
 		}
 	}
-	// Any other scope, or no evidence, is returned untouched.
 	if same, s := applyEvidenceToolPolicy(general, filtered, agentWorkflowExactReview, linked); s != agentWorkflowExactReview || len(same) != len(filtered) {
 		t.Fatalf("an exact review scope was altered: %s %d", s, len(same))
 	}
@@ -287,9 +279,8 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 	}
 }
 
-// The reply router trusts telegram_message_binding's (chat, message) key, so the
-// database itself must refuse a row that points at a missing document or at
-// another household's document, whoever the writer is.
+// The reply router trusts the (chat, message) key, so the database must refuse rows pointing at a missing or
+// foreign-household document.
 func TestMessageBindingRejectsDanglingAndCrossHouseholdDocuments(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "binding-fk")

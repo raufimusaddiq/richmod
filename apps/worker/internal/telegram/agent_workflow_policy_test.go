@@ -106,8 +106,6 @@ func TestSalaryChoiceMapsOnlyCanonicalEnums(t *testing.T) {
 	}
 }
 
-// An unreplied turn keeps the general catalog even when a unique review or
-// merchant-learning target is known: only an exact reply narrows tools.
 func TestImplicitReviewBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")

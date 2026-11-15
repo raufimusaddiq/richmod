@@ -6,8 +6,8 @@ type PolicyResult struct {
 	Type, Status, ReviewType, Description string
 	CategoryID                            string
 	AutoConfirm                           bool
-	// CategoryProvenance is set only when the bounded plane chose the category
-	// that authorised the confirmation, so the answer can be audited (ADR-038).
+	// CategoryProvenance is set only when the bounded plane chose the category that authorised the
+	// confirmation, for audit (ADR-038).
 	CategoryProvenance *categoryProvenance
 }
 

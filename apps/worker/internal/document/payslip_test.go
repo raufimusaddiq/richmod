@@ -33,8 +33,8 @@ func TestValidatePayslipRejectsFractionalOrNonIDR(t *testing.T) {
 }
 
 func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
-	// The extractor schema retains deductions only inside payslip metadata. The
-	// persistence path creates exactly one INCOME proposal from net_pay.
+	// The extractor schema keeps deductions only in payslip metadata; persistence creates exactly one INCOME
+	// proposal from net_pay.
 	schema := payslipSchema()
 	properties := schema["properties"].(map[string]any)
 	if _, ok := properties["deductions"]; !ok {
@@ -42,9 +42,8 @@ func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
 	}
 }
 
-// Real payroll forms carry a display period, may omit gross pay, and
-// may contain component lines the net/gross/deduction formula cannot explain.
-// Those are representable without fabricating a gross or a deduction.
+// Real payroll forms carry a display period, may omit gross pay and may contain component lines the
+// net/gross/deduction formula cannot explain; these are representable without fabricating a gross or deduction.
 func TestPayslipPeriodRequiresCanonicalMonth(t *testing.T) {
 	period, err := parsePayslipPeriod("2026-09")
 	if err != nil || period.Format("2006-01") != "2026-09" {
@@ -89,8 +88,8 @@ func TestPayslipPayDateRequiresCanonicalISO(t *testing.T) {
 }
 
 func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
-	// Payslip processing calls the required vision extraction, followed only by
-	// deterministic validation and policy review; it has no Jev verifier path.
+	// Payslip processing runs the required vision extraction, then only deterministic validation and policy
+	// review; it has no Jev verifier path.
 	content, err := os.ReadFile("payslip.go")
 	if err != nil {
 		t.Fatal(err)

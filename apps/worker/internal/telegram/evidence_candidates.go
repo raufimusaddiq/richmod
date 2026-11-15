@@ -11,10 +11,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// duplicateCandidatesForTransaction reads the possible-duplicate candidates for
-// one review's transaction through the same query the Telegram callback flow
-// uses, so the two surfaces can never disagree about what a document may merge
-// into.
+// Uses the Telegram callback flow's query so both surfaces agree on what a document may merge into.
 func (p *Processor) duplicateCandidatesForTransaction(ctx context.Context, householdID, transactionID string) ([]duplicateCandidate, error) {
 	if transactionID == "" {
 		return nil, nil
@@ -32,12 +29,8 @@ func (p *Processor) duplicateCandidatesForTransaction(ctx context.Context, house
 	return duplicateCandidateRows(ctx, p.pool, householdID, transactionID, sourceType, currency, amount, sourceAt)
 }
 
-// agentMergeDuplicateReview merges a possible-duplicate document into an existing
-// transaction the household named. The model supplies only an opaque transaction
-// ref; Go resolves it for this household, user and chat, requires the target to
-// be one of the review's current server-computed candidates, and then runs the
-// single canonical merge (reviewdomain.MergeDuplicateReview). Nothing here
-// decides identity: a ref that is stale, foreign, or not a candidate is refused.
+// The model supplies only an opaque transaction ref; Go requires it to be one of the review's current server-
+// computed candidates before the canonical merge.
 func (p *Processor) agentMergeDuplicateReview(ctx context.Context, state *agentState, call gateway.ToolCall, review agentTransactionReview, candidateRef string) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	if review.reviewType != "POSSIBLE_DUPLICATE" {

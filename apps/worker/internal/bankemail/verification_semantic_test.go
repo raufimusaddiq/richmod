@@ -7,12 +7,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// The material semantic_grounded claim must accept ordinary Indonesian wording
-// that clearly describes a spend, without requiring a literal channel token. The
-// old channel_supported claim rejected 'kartu debit' because it could not match
-// the token DEBIT_CARD, stamping a merchant-less debit-card notification
-// UNKNOWN_BANK_TEMPLATE instead of flowing to the normal UNKNOWN_MERCHANT
-// review; the material class ruling replaced that predicate.
+// semantic_grounded must accept clear Indonesian spend wording; the old channel_supported rejected
+// "kartu debit" and stamped UNKNOWN_BANK_TEMPLATE instead of reaching UNKNOWN_MERCHANT review.
 func TestSemanticGroundedAcceptsIndonesianMethodWord(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"transaction_observed": noul(0.99),

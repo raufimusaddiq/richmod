@@ -93,9 +93,8 @@ func timeoutError() error {
 	return TerminalError(fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded))
 }
 
-// A typed message that will not be retried again must not end in silence, and
-// the notice must be atomic with marking the job FAILED: the job is never
-// FAILED without the notice having been queued.
+// A typed message that will not be retried again must not end in silence; the notice is atomic with marking
+// the job FAILED.
 func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -106,7 +105,6 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 		}
 	}
 
-	// Final attempt: the job fails, the event fails, and one notice is queued.
 	event := f.event(1)
 	job := f.job(event, 2)
 	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hookFor(event)); err != nil {
@@ -116,7 +114,6 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 		t.Fatalf("final failure: job=%s event=%s replies=%d", f.jobStatus(job.ID), f.eventStatus(event), f.replies())
 	}
 
-	// A replayed failure must not send the notice twice.
 	if err := processor.HandleTerminalTextFailure(f.ctx, event, testTimeoutCause); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +121,6 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 		t.Fatalf("the notice must be sent once, got %d", f.replies())
 	}
 
-	// A transient failure on an early attempt retries: nothing is announced.
 	early := f.event(2)
 	earlyJob := f.job(early, 1)
 	if err := jobs.FailWithHook(f.ctx, earlyJob, errors.New("temporary"), hookFor(early)); err != nil {
@@ -134,7 +130,6 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 		t.Fatalf("early failure: job=%s event=%s replies=%d", f.jobStatus(earlyJob.ID), f.eventStatus(early), f.replies())
 	}
 
-	// A message that was already answered is never contradicted.
 	answered := f.event(3)
 	if _, err := f.pool.Exec(f.ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, answered); err != nil {
 		t.Fatal(err)
@@ -148,8 +143,7 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 	}
 }
 
-// A hook that cannot succeed must not wedge the job: it is still marked FAILED,
-// and the failed notice leaves no partial state behind.
+// A hook that cannot succeed must not wedge the job: it is still marked FAILED.
 func TestFailingTerminalHookStillFailsTheJobWithoutPartialState(t *testing.T) {
 	f := newTerminalFixture(t)
 	jobs := queue.New(f.pool)
@@ -175,7 +169,6 @@ func TestFailingTerminalHookStillFailsTheJobWithoutPartialState(t *testing.T) {
 	}
 }
 
-// A job that another worker already took over must not announce a failure.
 func TestTerminalHookDoesNotRunForAJobThisWorkerNoLongerOwns(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -196,8 +189,7 @@ func TestTerminalHookDoesNotRunForAJobThisWorkerNoLongerOwns(t *testing.T) {
 	}
 }
 
-// A malformed or empty source event ID is a no-op, never an SQL error that would
-// abort the transaction marking the job FAILED.
+// A malformed or empty source event ID is a no-op, never an SQL error aborting the FAILED transaction.
 func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -208,10 +200,8 @@ func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
 	}
 }
 
-// The notice and the recorded reason follow the cause: a timeout may say the
-// assistant was slow, an unreachable gateway says the AI cannot be reached, and
-// any other failure blames neither the household's wording nor slowness. Every
-// notice says nothing was recorded and is stored as a failure turn.
+// The notice follows the cause: a timeout may say slow, an unreachable gateway says the AI cannot be reached,
+// anything else blames neither wording nor slowness; all say nothing was recorded.
 func TestTerminalNoticeNamesTheCause(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -240,7 +230,6 @@ func TestTerminalNoticeNamesTheCause(t *testing.T) {
 		if err := f.pool.QueryRow(f.ctx, `SELECT metadata_json->>'reason' FROM integration_action WHERE household_id=$1 AND dedupe_key=$2`, f.householdID, event).Scan(&reason); err != nil || reason != tc.reason {
 			t.Fatalf("%s: expected the recorded reason, got %q (%v)", tc.reason, reason, err)
 		}
-		// A2: the failure is part of the conversation.
 		var failure, text string
 		if err := f.pool.QueryRow(f.ctx, `SELECT public_context_json->>'failure',message_text FROM telegram_conversation_turn WHERE source_event_id=$1 AND role='ASSISTANT'`, event).Scan(&failure, &text); err != nil || failure != tc.reason || text != tc.text {
 			t.Fatalf("%s: expected an ASSISTANT failure turn, got %q %q (%v)", tc.reason, failure, text, err)
@@ -251,8 +240,6 @@ func TestTerminalNoticeNamesTheCause(t *testing.T) {
 // testTimeoutCause is a model-phase timeout as runAgentLoop reports it.
 var testTimeoutCause = fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)
 
-// HandleTerminalTextFailure runs TerminalTextFailureTx in its own transaction,
-// as the worker does when it fails a job.
 func (p *Processor) HandleTerminalTextFailure(ctx context.Context, sourceEventID string, cause error) error {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

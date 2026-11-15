@@ -13,8 +13,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// identityGateway answers the extraction call with a fixed extraction and
-// records every repair prompt. repair controls what a repair call returns.
+// identityGateway answers the extraction call with a fixed extraction and records every repair prompt; repair
+// controls what a repair call returns.
 type identityGateway struct {
 	t             *testing.T
 	extraction    screenshotExtraction
@@ -71,7 +71,6 @@ func runTypedScreenshot(t *testing.T, label, documentType string, extraction scr
 	return f, gw, p
 }
 
-// The incident: two reference numbers must not fail a correct extraction.
 func TestIncidentDuplicateReferenceNumbersStillRecordThePayment(t *testing.T) {
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	f, gw, _ := runIdentityScreenshot(t, "Identity duplicate kinds", screenshotExtraction{Confidence: .99, Transactions: []screenshotRow{incidentRow(at)}})
@@ -106,9 +105,8 @@ func TestIncidentDuplicateReferenceNumbersStillRecordThePayment(t *testing.T) {
 	}
 }
 
-// An identity that stays invalid after normalization and repair is not a dead
-// end: the household gets a document-bound review, nothing is written to the
-// ledger, and rerunning the job does not open a second review.
+// An identity still invalid after normalization and repair is not a dead end: the household gets a document-
+// bound review, nothing is written to the ledger, and a rerun opens no second review.
 func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	row := incidentRow(at)
@@ -144,14 +142,12 @@ func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
 		return reviewID
 	}
 	reviewID := check()
-	// A retried job re-runs the extraction and must reuse the open review.
 	if err := p.ProcessScreenshot(ctx, f.documentID); err != nil {
 		t.Fatal(err)
 	}
 	if again := check(); again != reviewID {
 		t.Fatalf("retry opened a second review: %s vs %s", again, reviewID)
 	}
-	// The review is actionable: ignoring it settles the source.
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -166,9 +162,8 @@ func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
 	}
 }
 
-// An unpaid invoice is a correct extraction (an invoice alone is not proof of
-// payment), not a failure the household can fix: it keeps the plain FAILED
-// outcome and opens no review.
+// An unpaid invoice is a correct extraction (an invoice alone is not proof of payment), not a fixable
+// failure: it keeps the plain FAILED outcome and opens no review.
 func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
 	f, _, _ := runTypedScreenshot(t, "Unpaid invoice", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .97, PaymentStatus: "UNPAID", Transactions: []screenshotRow{}})
 	ctx := context.Background()
@@ -185,10 +180,8 @@ func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
 	}
 }
 
-// REPROCESS_DOCUMENT from the review re-runs the whole pipeline. The document is
-// left FAILED while the review is open because Process and ProcessScreenshot
-// return early for a NEEDS_REVIEW document; the source event must end settled,
-// never stranded in NEEDS_REVIEW with no open review.
+// REPROCESS_DOCUMENT from the review re-runs the whole pipeline; the source must end settled, never stranded
+// in NEEDS_REVIEW, while the document stays FAILED.
 func TestReprocessFromScreenshotReviewRerunsTheDocument(t *testing.T) {
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	bad := incidentRow(at)
@@ -202,7 +195,6 @@ func TestReprocessFromScreenshotReviewRerunsTheDocument(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT user_id FROM household_member WHERE household_id=$1 LIMIT 1`, f.householdID).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	// What the API and Telegram resolvers do for REPROCESS_DOCUMENT.
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +208,6 @@ func TestReprocessFromScreenshotReviewRerunsTheDocument(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The model now reads the document correctly (two reference numbers).
 	gw.extraction = screenshotExtraction{Confidence: .99, Transactions: []screenshotRow{incidentRow(at)}}
 	extractionsBefore := gw.extractions
 	if err := p.Process(ctx, f.documentID); err != nil {

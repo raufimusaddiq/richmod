@@ -59,8 +59,7 @@ type receiptValidation struct {
 	DateKnown           bool
 	ArithmeticAvailable bool
 	ArithmeticOK        bool
-	// decidedMatches are the candidate ids the decision was taken on; the write
-	// re-checks them under the ledger lock (cross-lane serialization).
+	// decidedMatches are the candidate ids the decision was taken on; the write re-checks them under the ledger lock.
 	decidedMatches map[string]float64
 }
 
@@ -69,14 +68,13 @@ type matchCandidate struct {
 	Score    float64
 	Merchant string
 	Hours    float64
-	// Status is the candidate's canonical status; a NEEDS_REVIEW candidate is
-	// named in the review decision so the household can merge into it.
+	// Status is the candidate's canonical status; a NEEDS_REVIEW candidate is named in the review decision so
+	// the household can merge into it.
 	Status string
 }
 
-// pendingCandidateIDs lists candidates that are still awaiting review in
-// another lane. The review decision names them (prior_match_transaction_ids) so
-// merge accepts exactly these server-computed targets and no others.
+// pendingCandidateIDs lists candidates still awaiting review in another lane; the review decision names them
+// (prior_match_transaction_ids) so merge accepts exactly these server-computed targets.
 func pendingCandidateIDs(candidates []matchCandidate) []string {
 	var ids []string
 	for _, candidate := range candidates {
@@ -130,8 +128,8 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	}
 	validated, issues := validateReceiptIssues(result, receivedAt)
 	if len(issues) > 0 {
-		// ADR-037: one field-restricted repair with the same validator. A failed
-		// repair appends REPAIR_FAILED and keeps the invalid-review path.
+		// ADR-037: one field-restricted repair with the same validator; a failed repair appends REPAIR_FAILED
+		// and keeps the invalid-review path.
 		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "RECEIPT", content, &result, &issues, func(value receiptExtraction) error {
 			_, repairIssues := validateReceiptIssues(value, receivedAt)
 			if len(repairIssues) > 0 {
@@ -256,8 +254,8 @@ func validateReceipt(value receiptExtraction, receivedAt time.Time) (receiptVali
 }
 
 func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
-	// Another lane may write a candidate between this decision and its write; the
-	// write re-checks under the ledger lock and the decision is simply re-taken.
+	// Another lane may write a candidate between decision and write; the write re-checks under the ledger
+	// lock and the decision is re-taken.
 	for attempt := 0; ; attempt++ {
 		err := p.persistReceiptOnce(ctx, documentID, householdID, sourceID, value, model, validation, categories)
 		if !errors.Is(err, reviewdomain.ErrLedgerRaced) || attempt == 2 {
@@ -266,8 +264,8 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	}
 }
 
-// lockReceiptLedger takes the cross-lane ledger lock and re-runs the matcher in
-// the writing transaction, refusing the write when the candidate set changed.
+// lockReceiptLedger takes the cross-lane ledger lock and re-runs the matcher in the writing transaction,
+// refusing the write if the candidate set changed.
 func lockReceiptLedger(ctx context.Context, tx pgx.Tx, householdID, sourceID string, value receiptExtraction, validation receiptValidation) error {
 	if err := reviewdomain.LockLedgerEvent(ctx, tx, householdID, value.Total); err != nil {
 		return err
@@ -294,8 +292,8 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 	for _, candidate := range candidates {
 		validation.decidedMatches[candidate.ID] = candidate.Score
 	}
-	// The shared rule judges the strong match against every candidate and fails
-	// closed when too many plausible events exist.
+	// The shared rule judges the strong match against every candidate and fails closed when too many
+	// plausible events exist.
 	matches := make([]reviewdomain.LedgerMatch, 0, len(candidates))
 	for _, candidate := range candidates {
 		matches = append(matches, reviewdomain.LedgerMatch{ID: candidate.ID, Score: candidate.Score})
@@ -309,15 +307,11 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
 	categoryDecision := receiptCategoryProvenance{}
-	// The receipt kill-switch governs the whole auto-confirm scope for this source:
-	// direct auto-confirm *and* the residual category rescue. With it off, the
-	// receipt keeps asking, so a bad bounded rollout can be reverted without
-	// touching the screenshot, bank, or Telegram switches.
+	// The receipt kill-switch governs all auto-confirm for this source, including the category rescue; with
+	// it off the receipt keeps asking so a bad rollout can revert without touching other switches.
 	if !p.receiptAutoConfirmOff && categoryID == nil && len(candidates) == 0 && validation.DateKnown {
-		// The category is the only bounded residual left. One Jev rescue can turn
-		// a category-only review into a confirmed expense; undecided or failure
-		// keeps the review. A provider outage, though, is infrastructure state:
-		// retry the job instead of creating a human task for a machine failure.
+		// Category is the only residual left: one Jev rescue can confirm the expense, else the review stays.
+		// A provider outage retries the job rather than creating a human task for a machine failure.
 		if id, provenance := p.receiptCategoryRescue(ctx, sourceID, householdID, value, validation.TransactionAt, categories); provenance.Decided {
 			categoryID = &id
 			categoryDecision = provenance
@@ -327,22 +321,16 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 			categoryDecision = provenance
 		}
 	}
-	// A clear new receipt must not become a review merely because no existing
-	// transaction matched. With no candidate ambiguity, a
-	// category resolved, and a printed date, the facts are complete enough to
-	// confirm. Component arithmetic is quality metadata, not a missing total.
-	// A receipt with no printed date is not confirmed here: upload time is not the
-	// receipt's transaction time.
+	// A clear new receipt must not become a review just because nothing matched: no candidates, a resolved
+	// category and a printed date suffice. Without a printed date, upload time is not transaction time.
 	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, categoryDecision)
 	}
 	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, categoryDecision, pendingCandidateIDs(candidates)...)
 }
 
-// confirmReceipt writes a CONFIRMED expense for a clear new receipt. It mirrors
-// createReceiptReview's persistence but commits the canonical transaction, since
-// there is nothing left for a human to decide. Duplicate safety is
-// handled by the caller: this path is only taken when no candidate matched.
+// confirmReceipt writes a CONFIRMED expense for a clear new receipt, mirroring createReceiptReview's
+// persistence; the caller guarantees duplicate safety by calling it only when no candidate matched.
 func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string, categoryDecision receiptCategoryProvenance) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
@@ -403,11 +391,8 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	return tx.Commit(ctx)
 }
 
-// findMatches asks the shared cross-lane matcher (reviewdomain.FindLedgerMatches)
-// for existing household transactions this receipt may describe: CONFIRMED or
-// still NEEDS_REVIEW, from any lane (bank email, screenshot, manual, another
-// receipt), never this source's own. A receipt with no printed date has no
-// reliable time to match on.
+// findMatches asks the shared matcher (reviewdomain.FindLedgerMatches) for CONFIRMED or NEEDS_REVIEW
+// transactions from other lanes; a receipt with no printed date has no reliable time to match on.
 func (p *Processor) findMatches(ctx context.Context, householdID, sourceID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
 	if !dateKnown {
 		return nil, nil
@@ -455,8 +440,8 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'match_score',$6::numeric)) ON CONFLICT DO NOTHING`, candidate.ID, sourceID, value.Confidence, proposalID, documentID, candidate.Score); err != nil {
 		return err
 	}
-	// The receipt enriches the matched event instead of duplicating it: it adds
-	// the merchant when the transaction had none (items stay in the extraction).
+	// The receipt enriches the matched event instead of duplicating it, adding the merchant when the
+	// transaction had none.
 	filled, err := reviewdomain.EnrichLinkedTransaction(ctx, tx, householdID, candidate.ID, reviewdomain.EvidenceEnrichment{MerchantName: value.Merchant})
 	if err != nil {
 		return err
@@ -482,10 +467,8 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	return tx.Commit(ctx)
 }
 
-// receiptReviewReason names the exact residual dimension(s). The arithmetic
-// quality signal is independent of the category/date facts, so a reconciled-
-// looking receipt that fails its own arithmetic is not reported as a category
-// ambiguity (ADR-048).
+// receiptReviewReason names the exact residual dimension(s); arithmetic quality is independent of category/date
+// facts, so a receipt failing its own arithmetic is not reported as a category ambiguity (ADR-048).
 func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown, arithmeticSignal bool) string {
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
@@ -562,18 +545,16 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_RECEIPT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'possible_duplicate',$4::boolean))`, householdID, transactionID, documentID, possibleDuplicate); err != nil {
 		return err
 	}
-	// ADR-045: the stored reason names the exact residual dimension(s). A
-	// fallback received time is provenance, never an observed transaction date.
+	// ADR-045: the stored reason names the exact residual dimension(s); a fallback received time is
+	// provenance, never an observed transaction date.
 	arithmeticSignal := validation.ArithmeticAvailable && !validation.ArithmeticOK
 	reviewType := receiptReviewReason(possibleDuplicate, categoryID != nil, validation.DateKnown, arithmeticSignal)
-	// Persist the contract even without a Telegram recipient; the Inbox
-	// must not depend on notification configuration.
+	// Persist the contract even without a Telegram recipient; the Inbox must not depend on notification configuration.
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reviewType)
 	}
-	// A fallback time keeps its provenance instead of pretending the
-	// receipt printed it.
+	// A fallback time keeps its provenance instead of pretending the receipt printed it.
 	decision.KnownFacts = receiptKnownFacts(value, validation)
 	if categoryID != nil {
 		decision.KnownFacts["category"] = *categoryID

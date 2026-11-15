@@ -13,10 +13,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// agentResolveBoundWealthAssetPurchaseAtomic performs the complete logical
-// Wealth -> ASSET_PURCHASE transition in one PostgreSQL transaction. No
-// canonical transfer is allowed to commit before the bound Wealth review is
-// dismissed/resolved.
+// agentResolveBoundWealthAssetPurchaseAtomic performs the Wealth -> ASSET_PURCHASE transition in one
+// transaction; no transfer commits before the bound review is resolved.
 func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	ctx context.Context,
 	state *agentState,
@@ -143,10 +141,8 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 		}
 		transactionID = candidate.id
 
-		// A confirmed transfer is authoritative finance state. Reuse it only when
-		// it already has the exact ASSET_PURCHASE semantics requested here. Never
-		// overwrite a savings/internal/investment transfer merely because amount
-		// and time happen to match the Wealth observation.
+		// Reuse a confirmed transfer only when it already has the exact ASSET_PURCHASE semantics; never
+		// overwrite a savings/internal/investment transfer because amount and time match.
 		if candidate.kind == "TRANSFER" && candidate.status == "CONFIRMED" {
 			if candidate.purpose != "ASSET_PURCHASE" || candidate.existingWealth != wealthID {
 				result.Status = "TRANSFER_RECONCILIATION_REQUIRED"
@@ -238,8 +234,8 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	return result, true, nil
 }
 
-// executeAgentSpecializedSideEffectStrict centralizes Sprint 1 safety
-// overrides without changing deterministic callback behavior.
+// executeAgentSpecializedSideEffectStrict centralizes safety overrides without changing deterministic
+// callback behavior.
 func (p *Processor) executeAgentSpecializedSideEffectStrict(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	if call.Name == "resolve_merchant_learning" {
 		return p.agentResolveBoundMerchantLearningStrict(ctx, state, call, args)

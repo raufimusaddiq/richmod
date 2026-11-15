@@ -48,8 +48,6 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 	}
 }
 
-// Item 13: an unknown category no longer rejects the whole batch. The item is
-// staged without a category (it will go to review) and the household sees it.
 func TestAgentStageBatchStagesUnknownCategoryForReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "batch-invalid-category")
@@ -148,9 +146,8 @@ func TestAgentWealthAssetPurchaseRollsBackTransferWhenLaterWriteFails(t *testing
 	state.Update.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 702}
-	// Use a syntactically valid but nonexistent source_event UUID. The transfer
-	// insert happens before evidence persistence, so the FK failure proves the
-	// whole logical side effect rolls back rather than leaving a partial transfer.
+	// A valid but nonexistent source_event UUID: the FK failure comes after the transfer insert, proving the
+	// whole side effect rolls back.
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&state.SourceEventID))
 	at := time.Now().In(jakartaLocation()).Truncate(time.Minute)
 	_, _, err = p.agentResolveBoundWealthAssetPurchaseAtomic(ctx, &state, gateway.ToolCall{CallID: "asset-purchase-fail", Name: "resolve_review"}, map[string]any{

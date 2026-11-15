@@ -12,14 +12,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// A turn is bounded by its phases, not by a wall clock tuned to one question:
-// every model call gets the same cap, and the turn backstop must cover all of
-// the phases at that cap, so a multi-read turn is never cut short. The household
-// is told the answer is coming after ProgressNoticeDelay.
 func TestAgentTimeoutsCoverTheWholePhaseChain(t *testing.T) {
 	limits := defaultAgentLimits
-	// Long-form analytics output measured 9 to 11 s and a first call 6 s; the old
-	// 8 s cap failed both, so the cap needs real headroom over the slowest seen.
+	// Long-form analytics output measured 9 to 11 s and a first call 6 s; the cap needs real headroom over
+	// the slowest seen.
 	if limits.ModelCallTimeout < 20*time.Second {
 		t.Fatalf("model call cap %s leaves no headroom over a 10.7 s measured call", limits.ModelCallTimeout)
 	}
@@ -43,7 +39,6 @@ func TestProgressNoticeWaitsLongEnoughToStaySilentForFastTurnsButNotMuchLonger(t
 	if ProgressNoticeDelay < 8*time.Second {
 		t.Fatalf("notice delay %s would fire on ordinary turns", ProgressNoticeDelay)
 	}
-	// Past 15 s of silence the household starts to wonder.
 	if ProgressNoticeDelay > 15*time.Second {
 		t.Fatalf("notice delay %s leaves the household waiting in silence", ProgressNoticeDelay)
 	}
@@ -65,8 +60,7 @@ func TestIsModelTimeoutKeysOnTheTypedSentinelNotMessageText(t *testing.T) {
 		fmt.Errorf("%w: %w", errModelPhase, errors.New("connection refused")),
 		fmt.Errorf("conversational read batch: %w", context.DeadlineExceeded),
 		context.DeadlineExceeded,
-		// Message text alone is not enough, so rewording a wrap cannot silently
-		// change the retry rule in either direction.
+		// Message text alone is not enough: rewording a wrap must not change the retry rule.
 		errors.New("conversational model phase: context deadline exceeded"),
 	} {
 		if IsModelTimeout(err) {
@@ -81,8 +75,8 @@ func (timingOutModel) AgentTurn(context.Context, string, gateway.AgentRequest) (
 	return gateway.AgentResponse{}, fmt.Errorf("call chat completion gateway: %w", context.DeadlineExceeded)
 }
 
-// The error the loop really returns must satisfy the check the worker uses, so
-// a refactor of the wrap cannot quietly bring back five identical retries.
+// The error the loop returns must satisfy the worker's check, so a wrap refactor cannot bring back five
+// identical retries.
 func TestAgentLoopReturnsARecognizableModelTimeout(t *testing.T) {
 	err := (&Processor{}).runAgentLoop(context.Background(), timingOutModel{}, &agentState{})
 	if err == nil {
@@ -114,9 +108,6 @@ func TestTerminalErrorIsPermanentAndKeepsItsCause(t *testing.T) {
 	}
 }
 
-// A ref the model copied from an earlier answer is not a failure of the
-// household's question: the model is told to fetch fresh refs and the turn goes
-// on. Any other read error stays an error.
 func TestAnExpiredCategoryRefBecomesAToolResultTheModelCanActOn(t *testing.T) {
 	base := agentToolResult{CallID: "c1", Tool: "get_category_drivers", Class: agentToolRead, Status: "OK"}
 	for _, err := range []error{analyticscore.ErrCategoryRefNotIssued, fmt.Errorf("read failed: %w", analyticscore.ErrCategoryRefNotIssued)} {
@@ -139,7 +130,6 @@ func TestAnExpiredCategoryRefBecomesAToolResultTheModelCanActOn(t *testing.T) {
 	}
 }
 
-// Terminal failures preserve the cause for the review reason.
 func TestTerminalTextFailurePreservesCause(t *testing.T) {
 	_, slowReason := terminalTextFailureCopy(classifyTextFailure(fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)))
 	_, otherReason := terminalTextFailureCopy(classifyTextFailure(errors.New("boom")))
@@ -149,8 +139,6 @@ func TestTerminalTextFailurePreservesCause(t *testing.T) {
 	}
 }
 
-// The text failure taxonomy (A3/A4): a timeout and an unreachable gateway get
-// one retry, a gateway rejection none, anything else the normal budget.
 func TestTextFailurePolicyBoundsRetriesByClass(t *testing.T) {
 	timeout := fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)
 	down := fmt.Errorf("%w: %w", errModelPhase, &gateway.UnavailableError{Err: errors.New("connection refused")})

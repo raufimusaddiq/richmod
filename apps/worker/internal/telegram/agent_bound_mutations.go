@@ -84,8 +84,8 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
-	// A staged screenshot-link dispute is resolved only by its own buttons; a typed reply
-	// may cancel it (IGNORE) but never confirm, merge or edit it.
+	// A staged screenshot-link dispute is resolved only by its own buttons; a typed reply may cancel (IGNORE)
+	// but never confirm, merge or edit.
 	var disputed bool
 	if err = p.pool.QueryRow(ctx, `SELECT COALESCE(ri.decision->'decisionProvenance'->>'evidence_link_dispute','')='true' FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, review.reviewID).Scan(&disputed); err != nil {
 		return result, true, err
@@ -136,9 +136,8 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		}
 		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
 	case "SET_PAY_DATE", "SET_TRANSACTION_DATE":
-		// SET_TRANSACTION_DATE is the transaction-date answer (migration 00096);
-		// SET_PAY_DATE stays accepted for decisions stored before it. The prompt
-		// steers any supplied date into transaction_at, so accept it here.
+		// SET_TRANSACTION_DATE is the transaction-date answer; SET_PAY_DATE stays accepted for decisions
+		// stored before it, and the prompt steers dates into transaction_at.
 		if strings.TrimSpace(payDate) == "" {
 			payDate = transactionAt
 		}
@@ -167,8 +166,7 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		return result, true, nil
 	}
 
-	// The model may carry a proposed date in any of its date-shaped arguments; Go
-	// validates whichever one it used.
+	// The model may put a proposed date in any date-shaped argument; Go validates whichever it used.
 	proposedDate := transactionAt
 	for _, candidate := range []string{payDate, description} {
 		if strings.TrimSpace(proposedDate) == "" {
@@ -309,8 +307,8 @@ func (p *Processor) agentResolveBoundWealthObservation(ctx context.Context, stat
 		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 			return result, true, err
 		}
-		// ADR-046: dismissing the observation and ignoring its linked email
-		// observation are shared with the Review Inbox IGNORE action.
+		// ADR-046: dismissing the observation and ignoring its linked email observation are shared with
+		// Review Inbox IGNORE.
 		err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID, IgnoreFinancialEmail: true})
 		if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 			result.Status = "STALE_REVIEW_BINDING"
@@ -356,9 +354,8 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 		return result, true, nil
 	}
 
-	// Keep the bound review/observation locked while the derived transfer is
-	// recorded. If the second phase fails after that transfer commits, retry is
-	// safe because agentRecordTransfer is source-event idempotent.
+	// Keep the bound review/observation locked while the derived transfer is recorded; a retry after a
+	// second-phase failure is safe since agentRecordTransfer is source-event idempotent.
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return result, true, err
@@ -382,9 +379,8 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 	}
 	parsed, _ := time.Parse(time.RFC3339, atText)
 	local := parsed.In(jakartaLocation())
-	// No purpose argument: this is a fixed asset-purchase reclassification, and the
-	// transfer semantics are the caller's own deterministic decision, not a model
-	// assertion.
+	// No purpose argument: this is a fixed asset-purchase reclassification decided deterministically, not
+	// asserted by the model.
 	transferArgs := map[string]any{"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint, "reclassification_purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"), "local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram"}
 	transferResult, _, err := p.agentRecordTransfer(ctx, state, gateway.ToolCall{CallID: call.CallID, Name: "record_transfer"}, transferArgs)
 	if err != nil {
@@ -407,9 +403,8 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 			return result, true, err
 		}
 	}
-	// ADR-046: the observation dismissal and evidence reclassification are shared.
-	// The evidence became a transaction, so the linked email observation is not
-	// marked ignored.
+	// ADR-046: dismissal and evidence reclassification are shared; the evidence became a transaction, so the
+	// linked email observation is not marked ignored.
 	err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID})
 	if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 		result.Status = "STALE_REVIEW_BINDING"

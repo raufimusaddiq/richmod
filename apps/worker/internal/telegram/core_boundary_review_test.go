@@ -8,26 +8,19 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// T1: an exact TRANSACTION binding with a TRANSFER_CLASSIFICATION review type
-// must expose the transfer-classification action vocabulary, NOT the generic
-// TRANSACTION default. The schema is keyed by semantic review type, and the
-// binding kind is a separate axis.
+// The action vocabulary is keyed by semantic review type, not binding kind: a TRANSACTION binding with a
+// TRANSFER_CLASSIFICATION review gets the transfer set.
 func TestT1TransferClassificationReviewExposesSemanticActions(t *testing.T) {
 	got := reviewdec.AgentActions("TRANSFER_CLASSIFICATION")
 	want := []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("TRANSFER_CLASSIFICATION actions=%v", got)
 	}
-	// The binding kind, if it had leaked in as the semantic key, would fall to the
-	// generic default. Prove the two are not interchangeable.
 	if strings.Join(reviewdec.AgentActions("TRANSACTION"), ",") == strings.Join(want, ",") {
 		t.Fatal("binding kind TRANSACTION must not alias the transfer review vocabulary")
 	}
 }
 
-// T5: the resolve_review schema exposes the exact transfer vocabulary and the
-// typed ASSET_PURCHASE argument surface, so a generative call can carry
-// wealth_account_hint in one turn.
 func TestT5ResolveReviewSchemaCarriesTypedTransferArgs(t *testing.T) {
 	for _, tool := range NativeFinanceTools(nil, false, false, true, "TRANSFER_CLASSIFICATION", false, false, "TRANSACTION") {
 		if tool.Name != "resolve_review" {
