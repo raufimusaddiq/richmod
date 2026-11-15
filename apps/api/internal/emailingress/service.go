@@ -173,10 +173,11 @@ func (s *Service) Checklist(ctx context.Context, householdID string, address *Ad
 }
 
 // OpenForwardingAction returns the household's newest unresolved forwarding
-// verification, if any.
+// verification for the current address, if any. An action whose source delivery
+// belongs to a disabled (rotated) address is never returned.
 func (s *Service) OpenForwardingAction(ctx context.Context, householdID string) (*ForwardingAction, error) {
 	var out ForwardingAction
-	err := s.pool.QueryRow(ctx, `SELECT id,title,action_url,action_code,created_at FROM integration_action WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' ORDER BY created_at DESC, id DESC LIMIT 1`, householdID, forwardingIntegrationType, forwardingActionType).Scan(&out.ID, &out.Title, &out.ActionURL, &out.ActionCode, &out.CreatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT ia.id,ia.title,ia.action_url,ia.action_code,ia.created_at FROM integration_action ia WHERE ia.household_id=$1 AND ia.integration_type=$2 AND ia.action_type=$3 AND ia.status='OPEN' AND NOT EXISTS(SELECT 1 FROM email_ingress_delivery d JOIN email_ingress_address a ON a.id=d.address_id WHERE d.id=ia.source_delivery_id AND a.status='DISABLED') ORDER BY ia.created_at DESC, ia.id DESC LIMIT 1`, householdID, forwardingIntegrationType, forwardingActionType).Scan(&out.ID, &out.Title, &out.ActionURL, &out.ActionCode, &out.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -261,6 +262,11 @@ func (s *Service) Rotate(ctx context.Context, householdID, userID string) (Addre
 	}
 	if oldID != "" {
 		if _, err = tx.Exec(ctx, `UPDATE email_ingress_address SET status='DISABLED',disabled_at=now() WHERE id=$1`, oldID); err != nil {
+			return Address{}, err
+		}
+		// The pending Gmail verification belongs to the old address. Its code and
+		// link must not be offered for the new one.
+		if _, err = integrationaction.AutoResolve(ctx, tx, householdID, forwardingIntegrationType, forwardingActionType, "ADDRESS_ROTATED"); err != nil {
 			return Address{}, err
 		}
 	}

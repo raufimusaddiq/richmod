@@ -181,3 +181,82 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 		t.Fatalf("active provider source expected: %v %v", ok, err)
 	}
 }
+
+func TestRotateSupersedesForwardingVerification(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var household, user string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('rotate action '||substr(gen_random_uuid()::text,1,8)) RETURNING id`).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,password_initialized_at) VALUES((substr(gen_random_uuid()::text,1,8)||'@test.invalid'),'Rotate','x',now()) RETURNING id`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, "richmod.link", []string{"mx.test"})
+	oldAddress, err := service.Provision(ctx, household, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmation := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-old123\">Confirm</a> Confirmation code: 111222333")
+	if err := service.Deliver(ctx, signedInput(confirmation, oldAddress.Address, "forwarder@test.invalid", "rotate/confirm-"+household+".eml", "secret")); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := service.OpenForwardingAction(ctx, household)
+	if err != nil || pending == nil || pending.ActionCode == nil || *pending.ActionCode != "111222333" {
+		t.Fatalf("expected the old address's pending action: %+v %v", pending, err)
+	}
+
+	newAddress, err := service.Rotate(ctx, household, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newAddress.Address == oldAddress.Address {
+		t.Fatal("rotate returned the same address")
+	}
+	if action, err := service.OpenForwardingAction(ctx, household); err != nil || action != nil {
+		t.Fatalf("new address must not show the old verification: %+v %v", action, err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM integration_action WHERE id=$1`, pending.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "RESOLVED" {
+		t.Fatalf("old action status = %s, want RESOLVED", status)
+	}
+	var audits int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND actor_type='SYSTEM' AND action='AUTO_RESOLVE_INTEGRATION_ACTION' AND entity_id=$2 AND after_json->>'reason'='ADDRESS_ROTATED'`, household, pending.ID).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits != 1 {
+		t.Fatalf("system audit rows = %d, want 1", audits)
+	}
+
+	// Defense in depth: even a still-OPEN action tied to the disabled address is hidden.
+	if _, err := pool.Exec(ctx, `UPDATE integration_action SET status='OPEN',resolved_at=NULL WHERE id=$1`, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	if action, err := service.OpenForwardingAction(ctx, household); err != nil || action != nil {
+		t.Fatalf("an action from a disabled address must stay hidden: %+v %v", action, err)
+	}
+
+	// A fresh confirmation on the new address is shown.
+	fresh := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-new-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-new456\">Confirm</a> Confirmation code: 444555666")
+	if err := service.Deliver(ctx, signedInput(fresh, newAddress.Address, "forwarder@test.invalid", "rotate/fresh-"+household+".eml", "secret")); err != nil {
+		t.Fatal(err)
+	}
+	action, err := service.OpenForwardingAction(ctx, household)
+	if err != nil || action == nil || action.ActionCode == nil || *action.ActionCode != "444555666" {
+		t.Fatalf("new address should show its own verification: %+v %v", action, err)
+	}
+}

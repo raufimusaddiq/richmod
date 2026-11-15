@@ -341,6 +341,8 @@ Forwarding rules at Gmail or the mail provider still point at the old address
 and must be redone with the new one, and the new address must be activated again.
 The Settings confirmation dialog says so.
 
+Rotation also resolves any open Gmail forwarding verification in the same transaction (audit `AUTO_RESOLVE_INTEGRATION_ACTION`, actor `SYSTEM`, reason `ADDRESS_ROTATED`), because its code and link belong to the old address. `forwardingAction` additionally ignores actions whose source delivery belongs to a `DISABLED` address. Request a new Gmail confirmation for the new address.
+
 ### Duplicate senders
 
 Creating or re-activating a bank listener or provider source for a sender that
