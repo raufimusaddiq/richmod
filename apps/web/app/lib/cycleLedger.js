@@ -1,5 +1,4 @@
-import { money } from "./format.js";
-import { inclusiveEnd, ratioLabel, signedMoney } from "./cycleReview.js";
+import { inclusiveEnd, signedMoney } from "./cycleReview.js";
 
 // Cycle ledger helpers. Every amount, delta, median and total is served by the API
 // (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
@@ -40,29 +39,23 @@ export function directionText(value) {
   return value == null ? "—" : `${directionMark(value)} ${signedMoney(value)}`.trim();
 }
 
-const CLOSED_FOR_CHART = 4;
-
-// Ledger columns. Lengths are fractions of the largest income/expense shown, so equal
-// amounts have equal bars; the median tick uses the same scale.
-export function buildLedger(history = [], selectedStart = "", median = null) {
-  const amounts = history.flatMap(item => [Number(item.income), Number(item.expense)]).filter(Number.isFinite);
-  const peak = Math.max(0, ...amounts);
+// History columns: the cycle's range, served net expense and net cashflow, plus a
+// bar length that is a fraction of the largest served expense (visual mapping only).
+export function buildLedger(history = [], selectedStart = "") {
+  const peak = Math.max(0, ...history.map(item => Number(item.expense)).filter(Number.isFinite));
   const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
-  const columns = history.map(item => ({
-    start: item.start,
-    label: dayMonth(item.start),
-    until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
-    running: item.state === "ACTIVE",
-    selected: item.start === selectedStart,
-    income: item.income,
-    expense: item.expense,
-    net: item.netCashflow,
-    delta: item.expenseDelta ?? null,
-    incomeLength: length(item.income),
-    expenseLength: length(item.expense),
-  }));
-  const closed = history.filter(item => item.state === "CLOSED").length;
-  return { columns, mode: closed >= CLOSED_FOR_CHART ? "chart" : "cards", medianLength: median == null ? null : length(median) };
+  return {
+    columns: history.map(item => ({
+      start: item.start,
+      label: dayMonth(item.start),
+      until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
+      running: item.state === "ACTIVE",
+      selected: item.start === selectedStart,
+      expense: item.expense,
+      expenseLength: length(item.expense),
+      net: item.netCashflow,
+    })),
+  };
 }
 
 // The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"

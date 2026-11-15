@@ -8,6 +8,29 @@ function rankingFor(facts) {
     other: { name: "Kategori lain", amount: String(BigInt(facts.cashflow.expense) - listed), count: 0, categoryCount: 0, shareOfExpense: null, baselineAmount: null, deltaVsBaseline: null, relativeDeltaVsBaseline: null } };
 }
 
+// Synthetic merchant ranking: the payees carried by categoryChanges, largest first,
+// with the exact remainder as "Merchant lain" so rows + other = net expense.
+function merchantRankingFor(facts) {
+  const payees = new Map();
+  for (const change of facts.categoryChanges) for (const merchant of change.merchants || []) {
+    const key = merchant.id || merchant.name;
+    const entry = payees.get(key) || { id: merchant.id || "", name: merchant.name, amount: 0n, count: 0, previous: 0n };
+    entry.amount += BigInt(merchant.amount); entry.count += merchant.count ?? 0; entry.previous += BigInt(merchant.previous ?? 0);
+    payees.set(key, entry);
+  }
+  const rows = [...payees.values()].sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0)).slice(0, 10)
+    .map(entry => ({ id: entry.id, name: entry.name, kind: entry.id ? "MERCHANT" : "COUNTERPARTY", amount: String(entry.amount), count: entry.count, previous: String(entry.previous), deltaVsPrevious: String(entry.amount - entry.previous), shareOfExpense: facts.cashflow.expense === "0" ? null : String(entry.amount) / facts.cashflow.expense }));
+  const listed = rows.reduce((sum, row) => sum + BigInt(row.amount), 0n);
+  const listedPrevious = rows.reduce((sum, row) => sum + BigInt(row.previous), 0n);
+  const previous = facts.comparison.expense.previous ?? null;
+  return {
+    mode: facts.comparison.mode,
+    rows,
+    other: { amount: String(BigInt(facts.cashflow.expense) - listed), count: 0, merchantCount: Math.max(0, payees.size - rows.length), previous: previous == null ? null : String(BigInt(previous) - listedPrevious), deltaVsPrevious: previous == null ? null : String(BigInt(facts.cashflow.expense) - listed - (BigInt(previous) - listedPrevious)) },
+    total: { amount: facts.cashflow.expense, count: 0, previous, deltaVsPrevious: previous == null ? null : String(BigInt(facts.cashflow.expense) - BigInt(previous)) },
+  };
+}
+
 export function cycleFacts(start = "2026-09-01") {
   const closed = start === "2026-08-26";
   const september25 = start === "2026-09-25";
@@ -49,7 +72,7 @@ export function cycleFacts(start = "2026-09-01") {
     cashflow: { income: "12000000", grossExpense: "4500000", refund: "300000", expense: "4200000", netCashflow: "7800000", savingsAllocated: "5000000", unallocatedSurplus: "2800000" },
     spendingShape: { days: 6, averageDailyExpense: "700000.00", averageDailyExpenseRounded: "700000", peakDay: daily[2].period, peakExpense: "1100000", peakShareOfExpense: "0.2619", zeroSpendDays: 0 },
     daily, categoryChanges: [groceries, dining, transport], merchantDrivers: groceries.merchants,
-    memberAttribution: [{ id: "member-1", name: "Dina memulai", amount: "2000000", count: 4 }, { id: "member-2", name: "Rafi memulai", amount: "2200000", count: 5 }],
+    memberAttribution: [{ id: "", name: "Bersama / otomatis / belum diatribusikan", amount: "2000000", count: 4, kind: "AUTOMATIC", shareOfExpense: "0.4762" }, { id: "member-2", name: "Rafi memulai", amount: "2200000", count: 5, kind: "MEMBER", shareOfExpense: "0.5238" }],
     savingsDestinations: [{ id: "account-1", name: "Tabungan keluarga", amount: "5000000", count: 1 }],
     wealth: { previous: { id: "snapshot-1", observedAt: "2026-08-25T10:00:00+07:00", netWorth: "40000000", ageDays: 12 },
       current: { id: "snapshot-2", observedAt: closed ? "2026-08-31T10:00:00+07:00" : "2026-09-06T10:00:00+07:00", netWorth: "49000000", ageDays: 1 },
@@ -86,6 +109,26 @@ export function cycleFacts(start = "2026-09-01") {
     rows: facts.categoryChanges.map((change, row) => ({ id: change.id, name: change.name, amounts: columns.map(column => column[row]) })),
     other: { amounts: facts.history.map((item, index) => String(BigInt(item.expense) - columns[index].reduce((sum, value) => sum + BigInt(value), 0n))) },
   };
+  // Totals are the served net expense; only the selected column is compared with the one before it.
+  const matrixTotals = facts.history.map(item => item.expense);
+  const matrixDeltas = values => values.length > 1 ? String(BigInt(values.at(-1)) - BigInt(values.at(-2))) : null;
+  facts.categoryHistory.totals = matrixTotals;
+  facts.categoryHistory.totalDeltaVsPrevious = matrixDeltas(matrixTotals);
+  for (const row of [...facts.categoryHistory.rows, facts.categoryHistory.other]) row.deltaVsPrevious = matrixDeltas(row.amounts);
+  // Same-day matrix: every column cut at the elapsed day, so the running cycle is not
+  // compared with full ones. Fixture amounts are scaled by elapsed/total days.
+  if (facts.period.state === "ACTIVE") {
+    const elapsed = facts.spendingShape.days;
+    const span = item => { const start = new Date(`${item.start}T00:00:00Z`); const end = new Date(`${item.end || item.measuredUntil}T00:00:00Z`); return Math.max(1, Math.round((end - start) / 86400000)); };
+    const cut = facts.history.map(item => Math.min(item.state === "ACTIVE" ? elapsed : span(item), elapsed));
+    const scale = (value, index) => String(BigInt(value) * BigInt(cut[index]) / BigInt(span(facts.history[index])));
+    const sameRows = facts.categoryHistory.rows.map(row => ({ ...row, amounts: row.amounts.map(scale), deltaVsPrevious: null }));
+    const sameOther = { amounts: facts.categoryHistory.other.amounts.map(scale), deltaVsPrevious: null };
+    const sameTotals = matrixTotals.map(scale);
+    for (const row of [...sameRows, sameOther]) row.deltaVsPrevious = matrixDeltas(row.amounts);
+    facts.categoryHistory.sameDay = { elapsedDays: elapsed, measuredDays: cut, cycleStarts: facts.categoryHistory.cycleStarts, selectedIndex: facts.categoryHistory.cycleStarts.length - 1, rows: sameRows, other: sameOther, totals: sameTotals, totalDeltaVsPrevious: matrixDeltas(sameTotals) };
+  }
+  facts.merchantRanking = merchantRankingFor(facts);
   facts.categoryRanking = rankingFor(facts);
   return facts;
 }
@@ -143,9 +186,10 @@ export function stableCycleFacts() {
   const last = facts.history.at(-1); // and the ledger's selected column with the rewritten cashflow
   Object.assign(last, { income: "1400000", grossExpense: "1400000", expense: "1400000", netCashflow: "0" });
   last.expenseDelta = String(BigInt(last.expense) - BigInt(facts.history.at(-2).expense));
-  facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [{ id: category.id, name: category.name, amounts: facts.history.map(item => item.expense) }], other: { amounts: facts.history.map(() => "0") } };
+  facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [{ id: category.id, name: category.name, amounts: facts.history.map(item => item.expense) }], other: { amounts: facts.history.map(() => "0") }, totals: facts.history.map(item => item.expense) };
   facts.spendingShape = { days: 6, averageDailyExpense: "233333.33", averageDailyExpenseRounded: "233333", peakDay: facts.daily[4].period, peakExpense: "300000", peakShareOfExpense: "0.2143", zeroSpendDays: 0 };
-  facts.merchantDrivers = []; facts.memberAttribution = [{ name: "Shared / unattributed", amount: "1400000", count: 6 }]; facts.savingsDestinations = [];
+  facts.merchantDrivers = []; facts.memberAttribution = [{ id: "", name: "Shared / unattributed", amount: "1400000", count: 6, kind: "AUTOMATIC", shareOfExpense: "1.0000" }]; facts.savingsDestinations = [];
+  facts.merchantRanking = merchantRankingFor(facts);
   facts.wealth.current.netWorth = facts.wealth.previous.netWorth;
   facts.wealth.netWorthChange = "0"; facts.wealth.confirmedCashflow = "0"; facts.wealth.valuationAndOtherChange = "0";
   facts.dataQuality = [];

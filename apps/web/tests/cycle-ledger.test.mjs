@@ -8,16 +8,6 @@ import { globalCss, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-const entry = (start, end, state, income, expense, expenseDelta = null) => ({ start, end, measuredUntil: end ?? "2026-10-03", state, income, grossExpense: expense, refund: "0", expense, netCashflow: String(BigInt(income) - BigInt(expense)), savingsAllocated: "0", expenseDelta });
-
-const history = [
-  entry("2026-05-26", "2026-06-26", "CLOSED", "12000000", "8100000"),
-  entry("2026-06-26", "2026-07-26", "CLOSED", "12500000", "7900000", "-200000"),
-  entry("2026-07-26", "2026-08-26", "CLOSED", "12500000", "7200000", "-700000"),
-  entry("2026-08-26", "2026-09-26", "CLOSED", "12500000", "8600000", "1400000"),
-  entry("2026-09-26", null, "ACTIVE", "12500000", "2900000", "-5700000"),
-];
-
 test("compact amounts are display-only and never invent a value", () => {
   assert.equal(compactMillions("12500000"), "12,5");
   assert.equal(compactMillions("-600000"), "−0,6");
@@ -30,38 +20,29 @@ test("compact amounts are display-only and never invent a value", () => {
   assert.equal(signedMillions(null), "—");
 });
 
-test("direction is a neutral marker plus a signed value, never a colour", () => {
+test("direction is a neutral marker, never a colour", () => {
   assert.equal(directionMark("-1"), "▼");
   assert.equal(directionMark("5"), "▲");
   assert.equal(directionMark("0"), "");
   assert.equal(directionMark("0.00"), "");
   assert.equal(directionMark(null), "");
-  assert.match(directionText("-1500000"), /^▼ −Rp/);
-  assert.match(directionText("1500000"), /^▲ \+Rp/);
-  assert.equal(directionText(null), "—");
 });
 
-test("ledger columns map served amounts to lengths and mark selection and running cycles", () => {
-  const ledger = buildLedger(history, "2026-08-26", "7900000");
-  assert.equal(ledger.columns.length, 5);
-  assert.equal(ledger.mode, "chart", "four closed cycles are enough for the chart");
-  const selected = ledger.columns.find(column => column.selected);
-  assert.equal(selected.start, "2026-08-26");
-  assert.equal(selected.until, "– 25 Sep");
-  assert.equal(selected.delta, "1400000");
-  assert.ok(Math.abs(selected.expenseLength - 8600000 / 12500000) < 1e-9);
-  assert.equal(selected.incomeLength, 1);
-  assert.ok(Math.abs(ledger.medianLength - 7900000 / 12500000) < 1e-9, "median tick shares the bar scale");
-  const running = ledger.columns.at(-1);
-  assert.equal(running.running, true);
-  assert.equal(running.until, "berjalan");
-  assert.equal(buildLedger(history, "2026-08-26", null).medianLength, null);
+test("history columns carry the served expense and a real bar length", () => {
+  const history = [
+    { start: "2026-07-26", end: "2026-08-26", state: "CLOSED", expense: "7200000", netCashflow: "5300000" },
+    { start: "2026-08-26", end: "2026-09-26", state: "CLOSED", expense: "8600000", netCashflow: "3900000" },
+    { start: "2026-09-26", end: null, state: "ACTIVE", expense: "2900000", netCashflow: "9600000" },
+  ];
+  const { columns } = buildLedger(history, "2026-08-26");
+  assert.equal(columns.length, 3);
+  assert.equal(columns[1].expense, "8600000", "the served expense is passed through");
+  assert.equal(columns[1].expenseLength, 1, "the largest served expense fills the bar");
+  assert.ok(Math.abs(columns[0].expenseLength - 7200000 / 8600000) < 1e-9);
+  assert.equal(columns[2].running, true);
+  assert.equal(columns[2].until, "berjalan");
+  assert.equal(columns[1].selected, true);
   assert.equal(buildLedger([], "").columns.length, 0);
-});
-
-test("fewer than four closed cycles fall back to cards instead of a chart", () => {
-  assert.equal(buildLedger(history.slice(-4), "2026-09-26").mode, "cards");
-  assert.equal(buildLedger(history.slice(-5), "2026-09-26").mode, "chart");
 });
 
 test("previous and next follow the served newest-first cycle list", () => {
@@ -101,21 +82,13 @@ test("the reviewed cycle survives a Calendar visit", () => {
 test("ledger source: served numbers only, no colour-only direction, accent reserved for interaction", () => {
   const library = text("app/lib/cycleLedger.js");
   assert.doesNotMatch(library, /\.reduce\(|BigInt\(|parseFloat|toFixed/, "the browser formats and sizes; it never derives totals");
-  const component = text("app/components/CycleLedger.js");
-  assert.match(component, /directionMark\(column\.delta\)/);
-  assert.match(component, /aria-pressed=\{column\.selected\}/);
-  assert.match(component, /role="region" aria-label="Perbandingan siklus, geser untuk semua kolom"/);
-  assert.match(component, /<caption className="visually-hidden">/);
   const styles = globalCss();
-  const block = styles.slice(styles.indexOf("/* Cycle ledger:"), styles.indexOf("/* end cycle ledger */"));
-  assert.ok(block.length > 500, "ledger styles present");
-  assert.doesNotMatch(block, /var\(--accent|var\(--danger|var\(--income-soft|var\(--expense-soft/, "no accent or good/bad tinting in the ledger");
   assert.ok(styles.includes(':not([data-meeting-step="changes"]) #matrix'), "the matrix belongs to the position and changes meeting steps");
 });
 
-test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => {
+test("page wiring: heatmap, stale-while-revalidate, calendar-aware title", () => {
   const page = tree("app/analytics");
-  assert.match(page, /<CycleLedger history=\{facts\.history\}/);
+  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
   assert.match(page, /facts\.history\?\.length > 0/, "an absent series renders nothing");
   assert.match(page, /\{loading && !facts && <Skeleton/, "the skeleton is only for the first load");
   assert.match(page, /\{facts && !error && <>/);
@@ -148,48 +121,19 @@ test("synthetic facts mirror the served contract the ledger and pace chart read"
   }
 });
 
-const matrixHistory = [entry("2026-06-26", "2026-07-26", "CLOSED", "12500000", "7900000"), entry("2026-07-26", "2026-08-26", "CLOSED", "12500000", "7200000"), entry("2026-08-26", null, "ACTIVE", "12500000", "2900000")];
-const matrixSeries = {
-  cycleStarts: ["2026-06-26", "2026-07-26", "2026-08-26"],
-  rows: [{ id: "cat-1", name: "Belanja rumah", amounts: ["3000000", "2000000", "1000000"] }, { id: "", name: "Belum dikategorikan", amounts: ["400000", "0", "-100000"] }],
-  other: { amounts: ["4500000", "5200000", "2000000"] },
-};
-
-test("the matrix tints each value within its own row and never invents a category", () => {
-  const matrix = buildMatrix(matrixSeries, matrixHistory, "cat-1", ["cat-1"]);
-  assert.deepEqual(matrix.map(row => row.name), ["Belanja rumah", "Belum dikategorikan", "Kategori lain"]);
-  assert.deepEqual(matrix[0].tints, [1, 2000000 / 3000000, 1000000 / 3000000]);
-  assert.deepEqual(matrix[1].tints, [1, 0, 0], "zero and negative values carry no tint");
-  assert.equal(matrix[0].selected, true);
-  assert.equal(matrix[0].selectable, true);
-  assert.equal(matrix[1].id, "uncategorized", "the empty category id maps to the uncategorized selection");
-  assert.equal(matrix[1].selectable, false, "a row without served evidence is not clickable");
-  assert.equal(matrix[2].other, true);
-  assert.equal(matrix[2].selectable, false, "the remainder opens no evidence");
-});
-
-test("a matrix that does not line up with history or has no rows is not drawn", () => {
-  assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [] }, matrixHistory), []);
-  assert.deepEqual(buildMatrix(undefined, matrixHistory), []);
-  assert.deepEqual(buildMatrix({ ...matrixSeries, cycleStarts: ["2026-06-26", "2026-07-26", "2026-09-01"] }, matrixHistory), [], "columns must match the ribbon");
-  assert.deepEqual(buildMatrix({ ...matrixSeries, cycleStarts: matrixSeries.cycleStarts.slice(1) }, matrixHistory), []);
-  assert.deepEqual(buildMatrix({ ...matrixSeries, other: { amounts: ["1"] } }, matrixHistory), []);
-  assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [{ id: "x", name: "X", amounts: ["1"] }] }, matrixHistory), []);
-});
-
-test("matrix source: text cells, keyboard rows, evidence-only buttons, detail demoted without removing facts", () => {
-  const component = text("app/components/CycleLedger.js");
-  assert.match(component, /<th scope="row">\{row\.selectable && onSelectCategory/);
-  assert.match(component, /aria-label=\{`Buka rincian \$\{row\.name\}`\}/, "row buttons are named by their action, apart from the category buttons in the detail list");
+test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day default", () => {
+  const component = text("app/analytics/CycleSections.js");
+  assert.match(component, /aria-label=\{`Buka bukti \$\{row\.name\}`\}/, "row buttons are named by their action, apart from the category buttons in the detail list");
   assert.match(component, /aria-pressed=\{row\.selected\}/);
-  assert.match(component, /\{compactMillions\(row\.amounts\[i\]\)\}/, "every cell is text");
+  assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
   const page = tree("app/analytics");
-  assert.match(page, /categoryHistory=\{facts\.categoryHistory\}/);
+  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
   assert.match(page, /<details className="review-daily" ref=\{comparisonRef\} open=\{step === "changes" \|\| undefined\}>\s*<summary>Perbandingan lengkap/);
   for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="diverge"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
   assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
   assert.match(page, /Selisih vs hari yang sama/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
+  assert.match(component, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/, "same-day is the default while the cycle runs");
 });
 
 test("data marks are neutral or chart-coloured; decreases are hatched, never another hue; accent stays on interaction", () => {
@@ -201,7 +145,7 @@ test("data marks are neutral or chart-coloured; decreases are hatched, never ano
   assert.match(text("app/components/Charts.js"), /dataKey="amountValue" fill="var\(--chart-category-2\)"/, "chart colour comes from the chart ramp");
   const page = tree("app/analytics");
   assert.match(page, /Total sampai hari ini<\/th>/, "the pace chart has a table equivalent");
-  assert.match(page, /facts\.merchantDrivers\.length\} merchant/, "collapsed sections say what is inside");
+  assert.match(page, /facts\.merchantRanking\?\.rows\?\.length \|\| 0\} teratas/, "collapsed sections say what is inside");
 });
 
 test("the analytics page is a composition shell over named modules", () => {

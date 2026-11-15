@@ -85,7 +85,7 @@ function cycleReviewFixture(start, scenario) {
   if (scenario.fewCycles) {
     facts.history = facts.history.slice(-2);
     const rows = facts.categoryHistory;
-    facts.categoryHistory = { cycleStarts: rows.cycleStarts.slice(-2), rows: rows.rows.map(row => ({ ...row, amounts: row.amounts.slice(-2) })), other: { ...rows.other, amounts: rows.other.amounts.slice(-2) } };
+    facts.categoryHistory = { cycleStarts: rows.cycleStarts.slice(-2), rows: rows.rows.map(row => ({ ...row, amounts: row.amounts.slice(-2), deltaVsPrevious: null })), other: { ...rows.other, amounts: rows.other.amounts.slice(-2), deltaVsPrevious: null }, totals: rows.totals.slice(-2), totalDeltaVsPrevious: null, sameDay: null };
   }
   return facts;
 }
@@ -293,7 +293,7 @@ async function run() {
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await ready(statePage).waitFor();
-        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#matrix details").open = true; }); await statePage.locator(".ledger-cards").waitFor(); }
+        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#matrix details").open = true; }); await statePage.locator(".heat-table").waitFor(); }
         await compareScreenshot(statePage, name);
         await statePage.close();
       }

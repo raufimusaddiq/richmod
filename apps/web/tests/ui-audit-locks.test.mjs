@@ -317,7 +317,7 @@ const appSources = dir => readdirSync(new URL(`../${dir}/`, import.meta.url), { 
   .flatMap(entry => entry.isDirectory() ? appSources(`${dir}/${entry.name}`) : entry.name.endsWith(".js") ? [`${dir}/${entry.name}`] : []);
 
 test("every scrolling table wrapper takes keyboard focus and has a name", () => {
-  const wrappers = appSources("app").flatMap(file => [...text(file).matchAll(/<div className="review-table-wrap"[^>]*>/g)].map(match => ({ file, tag: match[0] })));
+  const wrappers = appSources("app").flatMap(file => [...text(file).matchAll(/<div className="(?:review-table-wrap|heat-wrap|merchant-rank-scroll)"[^>]*>/g)].map(match => ({ file, tag: match[0] })));
   assert.ok(wrappers.length >= 4, "the table wrappers are found");
   for (const { file, tag } of wrappers) assert.match(tag, /tabIndex=\{0\} role="region" aria-label="[^"]+geser untuk semua kolom"/, `${file}: a scrolling table must be focusable, a region, and named`);
 });

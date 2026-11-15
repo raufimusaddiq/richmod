@@ -53,7 +53,7 @@ test("analytics commentary is selected-cycle prose, safely rendered after determ
   assert.match(analytics, /pollInsight/);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
   const page = text("app/analytics/page.js");
-  const ordered = ["<NoticeStrip", "<KpiStrip", "<PaceCard", "<WhereCard", "<ChangesCard", "<DailyCard", "<HistoryCard", 'id="matrix"', 'id="merchants"', 'id="household"', "<QualityFooter", 'id="discussion"', "<InsightCard"];
+  const ordered = ["<NoticeStrip", "<KpiStrip", "<PaceCard", "<WhereCard", "<ChangesCard", "<DailyCard", "<HistoryCard", 'id="matrix"', 'id="merchants"', "<HouseholdSection", "<QualityFooter", 'id="discussion"', "<InsightCard"];
   for (let index = 1; index < ordered.length; index += 1) assert.ok(page.indexOf(ordered[index - 1]) < page.indexOf(ordered[index]), ordered[index]);
   assert.match(page, /<PaceCard facts=\{facts\}\/><SavingsWealthCard/);
 });

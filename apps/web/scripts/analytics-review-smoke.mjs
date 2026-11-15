@@ -22,6 +22,19 @@ async function waitForServer() {
   throw new Error("Synthetic review server did not start");
 }
 
+// A disclosure can be closed again by a React re-render that lands after the DOM
+// was opened, so open it and confirm the content is actually visible.
+async function openDisclosure(page, selector, content) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await page.evaluate(sel => { const details = document.querySelector(sel); if (details) details.open = true; }, selector);
+    try {
+      await page.locator(content).first().waitFor({ state: "visible", timeout: 2000 });
+      return;
+    } catch {}
+  }
+  throw new Error(`could not open ${selector}`);
+}
+
 try {
   await mkdir(output, { recursive: true });
   await waitForServer();
@@ -39,6 +52,7 @@ try {
     let stable = false;
     let salaryCalls = 0;
     let failDecisionSave = false;
+    let decisionsFail = false;
     const notes = new Map([["2026-07-26", [{ id: "77777777-7777-4777-8777-777777777777", cycleStart: "2026-07-26", body: "Jaga lebih banyak kas likuid.", author: "Dina", authorUserId: "synthetic-user", createdAt: "2026-08-26T10:00:00+07:00" }]]]);
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/v1/**", async route => {
@@ -67,6 +81,7 @@ try {
           const start = url.searchParams.get("cycle_start");
           const previous = cycleFacts(start).comparison.previous.start;
           body = { items: notes.get(start) || [], previous: notes.get(previous) || [], previousCycleStart: previous };
+          if (decisionsFail) status = 500;
         }
       } else if (url.pathname.endsWith("/revoke")) {
         const id = url.pathname.split("/").at(-2);
@@ -197,43 +212,37 @@ try {
     assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-tooltip.png`, output)), fullPage: true, animations: "disabled" });
 
-    // Cycle ledger: one column per served cycle; selection is a URL change and the
-    // reviewed cycle survives a Calendar visit. Numbers are served, never derived.
+    // Kategori × siklus heatmap: same-day default while the cycle runs, a full-cycle
+    // toggle that leaves the running column untinted, and served values only.
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Kategori × siklus", exact: true }).waitFor();
-    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
-    await page.getByRole("heading", { name: "Pemasukan, pengeluaran & kategori per siklus", exact: true }).waitFor();
-    assert.equal(await page.locator("#history .history-cols > li").count(), 6, "the cycle columns card draws every served cycle");
-    const cycleLedger = page.locator("#ledger");
-    assert.equal(await cycleLedger.locator("thead th button").count(), 6, "one column per served cycle");
-    assert.equal(await cycleLedger.locator('thead th[aria-current="true"] button').getAttribute("aria-pressed"), "true");
+    await openDisclosure(page, "#matrix details", ".heat-table");
+    const heat = page.locator(".heat-table");
+    assert.equal(await heat.locator("thead th:not(:first-child):not(.heat-delta-head)").count(), 6, "one column per served cycle");
+    assert.equal(await heat.locator('thead th[aria-current="true"]').count(), 1, "the selected cycle is marked");
+    const sameDay = page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true });
+    const fullCycle = page.getByRole("button", { name: "Siklus penuh", exact: true });
+    assert.equal(await sameDay.getAttribute("aria-pressed"), "true", "same-day is the default while the cycle runs");
+    assert.equal(await fullCycle.getAttribute("aria-pressed"), "false");
+    assert.equal(await heat.locator("thead th small").filter({ hasText: "hari 1–6" }).count(), 6, "every column names its cut");
+    assert.equal(await heat.locator("tbody tr").count(), 4, "three categories plus the served remainder");
+    assert.match(await heat.locator("tbody tr").last().locator("th").textContent(), /^Kategori lain/, "the served remainder closes the matrix");
+    assert.equal(await heat.locator("tfoot th").textContent(), "Total pengeluaran bersih");
+    await fullCycle.click();
+    assert.equal(await fullCycle.getAttribute("aria-pressed"), "true");
+    assert.equal(await heat.locator("thead th[data-running]").count(), 1, "the running column is flagged in full mode");
+    assert.equal(await heat.locator("td[data-running]").count(), 5, "every row and the total mark the running column");
+    assert.equal(await heat.locator("td[data-running] .heat-cell").first().evaluate(element => element.style.getPropertyValue("--tint").trim()), "0", "the running column carries no tint");
+    assert.equal(await heat.locator("td[data-running] .heat-cell").first().evaluate(element => getComputedStyle(element).borderStyle), "dashed", "the running column is dashed instead of tinted");
+    assert.deepEqual(await heat.locator("td[data-running] .heat-cell").evaluateAll(cells => cells.map(cell => cell.style.getPropertyValue("--tint").trim())), ["0", "0", "0", "0"], "no tinted cell sits in the running column");
+    await sameDay.click();
+    assert.equal(await sameDay.getAttribute("aria-pressed"), "true");
     assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu di hari ke-6/);
-    assert.equal(await cycleLedger.locator("tbody tr").count(), 7, "bars, net cashflow, change, three categories, and Kategori lain");
-    assert.equal(await cycleLedger.locator("tbody tr").nth(6).locator("th").textContent(), "Kategori lain", "the served remainder closes the matrix");
-    if (name === "mobile" || name === "small-mobile") {
-      // Phones: whole cycle columns beside the sticky label; none cut at its edge; labels fit; it scrolls and snaps.
-      const ribbon = await page.evaluate(() => {
-        const figure = document.querySelector("#ledger .ledger-figure");
-        const label = figure.querySelector("thead th:first-child").getBoundingClientRect();
-        const box = figure.getBoundingClientRect();
-        const heads = [...figure.querySelectorAll("thead th:not(:first-child)")].map(element => element.getBoundingClientRect());
-        return {
-          scrolls: figure.scrollWidth > figure.clientWidth + 1,
-          fullyVisible: heads.filter(rect => rect.left >= label.right - 1 && rect.right <= box.right - 1).length,
-          straddling: heads.filter(rect => rect.left < label.right - 1 && rect.right > label.right + 1).length,
-          labelOverflow: [...figure.querySelectorAll("tbody th")].filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.textContent.trim()),
-          snap: getComputedStyle(figure).scrollSnapType,
-        };
-      });
-      assert.equal(ribbon.scrolls, true, `${name} the ribbon scrolls sideways instead of squeezing six cycles`);
-      assert.equal(ribbon.straddling, 0, `${name} no cycle column is cut at the label edge`);
-      assert.equal(ribbon.fullyVisible, name === "mobile" ? 4 : 3, `${name} shows whole cycle columns`);
-      assert.deepEqual(ribbon.labelOverflow, [], `${name} row labels fit their column`);
-      assert.match(ribbon.snap, /x mandatory/, `${name} columns snap`);
-    }
-    const matrixRow = cycleLedger.getByRole("button", { name: "Buka rincian Belanja rumah", exact: true });
+    await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
+    assert.equal(await page.locator("#history .history-cols > li").count(), 6, "the cycle columns card draws every served cycle");
+    const matrixRow = heat.getByRole("button", { name: "Buka bukti Belanja rumah", exact: true });
     assert.equal(await matrixRow.count(), 1);
-    assert.equal(await cycleLedger.locator("tbody tr").nth(3).locator("td").last().textContent(), "2,1", "the selected column shows the served category amount");
+    assert.equal(await heat.locator("tbody tr").first().locator("td.heat-amount").last().textContent(), "2,1", "the selected column shows the served category amount");
     await matrixRow.focus();
     await page.keyboard.press("Enter");
     await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
@@ -243,6 +252,42 @@ try {
     await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor({ state: "detached" });
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
     assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "closing the drawer returns focus to the matrix row");
+
+    // A closed cycle has no same-day matrix; returning to the active cycle re-seeds it.
+    await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Ditutup"));
+    await openDisclosure(page, "#matrix details", ".heat-table");
+    await page.waitForFunction(() => !document.querySelector(".heat-section .segmented"));
+    assert.equal(await page.getByRole("button", { name: "Siklus penuh", exact: true }).count(), 0, "a closed cycle has no same-day toggle");
+    assert.equal(await page.locator(".heat-table thead th[data-running]").count(), 0, "a closed cycle has no running column");
+    await page.getByLabel("Siklus yang ditinjau").selectOption("2026-09-01");
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Berjalan"));
+    await openDisclosure(page, "#matrix details", ".heat-section .segmented");
+    await page.waitForFunction(() => document.querySelector('.heat-section .segmented button[aria-pressed="true"]')?.textContent.includes("Hari ke-6"));
+    assert.equal(await page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true }).getAttribute("aria-pressed"), "true", "returning to the active cycle re-seeds same-day");
+
+    // The cycle-columns card shows a served amount and a real bar, not Rp0/NaN.
+    const historyColumn = page.locator("#history .history-cols > li").first();
+    assert.match(await historyColumn.locator("em").textContent(), /[1-9]/, "a history column shows a served amount");
+    assert.ok(await historyColumn.locator(".history-plot i").evaluate(element => element.getBoundingClientRect().height) > 0, "the history bar has a real height");
+
+    // Merchant pendukung: a real table, largest first, with the served total.
+    await openDisclosure(page, "#merchants details", "#merchants table.merchant-rank");
+    const merchants = page.locator("#merchants table.merchant-rank");
+    for (const header of ["Merchant", "Transaksi", "Siklus ini", "Siklus lalu, hari yang sama", "Selisih"]) assert.equal(await merchants.getByRole("columnheader", { name: header, exact: true }).count(), 1, `merchant column ${header}`);
+    assert.equal(await merchants.locator("tbody tr").count(), 2, "one row per served payee plus the remainder");
+    assert.equal(await merchants.locator("tfoot th").textContent(), "Total");
+    assert.match(await merchants.locator("tfoot").textContent(), /Rp\s?4\.200\.000/, "the total equals the cycle's net expense");
+    assert.equal(new URL(await merchants.getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), base).searchParams.get("merchantId"), "22222222-2222-4222-8222-222222222222");
+
+    // Catatan rumah tangga: fixed order, automatic bucket first, served shares.
+    await openDisclosure(page, "#household details", "#household .household-list");
+    const household = page.locator("#household .household-list > li");
+    assert.equal(await household.count(), 2);
+    assert.match(await household.first().textContent(), /otomatis/, "the automatic bucket comes first");
+    assert.match(await household.first().textContent(), /47,6%/, "the served share is shown");
+    assert.equal(await page.locator("#household .household-bar i").count(), 2);
+    assert.equal(requests.filter(request => request.method === "POST").length, 0, "opening the detail sections never writes");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
     const rows = await page.evaluate(() => { const box = selector => document.querySelector(selector)?.getBoundingClientRect(); const same = (x, y) => Boolean(x && y) && Math.abs(x.top - y.top) < 4 && x.right <= y.left + 1; return { where: same(box("#where"), box("#changes")), daily: same(box("#daily"), box("#history")) }; });
     if (name !== "tablet") { assert.equal(rows.where, name === "desktop", `${name} "Ke mana uangnya" and "Yang berubah" ${name === "desktop" ? "share a row" : "stack"}`); assert.equal(rows.daily, name === "desktop", `${name} daily and cycle columns ${name === "desktop" ? "share a row" : "stack"}`); }
@@ -252,17 +297,25 @@ try {
     assert.equal(await page.getByRole("button", { name: "Siklus berikutnya", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-ledger.png`, output)), fullPage: true, animations: "disabled" });
-    await cycleLedger.locator("thead th button", { hasText: "26 Agu" }).click();
+    decisionsFail = true;
+    await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
     await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
     assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu .penuh./);
+    await openDisclosure(page, "#decisions > details", "#decisions form.decision-form");
+    await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat dimuat" }).waitFor();
+    assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).count(), 1, "a failed list still allows recording a decision");
+    decisionsFail = false;
+    await openDisclosure(page, "#decisions > details", "#decisions form.decision-form");
+    await page.locator("#decisions").getByRole("button", { name: "Coba lagi", exact: true }).click();
+    await page.locator("#decisions .decision-list, #decisions .empty").first().waitFor();
     assert.equal(await page.getByRole("button", { name: "Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
     await page.getByRole("button", { name: "Siklus berikutnya", exact: true }).click();
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Berjalan"));
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
     await page.getByRole("button", { name: "Siklus sebelumnya", exact: true }).click();
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Ditutup"));
     await page.getByRole("button", { name: "Kalender", exact: true }).click();
     await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26", "Calendar keeps the reviewed cycle in the URL");
@@ -275,7 +328,7 @@ try {
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.locator("#discussion > details > summary").click();
     await page.getByText("Older daily snapshot is visible.", { exact: true }).waitFor();
-    assert.match(await page.locator("#discussion .insight-muted").textContent(), /Snapshot sebelumnya.*5 Sep 2026.*bukan data terkini/);
+    assert.match(await page.locator("#discussion .insight-muted").first().textContent(), /Data pembahasan: .*5 Sep 2026.*bukan data terkini/);
     generationStatus = 429;
     await page.getByRole("button", { name: "Perbarui pembahasan", exact: true }).click();
     await page.getByText("Batas satu pembahasan per jam. Coba lagi setelah jeda satu jam dari permintaan terakhir.", { exact: true }).waitFor();
@@ -326,19 +379,19 @@ try {
     }
     await page.getByText("Jaga lebih banyak kas likuid.", { exact: true }).waitFor();
     const draft = "Simpan lebih banyak kas untuk kebutuhan keluarga.";
-    await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).fill(draft);
+    await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).fill(draft);
     assert.equal(requests.filter(request => request.method === "POST").length, 0, "no automatic decision write or AI generation during meeting");
     await page.getByRole("button", { name: "Langkah sebelumnya", exact: true }).click();
     await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
-    assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), draft);
+    assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).inputValue(), draft);
     failDecisionSave = true;
     await page.getByRole("button", { name: "Simpan keputusan", exact: true }).click();
     await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat disimpan" }).waitFor();
-    assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), draft);
+    assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).inputValue(), draft);
     failDecisionSave = false;
-    await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).press("Control+Enter");
+    await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).press("Control+Enter");
     await page.locator("#decisions .decision-list").getByText(draft, { exact: true }).waitFor();
-    assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), "");
+    assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).inputValue(), "");
     assert.equal(requests.filter(request => request.path === "/api/v1/analytics/cycle-decisions" && request.method === "POST").length, 2, "only explicit save and explicit retry");
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} meeting has no overflow`);
@@ -448,7 +501,7 @@ try {
     assert.equal(await rentRow.locator("td").nth(6).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1950000n));
     assert.match(await rentRow.locator("td").nth(7).textContent(), /0%/);
     assert.equal(await page.locator("#changes table tbody tr").count(), 3, "all exact category comparisons retained");
-    assert.equal(await page.locator("#household .review-attribution > div").count(), 2);
+    assert.equal(await page.locator("#household .household-list > li").count(), 2);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} complete report has no page overflow`);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-september25-complete.png`, output)), fullPage: true, animations: "disabled" });
     generationStatus = 429;

@@ -124,48 +124,6 @@
 .cycle-step-button { display: grid; width: 44px; min-width: 44px; place-items: center; padding: 0; font-size: 18px; line-height: 1; }
 .ledger-loading { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 .cycle-review[data-stale] > :not(.range-controls):not(.ledger-loading) { opacity: .5; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-standard); }
-.ledger-figure { position: relative; overflow-x: auto; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); container-type: inline-size; }
-/* Edge shadows appear only while the figure overflows, so a cut-off column is never the only hint to scroll. */
-.ledger-figure { background-image: linear-gradient(to right, var(--surface) 30%, rgb(255 252 244 / 0)), linear-gradient(to left, var(--surface) 30%, rgb(255 252 244 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
-.ledger-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
-.ledger-table th, .ledger-table td { padding: 0; text-align: center; vertical-align: middle; transition: background-color var(--motion-fast) var(--ease-standard); }
-.ledger-table thead th:first-child, .ledger-table tbody th { position: sticky; left: 0; z-index: 2; width: 9.5rem; padding: 0 var(--space-3); background: var(--surface); text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
-.ledger-unit { color: var(--muted); font-weight: 400; }
-.ledger-table thead th { border-bottom: 2px solid var(--ink); font-weight: 400; }
-.ledger-table thead th button, .ledger-table thead th button:hover:not(:disabled) { display: block; width: 100%; min-height: 56px; padding: var(--space-2) 2px; border: 0; border-radius: 0; background: none; color: var(--ink); font-weight: 400; line-height: 1.25; }
-.ledger-table thead th button:hover:not(:disabled) { background: var(--surface-muted); }
-.ledger-table thead th button b { display: block; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
-.ledger-table thead th button small { display: block; color: var(--muted); font-size: var(--text-sm); }
-.ledger-table [data-selected], .ledger-table thead th[data-selected] button, .ledger-table thead th[data-selected] button:hover:not(:disabled) { background: var(--butter); }
-.ledger-table tbody tr + tr > * { border-top: 1px solid var(--line); }
-.ledger-table tbody td { height: 44px; font-size: var(--text-base); }
-.ledger-table tr.ledger-bars th { vertical-align: top; padding-top: var(--space-4); }
-.ledger-table tr.ledger-bars td { position: relative; height: 150px; padding: 0 4px; border-top: 0; }
-.ledger-pair { display: flex; align-items: flex-end; justify-content: center; gap: 6px; height: 100%; padding-top: 22px; }
-.ledger-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
-.ledger-bar em { color: var(--muted); font-size: var(--text-sm); font-style: normal; line-height: 1.2; }
-.ledger-bar.expense em { color: var(--ink); font-weight: var(--weight-semibold); font-size: var(--text-md); }
-.ledger-bar i { display: block; width: 18px; min-height: 2px; height: calc(var(--len) * 128px); border: 2px solid var(--ink); border-bottom-width: 0; border-radius: 4px 4px 0 0; }
-.ledger-bar.income i { background: var(--chart-income); }
-.ledger-bar.expense i { background: var(--chart-expense); }
-.ledger-table td[data-running] .ledger-bar.expense i { border-style: dashed; background-image: repeating-linear-gradient(135deg, rgb(255 252 244 / .55) 0 3px, transparent 3px 6px); }
-.ledger-median { position: absolute; left: 4px; right: 4px; bottom: calc(var(--median) * 128px); border-top: 2px dashed var(--info); pointer-events: none; }
-.ledger-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); margin: var(--space-3) 2px 0; color: var(--muted); font-size: var(--text-sm); }
-.ledger-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border: 2px solid var(--ink); vertical-align: -1px; }
-.ledger-legend i.income { background: var(--chart-income); }
-.ledger-legend i.expense { background: var(--chart-expense); }
-.ledger-legend i.median { width: 16px; height: 0; border-width: 2px 0 0; border-color: var(--info); border-style: dashed; vertical-align: 4px; }
-.ledger-legend i.running { border-style: dashed; background: repeating-linear-gradient(135deg, rgb(139 68 55 / .55) 0 2px, transparent 2px 5px); }
-.ledger-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
-.ledger-cards li { padding: var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
-.ledger-cards li[data-selected] { background: var(--butter); border-color: var(--ink); }
-.ledger-cards button { display: block; width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; }
-.ledger-cards button b { display: block; font-size: var(--text-lg); }
-.ledger-cards button small { color: var(--muted); font-size: var(--text-sm); }
-.ledger-cards dl { margin: var(--space-2) 0 0; display: grid; gap: var(--space-1); }
-.ledger-cards dl > div { display: flex; justify-content: space-between; gap: var(--space-3); font-variant-numeric: tabular-nums; }
-.ledger-cards dt { color: var(--muted); font-size: var(--text-sm); }
-.ledger-cards dd { margin: 0; font-weight: var(--weight-semibold); }
 .cycle-pace { margin-top: var(--space-5); }
 .pace-title { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
 .pace-notes { display: grid; gap: var(--space-1); margin: var(--space-2) 0 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--text-sm); }
@@ -174,30 +132,6 @@
 .pace-notes li[data-tone="median"] i { border-top: 2px dotted var(--chart-reference); }
 .pace-notes li[data-shape="marker"] i { width: 10px; height: 10px; border: 2px solid var(--ink-soft); border-radius: 50%; background: var(--surface-strong); vertical-align: -1px; }
 .pace-notes li[data-shape="marker"][data-tone="median"] i { border-color: var(--chart-reference); }
-@media (max-width: 680px) {
-  .ledger-figure { scroll-snap-type: x mandatory; scroll-padding-inline-start: 5.5rem; } /* a column stops right after the sticky label */
-  .ledger-table { min-width: 0; width: 560px; } /* fallback where container queries are unavailable */
-  .ledger-table thead th:first-child, .ledger-table tbody th { width: 5.5rem; padding: 0 6px; font-size: var(--text-xs); }
-  .ledger-table thead th:not(:first-child) { scroll-snap-align: start; }
-  .ledger-bar i { width: 14px; }
-}
-/* Phones: a whole number of cycle columns fits beside the label (four, three on the
-   narrowest), so no column is cut at the label edge. */
-@container (max-width: 520px) {
-  .ledger-table { --label: 5.5rem; --visible: 4; --shown: min(var(--visible), var(--cols, 6)); --col: calc((100cqw - var(--label)) / var(--shown)); width: calc(var(--label) + var(--cols, 6) * var(--col)); } /* with fewer cycles than --visible the columns share the whole width */
-  .ledger-table thead th:first-child, .ledger-table tbody th { width: var(--label); }
-  .ledger-table thead th:not(:first-child) { width: var(--col); }
-}
-@container (max-width: 319px) { .ledger-table { --visible: 3; } }
-/* Category x cycle matrix: rows share the ribbon's columns; the tint only sizes a value within its own row. */
-.ledger-table thead th > b { display: block; padding-top: var(--space-2); font-size: var(--text-lg); font-weight: var(--weight-semibold); }
-.ledger-table thead th > small { display: block; padding-bottom: var(--space-2); color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
-.ledger-table tbody tr.ledger-first-category > * { border-top: 2px solid var(--ink); }
-.ledger-table tbody th .ledger-row-button, .ledger-table tbody th .ledger-row-button:hover:not(:disabled) { display: block; width: 100%; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--ink); text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
-.ledger-table tbody th .ledger-row-button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
-.ledger-table tbody tr[data-selected-row] > th { box-shadow: inset 4px 0 0 var(--ink); }
-.ledger-cell { display: block; margin: 3px 4px; padding: 6px 0; border-radius: 6px; background: rgb(58 88 103 / calc(var(--tint) * .42)); font-size: var(--text-base); font-weight: var(--weight-semibold); }
-.ledger-matrix-only { margin-top: var(--space-4); }
 /* end cycle ledger */
 .evidence-back { display: inline-block; margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); }
 /* Calendar view: a section keeps its previous range, dimmed, while a new one loads. */
@@ -296,6 +230,97 @@
   .cycle-review .review-section details > a, .cycle-review .dash-card .snapshot-context a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
+/* Detail sections: matrix heatmap, merchant ranking, household share, discussion. */
+.segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; margin: var(--space-2) 0 var(--space-3); padding: 3px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.segmented button { min-height: 36px; padding: 0 var(--space-3); border: 1px solid transparent; border-radius: calc(var(--radius-sm) - 2px); background: none; color: var(--muted); font-size: var(--text-sm); }
+.segmented button.active { border-color: var(--line-strong); background: var(--surface); color: var(--ink); font-weight: var(--weight-semibold); }
+.heat-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.heat-table { width: 100%; min-width: 680px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.heat-table th, .heat-table td { padding: var(--space-2) var(--space-1); text-align: center; }
+.heat-table thead th { border-bottom: 2px solid var(--ink); color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.heat-table thead th:first-child, .heat-table tbody th, .heat-table tfoot th { width: 34%; padding-left: var(--space-3); text-align: left; color: var(--ink); }
+.heat-table thead th b { display: block; color: var(--ink); font-size: var(--text-base); }
+.heat-table thead th small, .heat-table tbody th small { display: block; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.heat-table tbody th, .heat-table tbody td, .heat-table tfoot th, .heat-table tfoot td { border-top: 1px solid var(--line); }
+.heat-table tbody th { font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.heat-table tbody th span[data-muted] { color: var(--muted); font-weight: 400; }
+.heat-table tbody tr[data-selected-row] > th { box-shadow: inset 4px 0 0 var(--ink); }
+.heat-table [data-selected] { background: var(--butter); }
+.heat-table th[data-running] { border-right: 1px dashed var(--line-strong); border-left: 1px dashed var(--line-strong); }
+.heat-table td[data-running] .heat-cell { border: 1px dashed var(--line-strong); background: none; }
+.heat-row-button { display: block; width: 100%; min-height: 36px; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; font-weight: var(--weight-semibold); text-align: left; }
+.heat-row-button:hover:not(:disabled) { border: 0; background: none; text-decoration: underline; text-underline-offset: 3px; }
+.heat-cell { display: block; margin: 0 3px; padding: 7px 2px; border-radius: 6px; background: rgb(209 156 144 / calc(var(--tint) * .85)); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.heat-delta, .heat-delta-head { text-align: right !important; padding-right: var(--space-3) !important; }
+.heat-row-delta { display: none; }
+.section-delta { font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
+.section-delta[data-tone="good"] { color: var(--accent); }
+.section-delta[data-tone="bad"] { color: #a23b2c; }
+.section-delta[data-tone="none"] { color: var(--muted); }
+.heat-table tfoot th, .heat-table tfoot td { border-top: 2px solid var(--ink); font-weight: var(--weight-bold); }
+.heat-legend { margin: var(--space-2) 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.6; }
+.merchant-rank-wrap { margin-top: var(--space-3); }
+.merchant-rank-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.merchant-rank { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.merchant-rank th, .merchant-rank td { padding: var(--space-2) var(--space-3); text-align: right; vertical-align: top; }
+.merchant-rank thead th { border-bottom: 2px solid var(--ink); color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.merchant-rank thead th:first-child { width: 34%; }
+.merchant-rank tbody th, .merchant-rank tfoot th { text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.merchant-rank tbody td, .merchant-rank tfoot td { font-size: var(--text-sm); }
+.merchant-rank tbody th, .merchant-rank tbody td { border-top: 1px solid var(--line); }
+.merchant-rank tbody tr[data-other] th a { color: var(--muted); }
+.merchant-rank tfoot th, .merchant-rank tfoot td { border-top: 2px solid var(--ink); font-weight: var(--weight-bold); }
+.merchant-rank th a { color: var(--accent); }
+.merchant-rank th small { display: block; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.merchant-bar { display: block; width: min(260px, 100%); height: 3px; margin-top: 6px; border-radius: 2px; background: var(--surface-muted); }
+.merchant-bar i { display: block; height: 100%; border-radius: 2px; background: var(--chart-expense); }
+.merchant-rank tr[data-other] .merchant-bar i { background: var(--line-strong); }
+.household-bar { display: flex; height: 14px; gap: 2px; margin: var(--space-3) 0 var(--space-4); overflow: hidden; border-radius: 999px; }
+.household-bar i { min-width: 2px; background: var(--accent); }
+.household-bar i[data-tint="1"] { background: #b98a3e; }
+.household-bar i[data-tint="2"] { background: #6d74a8; }
+.household-bar i[data-tint="3"] { background: #7b8979; }
+.household-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.household-list > li { display: grid; grid-template-columns: 34px minmax(0, 1fr) 110px 150px 64px; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--line); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.household-list > li:first-child { border-top: 0; }
+.household-avatar, .decision-avatar { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 50%; background: #f1e2c8; font-size: var(--text-sm); font-weight: var(--weight-bold); }
+.household-avatar[data-tint="1"], .decision-avatar[data-tint="1"] { background: #dcddf0; }
+.household-avatar[data-tint="2"], .decision-avatar[data-tint="2"] { background: #dbe8dc; }
+.household-avatar[data-tint="3"], .decision-avatar[data-tint="3"] { background: #f0e4d8; }
+.household-name { min-width: 0; font-weight: var(--weight-semibold); }
+.household-name small { margin-left: 6px; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
+.household-count, .household-share { color: var(--muted); text-align: right; }
+.household-amount { text-align: right; font-weight: var(--weight-semibold); }
+.discussion-banner { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-muted); font-size: var(--text-sm); line-height: 1.6; }
+.discussion-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 260px); gap: var(--space-6); align-items: start; }
+.insight-text { max-width: 68ch; font-size: 15px; line-height: 24px; }
+.discussion-links { padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.discussion-links h4 { margin: 0 0 var(--space-2); font-family: var(--font-heading); font-size: var(--text-lg); }
+.discussion-links ul { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); padding: 0; list-style: none; }
+.discussion-links a { display: inline-flex; min-height: 32px; align-items: center; color: var(--accent); font-weight: var(--weight-semibold); }
+@media (max-width: 680px) {
+  .heat-table { min-width: 0; }
+  .heat-table thead th:first-child, .heat-table tbody th, .heat-table tfoot th { width: 36%; padding-left: var(--space-2); }
+  .heat-table thead th:not(:first-child), .heat-table td { padding-inline: 2px; }
+  .heat-table thead th small { font-size: var(--text-xs); }
+  .heat-delta-head, .heat-delta { display: none; }
+  .heat-row-delta { display: block; margin-top: 2px; }
+  .heat-table tbody th { font-size: var(--text-xs); }
+  .heat-cell { padding: 6px 0; font-size: var(--text-xs); }
+  .merchant-rank th, .merchant-rank td { padding: var(--space-2) var(--space-2); font-size: var(--text-xs); white-space: nowrap; }
+  .merchant-rank thead th:first-child { width: 40%; }
+  .merchant-rank tbody th, .merchant-rank tfoot th { white-space: normal; }
+  .household-list > li { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 2px var(--space-2); }
+  .household-count { grid-column: 2; grid-row: 2; text-align: left; }
+  .household-amount { grid-column: 3; grid-row: 1; }
+  .household-share { grid-column: 3; grid-row: 2; text-align: right; }
+  .discussion-body { grid-template-columns: 1fr; }
+  .segmented button { min-height: 44px; }
+  .heat-row-button { min-height: 44px; }
+  .discussion-links a { min-height: 44px; }
+  .decision-list button.decision-revoke { min-height: 44px; }
+}
+/* end detail sections */
 /* Rows 3-4: where the money went, what changed, daily and cycle history; category drawer. */
 .dash-row-half { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .where-list { display: grid; margin: var(--space-2) 0 0; padding: 0; list-style: none; }
