@@ -2,6 +2,7 @@ package analyticscore
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,12 +49,17 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 		SELECT ordinality-1 AS idx,s::date AS start_date,e::date AS end_date FROM unnest($2::text[],$3::text[]) WITH ORDINALITY AS p(s,e,ordinality)
 	)
 	SELECT p.idx,to_char(t.transaction_at AT TIME ZONE 'Asia/Jakarta','YYYY-MM-DD'),t.type,t.purpose,
-		COALESCE(c.id::text,''),COALESCE(c.name,'Belum dikategorikan'),COALESCE(m.id::text,''),COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui'),
+		COALESCE(c.id::text,''),COALESCE(c.name,'Belum dikategorikan'),COALESCE(m.id::text,''),COALESCE(m.normalized_name,NULLIF(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'),''),'Tanpa merchant'),
 		COALESCE(u.id::text,''),COALESCE(u.display_name,'Bersama / otomatis / belum diatribusikan'),COALESCE(a.id::text,''),COALESCE(a.name,'Belum ditautkan'),sum(t.amount)::text,count(*)::int
 	FROM periods p JOIN transaction t ON t.household_id=$1 AND t.status='CONFIRMED'
 		AND t.transaction_at >= (p.start_date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.transaction_at < (p.end_date::timestamp AT TIME ZONE 'Asia/Jakarta')
 	LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id
-	LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
+	LEFT JOIN LATERAL (
+		SELECT min(a.normalized_merchant_id::text)::uuid AS merchant_id FROM merchant_alias a
+		WHERE t.merchant_id IS NULL AND a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'))
+		HAVING count(DISTINCT a.normalized_merchant_id)=1
+	) al ON true
+	LEFT JOIN merchant m ON m.id=COALESCE(t.merchant_id,al.merchant_id) AND m.household_id=t.household_id
 	LEFT JOIN household_member hm ON hm.user_id=t.created_by_user_id AND hm.household_id=t.household_id
 	LEFT JOIN "user" u ON u.id=hm.user_id
 	LEFT JOIN wealth_account a ON a.id=t.related_wealth_account_id AND a.household_id=t.household_id
@@ -111,7 +117,7 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 			}
 			m.dailyNet[day] = financialmath.Add(prior, amount)
 			accumulate(m.categories, cid, cid, cname, amount, count)
-			merchantKey := mid + ":" + mname
+			merchantKey := mid + ":" + strings.ToLower(mname)
 			accumulate(m.merchants, merchantKey, mid, mname, amount, count)
 			if m.categoryMerchants[cid] == nil {
 				m.categoryMerchants[cid] = map[string]reviewValue{}
@@ -172,7 +178,7 @@ func accumulate(values map[string]reviewValue, key, id, name, amount string, cou
 
 func loadReviewTransactions(ctx context.Context, tx pgx.Tx, household string, facts *Facts) error {
 	rows, err := tx.Query(ctx, `WITH ranked AS (
-		SELECT t.id,t.transaction_at,t.type,t.amount,t.category_id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui') merchant,
+		SELECT t.id,t.transaction_at,t.type,t.amount,t.category_id,COALESCE(m.normalized_name,NULLIF(btrim(t.counterparty_name),''),'Tanpa merchant') merchant,
 		row_number() OVER(PARTITION BY t.category_id ORDER BY t.amount DESC,t.transaction_at DESC,t.id) AS rank
 		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
 		WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND')
@@ -234,19 +240,25 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	if now.Before(end) {
 		end = now
 	}
-	// current is the newest observation before the measured end; previous is its strict
-	// predecessor in the same total order, never the cycle start boundary.
+	// Boundary rule: current is the newest observation inside the cycle (after
+	// the start day, before the measured end); previous is the newest observation
+	// on or before the cycle start day. Both are household-day based so a snapshot
+	// taken just after midnight on the start date is still the opening baseline.
+	start, _ := time.ParseInLocation("2006-01-02", facts.Period.Start, clock.HouseholdLocation())
+	firstInside := start.AddDate(0, 0, 1)
 	rows, err := tx.Query(ctx, `WITH selected AS (
-		SELECT id,observed_at,row_number() OVER (ORDER BY observed_at DESC,id) AS rn FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 2
+		(SELECT 1 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at>=$3 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 1)
+		UNION ALL
+		(SELECT 2 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$3 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 1)
 	) SELECT s.rn,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,
 		COALESCE(array_agg(a.id::text ORDER BY a.id) FILTER(WHERE a.id IS NOT NULL),ARRAY[]::text[])
 	FROM selected s LEFT JOIN wealth_snapshot_item i ON i.snapshot_id=s.id LEFT JOIN wealth_account a ON a.id=i.wealth_account_id AND a.household_id=$1
-	GROUP BY s.rn,s.id,s.observed_at ORDER BY s.rn`, household, end)
+	GROUP BY s.rn,s.id,s.observed_at ORDER BY s.rn`, household, end, firstInside)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	var picked []*reviewSnapshot
+	var picked [3]*reviewSnapshot
 	for rows.Next() {
 		v := &reviewSnapshot{}
 		var rn int
@@ -254,20 +266,24 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 			return err
 		}
 		v.AgeDays = daysBetween(v.At.In(clock.HouseholdLocation()).Format("2006-01-02"), end.In(clock.HouseholdLocation()).Format("2006-01-02"))
-		picked = append(picked, v)
+		picked[rn] = v
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	facts.Wealth.Current, facts.Wealth.Previous = pickSnapshots(picked)
 	rows.Close()
-	if facts.Wealth.Current == nil {
-		facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
+	if picked[1] == nil {
+		// No observation inside the cycle: no delta. The newest earlier observation
+		// is still exposed as the latest observation, never as a comparison.
+		facts.Wealth.Previous = picked[2]
+		if picked[2] != nil {
+			facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
+		} else {
+			facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
+		}
 		return nil
 	}
-	if facts.Wealth.Current.At.In(clock.HouseholdLocation()).Format("2006-01-02") < facts.Period.Start {
-		facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
-	}
+	facts.Wealth.Current, facts.Wealth.Previous = picked[1], picked[2]
 	if facts.Wealth.Previous == nil {
 		facts.block("MISSING_PREVIOUS_WEALTH_SNAPSHOT", 1, nil, "/wealth")
 		return nil
@@ -290,22 +306,6 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	facts.Wealth.Cashflow = &cash.Surplus
 	facts.Wealth.Other = valuePointer(financialmath.Subtract(*facts.Wealth.Change, cash.Surplus))
 	return nil
-}
-
-// pickSnapshots takes observations ordered newest first and returns the current
-// one and its strict predecessor. A single observation has no predecessor, and
-// the same snapshot is never returned as both.
-func pickSnapshots(ordered []*reviewSnapshot) (current, previous *reviewSnapshot) {
-	if len(ordered) == 0 {
-		return nil, nil
-	}
-	current = ordered[0]
-	for _, s := range ordered[1:] {
-		if s.ID != current.ID {
-			return current, s
-		}
-	}
-	return current, nil
 }
 
 func sameAccounts(a, b []string) bool {

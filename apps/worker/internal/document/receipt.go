@@ -416,10 +416,6 @@ func sameMerchant(left, right string) bool {
 	return reviewdomain.CompatibleMerchant(left, right)
 }
 
-func normalizeMerchant(value string) string {
-	return reviewdomain.NormalizeMerchant(value)
-}
-
 func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, sourceID string, candidate matchCandidate, value receiptExtraction, model string, validation receiptValidation) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)

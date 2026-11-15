@@ -46,7 +46,7 @@ remove them only together with a migration and the code that reads them.
 
 - `review_item` / `review_request`: `CANCELLED` is written (reject/duplicate), `review_item` `EXPIRED` and `CANCELLED` are not.
 - `review_conversation`: `AWAITING_PURPOSE`, `AWAITING_ASSET_WEALTH`.
-- `salary_pending_choice`: the whole table (no producer; two diverged resolvers in `telegram/processor.go` and `agent_specialized_mutations.go` are unreachable). Do not revive without reconciling them.
+- `salary_pending_choice`: the whole table (no producer; the remaining resolver in `agent_specialized_mutations.go` is unreachable). Do not revive without reconciling it with the pending-choice flow.
 - `telegram_pending_*` `EXPIRED`, `integration_action` `DISMISSED` / `EXPIRED`: expiry is a read-time `expires_at` filter.
 - `document` `RECEIVED` after creation, `transaction` `PENDING` (never inserted).
 

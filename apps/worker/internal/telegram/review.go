@@ -731,14 +731,6 @@ func salaryPolicyMarkup(actions []string) *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{buttons}}
 }
 
-func reviewDetailMessage(title, context, instruction string) string {
-	context = strings.TrimSpace(context)
-	if context == "" {
-		return title + "\n\n" + instruction
-	}
-	return title + "\n\n" + context + "\n\n" + instruction
-}
-
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'review_request_id',$4::text))`, chatID, replyTo, clean(message, 4000), reviewID)
 	return err
