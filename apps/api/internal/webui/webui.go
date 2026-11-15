@@ -92,13 +92,29 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(clean, "/")
-	for _, candidate := range []string{name, name + ".html", name + "/index.html"} {
+	for _, candidate := range []string{name, segmentPayloadPath(name), name + ".html", name + "/index.html"} {
 		if h.exists(candidate) {
 			h.serve(w, r, candidate, cacheFor(candidate))
 			return
 		}
 	}
 	h.notFound(w, r)
+}
+
+// segmentPayloadPath maps the dotted segment-payload URL the client requests
+// (admin/__next.admin.__PAGE__.txt) to the nested file the export writes
+// (admin/__next.admin/__PAGE__.txt). Next leaves this rewrite to the host.
+func segmentPayloadPath(name string) string {
+	dir, base := path.Split(name)
+	if !strings.HasPrefix(base, "__next.") || !strings.HasSuffix(base, ".txt") {
+		return ""
+	}
+	stem := strings.TrimSuffix(base, ".txt")
+	dot := strings.LastIndex(stem, ".")
+	if dot <= len("__next.")-1 {
+		return ""
+	}
+	return dir + stem[:dot] + "/" + stem[dot+1:] + ".txt"
 }
 
 func (h handler) serve(w http.ResponseWriter, r *http.Request, name, cache string) {

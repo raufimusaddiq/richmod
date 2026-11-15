@@ -18,6 +18,9 @@ func testAssets() fstest.MapFS {
 		"fonts/inter.woff2":              {Data: []byte("font")},
 		"transactions.txt":               {Data: []byte("rsc")},
 		"login.txt":                      {Data: []byte("login rsc")},
+
+		"transactions/__next.transactions/__PAGE__.txt": {Data: []byte("segment")},
+
 		"manifest.webmanifest":           {Data: []byte(`{"name":"Richmod"}`)},
 		"build-id.txt":                   {Data: []byte("0123456789ab\n")},
 		"sw.js":                          {Data: []byte(`const BUILD = "abc123";`)},
@@ -48,6 +51,7 @@ func TestHandlerRoutesAndCacheClasses(t *testing.T) {
 		{path: "/_next/static/chunks/app.js", status: http.StatusOK, cache: cacheImmutable, mediaType: "text/javascript; charset=utf-8", body: "js"},
 		{path: "/fonts/inter.woff2", status: http.StatusOK, cache: cachePublic, mediaType: "font/woff2", body: "font"},
 		{path: "/transactions.txt", status: http.StatusOK, cache: cacheAppHTML, mediaType: "text/plain; charset=utf-8", body: "rsc"},
+		{path: "/transactions/__next.transactions.__PAGE__.txt", status: http.StatusOK, cache: cacheAppHTML, mediaType: "text/plain; charset=utf-8", body: "segment"},
 		{path: "/login.txt", status: http.StatusOK, cache: cacheOtherHTML, mediaType: "text/plain; charset=utf-8", body: "login rsc"},
 		{path: "/opengraph-image", status: http.StatusOK, cache: cacheMetadata, mediaType: "image/png", body: "png"},
 		{path: "/manifest.webmanifest", status: http.StatusOK, cache: cacheMetadata, mediaType: "application/manifest+json", body: `{"name":"Richmod"}`},

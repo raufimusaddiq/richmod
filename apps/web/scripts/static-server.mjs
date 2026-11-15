@@ -32,11 +32,17 @@ async function file(path) {
   }
 }
 
+// The export writes segment payloads nested (/admin/__next.admin/__PAGE__.txt) but the
+// client requests them dotted (/admin/__next.admin.__PAGE__.txt); Next leaves that rewrite
+// to the host. apps/api/internal/webui applies the same mapping in production.
+const segmentPayload = /^(.*\/)?(__next\..+)\.([^./]+)\.txt$/;
+
 async function resolve(pathname) {
   if (pathname === "/") return "index.html";
   const path = decodeURIComponent(pathname).replace(/^\/+/, "");
   if (path.includes("..")) return null;
-  return (await file(path)) || (await file(`${path}.html`)) || (await file(`${path.replace(/\/$/, "")}/index.html`));
+  const nested = path.replace(segmentPayload, (_, dir = "", folder, leaf) => `${dir}${folder}/${leaf}.txt`);
+  return (await file(path)) || (nested !== path && (await file(nested))) || (await file(`${path}.html`)) || (await file(`${path.replace(/\/$/, "")}/index.html`));
 }
 
 createServer(async (request, response) => {
