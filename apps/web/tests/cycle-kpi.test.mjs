@@ -117,3 +117,20 @@ test("the pace marker says today only while the cycle runs", () => {
   assert.ok(charts.includes('period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"'));
   assert.ok(readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8").includes("period={period}"));
 });
+
+test("the median note names the same-day basis while the cycle runs", () => {
+  const active = cycleFacts();
+  assert.equal(active.comparison.expense.deltaVsMedian3 != null, true, "fixture serves a median delta");
+  assert.equal(kpiCells(active)[0].extra.note, "vs median 3 siklus · hari yang sama");
+  const closed = cycleFacts("2026-08-26");
+  closed.comparison.expense.deltaVsMedian3 = "100000";
+  assert.equal(kpiCells(closed)[0].extra.note, "vs median 3 siklus");
+});
+
+test("the way back from category evidence targets the rendered matrix summary, not the collapsed ledger", () => {
+  const sections = readFileSync(new URL("../app/analytics/CycleSections.js", import.meta.url), "utf8");
+  assert.ok(sections.includes('href="#matrix">Kembali ke ringkasan siklus'));
+  assert.equal(sections.includes('href="#ledger"'), false);
+  const page = readFileSync(new URL("../app/analytics/page.js", import.meta.url), "utf8");
+  assert.ok(page.includes('<section id="matrix"') && page.includes('id="matrix-title"'), "the target and its summary heading exist");
+});

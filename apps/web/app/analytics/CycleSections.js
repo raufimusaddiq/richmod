@@ -1,6 +1,6 @@
 import { amountLabel, changeWidth, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { dateTime, money, typeLabel } from "../lib/format";
-import { SectionTitle, Metric } from "./shared";
+import { Metric } from "./shared";
 
 export function MeetingNav({ step, selection, navigate }) {
   const index = reviewSteps.findIndex(([id]) => id === step);
@@ -71,7 +71,7 @@ export function MerchantTable({ items, period, categoryId }) {
 export function CategoryDrivers({ item, period }) {
   return <div className="category-evidence">
     <h3>{item.name}</h3>
-    {!period.reviewStep && <a className="evidence-back" href="#ledger">Kembali ke ringkasan siklus</a>}
+    {!period.reviewStep && <a className="evidence-back" href="#matrix">Kembali ke ringkasan siklus</a>}
     <dl className="review-context"><Metric label="Porsi pengeluaran siklus" value={ratioLabel(item.shareOfExpense)}/><Metric label="Jumlah transaksi" value={item.count}/></dl>
     <MerchantTable items={item.merchants} period={period} categoryId={item.id || "uncategorized"}/>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Transaksi pendukung, geser untuk semua kolom"><table><caption>Transaksi pendukung terbesar (maks. 10). Refund ditandai terpisah.</caption><thead><tr><th scope="col">Merchant / tanggal</th><th scope="col">Jenis</th><th scope="col">Jumlah</th><th scope="col">Bukti</th></tr></thead><tbody>{item.transactions.map(transaction => <tr key={transaction.id}><th scope="row">{transaction.merchant}<small>{dateTime(transaction.transactionAt)}</small></th><td>{typeLabel[transaction.type]}</td><td>{money(transaction.amount)}</td><td><a href={transactionHref(period, { categoryId: item.id || "uncategorized", id: transaction.id })}>Buka transaksi</a></td></tr>)}</tbody></table></div>

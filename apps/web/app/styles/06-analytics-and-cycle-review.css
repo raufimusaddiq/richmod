@@ -125,10 +125,6 @@
 .cycle-step { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ledger-loading { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 .cycle-review[data-stale] > :not(.range-controls):not(.ledger-loading) { opacity: .5; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-standard); }
-.ledger-verdict { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); margin: 0 0 var(--space-4); }
-.ledger-verdict > div { display: grid; gap: 2px; }
-.ledger-verdict dt { color: var(--muted); font-size: var(--text-sm); }
-.ledger-verdict dd { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .ledger-figure { position: relative; overflow-x: auto; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); container-type: inline-size; }
 /* Edge shadows appear only while the figure overflows, so a cut-off column is never the only hint to scroll. */
 .ledger-figure { background-image: linear-gradient(to right, var(--surface) 30%, rgb(255 252 244 / 0)), linear-gradient(to left, var(--surface) 30%, rgb(255 252 244 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
@@ -185,7 +181,6 @@
   .ledger-table thead th:first-child, .ledger-table tbody th { width: 5.5rem; padding: 0 6px; font-size: var(--text-xs); }
   .ledger-table thead th:not(:first-child) { scroll-snap-align: start; }
   .ledger-bar i { width: 14px; }
-  .ledger-verdict dd { font-size: var(--text-lg); }
 }
 /* Phones: a whole number of cycle columns fits beside the label (four, three on the
    narrowest), so no column is cut at the label edge. */

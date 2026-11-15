@@ -62,7 +62,7 @@ export function kpiCells(facts) {
   const days = spendingShape?.days;
   const basis = baselineFor(period, days);
   const expense = comparisonCell(comparison?.expense, basis, true);
-  const median = comparison?.expense?.deltaVsMedian3 != null ? { ...deltaView(comparison.expense.deltaVsMedian3, { relative: comparison.expense.relativeDeltaVsMedian3, lowerIsBetter: true }), note: "vs median 3 siklus" } : null;
+  const median = comparison?.expense?.deltaVsMedian3 != null ? { ...deltaView(comparison.expense.deltaVsMedian3, { relative: comparison.expense.relativeDeltaVsMedian3, lowerIsBetter: true }), note: active ? "vs median 3 siklus · hari yang sama" : "vs median 3 siklus" } : null;
   const snapshot = wealth?.current ?? wealth?.previous ?? null;
   const worthChange = snapshot && wealth.netWorthChange != null
     ? { ...deltaView(wealth.netWorthChange), note: wealth.previous ? `vs pengamatan ${displayDate(wealth.previous.observedAt)}` : "vs pengamatan sebelumnya" }
