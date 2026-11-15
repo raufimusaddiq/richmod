@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, paceCurves, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, paceAxis, paceCurves, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -270,4 +270,36 @@ test("choosing a category opens its evidence without moving the reader; length a
   const insight = text("app/components/InsightCard.js");
   assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
   assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");
+});
+
+
+test("pace x ticks stay at three or four labels on any cycle length", () => {
+  for (const length of [6, 28, 30, 31, 45]) {
+    const ticks = paceTicks(length);
+    assert.ok(ticks.length >= 3 && ticks.length <= 5, `${length} days gives ${ticks.length} ticks`);
+    assert.equal(ticks[0], 1);
+    assert.ok(ticks.every(day => day <= length));
+  }
+  assert.deepEqual(paceTicks(9, 4), [1, 5, 9], "an explicit stride is still honoured");
+});
+
+test("a reference level that extends the axis gets round ticks, not raw served values", () => {
+  const axis = paceAxis(4_300_000);
+  assert.deepEqual(axis.domain, [0, 8_000_000], "the top is a round step above the highest level");
+  assert.deepEqual(axis.ticks, [0, 2_000_000, 4_000_000, 6_000_000, 8_000_000]);
+  assert.deepEqual(paceAxis(0).domain, [0, 1], "no data does not divide by zero");
+  assert.deepEqual(paceAxis(null).domain, [0, 1]);
+  const small = paceAxis(700_000);
+  assert.equal(small.domain[1], 800_000);
+  assert.equal(small.ticks.length, 5);
+});
+
+test("chart units are on screen and the whole-value list is not a tooltip", () => {
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.match(charts, /className="chart-unit">Rp juta</, "the category chart names its unit on screen");
+  assert.match(charts, /LabelList dataKey="amountLabel"/, "each bar prints its amount");
+  assert.doesNotMatch(charts, /rankCategories/, "the chart never sorts money in the browser");
+  assert.match(charts, /const data = items\.map\(/, "server order is used as served");
+  const calendar = readFileSync(new URL("../app/analytics/CalendarReview.js", import.meta.url), "utf8");
+  assert.match(calendar, /Lihat nilai kategori/, "the value list is reachable without a hover");
 });

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { cycleCommentary, cycleFacts, stableCycleFacts } from "../tests/fixtures/cycle-review.mjs";
+import { defaultRange } from "../app/lib/calendarReview.js";
 
 const port = "3210";
 const base = `http://127.0.0.1:${port}`;
@@ -248,7 +249,7 @@ try {
     const charts = await page.evaluate(() => { const [a, b] = ["#spending-shape", "#savings-wealth"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1, section: Math.round(a?.height || 0) }; });
     if (name !== "tablet") assert.equal(charts.sameRow, name === "desktop", `${name} daily charts ${name === "desktop" ? "share a row" : "stack"} (section ${charts.section}px)`);
     assert.equal(await page.locator(".cycle-pace-chart .recharts-line-curve").count(), 3, "the selected cycle, the previous cycle and the median are drawn as curves");
-    assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
+    assert.equal(await page.getByRole("button", { name: "Siklus berikutnya", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-ledger.png`, output)), fullPage: true, animations: "disabled" });
     await cycleLedger.locator("thead th button", { hasText: "26 Agu" }).click();
@@ -256,11 +257,11 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
     await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
     assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu .penuh./);
-    assert.equal(await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
-    await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
+    await page.getByRole("button", { name: "Siklus berikutnya", exact: true }).click();
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
-    await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).click();
+    await page.getByRole("button", { name: "Siklus sebelumnya", exact: true }).click();
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     await page.getByRole("button", { name: "Kalender", exact: true }).click();
     await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
@@ -382,8 +383,10 @@ try {
     assert.equal(await page.getByRole("button", { name: "Kustom", exact: true }).getAttribute("aria-pressed"), "true");
     assert.equal(await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).count(), 0, "a valid range clears the field error");
     await page.goBack({ waitUntil: "networkidle" });
-    await page.waitForFunction(() => document.querySelector('input[name="from"]')?.value === "");
-    assert.equal(await page.getByLabel("Bulan mulai").inputValue(), "", "the inputs follow the URL after Back");
+    // The fields open on the range already shown, so Back never leaves them blank.
+    const shownRange = defaultRange({ from: "", to: "", range: new URL(page.url()).searchParams.get("range") || "3" });
+    await page.waitForFunction(expected => document.querySelector('input[name="from"]')?.value === expected, shownRange.from);
+    assert.equal(await page.getByLabel("Bulan mulai").inputValue(), shownRange.from, "the inputs follow the URL after Back");
     // One failing section does not blank the rest, and it retries on its own.
     merchantsFail = true;
     await page.getByRole("button", { name: "6 Bulan", exact: true }).click();
@@ -489,3 +492,5 @@ try {
   await browser?.close();
   server.kill("SIGTERM");
 }
+
+

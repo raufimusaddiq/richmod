@@ -155,9 +155,23 @@ export function paceDateLabel(items, day) {
   return dayMonth(paceDate(items, day));
 }
 
-// Weekly x ticks (day 1, 8, 15 …) up to the last plotted day.
-export function paceTicks(length, step = 7) {
+// Three or four x ticks whatever the cycle length: a phone cannot fit a weekly label
+// on a 30-day axis, and four dates read the same on a wide card.
+export function paceTicks(length, step) {
+  const stride = step || Math.max(1, Math.ceil(length / 4));
   const ticks = [];
-  for (let day = 1; day <= length; day += step) ticks.push(day);
+  for (let day = 1; day <= length; day += stride) ticks.push(day);
   return ticks;
+}
+
+// A round upper bound and its five evenly spaced ticks, for an axis whose top is
+// pushed by a reference level rather than by the series. Tick positions are visual
+// mapping only; the plotted values stay served.
+export function paceAxis(maxValue) {
+  const number = Number(maxValue);
+  if (!Number.isFinite(number) || number <= 0) return { domain: [0, 1], ticks: [0, 1] };
+  const raw = number / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map(multiplier => multiplier * magnitude).find(candidate => raw <= candidate) ?? 10 * magnitude;
+  return { domain: [0, step * 4], ticks: [0, step, step * 2, step * 3, step * 4] };
 }

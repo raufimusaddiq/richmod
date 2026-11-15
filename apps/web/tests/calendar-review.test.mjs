@@ -54,7 +54,9 @@ test("calendar source: independent sections, controlled range, visible reason, f
   assert.match(page, /calendarErrorMessage\(response\.status, body\?\.error\)/, "the API's reason is read, not replaced by a fixed sentence");
   assert.match(page, /onSubmit=\{submitRange\} noValidate/);
   assert.doesNotMatch(page, /defaultValue=\{selection\.(from|to)\}/, "range inputs follow the URL after Back or a preset");
-  assert.match(page, /useEffect\(\(\) => \{ setFrom\(selection\.from\); setTo\(selection\.to\);/);
+  assert.match(page, /const shown = defaultRange\(\{ from: selectedFrom, to: selectedTo, range: selectedRange \}\)/);
+  assert.match(page, /setFrom\(shown\.from\); setTo\(shown\.to\);/);
+  assert.match(page, /const fallback = defaultRange\(selection\)/, "the month fields open on the range already shown");
   assert.match(page, /aria-pressed=\{custom\}>Kustom/);
   assert.match(page, /max: latest/);
   assert.match(page, /monthRowLabel\(item\.period, now\)/);
@@ -72,7 +74,8 @@ test("calendar charts follow the cycle rules: bar-order legend, server ranking, 
   assert.doesNotMatch(charts, /Math\.round\(item\.value/, "the tooltip never rounds a served amount");
   assert.match(charts, /money\(item\?\.income\)/, "the tooltip prints the served string");
   const page = tree("app/analytics");
-  assert.match(page, /<CategoryRankingChart items=\{items\} serverOwned/, "the calendar category chart keeps the server's amount order");
+  assert.match(page, /<CategoryRankingChart items=\{items\} height=\{160\}/, "the calendar category chart keeps the server's amount order");
+  assert.doesNotMatch(page, /serverOwned/, "the web never re-sorts a money ranking");
   assert.match(page, /Lihat nilai kategori/, "category values are readable without a tooltip");
   assert.match(page, /role="group" aria-label="Rentang bulan"/);
 });

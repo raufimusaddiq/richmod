@@ -254,6 +254,8 @@
 .dash-legend [data-series="median"] i { border-top: 2px dotted var(--chart-reference); }
 .dash-legend [data-series="income"] i { border-top-color: var(--chart-income); }
 .recharts-legend-wrapper .dash-legend { justify-content: center; }
+/* A chart's unit is on screen, not only in its aria-label. */
+.chart-unit { margin: 0 0 2px; color: var(--muted); font-size: var(--text-xs); }
 .pace-card .cycle-pace { margin-top: var(--space-2); }
 .split-bar { display: flex; height: 12px; gap: 2px; margin: var(--space-1) 0 var(--space-2); overflow: hidden; border-radius: 999px; }
 .split-bar i { min-width: 2px; }
