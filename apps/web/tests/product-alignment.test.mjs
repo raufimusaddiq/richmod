@@ -281,13 +281,13 @@ test("admin: drawers reset per record, loads can fail visibly, lists guard load-
   assert.match(users, /disabled=\{Boolean\(busy\[user\.id\]\)\}/);
 });
 
-test("transactions: retry reloads with current filters, the drawer is aborted state, failure drops rows", () => {
+test("transactions: retry reloads with current filters, the drawer is aborted state, a failure keeps the visible rows", () => {
   const source = text("app/transactions/page.js");
   assert.doesNotMatch(source, /retry=\{load\}/, "a click event is never passed as `search`");
   assert.match(source, /useDrawerRecord\(/);
   assert.match(source, /\{ signal \}/, "detail requests are abortable");
   assert.doesNotMatch(source, /setDetailLoading|setDetailError/);
-  assert.match(source, /onFailure: \(\) => \{ setItems\(\[\]\)/, "no stale rows under the banner");
+  assert.doesNotMatch(source, /onFailure: \(\) => \{ setItems/, "an error must not wipe the results already on screen");
 });
 
 test("settings: request is try/catch/finally with per-key busy, load failures surface, toggles lock while busy", () => {
