@@ -162,22 +162,22 @@ type Facts struct {
 	Cashflow      reviewCashflow      `json:"cashflow"`
 	Daily         []map[string]string `json:"daily"`
 	SpendingShape struct {
-		Days        int     `json:"days"`
-		Average     string  `json:"averageDailyExpense"`
+		Days    int    `json:"days"`
+		Average string `json:"averageDailyExpense"`
 		// AverageRounded is the average in whole rupiah, half away from zero, so the web never rounds money.
 		AverageRounded string  `json:"averageDailyExpenseRounded"`
-		PeakDay     *string `json:"peakDay"`
-		PeakExpense string  `json:"peakExpense"`
-		PeakShare   *string `json:"peakShareOfExpense"`
-		ZeroDays    int     `json:"zeroSpendDays"`
+		PeakDay        *string `json:"peakDay"`
+		PeakExpense    string  `json:"peakExpense"`
+		PeakShare      *string `json:"peakShareOfExpense"`
+		ZeroDays       int     `json:"zeroSpendDays"`
 	} `json:"spendingShape"`
-	CategoryRanking categoryRanking `json:"categoryRanking"`
-	Categories   []reviewCategory `json:"categoryChanges"`
-	Merchants    []reviewChange   `json:"merchantDrivers"`
-	Members      []reviewValue    `json:"memberAttribution"`
-	Destinations []reviewValue    `json:"savingsDestinations"`
-	Wealth       reviewWealth     `json:"wealth"`
-	Quality      []reviewBlocker  `json:"dataQuality"`
+	CategoryRanking categoryRanking  `json:"categoryRanking"`
+	Categories      []reviewCategory `json:"categoryChanges"`
+	Merchants       []reviewChange   `json:"merchantDrivers"`
+	Members         []reviewValue    `json:"memberAttribution"`
+	Destinations    []reviewValue    `json:"savingsDestinations"`
+	Wealth          reviewWealth     `json:"wealth"`
+	Quality         []reviewBlocker  `json:"dataQuality"`
 }
 
 // Completeness retains ADR-015's coverage gate on gross confirmed expense so refunds
