@@ -138,15 +138,17 @@ net expense reuses the measures query that already loads every comparison cycle.
 ## Wealth and quality
 
 The current snapshot is the latest observation before the measured cutoff
-(capped at request time for an active cycle). The previous snapshot is the latest
-observation before cycle start. No snapshot from after the selected cycle enters
+(capped at request time for an active cycle). The previous snapshot is its immediate
+predecessor: the nearest earlier observation (ties on timestamp resolve by ID),
+never the same snapshot, and independent of the cycle start. When there is none,
+`wealth.previous` is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported. No snapshot from after the selected cycle enters
 its review. Each snapshot exposes observation time and age in Jakarta days.
 
 Wealth movement reconciles the **observation interval**, not an invented cycle
 end balance: net-worth delta minus confirmed cashflow in `(previous, current]`
 is valuation/other change. Transfers are excluded from that cashflow, matching
-the existing Wealth summary. A missing snapshot, unchanged snapshot, or changed
-account set leaves reconciliation unavailable. This is not investment P/L or
+the existing Wealth summary. A missing current or previous snapshot, or a changed
+account set, leaves reconciliation unavailable. This is not investment P/L or
 an inferred savings transfer.
 
 The ledger's "complete" (`status='CONFIRMED'` with no active review item) and the cycle's `OPEN_REVIEWS` share the same columns. `UNCATEGORIZED_EXPENSE` is a separate data-quality block: a manual entry may legitimately be confirmed without a category. The one review-flow record that violated this (legacy, #353) is reopened by migration `00083`.
@@ -154,11 +156,31 @@ The ledger's "complete" (`status='CONFIRMED'` with no active review item) and th
 Concrete blockers include open/pending reviews (deduplicated against unresolved
 transactions), uncategorized confirmed expense with amount, incomplete source
 processing, missing salary anchor, missing snapshots, observations preceding the
-cycle, and changed Wealth account sets. An identical current/previous observation
-produces `WEALTH_SNAPSHOT_UNCHANGED`; movement stays unavailable rather than
-implying a zero change. Source-only loose ends are scoped by receipt time when no
+cycle, and changed Wealth account sets. `wealth.previous` is the immediate predecessor of `wealth.current` (the newest
+observation strictly before it), never the same snapshot; with no predecessor it
+is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported. A stale `current`
+reports only `WEALTH_SNAPSHOT_BEFORE_CYCLE`. Source-only loose ends are scoped by receipt time when no
 transaction/proposal date is available. No arbitrary
 "stale after N days" threshold, AI confidence score, or semantic label is added.
+
+## Category window and `measuredUntil`
+
+`GET /api/v1/analytics/categories` accepts `period=last_3_cycles` (alongside
+`current_cycle`, `calendar`, `custom` and `range`). The window starts at the
+third most recent primary-salary anchor on or before today and ends after today.
+With fewer anchors it spans those that exist; with none it falls back to 3
+calendar months. Every categories response carries `X-Window-Start` and
+`X-Window-End` (`YYYY-MM-DD`, both inclusive), `X-Window-Kind` (`SALARY_CYCLES`
+or `CALENDAR_MONTHS`) and `X-Window-Cycles` (salary cycles covered, 0 for the
+calendar fallback), so clients label the window they actually got. Only the
+categories endpoint accepts `last_3_cycles`.
+The Home donut uses this and shows the window in its eyebrow.
+
+`cycles[].measuredUntil` and `history[].measuredUntil` intentionally differ
+for closed cycles while the selected cycle is active: `cycles[]` is shortened to
+the elapsed-day count of the active cycle so equal-day comparisons are fair,
+whereas `history[]` reports the full closed cycle (its exclusive `end`). Do not
+read `cycles[].measuredUntil` as data coverage of a closed cycle.
 
 ## Consistency and consumers
 

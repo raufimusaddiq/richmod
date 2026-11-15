@@ -1,16 +1,12 @@
 import { money } from "./format.js";
 import { dayLabel } from "./chartData.js";
 
-export function inclusiveEnd(exclusive) {
-  if (!exclusive) return "";
-  const date = new Date(`${exclusive}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return "";
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
-}
+import { inclusiveEnd, cycleRangeLabel } from "./cycleDates.js";
+
+export { inclusiveEnd };
 
 export function cycleLabel(period) {
-  return `${dayLabel(period.start)} – ${period.state === "ACTIVE" ? "berjalan" : dayLabel(inclusiveEnd(period.end))}`;
+  return cycleRangeLabel({ start: period.start, end: period.end, active: period.state === "ACTIVE" });
 }
 
 export function measuredLabel(period) {
@@ -91,3 +87,10 @@ export const qualityCopy = {
   WEALTH_SNAPSHOT_UNCHANGED: ["Belum ada pengamatan kekayaan baru dalam siklus ini", "Perbarui Kekayaan"],
   WEALTH_ACCOUNT_SET_CHANGED: ["Daftar akun kekayaan berubah antar catatan", "Buka Kekayaan"],
 };
+
+// One underlying fact (a stale wealth observation) must read as one notice with
+// one call to action, however many blocker kinds the server attached to it.
+export function collapseQuality(blockers = []) {
+  const kinds = new Set(blockers.map(b => b.kind));
+  return blockers.filter(b => !(b.kind === "WEALTH_SNAPSHOT_UNCHANGED" && (kinds.has("WEALTH_SNAPSHOT_BEFORE_CYCLE") || kinds.has("MISSING_WEALTH_SNAPSHOT"))));
+}
