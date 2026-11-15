@@ -66,6 +66,28 @@ The legacy classify-then-extract pipeline remains the production path.
   screenshot validators with same-validator revalidation. A failed, malformed,
   or out-of-allowlist repair appends the deterministic `REPAIR_FAILED` issue to
   the original validation issues and keeps the invalid document on Review.
+- Screenshot transaction identifiers (amendment 2026-11, T-47): the extraction
+  prompt and tool schema state that each identifier kind appears at most once
+  per row with at most 3 per row, choosing the most specific number when a
+  receipt prints several of one kind. Because JSON Schema cannot express
+  per-kind uniqueness, Go also normalizes deterministically before validation
+  and after repair: it keeps the first identifier per kind, drops later
+  duplicates and caps at 3. A row holding an unknown kind or bad syntax is left
+  untouched and still fails. Identity is observed evidence only, so
+  normalization never changes amount, type, direction, date or tenant, and it
+  never guesses; it is recorded as one `NORMALIZE_SCREENSHOT_IDENTIFIERS`
+  `audit_log` row per document and stage (row indexes, kind names and counts,
+  never identifier values). A validation issue may carry a validator-owned
+  `Detail` naming the broken rule (for example `duplicate identifier kind
+  REFERENCE_NUMBER`); it is added to the repair prompt, which stays restricted
+  to the flagged top-level field. A TRANSACTION_SCREENSHOT extraction that still
+  fails after normalization and the single repair no longer ends as a FAILED
+  document with no review: it stores the unvalidated extraction, writes no
+  ledger rows, and opens one household-scoped
+  `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` review item bound to the document
+  (reprocess or ignore; Telegram projection when the source has a chat). The
+  document stays `FAILED` so a reprocess re-runs the pipeline, and the source
+  event is `NEEDS_REVIEW`. A retried job reuses the open review.
 - The typed dispatch contract includes `document_type_confidence` (0..1),
   `quality` (`CLEAR|DEGRADED|UNREADABLE`), complete per-field status/value
   observations, critical-only `field_confidence`, and bounded

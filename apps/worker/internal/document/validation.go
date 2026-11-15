@@ -11,9 +11,17 @@ import (
 type ValidationIssue struct {
 	Field string `json:"field"`
 	Code  string `json:"code"`
+	// Detail names the exact rule that broke (validator-owned text, never model
+	// output) so a field-restricted repair knows what to fix, not just the code.
+	Detail string `json:"detail,omitempty"`
 }
 
-func (i ValidationIssue) String() string { return i.Field + ":" + i.Code }
+func (i ValidationIssue) String() string {
+	if i.Detail != "" {
+		return i.Field + ":" + i.Code + " (" + i.Detail + ")"
+	}
+	return i.Field + ":" + i.Code
+}
 
 type validationIssues []ValidationIssue
 
@@ -49,30 +57,30 @@ func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (recei
 	}
 	issues := validationIssues{}
 	if value.Currency != "IDR" {
-		issues = append(issues, ValidationIssue{"currency", "INVALID_CURRENCY"})
+		issues = append(issues, ValidationIssue{Field: "currency", Code: "INVALID_CURRENCY"})
 	}
 	if value.Confidence < 0 || value.Confidence > 1 {
-		issues = append(issues, ValidationIssue{"confidence", "INVALID_CONFIDENCE"})
+		issues = append(issues, ValidationIssue{Field: "confidence", Code: "INVALID_CONFIDENCE"})
 	}
 	if value.CategoryConfidence < 0 || value.CategoryConfidence > 1 {
-		issues = append(issues, ValidationIssue{"category_confidence", "INVALID_CONFIDENCE"})
+		issues = append(issues, ValidationIssue{Field: "category_confidence", Code: "INVALID_CONFIDENCE"})
 	}
 	if _, ok := wholeMoney(value.Total, true); !ok {
-		issues = append(issues, ValidationIssue{"total", "INVALID_AMOUNT"})
+		issues = append(issues, ValidationIssue{Field: "total", Code: "INVALID_AMOUNT"})
 	}
 	if len([]rune(strings.TrimSpace(value.Merchant))) > 160 {
-		issues = append(issues, ValidationIssue{"merchant", "TEXT_TOO_LONG"})
+		issues = append(issues, ValidationIssue{Field: "merchant", Code: "TEXT_TOO_LONG"})
 	}
 	if len([]rune(strings.TrimSpace(value.PaymentMethodHint))) > 160 {
-		issues = append(issues, ValidationIssue{"payment_method_hint", "TEXT_TOO_LONG"})
+		issues = append(issues, ValidationIssue{Field: "payment_method_hint", Code: "TEXT_TOO_LONG"})
 	}
 	for index, item := range value.Items {
 		field := fmt.Sprintf("items[%d]", index)
 		if strings.TrimSpace(item.Name) == "" || len([]rune(item.Name)) > 300 {
-			issues = append(issues, ValidationIssue{field + ".name", "INVALID_TEXT"})
+			issues = append(issues, ValidationIssue{Field: field + ".name", Code: "INVALID_TEXT"})
 		}
 		if _, ok := wholeMoney(item.Amount, false); !ok {
-			issues = append(issues, ValidationIssue{field + ".amount", "INVALID_AMOUNT"})
+			issues = append(issues, ValidationIssue{Field: field + ".amount", Code: "INVALID_AMOUNT"})
 		}
 	}
 	for index, part := range []*string{value.Subtotal, value.Tax, value.ServiceCharge, value.Discount} {
@@ -89,23 +97,23 @@ func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (recei
 			case 3:
 				field = "discount"
 			}
-			issues = append(issues, ValidationIssue{field, "INVALID_AMOUNT"})
+			issues = append(issues, ValidationIssue{Field: field, Code: "INVALID_AMOUNT"})
 		}
 	}
 	if value.TransactionAt != nil {
 		if _, err := time.Parse(time.RFC3339, *value.TransactionAt); err != nil {
-			issues = append(issues, ValidationIssue{"transaction_at", "INVALID_FORMAT"})
+			issues = append(issues, ValidationIssue{Field: "transaction_at", Code: "INVALID_FORMAT"})
 		} else if parsed, err := time.Parse(time.RFC3339, *value.TransactionAt); err == nil {
 			t := parsed.In(jakarta())
 			if t.Before(receivedAt.AddDate(-2, 0, 0)) || t.After(receivedAt.Add(24*time.Hour)) {
-				issues = append(issues, ValidationIssue{"transaction_at", "IMPLAUSIBLE_TIME"})
+				issues = append(issues, ValidationIssue{Field: "transaction_at", Code: "IMPLAUSIBLE_TIME"})
 			}
 		}
 	}
 	if len(issues) == 0 {
 		// Rule violation not yet mapped field-locally; keep the package-level
 		// failure deterministic instead of guessing a field.
-		issues = append(issues, ValidationIssue{"receipt", "UNMAPPED_VALIDATION_FAILURE"})
+		issues = append(issues, ValidationIssue{Field: "receipt", Code: "UNMAPPED_VALIDATION_FAILURE"})
 	}
 	return validation, issues
 }
@@ -117,39 +125,39 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 	}
 	issues := validationIssues{}
 	if value.Currency != "IDR" {
-		issues = append(issues, ValidationIssue{"currency", "INVALID_CURRENCY"})
+		issues = append(issues, ValidationIssue{Field: "currency", Code: "INVALID_CURRENCY"})
 	}
 	if value.Confidence < 0 || value.Confidence > 1 {
-		issues = append(issues, ValidationIssue{"confidence", "INVALID_CONFIDENCE"})
+		issues = append(issues, ValidationIssue{Field: "confidence", Code: "INVALID_CONFIDENCE"})
 	}
 	if _, ok := wholeMoney(value.NetPay, true); !ok {
-		issues = append(issues, ValidationIssue{"net_pay", "INVALID_AMOUNT"})
+		issues = append(issues, ValidationIssue{Field: "net_pay", Code: "INVALID_AMOUNT"})
 	}
 	if value.GrossPay != nil {
 		if _, ok := wholeMoney(*value.GrossPay, true); !ok {
-			issues = append(issues, ValidationIssue{"gross_pay", "INVALID_AMOUNT"})
+			issues = append(issues, ValidationIssue{Field: "gross_pay", Code: "INVALID_AMOUNT"})
 		}
 	}
 	if _, periodErr := parsePayslipPeriod(value.Period); periodErr != nil {
-		issues = append(issues, ValidationIssue{"period", "INVALID_PERIOD"})
+		issues = append(issues, ValidationIssue{Field: "period", Code: "INVALID_PERIOD"})
 	}
 	for i, line := range value.Allowances {
 		if _, ok := wholeMoney(line.Amount, false); !ok {
-			issues = append(issues, ValidationIssue{fmt.Sprintf("allowances[%d].amount", i), "INVALID_AMOUNT"})
+			issues = append(issues, ValidationIssue{Field: fmt.Sprintf("allowances[%d].amount", i), Code: "INVALID_AMOUNT"})
 		}
 	}
 	for i, line := range value.Deductions {
 		if _, ok := wholeMoney(line.Amount, false); !ok {
-			issues = append(issues, ValidationIssue{fmt.Sprintf("deductions[%d].amount", i), "INVALID_AMOUNT"})
+			issues = append(issues, ValidationIssue{Field: fmt.Sprintf("deductions[%d].amount", i), Code: "INVALID_AMOUNT"})
 		}
 	}
 	for i, line := range value.OtherComponents {
 		if !validPayrollComponent(line.Amount) {
-			issues = append(issues, ValidationIssue{fmt.Sprintf("other_components[%d].amount", i), "INVALID_AMOUNT"})
+			issues = append(issues, ValidationIssue{Field: fmt.Sprintf("other_components[%d].amount", i), Code: "INVALID_AMOUNT"})
 		}
 	}
 	if len(issues) == 0 {
-		issues = append(issues, ValidationIssue{"payslip", "UNMAPPED_VALIDATION_FAILURE"})
+		issues = append(issues, ValidationIssue{Field: "payslip", Code: "UNMAPPED_VALIDATION_FAILURE"})
 	}
 	return issues
 }
@@ -160,38 +168,38 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 func screenshotValidationIssues(value screenshotExtraction, documentType string) validationIssues {
 	issues := validationIssues{}
 	if value.Confidence < 0 || value.Confidence > 1 {
-		issues = append(issues, ValidationIssue{"confidence", "INVALID_CONFIDENCE"})
+		issues = append(issues, ValidationIssue{Field: "confidence", Code: "INVALID_CONFIDENCE"})
 	}
 	if len([]rune(value.AccountHint)) > 160 {
-		issues = append(issues, ValidationIssue{"account_hint", "TEXT_TOO_LONG"})
+		issues = append(issues, ValidationIssue{Field: "account_hint", Code: "TEXT_TOO_LONG"})
 	}
 	if documentType == "BILL_OR_INVOICE" && value.PaymentStatus != "PAID" {
-		issues = append(issues, ValidationIssue{"payment_status", "PAYMENT_NOT_CONFIRMED"})
+		issues = append(issues, ValidationIssue{Field: "payment_status", Code: "PAYMENT_NOT_CONFIRMED"})
 	}
 	if len(value.Transactions) == 0 || len(value.Transactions) > 50 {
-		issues = append(issues, ValidationIssue{"transactions", "INVALID_ROW_COUNT"})
+		issues = append(issues, ValidationIssue{Field: "transactions", Code: "INVALID_ROW_COUNT"})
 	} else {
 		for i, row := range value.Transactions {
 			prefix := fmt.Sprintf("transactions[%d]", i)
 			if row.Currency != "IDR" || (row.Direction != "OUT" && row.Direction != "IN") {
-				issues = append(issues, ValidationIssue{prefix, "INVALID_DIRECTION_OR_CURRENCY"})
+				issues = append(issues, ValidationIssue{Field: prefix, Code: "INVALID_DIRECTION_OR_CURRENCY"})
 			}
 			if row.Amount != nil {
 				if _, ok := wholeMoney(*row.Amount, true); !ok {
-					issues = append(issues, ValidationIssue{prefix + ".amount", "INVALID_AMOUNT"})
+					issues = append(issues, ValidationIssue{Field: prefix + ".amount", Code: "INVALID_AMOUNT"})
 				}
 			}
 			if !validScreenshotIdentity(row) {
-				issues = append(issues, ValidationIssue{prefix + ".transaction_identifiers", "INVALID_TRANSACTION_IDENTITY"})
+				issues = append(issues, ValidationIssue{Field: prefix + ".transaction_identifiers", Code: "INVALID_TRANSACTION_IDENTITY", Detail: screenshotIdentityIssue(row)})
 			}
 			if row.Confidence < 0 || row.Confidence > 1 {
-				issues = append(issues, ValidationIssue{prefix + ".confidence", "INVALID_CONFIDENCE"})
+				issues = append(issues, ValidationIssue{Field: prefix + ".confidence", Code: "INVALID_CONFIDENCE"})
 			}
 			if row.CategoryConfidence < 0 || row.CategoryConfidence > 1 {
-				issues = append(issues, ValidationIssue{prefix + ".category_confidence", "INVALID_CONFIDENCE"})
+				issues = append(issues, ValidationIssue{Field: prefix + ".category_confidence", Code: "INVALID_CONFIDENCE"})
 			}
 			if len([]rune(strings.TrimSpace(row.Merchant))) > 160 || len([]rune(strings.TrimSpace(row.Description))) > 500 {
-				issues = append(issues, ValidationIssue{prefix, "TEXT_TOO_LONG"})
+				issues = append(issues, ValidationIssue{Field: prefix, Code: "TEXT_TOO_LONG"})
 			}
 		}
 	}

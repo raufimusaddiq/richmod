@@ -2,11 +2,15 @@ package document
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // TerminalDownstreamFailureTx runs inside the transaction that marks a
@@ -51,4 +55,65 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
 		HouseholdID: householdID, SourceEventID: sourceID, SourceType: sourceType, Reason: "ERROR",
 	})
+}
+
+// persistScreenshotExtractionFailure settles a TRANSACTION_SCREENSHOT extraction
+// that failed deterministic validation even after identity normalization and the
+// single ADR-037 repair. The model output is kept as unvalidated evidence, no
+// canonical record is written, and the household gets a document-bound
+// DOCUMENT_EXTRACTION_LOW_CONFIDENCE review (reprocess or ignore) instead of a
+// dead end. The document itself stays FAILED: a reprocess re-runs the pipeline
+// only for a document that is not already EXTRACTED or NEEDS_REVIEW, and the
+// open review is what carries the source in NEEDS_REVIEW.
+func (p *Processor) persistScreenshotExtractionFailure(ctx context.Context, documentID, householdID, sourceID string, value screenshotExtraction, model string, cause error) error {
+	output, _ := json.Marshal(value)
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var storedConfidence any
+	if !math.IsNaN(value.Confidence) && value.Confidence >= 0 && value.Confidence <= 1 {
+		storedConfidence = value.Confidence
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,false) ON CONFLICT DO NOTHING`, documentID, string(output), storedConfidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='FAILED',updated_at=now() WHERE id=$1 AND household_id=$2`, documentID, householdID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_DOCUMENT_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'stage','TRANSACTION_SCREENSHOT','reason',$4::text))`, householdID, sourceID, documentID, truncate(cause)); err != nil {
+		return err
+	}
+	decision, ok := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+	}
+	decision.SourceEventID = sourceID
+	decision.Provenance["validationFailure"] = truncate(cause)
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	var reviewItemID string
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, sourceID, documentID, string(encoded)).Scan(&reviewItemID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		// A retried job or a sibling classification review already holds the one
+		// active document review; reuse it rather than open a second.
+		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID, householdID).Scan(&reviewItemID); err != nil {
+			return err
+		}
+	}
+	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_DOCUMENT_REVIEW','document',$2,jsonb_build_object('review_type','DOCUMENT_EXTRACTION_LOW_CONFIDENCE','review_item_id',$3::uuid,'source_event_id',$4::uuid))`, householdID, documentID, reviewItemID, sourceID); err != nil {
+		return err
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +19,110 @@ var screenshotIdentifierSyntax = regexp.MustCompile(screenshotIdentifierPattern)
 type screenshotIdentifier struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
+}
+
+// screenshotIdentifiersDescription is the field description the model sees in
+// the extraction and repair tool schemas. JSON Schema cannot express per-kind
+// uniqueness, so the rule is stated in words and enforced by Go.
+const screenshotIdentifiersDescription = "Printed transaction identifiers. Each kind (TRANSACTION_ID, REFERENCE_NUMBER, ORDER_ID) appears at most once per row and a row has at most 3 identifiers. If several numbers of one kind are printed, keep only the most specific one (for REFERENCE_NUMBER, the number explicitly labelled reference or RRN). Use null when none is printed."
+
+// maxScreenshotIdentifiers bounds the printed identifiers kept per row.
+const maxScreenshotIdentifiers = 3
+
+func knownScreenshotIdentifierKind(kind string) bool {
+	return kind == "TRANSACTION_ID" || kind == "REFERENCE_NUMBER" || kind == "ORDER_ID"
+}
+
+// screenshotIdentityNormalization records, for one row, what the deterministic
+// normalizer dropped. Only counts and kind names are kept: identifier values are
+// evidence and stay out of audit metadata.
+type screenshotIdentityNormalization struct {
+	Row                   int      `json:"row"`
+	DuplicateKindsDropped []string `json:"duplicate_kinds_dropped,omitempty"`
+	OverCapDropped        int      `json:"over_cap_dropped,omitempty"`
+}
+
+// normalizeScreenshotIdentifiers makes a row's identifier list satisfy the
+// uniqueness rules deterministically: it keeps the first identifier of each kind,
+// drops later duplicates, and caps the list at maxScreenshotIdentifiers. A receipt
+// may print several numbers of one kind and the model cannot be relied on to pick
+// one. Identity is observed evidence only, so this never touches amount, type,
+// direction, date or tenant, and never guesses: a row holding any unknown kind or
+// bad syntax is left untouched so it still fails validation.
+func normalizeScreenshotIdentifiers(value *screenshotExtraction) []screenshotIdentityNormalization {
+	var changes []screenshotIdentityNormalization
+	for index := range value.Transactions {
+		row := &value.Transactions[index]
+		ids := row.TransactionIdentifiers
+		valid := true
+		for _, id := range ids {
+			if !knownScreenshotIdentifierKind(id.Kind) || !screenshotIdentifierSyntax.MatchString(id.Value) {
+				valid = false
+				break
+			}
+		}
+		if !valid || len(ids) == 0 {
+			continue
+		}
+		kept := make([]screenshotIdentifier, 0, len(ids))
+		seen := make(map[string]bool, len(ids))
+		change := screenshotIdentityNormalization{Row: index}
+		for _, id := range ids {
+			if seen[id.Kind] {
+				if !slices.Contains(change.DuplicateKindsDropped, id.Kind) {
+					change.DuplicateKindsDropped = append(change.DuplicateKindsDropped, id.Kind)
+				}
+				continue
+			}
+			seen[id.Kind] = true
+			kept = append(kept, id)
+		}
+		if len(kept) > maxScreenshotIdentifiers {
+			change.OverCapDropped = len(kept) - maxScreenshotIdentifiers
+			kept = kept[:maxScreenshotIdentifiers]
+		}
+		if len(change.DuplicateKindsDropped) == 0 && change.OverCapDropped == 0 {
+			continue
+		}
+		row.TransactionIdentifiers = kept
+		changes = append(changes, change)
+	}
+	return changes
+}
+
+// screenshotIdentityIssue names every rule a row's identity broke, so the repair
+// prompt can say what to fix instead of a bare code. It returns "" for a valid
+// identity. Text is validator-owned; it never echoes model output.
+func screenshotIdentityIssue(row screenshotRow) string {
+	var rules []string
+	add := func(rule string) {
+		if !slices.Contains(rules, rule) {
+			rules = append(rules, rule)
+		}
+	}
+	if row.TransactionTimePrecision != "" && row.TransactionTimePrecision != "DATE" && row.TransactionTimePrecision != "TIME" {
+		add("transaction_time_precision must be DATE, TIME or null")
+	}
+	if row.TransactionTimePrecision != "" && row.TransactionAt == nil {
+		add("transaction_time_precision requires transaction_at")
+	}
+	if len(row.TransactionIdentifiers) > maxScreenshotIdentifiers {
+		add(fmt.Sprintf("more than %d transaction identifiers", maxScreenshotIdentifiers))
+	}
+	seen := make(map[string]bool, len(row.TransactionIdentifiers))
+	for _, id := range row.TransactionIdentifiers {
+		switch {
+		case !knownScreenshotIdentifierKind(id.Kind):
+			add("identifier kind must be TRANSACTION_ID, REFERENCE_NUMBER or ORDER_ID")
+		case seen[id.Kind]:
+			add("duplicate identifier kind " + id.Kind + ": keep one per kind")
+		}
+		if !screenshotIdentifierSyntax.MatchString(id.Value) {
+			add("identifier value must be 1-128 characters of letters, digits and . _ : / -")
+		}
+		seen[id.Kind] = true
+	}
+	return strings.Join(rules, "; ")
 }
 
 func validScreenshotIdentity(row screenshotRow) bool {
@@ -167,4 +273,18 @@ ORDER BY e.identity_hit DESC NULLS LAST,abs(extract(epoch FROM (t.transaction_at
 		}
 	}
 	return result, rows.Err()
+}
+
+// recordIdentifierNormalization makes a normalization visible: one audit row per
+// document and stage, written idempotently so a retried job does not repeat it.
+// It stores row indexes, kind names and counts, never identifier values.
+func (p *Processor) recordIdentifierNormalization(ctx context.Context, householdID, sourceID, documentID, stage string, changes []screenshotIdentityNormalization) error {
+	encoded, err := json.Marshal(changes)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json)
+SELECT $1::uuid,'WORKER','NORMALIZE_SCREENSHOT_IDENTIFIERS','source_event',$2::uuid,jsonb_build_object('document_id',$3::uuid,'stage',$4::text,'rows',$5::jsonb)
+WHERE NOT EXISTS (SELECT 1 FROM audit_log WHERE household_id=$1::uuid AND action='NORMALIZE_SCREENSHOT_IDENTIFIERS' AND entity_id=$2::uuid AND after_json->>'document_id'=$3::text AND after_json->>'stage'=$4::text)`, householdID, sourceID, documentID, stage, string(encoded))
+	return err
 }
