@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpx"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
@@ -603,7 +604,7 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
 		return
 	case errors.Is(err, reviewdomain.ErrMergeTargetActive):
-		writeMergeTargetRefusal(w)
+		httpx.WriteMergeTargetRefusal(w)
 		return
 	case err != nil:
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
@@ -648,7 +649,7 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
-			writeMergeTargetRefusal(w)
+			httpx.WriteMergeTargetRefusal(w)
 			return
 		}
 		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
@@ -821,12 +822,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// writeMergeTargetRefusal is the 409 for a void/reject of the target of an ACTIVE merge;
-// the code matches the ledger void endpoint so the web client maps one refusal.
-func writeMergeTargetRefusal(w http.ResponseWriter) {
-	writeJSON(w, http.StatusConflict, map[string]string{"code": "MERGE_TARGET", "error": "Transaksi ini menjadi tujuan penggabungan yang masih aktif. Pisahkan penggabungannya dulu."})
 }
 
 func writeJSON(w http.ResponseWriter, status int, output any) {

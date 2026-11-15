@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpx"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"golang.org/x/text/unicode/norm"
 )
@@ -315,7 +316,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
-			writeMergeTargetRefusal(w)
+			httpx.WriteMergeTargetRefusal(w)
 			return
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
@@ -515,7 +516,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		err = errInvalid
 	}
 	if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
-		writeMergeTargetRefusal(w)
+		httpx.WriteMergeTargetRefusal(w)
 		return
 	}
 	if err != nil {

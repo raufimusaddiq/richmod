@@ -184,7 +184,7 @@ test("void: the confirm dialog is danger-styled and says the row leaves the tota
 });
 
 test("void: a refused or failed request is never reported as success", () => {
-  const review = voidFailure(409, { error: "resolve this transaction through the review endpoint" });
+  const review = voidFailure(409, { code: "REVIEW_OPEN", error: "resolve this transaction through the review endpoint" });
   assert.equal(review.kind, "review");
   assert.match(review.message, /Tinjauan/);
   assert.doesNotMatch(review.message, /review endpoint/);
@@ -194,6 +194,7 @@ test("void: a refused or failed request is never reported as success", () => {
   assert.match(merged.message, /penggabungan yang masih aktif/);
   assert.match(merged.message, /Pisahkan penggabungan/, "the refusal points at the drawer action");
   assert.doesNotMatch(merged.message, /raw server text|MERGE_TARGET/);
+  assert.notEqual(voidFailure(409, { error: "resolve this transaction through the review endpoint" }).kind, "review", "the code decides, not the text");
   const stale = voidFailure(409, { error: "invalid transaction status transition" });
   assert.equal(stale.kind, "error"); assert.equal(stale.reload, true);
   for (const status of [400, 401, 403, 404, 500, 502]) {

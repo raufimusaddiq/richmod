@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpx"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
@@ -231,16 +233,18 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
 		return
 	}
+	// The merge annotation is secondary to the record: if it cannot be read the detail still loads, without
+	// the "Pisahkan penggabungan" action, and the void endpoint keeps refusing a merge target on its own.
 	merges, err := h.activeMerges(r.Context(), household, v.ID)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
-		return
+		slog.ErrorContext(r.Context(), "load active merges for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
+		merges = []activeMergeView{}
 	}
 	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges})
 }
 
 func (h *Handler) activeMerges(ctx context.Context, household, id string) ([]activeMergeView, error) {
-	rows, err := h.pool.Query(ctx, `SELECT m.id,CASE WHEN m.target_transaction_id=$1 THEN 'TARGET' ELSE 'SOURCE' END,o.id,COALESCE(NULLIF(mm.normalized_name,''),NULLIF(o.counterparty_name,''),NULLIF(o.description,''),''),o.amount::text,o.transaction_at
+	rows, err := h.pool.Query(ctx, `SELECT m.id,CASE WHEN m.target_transaction_id=$1 THEN 'TARGET' ELSE 'SOURCE' END,o.id,COALESCE(mm.normalized_name,NULLIF(o.counterparty_name,''),NULLIF(o.description,''),''),o.amount::text,o.transaction_at
 		FROM reconciliation_merge m
 		JOIN transaction o ON o.household_id=m.household_id AND o.id=CASE WHEN m.target_transaction_id=$1 THEN m.source_transaction_id ELSE m.target_transaction_id END
 		LEFT JOIN merchant mm ON mm.id=o.merchant_id
@@ -291,7 +295,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		return
 	}
 	if before == "NEEDS_REVIEW" || reviewOpen {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "resolve this transaction through the review endpoint"})
+		writeJSON(w, http.StatusConflict, map[string]string{"code": codeReviewOpen, "error": "resolve this transaction through the review endpoint"})
 		return
 	}
 	if !canTransition(before, target) {
@@ -307,7 +311,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 			return
 		}
 		if protected {
-			writeMergeTargetRefusal(w)
+			httpx.WriteMergeTargetRefusal(w)
 			return
 		}
 	}
@@ -317,7 +321,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
 	}
 	if errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
-		writeMergeTargetRefusal(w)
+		httpx.WriteMergeTargetRefusal(w)
 		return
 	}
 	if err != nil {
@@ -416,10 +420,4 @@ func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal,
 		return auth.Principal{}, "", false
 	}
 	return p, p.HouseholdID, true
-}
-
-// writeMergeTargetRefusal is the 409 for voiding the target of an ACTIVE reconciliation
-// merge; the drawer offers "Pisahkan penggabungan" for it.
-func writeMergeTargetRefusal(w http.ResponseWriter) {
-	writeJSON(w, http.StatusConflict, map[string]string{"code": "MERGE_TARGET", "error": "Transaksi ini menjadi tujuan penggabungan yang masih aktif. Pisahkan penggabungannya dulu."})
 }

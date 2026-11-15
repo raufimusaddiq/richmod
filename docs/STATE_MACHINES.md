@@ -7,7 +7,7 @@ Rule of thumb: a transition that must never happen is enforced in the database;
 a transition that depends on business context is guarded by a `WHERE status IN
 (...)` in the one function that owns it, and its row count is checked.
 
-Last audited: 2026-11 (see ADR-049 amendment, migrations 00097 and 00098).
+Last audited: 2026-11 (see ADR-049 amendment, migrations 00097, 00098 and 00100).
 
 ## Enforced in the database
 

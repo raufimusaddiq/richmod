@@ -169,7 +169,7 @@ func TestVoidWebManualTransaction(t *testing.T) {
 			return err
 		}())
 		w := void(id, principal)
-		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "review endpoint") {
+		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "review endpoint") || !strings.Contains(w.Body.String(), `"code":"REVIEW_OPEN"`) {
 			t.Fatalf("status=%d body=%s", w.Code, w.Body)
 		}
 		var status string
