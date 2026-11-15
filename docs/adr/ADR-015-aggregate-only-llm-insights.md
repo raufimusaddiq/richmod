@@ -94,7 +94,7 @@ the existing explicit generation/hourly reuse policy is unchanged.
 Cycle-review usage emits bounded, non-identifying log events, not financial
 writes or new persistence. Definitions, privacy boundaries, query budget and
 invalidation are recorded in
-[the hardening note](../ANALYTICS_CYCLE_REVIEW_TELEMETRY.md).
+the cycle-review hardening note (removed from the tree; recoverable from git history).
 
 ## Measurement-context amendment — October 1, 2026
 

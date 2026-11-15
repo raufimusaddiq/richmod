@@ -12,8 +12,7 @@ Amends:
 
 Related:
 
-- docs/archive/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
-- docs/bdr/BDR-002-review-inbox-channel-independent.md
+- BDR-002 (Review Inbox is channel independent) and the universal review interaction PRD, removed from the tree; recoverable from git history
 - ADR-039 Canonical ReviewDecision contract
 - ADR-038 / ADR-045 Telegram and intelligence-routing rules
 
@@ -438,7 +437,7 @@ Already-resolved callbacks remain stale and never replay the mutation.
 
 ## 2026-10-08 — typed answers complete on the agent lane
 
-From `audits/TELEGRAM-REPLY-PATH-AUDIT.md`. Typed answers to review cards
+From the Telegram reply-path audit (removed from the tree; see git history). Typed answers to review cards
 (replies and, after #301, plain answers) are owned by the conversational agent;
 Go validates and commits.
 
