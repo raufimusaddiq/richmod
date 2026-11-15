@@ -27,7 +27,7 @@ were removed from the tree and are recoverable from git history.
 
 ## Architecture and data
 
-- [`adr/`](adr/README.md): architecture decision records, with an index. Add one before changing architecture or infrastructure.
+- [`adr/`](adr/README.md): the architecture decision log, one short entry per decision. Add an entry for a material architecture or infrastructure change.
 - [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md): schema reference and ERD. Schema changes update it in the same branch.
 - [`STATE_MACHINES.md`](STATE_MACHINES.md): every status machine, its legal moves, and where each rule is enforced.
 
