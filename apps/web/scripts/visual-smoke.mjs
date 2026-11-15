@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { cycleFacts } from "../tests/fixtures/cycle-review.mjs";
+import { cycleFacts, firstCycleFacts, noSpendingFacts, noWealthFacts } from "../tests/fixtures/cycle-review.mjs";
 
 const port = process.env.RICHMOD_VISUAL_PORT || "3200";
 const baseURL = process.env.RICHMOD_VISUAL_BASE_URL || `http://127.0.0.1:${port}`;
@@ -79,12 +79,13 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
 }
 
 // The same synthetic cycle facts as the smoke test; `fewCycles` keeps the last two ledger entries so the page shows the card layout.
+// The empty/partial states are the fixtures the unit tests use, so a screenshot and a test never disagree.
 function cycleReviewFixture(start, scenario) {
-  const facts = cycleFacts(start);
+  const facts = scenario.firstCycle ? firstCycleFacts(start) : scenario.noWealth ? noWealthFacts() : scenario.noSpending ? noSpendingFacts() : cycleFacts(start);
   if (scenario.fewCycles) {
     facts.history = facts.history.slice(-2);
     const rows = facts.categoryHistory;
-    facts.categoryHistory = { cycleStarts: rows.cycleStarts.slice(-2), rows: rows.rows.map(row => ({ ...row, amounts: row.amounts.slice(-2) })), other: { ...rows.other, amounts: rows.other.amounts.slice(-2) } };
+    facts.categoryHistory = { cycleStarts: rows.cycleStarts.slice(-2), rows: rows.rows.map(row => ({ ...row, amounts: row.amounts.slice(-2), deltaVsPrevious: null })), other: { ...rows.other, amounts: rows.other.amounts.slice(-2), deltaVsPrevious: null }, totals: rows.totals.slice(-2), totalDeltaVsPrevious: null, sameDay: null };
   }
   return facts;
 }
@@ -163,7 +164,7 @@ async function run() {
   await mkdir(output, { recursive: true });
   await mkdir(regressionOutput, { recursive: true });
   await mkdir(baselines, { recursive: true });
-  const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn("npm", ["run", "start", "--", "-p", port], { stdio: "inherit", shell: process.platform === "win32" });
+  const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: port } });
   try {
     await waitForServer();
     const browser = await chromium.launch({ headless: true });
@@ -228,7 +229,7 @@ async function run() {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} analytics calendar has horizontal overflow`);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-calendar.png`, output)), fullPage: true });
         await page.getByRole("button", { name: "Siklus Gaji" }).click();
-        await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+        await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
         await page.locator(".recharts-bar-rectangle").first().hover();
         await page.locator(".chart-tooltip").waitFor();
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-tooltip.png`, output)), fullPage: true });
@@ -273,21 +274,26 @@ async function run() {
       await regressionPage.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
       await compareScreenshot(regressionPage, "analytics-calendar-desktop");
       await regressionPage.getByRole("button", { name: "Siklus Gaji" }).click();
-      await regressionPage.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+      await regressionPage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
       await regressionPage.locator(".recharts-bar-rectangle").first().hover();
       await regressionPage.locator(".chart-tooltip").waitFor();
       await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
       await regressionPage.close();
-      // Cycle-view states the default capture does not reach: a closed cycle, a selected category row, and too few cycles for the ribbon.
+      // Cycle-view states the default capture does not reach: a closed cycle, a selected category row, too few cycles for the ribbon,
+      // and the empty/partial states from the brief (first cycle, no wealth snapshot, a cycle with no spending).
       for (const [name, path, scenario, ready] of [
-        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" })],
+        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
-        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator(".ledger-cards")],
+        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator("#matrix")],
+        ["analytics-cycle-first-desktop", "/analytics", { firstCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
+        ["analytics-cycle-nowealth-desktop", "/analytics", { noWealth: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
+        ["analytics-cycle-nospending-desktop", "/analytics", { noSpending: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
       ]) {
         const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await ready(statePage).waitFor();
+        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#matrix details").open = true; }); await statePage.locator(".heat-table").waitFor(); }
         await compareScreenshot(statePage, name);
         await statePage.close();
       }
@@ -306,7 +312,65 @@ async function run() {
       await regressionMobile.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
       await regressionMobile.locator("#main-content").waitFor();
       await compareScreenshot(regressionMobile, "analytics-cycle-mobile");
+      // The lead figure is the answer to "are we on track?"; it must be on the first screen at 390x844.
+      const lead = await regressionMobile.locator(".kpi-cell[data-lead]").boundingBox();
+      assert.ok(lead && lead.y >= 0 && lead.y + lead.height <= 844, "the lead KPI is fully visible without scrolling at 390x844");
+      // The phone control row: arrows and the picker are 44px targets.
+      const controlTargets = await regressionMobile.evaluate(() => [...document.querySelectorAll(".cycle-picker button, .cycle-picker select, .range-control-group button")].map(element => Math.round(element.getBoundingClientRect().height)));
+      assert.deepEqual(controlTargets.filter(height => height < 44), [], "phone controls are at least 44px tall");
+      await regressionMobile.getByRole("button", { name: "Kalender" }).click();
+      await regressionMobile.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
+      await compareScreenshot(regressionMobile, "analytics-calendar-mobile");
       await regressionMobile.close();
+      // Empty and partial states at 390: each one is a fixture and a baseline, and none may scroll sideways.
+      for (const [name, scenario] of [["analytics-cycle-first-mobile", { firstCycle: true }], ["analytics-cycle-nowealth-mobile", { noWealth: true }], ["analytics-cycle-nospending-mobile", { noSpending: true }]]) {
+        const statePage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        await intercept(statePage, true, [], scenario);
+        await statePage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
+        await statePage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+        assert.equal(await statePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} has horizontal overflow`);
+        const stateLead = await statePage.locator(".kpi-cell[data-lead]").boundingBox();
+        assert.ok(stateLead && stateLead.y >= 0 && stateLead.y + stateLead.height <= 844, `${name}: the lead KPI is fully visible without scrolling`);
+        await compareScreenshot(statePage, name);
+        await statePage.close();
+      }
+      // Keyboard-only pass over the dashboard: every stop is visible, named and ringed, and the
+      // chart data tables are reachable without a mouse.
+      const keyboardPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      await intercept(keyboardPage);
+      await keyboardPage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
+      await keyboardPage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+      const stops = [];
+      for (let step = 0; step < 40; step += 1) {
+        await keyboardPage.keyboard.press("Tab");
+        const stop = await keyboardPage.evaluate(() => {
+          const element = document.activeElement;
+          if (!element || element === document.body) return null;
+          const rect = element.getBoundingClientRect();
+          const tag = element.tagName.toLowerCase();
+          const labelledBy = element.getAttribute("aria-labelledby");
+          // An svg's text content is its plotted labels, not an accessible name.
+          const name = (element.getAttribute("aria-label") || (labelledBy ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ") : "") || (tag === "svg" ? "" : element.textContent) || "").trim();
+          // A focus ring is a change, not any pre-existing card shadow: compare the focused
+          // style with the same element's unfocused style, then put the focus back so Tab
+          // keeps walking the page.
+          const signature = () => { const style = getComputedStyle(element); return [style.outlineStyle, style.outlineWidth, style.boxShadow, style.backgroundColor, style.borderColor].join("|"); };
+          const focused = signature();
+          element.blur();
+          const unfocused = signature();
+          element.focus();
+          return { name: name.slice(0, 40), tag, role: element.getAttribute("role") || "", visible: rect.width > 0 && rect.height > 0, ring: focused !== unfocused };
+        });
+        if (stop) stops.push(stop);
+      }
+      assert.ok(stops.length > 5, "the dashboard is reachable by keyboard");
+      assert.deepEqual(stops.filter(stop => !stop.visible), [], "no keyboard stop is invisible");
+      assert.deepEqual(stops.filter(stop => !stop.ring), [], "every keyboard stop shows a focus ring");
+      assert.deepEqual(stops.filter(stop => !stop.name), [], "every keyboard stop has an accessible name");
+      assert.deepEqual(stops.filter(stop => stop.role === "application"), [], "no chart is a focusable role=application stop");
+      assert.ok(stops.some(stop => stop.name.startsWith("Lihat nilai laju pengeluaran")), "the pace chart's data table is reachable by keyboard");
+      assert.ok(stops.some(stop => stop.name.startsWith("Lihat nilai harian")), "the daily chart's data table is reachable by keyboard");
+      await keyboardPage.close();
       const login = await browser.newPage({ viewport: { width: 390, height: 844 } });
       await intercept(login, false);
       await login.goto(`${baseURL}/login`, { waitUntil: "networkidle" });

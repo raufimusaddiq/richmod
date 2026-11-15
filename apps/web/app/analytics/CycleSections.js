@@ -1,6 +1,24 @@
-import { amountLabel, changeWidth, measuredLabel, qualityCopy, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
-import { dateTime, money, typeLabel } from "../lib/format";
-import { SectionTitle, Metric } from "./shared";
+"use client";
+
+import { useState } from "react";
+import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
+import { compactMillions, directionMark } from "../lib/cycleLedger";
+import { buildHeatmap, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../lib/cycleSections";
+import { money } from "../lib/format";
+import { Metric } from "./shared";
+
+const monthShort = new Intl.DateTimeFormat("id-ID", { month: "short", timeZone: "UTC" });
+function columnMonth(start) {
+  const date = new Date(`${start}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? "" : monthShort.format(date);
+}
+
+function Delta({ value, label }) {
+  return <span className="section-delta" data-tone={deltaTone(value)}>
+    {label && <span className="visually-hidden">{label}: </span>}
+    {value == null ? "—" : <><span aria-hidden="true">{directionMark(value)} </span>{signedMoney(value)}</>}
+  </span>;
+}
 
 export function MeetingNav({ step, selection, navigate }) {
   const index = reviewSteps.findIndex(([id]) => id === step);
@@ -13,23 +31,6 @@ export function MeetingNav({ step, selection, navigate }) {
       <button type="button" className="secondary" onClick={() => navigate({ step: "" })}>{index === reviewSteps.length - 1 ? "Selesai meninjau" : "Tampilkan seluruh tinjauan"}</button>
     </div>
   </div>;
-}
-
-export function CyclePosition({ facts, updated = 0 }) {
-  const active = facts.period.state === "ACTIVE"; // income lands on day 1, so net cashflow is not the headline until the cycle closes
-  return <section id="position" className="review-section cycle-position" aria-labelledby="position-title" data-updated={updated || undefined}>
-    <SectionTitle id="position-title" about="posisi siklus" title="Posisi siklus" description={active ? "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran. Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah." : "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."}/>
-    <dl className="cycle-outcome" key={updated}>
-      {active
-        ? <div className="cycle-net"><dt>Pengeluaran bersih sejauh ini</dt><dd>{money(facts.cashflow.expense)}</dd></div>
-        : <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>}
-      <Metric label="Pemasukan" value={money(facts.cashflow.income)}/>
-      {active ? <Metric label="Arus kas bersih sejauh ini" value={money(facts.cashflow.netCashflow)}/> : <Metric label="Pengeluaran bersih" value={money(facts.cashflow.expense)}/>}
-      <Metric label="Tabungan dialokasikan" value={money(facts.cashflow.savingsAllocated)}/>
-      <Metric label="Surplus belum dialokasikan" value={money(facts.cashflow.unallocatedSurplus)}/>
-    </dl>
-    <div className="cycle-footnote"><span>Refund <strong>{money(facts.cashflow.refund)}</strong></span><details className="review-explainer"><summary>Tentang surplus</summary><p>Surplus belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p></details></div>
-  </section>;
 }
 
 export function ComparisonContext({ comparison, period }) {
@@ -54,86 +55,135 @@ export function ChangesTable({ items, comparison, selected, select }) {
   const elapsed = comparison.mode === "ELAPSED_DAYS";
   const deltaLabel = elapsed ? "Selisih vs hari yang sama" : "Selisih vs sebelumnya";
   return <>
-    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>{elapsed ? "Siklus berjalan" : "Siklus ini"}</span><span>Selisih vs siklus sebelumnya</span></div>
-    <ul className="change-ranking" aria-label="Perubahan kategori">
-      {items.map(item => <li key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
-        <button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button>
-        <span><span className="visually-hidden">Siklus ini: </span>{money(item.amount)}</span>
-        <span><span className="visually-hidden">Selisih vs siklus sebelumnya (penuh): </span>{signedMoney(item.deltaVsPreviousFullCycle)}<small> · {ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></span>
-        <span className="change-track" aria-hidden="true"><i data-negative={String(item.deltaVsPreviousFullCycle).startsWith("-") || undefined} style={{ width: changeWidth(item, items, "deltaVsPreviousFullCycle") }}/></span>
-      </li>)}
-    </ul>
-    <small>Batang menunjukkan besar selisih relatif, bukan persentase kenaikan.</small>
-    <details className="review-daily"><summary>Perbandingan lengkap · median, persentase & kontribusi</summary>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
     <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —. Sebelumnya · penuh: {measuredLabel(comparison.previousFullCycle)}.</caption>
     <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{elapsed ? "Sebelumnya · hari yang sama" : "Sebelumnya · penuh"}</th><th scope="col">{elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus"}</th><th scope="col">{deltaLabel}</th><th scope="col">{elapsed ? "Selisih vs median · hari yang sama" : "Selisih vs median"}</th><th scope="col">{elapsed ? "Kontribusi ke selisih hari yang sama" : "Kontribusi ke selisih total"}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th></>}</tr></thead>
     <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
-      <th scope="row">{item.name}</th>
+      <th scope="row"><button className="change-button" type="button" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(item.id || "uncategorized", event.currentTarget)}>{item.name}</button></th>
       <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>
       <td>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></td>
       <td>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></td>
       <td>{ratioLabel(item.contributionToExpenseChange)}</td>
       {elapsed && <><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td></>}
     </tr>)}</tbody>
-  </table></div></details></>;
+  </table></div></>;
 }
 
-export function MerchantTable({ items, period, categoryId }) {
-  if (!items.length) return <p className="empty compact">Belum ada merchant pendukung.</p>;
-  const elapsed = period.state === "ACTIVE";
-  return <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th>{elapsed && <><th scope="col">Sebelumnya · hari yang sama</th><th scope="col">Selisih vs hari yang sama</th></>}<th scope="col">{elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus"}</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td>{elapsed && <><td>{amountLabel(item.previous)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></>}<td>{amountLabel(item.median3)}</td></tr>)}</tbody></table></div>;
-}
-
-export function CategoryDrivers({ item, period }) {
-  return <div className="category-evidence">
-    <h3>{item.name}</h3>
-    {!period.reviewStep && <a className="evidence-back" href="#ledger">Kembali ke ringkasan siklus</a>}
-    <dl className="review-context"><Metric label="Porsi pengeluaran siklus" value={ratioLabel(item.shareOfExpense)}/><Metric label="Jumlah transaksi" value={item.count}/></dl>
-    <MerchantTable items={item.merchants} period={period} categoryId={item.id || "uncategorized"}/>
-    <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Transaksi pendukung, geser untuk semua kolom"><table><caption>Transaksi pendukung terbesar (maks. 10). Refund ditandai terpisah.</caption><thead><tr><th scope="col">Merchant / tanggal</th><th scope="col">Jenis</th><th scope="col">Jumlah</th><th scope="col">Bukti</th></tr></thead><tbody>{item.transactions.map(transaction => <tr key={transaction.id}><th scope="row">{transaction.merchant}<small>{dateTime(transaction.transactionAt)}</small></th><td>{typeLabel[transaction.type]}</td><td>{money(transaction.amount)}</td><td><a href={transactionHref(period, { categoryId: item.id || "uncategorized", id: transaction.id })}>Buka transaksi</a></td></tr>)}</tbody></table></div>
-    {!item.transactions.length && <p className="empty compact">Tidak ada transaksi terkonfirmasi kategori ini pada siklus terpilih.</p>}
-    <a href={transactionHref(period, { categoryId: item.id || "uncategorized" })}>Lihat transaksi {item.name} dalam periode ini</a>
+// Kategori × siklus. Same-day mode is the default while a cycle runs, so every
+// column is cut at the same elapsed day; full mode marks the running column and
+// leaves it out of the tint. Values, deltas and totals are served.
+export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory }) {
+  const sameDay = facts.categoryHistory?.sameDay;
+  const [mode, setMode] = useState(sameDay ? "SAME_DAY" : "FULL");
+  const heat = buildHeatmap(facts.categoryHistory, facts.history, mode, { selectedCategory, selectable: facts.categoryChanges.map(item => item.id || "uncategorized") });
+  if (!heat) return <p className="empty compact">Matriks kategori belum tersedia untuk siklus ini.</p>;
+  const deltaLabel = heat.mode === "SAME_DAY" ? "Selisih vs siklus lalu, hari yang sama" : "Selisih vs siklus lalu";
+  return <div className="heat-section">
+    {sameDay && <div className="segmented" role="group" aria-label="Rentang kolom matriks">
+      <button type="button" aria-pressed={mode === "SAME_DAY"} className={mode === "SAME_DAY" ? "active" : "secondary"} onClick={() => setMode("SAME_DAY")}>Hari ke-{sameDay.elapsedDays} yang sama</button>
+      <button type="button" aria-pressed={mode === "FULL"} className={mode === "FULL" ? "active" : "secondary"} onClick={() => setMode("FULL")}>Siklus penuh</button>
+    </div>}
+    <p className="review-description">{heat.mode === "SAME_DAY" ? `Setiap siklus dihitung sampai hari ke-${sameDay.elapsedDays} agar siklus berjalan setara.` : "Total akhir tiap siklus. Kolom berjalan ditandai garis putus-putus dan tidak ikut pewarnaan karena belum selesai."}</p>
+    <div className="heat-wrap" tabIndex={0} role="region" aria-label="Pengeluaran per kategori dan siklus, geser untuk semua kolom">
+      <table className="heat-table">
+        <caption className="visually-hidden">Pengeluaran bersih per kategori untuk setiap siklus gaji, dalam jutaan rupiah. {deltaLabel}.</caption>
+        <thead><tr>
+          <th scope="col" className="heat-unit">Rp juta · {heat.mode === "SAME_DAY" ? `hari 1–${sameDay.elapsedDays}` : "total siklus"}</th>
+          {heat.columns.map(column => <th key={column.start} scope="col" data-selected={column.selected || undefined} data-running={column.untinted || undefined} aria-current={column.selected ? "true" : undefined}>
+            <b>{columnMonth(column.start)}</b><small>{column.subhead}</small>
+          </th>)}
+          <th scope="col" className="heat-delta-head">{deltaLabel}</th>
+        </tr></thead>
+        <tbody>
+          {heat.rows.map(row => <tr key={row.key} data-selected-row={row.selected || undefined}>
+            <th scope="row">
+              {row.selectable && onSelectCategory
+                ? <button type="button" className="heat-row-button" aria-pressed={row.selected} aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{row.name}</button>
+                : <span data-muted={row.muted || undefined}>{row.name}</span>}
+              <small className="heat-row-delta"><Delta value={row.delta} label={deltaLabel}/></small>
+            </th>
+            {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>
+              <span className="heat-cell" style={{ "--tint": row.tints[index] }}>{compactMillions(row.amounts[index])}</span>
+            </td>)}
+            <td className="heat-delta"><Delta value={row.delta}/></td>
+          </tr>)}
+        </tbody>
+        <tfoot><tr>
+          <th scope="row">Total pengeluaran bersih</th>
+          {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>{compactMillions(heat.total.amounts[index])}</td>)}
+          <td className="heat-delta"><Delta value={heat.total.delta}/></td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <p className="heat-legend">Warna sel: besar relatif dalam satu baris (lebih gelap = lebih besar), bukan baik atau buruk. Klik baris untuk membuka kategori (merchant &amp; transaksi).</p>
   </div>;
 }
 
-export function SavingsWealth({ facts }) {
-  const { wealth, cashflow } = facts;
-  return <section id="savings-wealth" className="review-section" aria-labelledby="savings-title">
-    <SectionTitle id="savings-title" about="tabungan dan kekayaan" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
-    <div className="review-split">
-      <div><h3>Ke mana surplus dialokasikan?</h3><dl className="review-context">
-        <Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
-      </dl>
-      <dl className="review-destinations">{facts.savingsDestinations.map(item => <Metric key={item.id || item.name} label={item.name} value={money(item.amount)}/>)}</dl>
-      {!facts.savingsDestinations.length && <p>Belum ada alokasi tabungan terkonfirmasi.</p>}
-      </div>
-      <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
-        <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/>
-      </dl>
-      <p className="snapshot-context">{wealth.previous && wealth.current ? <>Dibandingkan: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a> → <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.current.id)}`}>{dateTime(wealth.current.observedAt)}</a></> : wealth.previous ? <>Pengamatan terakhir: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a></> : null}</p>
-      {wealth.netWorthChange == null && <p>{!wealth.current ? "Belum ada pengamatan baru setelah awal siklus." : !wealth.previous ? "Belum ada catatan kekayaan sebelum siklus ini untuk dibandingkan." : "Belum dapat direkonsiliasi."}</p>}
-      <details className="review-daily"><summary>Rincian saldo & rekonsiliasi</summary><dl className="review-context">
-        {wealth.current ? <><Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current.netWorth)}/></> : <Metric label="Kekayaan bersih pengamatan terakhir" value={amountLabel(wealth.previous?.netWorth)}/>}
-        <Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
-        <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
-      </dl>
-      <details className="review-explainer"><summary>Tentang rekonsiliasi</summary><p>Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p></details>
-      {(wealth.current ? [["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]] : [["Pengamatan terakhir", wealth.previous]]).map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <>usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
-      {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
-      </details>
-      <a href="/wealth">Buka detail Kekayaan</a></div>
+// Merchant pendukung: one row per payee, largest net amount first, as served.
+export function MerchantRanking({ ranking, period }) {
+  const list = merchantBars(ranking);
+  if (!list || !list.rows.length) return <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p>;
+  const name = (item, other) => item.id
+    ? <a href={transactionHref(period, { merchantId: item.id })}>{item.name}</a>
+    : <span data-muted={other || undefined}>{item.name}</span>;
+  const bar = item => <span className="merchant-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>;
+  return <div className="merchant-rank-wrap">
+    <div className="merchant-rank-scroll" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom">
+      <table className="merchant-rank">
+        <caption className="visually-hidden">Merchant pendukung, terbesar dulu. Pembanding: {list.compareLabel.toLowerCase()}.</caption>
+        <thead><tr><th scope="col">Merchant</th><th scope="col">Transaksi</th><th scope="col">Siklus ini</th><th scope="col">{list.compareLabel}</th><th scope="col">Selisih</th></tr></thead>
+        <tbody>
+          {list.rows.map(item => <tr key={item.key}>
+            <th scope="row">{name(item)}{item.notNamed && <small>transaksi tanpa nama penerima</small>}{bar(item)}</th>
+            <td>{item.count ?? "—"}</td>
+            <td>{money(item.amount)}</td>
+            <td>{amountLabel(item.previous)}</td>
+            <td><Delta value={item.deltaVsPrevious}/></td>
+          </tr>)}
+          {list.other && nonZeroAmount(list.other.amount) && <tr data-other="true">
+            <th scope="row">{name({ ...list.other, name: `Merchant lain · ${list.other.merchantCount}` }, true)}{bar(list.other)}</th>
+            <td>{list.other.count ?? "—"}</td>
+            <td>{money(list.other.amount)}</td>
+            <td>{amountLabel(list.other.previous)}</td>
+            <td><Delta value={list.other.deltaVsPrevious}/></td>
+          </tr>}
+        </tbody>
+        {list.total && <tfoot><tr>
+          <th scope="row">Total</th>
+          <td>{list.total.count ?? "—"}</td>
+          <td>{money(list.total.amount)}</td>
+          <td>{amountLabel(list.total.previous)}</td>
+          <td><Delta value={list.total.deltaVsPrevious}/></td>
+        </tr></tfoot>}
+      </table>
     </div>
-  </section>;
+    <a className="card-link" href={transactionHref(period)}>Semua transaksi siklus ini →</a>
+  </div>;
 }
 
-export function QualitySection({ facts }) {
-  return <section id="quality" className="review-section" aria-labelledby="quality-title">
-    <SectionTitle id="quality-title" about="kelengkapan data" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
-    {!facts.dataQuality.length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{facts.dataQuality.map(blocker => {
-      const [label, action] = qualityCopy[blocker.kind] || ["Data tinjauan perlu dilengkapi", "Buka Inbox"];
-      const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"].includes(blocker.kind);
-      return <li key={blocker.kind}><div><strong>{counted ? `${blocker.count} ` : ""}{label}</strong>{blocker.amount != null && <p>{money(blocker.amount)} terkonfirmasi.</p>}</div><a href={blocker.kind === "UNCATEGORIZED_EXPENSE" ? transactionHref(facts.period, { type: "EXPENSE", categoryId: "uncategorized" }) : ["/inbox", "/inbox?view=actions", "/wealth", "/settings"].includes(blocker.action) ? blocker.action : "/inbox"}>{action}</a></li>;
-    })}</ul>}
+// Catatan rumah tangga: a 100% bar and a fixed-order list. Never sorted by amount,
+// so it cannot read as a ranking; the hues are identity, not data.
+export function HouseholdSection({ members = [] }) {
+  const rows = householdRows(members);
+  return <section id="household" className="review-section" aria-labelledby="household-title">
+    <details className="report-disclosure">
+      <summary><h2 id="household-title">Catatan rumah tangga</h2><span>{rows.length ? `${rows.length} pencatat` : "Belum ada atribusi"}</span></summary>
+      <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
+      {rows.length ? <>
+        <div className="household-bar" role="img" aria-label="Porsi pengeluaran bersih menurut pencatat">
+          {rows.map(item => <i key={item.key} data-tint={item.tint} style={{ flexGrow: item.share ?? 0 }}/>)}
+        </div>
+        <ul className="household-list">
+          {rows.map(item => <li key={item.key}>
+            <span className="household-avatar" data-tint={item.tint} aria-hidden="true">{item.initial}</span>
+            <span className="household-name">{item.name}{item.automatic && <small>otomatis</small>}</span>
+            <span className="household-count">{item.count} transaksi</span>
+            <span className="household-amount">{money(item.amount)}</span>
+            <span className="household-share">{ratioLabel(item.shareOfExpense)}</span>
+          </li>)}
+        </ul>
+        <p className="heat-legend">Urutan tetap: otomatis dulu, lalu anggota menurut nama. Tanpa perbandingan antar siklus.</p>
+      </> : <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
+    </details>
   </section>;
 }

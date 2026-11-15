@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"os"
 	"testing"
 	"time"
@@ -70,8 +71,9 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 				return value
 			}
 			before := snapshot()
-			for _, action := range []http.HandlerFunc{h.ConfirmTransaction, h.VoidTransaction} {
-				r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/fixture/action", nil)
+			for _, action := range []http.HandlerFunc{h.ConfirmTransaction, h.VoidTransaction, h.EditTransaction} {
+				r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/fixture/action", strings.NewReader(`{"description":"x"}`))
+				r.Header.Set("If-Match", time.Now().UTC().Format(time.RFC3339Nano))
 				r.SetPathValue("id", id)
 				r = r.WithContext(auth.ContextWithPrincipal(ctx, principal))
 				w := httptest.NewRecorder()

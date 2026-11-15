@@ -62,6 +62,14 @@ export function hasActivity(item) {
   return ["income", "expense", "refund"].some(key => item?.[key] != null && Number(item[key]) !== 0);
 }
 
+// The month fields start on the range already shown, so a phone never renders two
+// empty native month inputs. Display only: the API still decides which months exist.
+export function defaultRange({ from, to, range }, now = new Date()) {
+  if (from && to) return { from, to };
+  const end = currentMonthKey(now);
+  return { from: addMonths(end, -(Number(range || 3) - 1)), to: end };
+}
+
 export function monthRowLabel(period, now = new Date()) {
   return `${monthLabel(period)}${period === currentMonthKey(now) ? " · berjalan" : ""}`;
 }

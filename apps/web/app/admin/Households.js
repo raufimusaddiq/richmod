@@ -265,7 +265,7 @@ function HouseholdDetail({ id, close, setError }) {
               <dl className="admin-definition">
                 <dt>Telegram eligible</dt>
                 <dd>{data.reviewDiagnostics.eligibleTelegram}</dd>
-                <dt>Proyeksi actionable</dt>
+                <dt>Proyeksi dapat ditindak</dt>
                 <dd>{data.reviewDiagnostics.actionableProjections}</dd>
                 <dt>Selesai via Telegram</dt>
                 <dd>{data.reviewDiagnostics.resolvedTelegram}</dd>
@@ -305,9 +305,9 @@ function HouseholdDetail({ id, close, setError }) {
           )}
           {ownerInvite && <InviteLink key={ownerInvite.link} onDismiss={() => setOwnerInvite(null)} invite={ownerInvite} title={`${ownerInvite.kind === "invite" ? "Undangan baru" : "Tautan atur ulang kata sandi"} untuk ${(pendingOwner || enrolledOwner)?.email || "pemilik"}`} />}
           <h3>LLM terbaru</h3>
-          {data.recentLLMCalls?.length ? <Table headers={["Waktu", "Task", "Status", "Latency"]}>{data.recentLLMCalls.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.task}</td><td><Badge value={x.status} /></td><td>{x.durationMs} ms</td></tr>)}</Table> : <Empty>Tidak ada panggilan LLM.</Empty>}
+          {data.recentLLMCalls?.length ? <Table headers={["Waktu", "Tugas", "Status", "Latensi"]}>{data.recentLLMCalls.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.task}</td><td><Badge value={x.status} /></td><td>{x.durationMs} ms</td></tr>)}</Table> : <Empty>Tidak ada panggilan LLM.</Empty>}
           <h3>Source gagal</h3>
-          {data.failedSourceEvents?.length ? <Table headers={["Waktu", "Type", "ID"]}>{data.failedSourceEvents.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.sourceType}</td><td className="admin-id">{x.id}</td></tr>)}</Table> : <Empty>Tidak ada source gagal.</Empty>}
+          {data.failedSourceEvents?.length ? <Table headers={["Waktu", "Jenis", "ID"]}>{data.failedSourceEvents.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.sourceType}</td><td className="admin-id">{x.id}</td></tr>)}</Table> : <Empty>Tidak ada source gagal.</Empty>}
           <h3>Audit terbaru</h3>
           {data.recentAudit?.length ? <Table headers={["Waktu", "Action", "Entity"]}>{data.recentAudit.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.action}</td><td>{x.entityType} · <span className="admin-id">{x.entityId}</span></td></tr>)}</Table> : <Empty>Belum ada audit.</Empty>}
         </>

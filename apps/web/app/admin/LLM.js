@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, number, Badge, Metric, Empty, Pending, useLoad, useAdminList, Table } from "./shared";
+import { time, number, percent, ms, Badge, Metric, Empty, Pending, useLoad, useAdminList, Table } from "./shared";
 
 export default function LLM({ setError }) {
   const [filters, setFilters] = useState({ range: "24h", task: "", status: "" });
@@ -23,7 +23,7 @@ export default function LLM({ setError }) {
       <div className="admin-filters">
         <select aria-label="Rentang LLM" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
         <input aria-label="Tugas LLM" placeholder="Tugas" value={filters.task} onChange={(e) => setFilters({...filters, task:e.target.value})} />
-        <select aria-label="Status LLM" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option>SUCCEEDED</option><option>FAILED</option></select>
+        <select aria-label="Status LLM" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option value="SUCCEEDED">Berhasil</option><option value="FAILED">Gagal</option></select>
       </div>
       <div className="admin-metrics">
         <Metric label="Panggilan 24 jam" value={number(summary.calls)} />
@@ -32,7 +32,7 @@ export default function LLM({ setError }) {
           value={
             summary.successRate == null
               ? "—"
-              : `${(summary.successRate * 100).toFixed(1)}%`
+              : percent(summary.successRate)
           }
         />
         <Metric
@@ -85,11 +85,11 @@ export default function LLM({ setError }) {
         <Table
           headers={[
             "Waktu",
-            "Task",
+            "Tugas",
             "Protocol",
             "Model",
             "Status",
-            "Latency",
+            "Latensi",
             "Tokens",
           ]}
         >

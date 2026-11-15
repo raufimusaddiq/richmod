@@ -19,7 +19,7 @@ export default function Logs({ setError }) {
         </button>
       </div>
       <div className="admin-filters">
-        <select aria-label="Jenis event" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})}><option value="">Semua event</option><option>JOB_RETRY</option><option>JOB_FAILED</option><option>LLM_FAILED</option><option>SOURCE_FAILED</option></select>
+        <select aria-label="Jenis event" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})}><option value="">Semua event</option><option value="JOB_RETRY">Tugas diulang</option><option value="JOB_FAILED">Tugas gagal</option><option value="LLM_FAILED">LLM gagal</option><option value="SOURCE_FAILED">Sumber gagal</option></select>
         <select aria-label="Keparahan" value={filters.severity} onChange={(e) => setFilters({...filters, severity:e.target.value})}><option value="">Semua tingkat keparahan</option><option value="WARN">Peringatan</option><option value="ERROR">Galat</option></select>
         <input aria-label="Komponen" placeholder="Komponen" value={filters.component} onChange={(e) => setFilters({...filters, component:e.target.value})} />
         <select aria-label="Rentang log" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>

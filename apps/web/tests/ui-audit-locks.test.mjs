@@ -317,8 +317,8 @@ const appSources = dir => readdirSync(new URL(`../${dir}/`, import.meta.url), { 
   .flatMap(entry => entry.isDirectory() ? appSources(`${dir}/${entry.name}`) : entry.name.endsWith(".js") ? [`${dir}/${entry.name}`] : []);
 
 test("every scrolling table wrapper takes keyboard focus and has a name", () => {
-  const wrappers = appSources("app").flatMap(file => [...text(file).matchAll(/<div className="review-table-wrap"[^>]*>/g)].map(match => ({ file, tag: match[0] })));
-  assert.ok(wrappers.length >= 5, "the table wrappers are found");
+  const wrappers = appSources("app").flatMap(file => [...text(file).matchAll(/<div className="(?:review-table-wrap|heat-wrap|merchant-rank-scroll)"[^>]*>/g)].map(match => ({ file, tag: match[0] })));
+  assert.ok(wrappers.length >= 4, "the table wrappers are found");
   for (const { file, tag } of wrappers) assert.match(tag, /tabIndex=\{0\} role="region" aria-label="[^"]+geser untuk semua kolom"/, `${file}: a scrolling table must be focusable, a region, and named`);
 });
 
@@ -333,7 +333,7 @@ test("the visual smoke fails on scrolling regions that keyboard users cannot rea
 });
 
 test("unfinished sources link to the Tindakan tab, which can show and close them", () => {
-  const sections = text("app/analytics/CycleSections.js");
+  const sections = text("app/analytics/CycleDashboard.js");
   assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
   assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
   const inbox = text("app/inbox/page.js");

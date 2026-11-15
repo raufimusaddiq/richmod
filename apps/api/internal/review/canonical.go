@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpx"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"golang.org/x/text/unicode/norm"
 )
@@ -314,6 +315,10 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
 			return
 		}
+		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+			httpx.WriteMergeTargetRefusal(w)
+			return
+		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to finalize review"})
 			return
@@ -509,6 +514,10 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		err = errInvalid
+	}
+	if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+		httpx.WriteMergeTargetRefusal(w)
+		return
 	}
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid or unavailable review action"})

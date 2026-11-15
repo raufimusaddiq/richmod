@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpx"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 type transactionView struct {
@@ -39,6 +42,24 @@ type transactionView struct {
 	WealthAccountName      *string    `json:"wealthAccountName"`
 	ConfirmedAt            *time.Time `json:"confirmedAt"`
 	VoidedAt               *time.Time `json:"voidedAt"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
+}
+
+// activeMergeView is an ACTIVE reconciliation merge this transaction takes part in, with the
+// other side described for the drawer's "Pisahkan penggabungan" action. Role TARGET means this
+// transaction absorbed the other (voiding it is refused); SOURCE means it was folded into the other.
+type activeMergeView struct {
+	ID                 string    `json:"id"`
+	Role               string    `json:"role"`
+	OtherTransactionID string    `json:"otherTransactionId"`
+	OtherLabel         string    `json:"otherLabel"`
+	OtherAmount        string    `json:"otherAmount"`
+	OtherTransactionAt time.Time `json:"otherTransactionAt"`
+}
+
+type transactionDetail struct {
+	transactionView
+	ActiveMerges []activeMergeView `json:"activeMerges"`
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +76,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,
 		       t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,
-		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name
+		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at
 		FROM transaction t
 		LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id
 		LEFT JOIN category c ON c.id=t.category_id
@@ -76,7 +97,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		  AND ($8='' OR t.account_id::text=$8)
 		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND COALESCE(te2.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND s2.source_type=$9))
 		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
-		  AND ($14='' OR t.merchant_id::text=$14 OR (t.merchant_id IS NULL AND $14=(SELECT min(a.normalized_merchant_id::text) FROM merchant_alias a WHERE a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g')) HAVING count(DISTINCT a.normalized_merchant_id)=1)))
+		  AND ($14='' OR t.merchant_id::text=$14 OR ($14='none' AND t.merchant_id IS NULL AND NULLIF(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'),'') IS NULL) OR (t.merchant_id IS NULL AND $14=(SELECT min(a.normalized_merchant_id::text) FROM merchant_alias a WHERE a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g')) HAVING count(DISTINCT a.normalized_merchant_id)=1)))
 		  AND ($15='' OR t.id::text=$15)
 		  AND ($12::timestamptz IS NULL OR (t.transaction_at,t.id) < ($12,NULLIF($13,'')::uuid))
 		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID)
@@ -88,7 +109,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	out := make([]transactionView, 0, filters.Limit)
 	for rows.Next() {
 		var v transactionView
-		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName); err != nil {
+		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 			return
 		}
@@ -155,7 +176,7 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 	if result.Type != "" && !oneOf(result.Type, "INCOME", "EXPENSE", "TRANSFER", "REFUND", "ADJUSTMENT", "UNCLASSIFIED", "SPENDING") {
 		return result, errors.New("invalid transaction type")
 	}
-	if result.MerchantID != "" && uuid.Validate(result.MerchantID) != nil {
+	if result.MerchantID != "" && result.MerchantID != "none" && uuid.Validate(result.MerchantID) != nil {
 		return result, errors.New("invalid merchant ID")
 	}
 	if result.TransactionID != "" && uuid.Validate(result.TransactionID) != nil {
@@ -212,7 +233,36 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
 		return
 	}
-	writeJSON(w, 200, v)
+	// The merge annotation is secondary to the record: if it cannot be read the detail still loads, without
+	// the "Pisahkan penggabungan" action, and the void endpoint keeps refusing a merge target on its own.
+	merges, err := h.activeMerges(r.Context(), household, v.ID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "load active merges for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
+		merges = []activeMergeView{}
+	}
+	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges})
+}
+
+func (h *Handler) activeMerges(ctx context.Context, household, id string) ([]activeMergeView, error) {
+	rows, err := h.pool.Query(ctx, `SELECT m.id,CASE WHEN m.target_transaction_id=$1 THEN 'TARGET' ELSE 'SOURCE' END,o.id,COALESCE(mm.normalized_name,NULLIF(o.counterparty_name,''),NULLIF(o.description,''),''),o.amount::text,o.transaction_at
+		FROM reconciliation_merge m
+		JOIN transaction o ON o.household_id=m.household_id AND o.id=CASE WHEN m.target_transaction_id=$1 THEN m.source_transaction_id ELSE m.target_transaction_id END
+		LEFT JOIN merchant mm ON mm.id=o.merchant_id
+		WHERE m.household_id=$2 AND m.status='ACTIVE' AND $1 IN (m.source_transaction_id,m.target_transaction_id)
+		ORDER BY m.created_at,m.id`, id, household)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	merges := make([]activeMergeView, 0)
+	for rows.Next() {
+		var v activeMergeView
+		if err := rows.Scan(&v.ID, &v.Role, &v.OtherTransactionID, &v.OtherLabel, &v.OtherAmount, &v.OtherTransactionAt); err != nil {
+			return nil, err
+		}
+		merges = append(merges, v)
+	}
+	return merges, rows.Err()
 }
 
 func (h *Handler) ConfirmTransaction(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +286,8 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	defer tx.Rollback(r.Context())
 	var before string
 	var reviewOpen bool
-	if err := tx.QueryRow(r.Context(), `SELECT t.status,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
+	var occurredAt time.Time
+	if err := tx.QueryRow(r.Context(), `SELECT t.status,t.transaction_at,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &occurredAt, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "transaction not found"})
 		return
 	} else if err != nil {
@@ -244,17 +295,34 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		return
 	}
 	if before == "NEEDS_REVIEW" || reviewOpen {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "resolve this transaction through the review endpoint"})
+		writeJSON(w, http.StatusConflict, map[string]string{"code": codeReviewOpen, "error": "resolve this transaction through the review endpoint"})
 		return
 	}
 	if !canTransition(before, target) {
 		writeJSON(w, 409, map[string]string{"error": "invalid transaction status transition"})
 		return
 	}
+	// The merge flow locks its target row FOR UPDATE, so this read cannot race a merge being
+	// created. The database guard (00100) backs it up for every other void path.
+	if target == "VOIDED" {
+		protected, err := reviewdomain.ActiveMergeTarget(r.Context(), tx, household, id)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
+		if protected {
+			httpx.WriteMergeTargetRefusal(w)
+			return
+		}
+	}
 	if target == "CONFIRMED" {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id)
 	} else {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
+	}
+	if errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
+		httpx.WriteMergeTargetRefusal(w)
+		return
 	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
@@ -263,6 +331,14 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,$3,'transaction',$4,jsonb_build_object('status',$5::text),jsonb_build_object('status',$6::text))`, household, p.UserID, target, id, before, target); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to audit transaction"})
 		return
+	}
+	// A voided CONFIRMED transaction leaves the totals, so an open cycle residual review
+	// built on them is recomputed in the same commit (as a newly recorded one does).
+	if target == "VOIDED" && before == "CONFIRMED" {
+		if err = reviewdomain.RefreshOpenCycleResidualsFor(r.Context(), tx, household, occurredAt, p.UserID, reviewdomain.CycleReopenTransactionVoided); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
@@ -334,7 +410,7 @@ func (h *Handler) Audit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) load(ctx context.Context, household, id string) (transactionView, error) {
 	var v transactionView
-	err := h.pool.QueryRow(ctx, `SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name FROM transaction t LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id LEFT JOIN category c ON c.id=t.category_id LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN account a ON a.id=t.account_id LEFT JOIN "user" u ON u.id=t.created_by_user_id LEFT JOIN LATERAL (SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1) e ON true WHERE t.id=$1 AND t.household_id=$2`, id, household).Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName)
+	err := h.pool.QueryRow(ctx, `SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at FROM transaction t LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id LEFT JOIN category c ON c.id=t.category_id LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN account a ON a.id=t.account_id LEFT JOIN "user" u ON u.id=t.created_by_user_id LEFT JOIN LATERAL (SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1) e ON true WHERE t.id=$1 AND t.household_id=$2`, id, household).Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt)
 	return v, err
 }
 func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {
