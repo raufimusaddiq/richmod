@@ -10,8 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// decisionPolicyVersion labels the deterministic acceptance contract in stored
-// decision provenance.
+// decisionPolicyVersion labels the deterministic acceptance contract in stored decision provenance.
 const decisionPolicyVersion = "2026-10-deterministic"
 
 type TransactionSemanticDecision struct {
@@ -24,13 +23,11 @@ type TransactionSemanticDecision struct {
 	DateSupported     bool
 	DateReference     string
 	MaterialAmbiguity bool
-	// AmbiguityDecidedNotAmbiguous records that the extraction was complete and
-	// unambiguous; anything else fails closed to review.
+	// AmbiguityDecidedNotAmbiguous records a complete, unambiguous extraction; anything else fails closed to review.
 	AmbiguityDecidedNotAmbiguous bool
 
-	// ResidualCategory records the one named dimension a bounded rescue still had
-	// to decide after a generative extraction. It is what lets telemetry tell a
-	// valid residual rescue apart from a redundant re-decide.
+	// ResidualCategory records the dimension a bounded rescue still had to decide, so telemetry can tell a
+	// valid residual rescue from a redundant re-decide.
 	ResidualCategory bool
 
 	DecisionSource string // JEV | DETERMINISTIC_POLICY | GENERATIVE_EXTRACTION | GENERATIVE_PLUS_JEV
@@ -38,19 +35,14 @@ type TransactionSemanticDecision struct {
 	PolicyVersion  string
 }
 
-// decisionAllowed reports whether Go may persist CONFIRMED from this decision.
-// A transaction needs a supported amount, a supported date, an accepted
-// direction, and no material ambiguity. EXPENSE additionally needs an accepted
-// category because category is user-visible ledger data.
+// decisionAllowed reports whether Go may persist CONFIRMED: needs a supported amount, date, accepted
+// direction and no material ambiguity; EXPENSE also needs an accepted category.
 func (d TransactionSemanticDecision) decisionAllowed() bool {
 	if !d.RouteAccepted || !d.TypeAccepted || !d.AmountSupported || !d.DateSupported {
 		return false
 	}
-	// The ambiguity question is inverted, so only an affirmative *negative* clears
-	// it. An exact merchant-category match is decided by deterministic policy
-	// without ever asking the plane, and that path is already unambiguous by
-	// construction, so it is exempt rather than forced to answer a question it
-	// never asked.
+	// Only an affirmative negative clears the inverted ambiguity question; an exact merchant-category match
+	// is decided by deterministic policy without asking the plane, so it is exempt.
 	if d.DecisionSource != "DETERMINISTIC_POLICY" && !d.AmbiguityDecidedNotAmbiguous {
 		return false
 	}
@@ -60,10 +52,8 @@ func (d TransactionSemanticDecision) decisionAllowed() bool {
 	return d.TransactionType == "EXPENSE" && d.CategoryAccepted && strings.TrimSpace(d.CategorySlug) != ""
 }
 
-// semanticDecisionForRecord rules on one record_transaction call with Go
-// validation alone (ADR-052). A complete extraction is accepted directly; any
-// unresolved dimension (an unknown category, say) is recorded as residual so the
-// transaction is parked for review rather than guessed.
+// Rules on one record_transaction call with Go validation alone (ADR-052): a complete extraction is accepted;
+// an unresolved dimension is recorded as residual and parked for review.
 func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
 	if direct, ok := directAcceptanceDecision(value, categories, state.Now); ok {
 		if p.postGenerativeAutoConfirmOff {
@@ -77,9 +67,8 @@ func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentSta
 	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
 	state.ResidualDimensions = unresolvedTransactionDimensions(value.Type, categoryKnown)
 	decision := TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: decisionPolicyVersion}
-	// When the category is the only open dimension, the type, amount and date are
-	// still accepted facts: the review asks for the category, not for a date the
-	// household already gave. CategoryAccepted stays false, so nothing is confirmed.
+	// When category is the only open dimension, type, amount and date stay accepted so the review asks only
+	// for the category; CategoryAccepted stays false.
 	if len(state.ResidualDimensions) == 1 && state.ResidualDimensions[0] == "category" {
 		if complete, ok := directAcceptanceDecision(withCategory(value, categories), categories, state.Now); ok {
 			decision.RouteAccepted, decision.TransactionType, decision.TypeAccepted = true, complete.TransactionType, true
@@ -89,8 +78,7 @@ func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentSta
 	return decision, nil
 }
 
-// withCategory returns the extraction with its first allowed category filled in,
-// only so directAcceptanceDecision can vouch for every other dimension.
+// withCategory fills the first allowed category only so directAcceptanceDecision can vouch for every other dimension.
 func withCategory(value validatedExtraction, categories []string) validatedExtraction {
 	if len(categories) > 0 {
 		value.CategorySlug = categories[0]
@@ -114,13 +102,10 @@ func appendIfMissing(values []string, target string) []string {
 	return append(values, target)
 }
 
-// directAcceptanceDecision is the acceptance contract for one extracted
-// transaction: the deterministic checks required before a generative result may
-// be persisted as CONFIRMED. It returns false when any dimension is genuinely
-// unresolved, and that transaction goes to review instead of being guessed.
+// directAcceptanceDecision is the deterministic gate before a generative result may be persisted CONFIRMED;
+// any genuinely unresolved dimension goes to review.
 func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time) (TransactionSemanticDecision, bool) {
-	// Schema/type and amount format are re-asserted here rather than trusted,
-	// because this function is the gate that skips the model.
+	// Schema/type and amount format are re-asserted because this function is the gate that skips the model.
 	if value.Type != "INCOME" && value.Type != "EXPENSE" {
 		return TransactionSemanticDecision{}, false
 	}
@@ -133,14 +118,13 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 	if !acceptableTransactionTime(value, now) || value.TransactionAt.IsZero() || now.IsZero() {
 		return TransactionSemanticDecision{}, false
 	}
-	// Confidence is intentionally not a canonical gate. It cannot authorize an
-	// event by itself, and a low/high self-score does not justify rejecting
-	// a complete, schema-valid extraction.
+	// Confidence is not a canonical gate: a self-score neither authorizes nor rejects a complete, schema-
+	// valid extraction.
 	if value.Ambiguous {
 		return TransactionSemanticDecision{}, false
 	}
-	// Category: an accepted active household slug is required for EXPENSE. An
-	// absent or inactive slug is a genuine residual, not a reason to guess.
+	// Category: EXPENSE needs an accepted active household slug; an absent or inactive slug is a residual,
+	// never guessed.
 	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
 	residual := unresolvedTransactionDimensions(value.Type, categoryKnown)
 	if len(residual) == 0 {
@@ -155,8 +139,6 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 	return TransactionSemanticDecision{}, false
 }
 
-// unresolvedTransactionDimensions names exactly the residual facts that still
-// block canonical confirmation.
 func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
 	if typ == "EXPENSE" && !categoryKnown {
 		return []string{"category"}
@@ -164,12 +146,8 @@ func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
 	return nil
 }
 
-// acceptableTransactionTime reports whether the transaction time is one the
-// household can stand behind. An explicit user statement always qualifies. When
-// the message states no date, the moment the household sent it is the observed
-// time of an in-the-moment entry ("beli bensin 26k"), so the observation is
-// accepted only if it is exactly that moment. A date the model supplied on its own
-// (for example "yesterday" the user never wrote) is never promoted.
+// acceptableTransactionTime: a user-stated date always qualifies; otherwise only the message send time.
+// A model-supplied date is never promoted.
 func acceptableTransactionTime(value validatedExtraction, now time.Time) bool {
 	if value.DateProvenance == "USER_STATED" {
 		return true
@@ -177,10 +155,8 @@ func acceptableTransactionTime(value validatedExtraction, now time.Time) bool {
 	return value.TimePrecision == "OBSERVED_AT_PROCESSING" && value.TransactionAt.Equal(now.Truncate(time.Minute))
 }
 
-// recordJudgmentDecision persists bounded decision provenance in the same
-// transaction as the canonical mutation, so a decision can never be recorded
-// without its outcome. Only bounded decision values are stored —
-// never raw user text, email bodies, or model state.
+// recordJudgmentDecision persists bounded decision provenance in the same transaction as the mutation, never
+// raw user text, email bodies or model state.
 func (p *Processor) recordJudgmentDecision(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, decision TransactionSemanticDecision, confirmed bool) error {
 	outcome := "NEEDS_REVIEW"
 	if confirmed {

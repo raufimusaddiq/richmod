@@ -1,10 +1,7 @@
 package bankemail
 
-// A Cloudflare-origin BANK_EMAIL review is owned by
-// its household before projection, so an actionable review must reach the
-// household's eligible Telegram identity without any Telegram chat payload on
-// the source event. Source provenance is evidence only; it never decides who may
-// receive the review.
+// A Cloudflare-origin BANK_EMAIL review is household-owned before projection, so it reaches the household's
+// eligible Telegram identity without a chat payload; source provenance is evidence only.
 
 import (
 	"context"
@@ -43,8 +40,7 @@ func TestBankEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chat, household, user); err != nil {
 		t.Fatal(err)
 	}
-	// Cloudflare-origin bank email: a household-owned source event with no
-	// source_event_payload message/chat object.
+	// Cloudflare-origin bank email: household-owned source event with no message/chat object.
 	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("bank-proj-event-%d", stamp), []byte("bank-proj")).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
@@ -74,8 +70,7 @@ func TestBankEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE' WHERE id=$1`, item); err != nil {
 		t.Fatal(err)
 	}
-	// A closed canonical review must never be re-projected, even if its
-	// projection request is already closed too.
+	// A closed canonical review is never re-projected, even if its projection request is also closed.
 	if _, err = pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1`, item); err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +92,8 @@ func TestBankEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing.T) {
 		t.Fatalf("resolved review re-projected: requests=%d", requests)
 	}
 
-	// The bank's low-confidence review shares a reason with document reviews,
-	// but it has no document_id. The document callback cannot resolve it.
+	// The bank's low-confidence review shares a reason with document reviews but has no document_id, so the
+	// document callback cannot resolve it.
 	var incomplete string
 	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("bank-incomplete-%d", stamp), []byte("bank-incomplete")).Scan(&incomplete); err != nil {
 		t.Fatal(err)

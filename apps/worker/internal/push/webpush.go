@@ -1,6 +1,5 @@
-// Package push implements Web Push (RFC 8030) delivery with VAPID (RFC 8292)
-// and aes128gcm payload encryption (RFC 8188/RFC 8291) using only the standard
-// library.
+// Package push implements Web Push (RFC 8030) with VAPID (RFC 8292) and aes128gcm encryption (RFC 8188/8291)
+// using only the standard library.
 package push
 
 import (
@@ -24,11 +23,9 @@ import (
 
 const recordSize = 4096
 
-// VAPID wraps the shared VAPID configuration so the sender and the API use the
-// same enabled predicate.
+// VAPID wraps the shared configuration so the sender and API use the same enabled predicate.
 type VAPID struct{ config *pushsupport.VAPID }
 
-// NewVAPID parses a base64url raw P-256 private scalar and the VAPID subject.
 func NewVAPID(privateKey, subject string) (*VAPID, error) {
 	config, err := pushsupport.Parse(privateKey, subject)
 	if err != nil {
@@ -37,13 +34,10 @@ func NewVAPID(privateKey, subject string) (*VAPID, error) {
 	return &VAPID{config: config}, nil
 }
 
-// PublicKey returns the base64url uncompressed P-256 public key.
 func (v *VAPID) PublicKey() string { return v.config.PublicKey }
 
-// PublicKey derives the advertised key from a private key environment value.
 func PublicKey(privateKey string) string { return pushsupport.PublicKey(privateKey) }
 
-// Subscription is one browser push subscription.
 type Subscription struct {
 	ID       string
 	Endpoint string
@@ -60,8 +54,7 @@ type DeliveryError struct {
 
 func (e *DeliveryError) Error() string { return e.Message }
 
-// Send encrypts payload for the subscription and posts it to the push service.
-// A 2xx response means the push service accepted it for delivery.
+// Send encrypts payload and posts it; a 2xx means the push service accepted it for delivery.
 func (v *VAPID) Send(ctx context.Context, client *http.Client, sub Subscription, payload []byte) error {
 	if client == nil {
 		client = secureClient()
@@ -111,8 +104,8 @@ func (v *VAPID) Send(ctx context.Context, client *http.Client, sub Subscription,
 	}
 }
 
-// encryptPayload builds one aes128gcm record. Ephemeral key and salt are
-// generated per message; the deterministic variant below exists for tests.
+// encryptPayload builds one aes128gcm record with a per-message ephemeral key and salt; the deterministic
+// variant is for tests.
 func encryptPayload(payload, uaPublic, authSecret []byte) ([]byte, error) {
 	ephemeral, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {

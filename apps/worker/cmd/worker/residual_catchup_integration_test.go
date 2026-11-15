@@ -10,9 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestResidualCatchUpIsNotBlockedByAnotherHouseholdsSettledCycle: household A's
-// cycle already has a SUCCEEDED no-op job (no residual); household B's cycle has
-// no job. One catch-up pass must still enqueue B and leave A alone.
+// Household A's settled cycle (SUCCEEDED no-op job) must not block enqueueing household B's cycle.
 func TestResidualCatchUpIsNotBlockedByAnotherHouseholdsSettledCycle(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -66,7 +64,6 @@ func TestResidualCatchUpIsNotBlockedByAnotherHouseholdsSettledCycle(t *testing.T
 	if jobsA != 1 || jobsB != 1 {
 		t.Fatalf("jobs: household A=%d (want its one settled job), household B=%d (want one pending)", jobsA, jobsB)
 	}
-	// A second pass is a no-op: nothing is enqueued twice.
 	if _, err := pool.Exec(ctx, residualCatchUpSQL, 10000); err != nil {
 		t.Fatalf("second catch-up failed: %v", err)
 	}

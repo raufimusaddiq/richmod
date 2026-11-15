@@ -11,8 +11,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// receiptDateGateway is the conversational model answering a reply to a receipt
-// date card: it proposes the date through resolve_review, then writes prose.
+// receiptDateGateway proposes the date through resolve_review, then writes prose.
 type receiptDateGateway struct {
 	arguments string
 	calls     int
@@ -30,9 +29,7 @@ func (g *receiptDateGateway) AgentTurn(context.Context, string, gateway.AgentReq
 	return gateway.AgentResponse{Text: "Tanggal disimpan."}, nil
 }
 
-// A receipt whose date is missing is a transaction-keyed review owned by the
-// conversational agent. The model proposes the date the household typed; Go
-// validates it, stores it as the transaction date and completes the review.
+// A missing receipt date is a transaction-keyed review owned by the agent; Go validates the proposed date.
 func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 	cases := map[string]string{
 		"transaction_at":           `{"action":"CONFIRM","transaction_at":"2026-10-03"}`,
@@ -92,9 +89,7 @@ func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 	}
 }
 
-// A proposed value that is not a calendar date stores nothing: the date, the
-// description and the open review are untouched, and the review still asks for
-// the date.
+// A proposed non-calendar date stores nothing and the review still asks for the date.
 func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "receipt-date-invalid")
@@ -129,8 +124,7 @@ func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 	}
 }
 
-// A receipt card says which transaction it is about even though the document
-// producer sends no summary, and its date prompt appears once.
+// A receipt card names its transaction without a producer summary, and its date prompt appears once.
 func TestReceiptReviewCardNamesItsTransaction(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "receipt-card-summary")
@@ -158,8 +152,7 @@ func TestReceiptReviewCardNamesItsTransaction(t *testing.T) {
 	}
 }
 
-// A refused date review is worded as a refusal even when the model call that
-// would have phrased it fails, so the household never reads it as saved.
+// A refused date review reads as a refusal even when the phrasing model call fails.
 func TestRefusedReviewDetailIsNotReportedAsDone(t *testing.T) {
 	generic := agentMutationFallback(agentToolResult{Status: "SOME_UNKNOWN_STATUS"})
 	text := agentMutationFallback(agentToolResult{Status: "INVALID_TRANSACTION_DATE"})

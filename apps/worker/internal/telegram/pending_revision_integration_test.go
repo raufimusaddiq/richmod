@@ -59,7 +59,6 @@ func TestPendingButtonsCannotAuthorizeReplacement(t *testing.T) {
 				if status != "PENDING" || changed != 0 {
 					t.Fatalf("stale callback changed current work: status=%s audits=%d", status, changed)
 				}
-				// The current token still cannot escape its household/user/chat/expiry scope.
 				for _, invalid := range []string{"household", "user", "chat", "expired"} {
 					hh, update := f.householdID, f.update
 					switch invalid {

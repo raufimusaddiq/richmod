@@ -7,10 +7,8 @@ import (
 	"time"
 )
 
-// Deterministic parsing of an explicit date typed as a review reply. A reply
-// that states the date plainly ("25 Okt", "25/10", "kemarin", "2026-10-25")
-// is read here in Go; only a reply this parser cannot read goes to the model.
-// The household timezone is Asia/Jakarta.
+// Deterministic parsing of an explicit date typed as a review reply; only replies this parser cannot read go
+// to the model.
 
 var indonesianMonthNames = map[string]time.Month{
 	"jan": time.January, "januari": time.January, "january": time.January,
@@ -34,10 +32,8 @@ var (
 	namedDatePattern   = regexp.MustCompile(`^(\d{1,2})\s+([a-z]+)\.?(?:\s+(\d{4}))?$`)
 )
 
-// parseReplyDate reads one explicit calendar date from a short reply. It
-// returns false for anything that is not a single unambiguous date, so a
-// sentence is never half-read. A date without a year takes the current year,
-// or the previous year when that would put it more than 31 days in the future.
+// parseReplyDate returns false unless the reply is a single unambiguous date; a year-less date takes the
+// current year, or the previous one if that lands over 31 days ahead.
 func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 	location := jakartaLocation()
 	now = now.In(location)

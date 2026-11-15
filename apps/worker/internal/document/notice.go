@@ -17,17 +17,8 @@ var (
 	noticeSpaces = regexp.MustCompile(`\s+`)
 )
 
-// enqueueEvidenceNotice queues one short "recorded" message for a document that
-// resolved without a human, so a reply to it binds back to that document
-// (ADR-050).
-//
-// It runs in the same transaction as the mutation it announces, so the notice
-// exists exactly when the result does. It goes to the chat the upload came from,
-// as a reply to the upload, and only for Telegram uploads that recorded their
-// chat. At most one notice is ever queued per document, which keeps a retried
-// processor from announcing the same result twice. That guarantee rests on a
-// durable marker on the document (document.evidence_notice_at), not on job rows,
-// because job rows are pruned.
+// enqueueEvidenceNotice queues one "recorded" reply to the Telegram upload for a document resolved without
+// a human, in the mutation's tx (ADR-050); the document.evidence_notice_at marker limits it to one.
 func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, documentID, text string) error {
 	var chatID, messageID *int64
 	err := tx.QueryRow(ctx, `SELECT telegram_chat_id,telegram_message_id FROM source_event WHERE id=$1 AND source_type='TELEGRAM_IMAGE'`, sourceEventID).Scan(&chatID, &messageID)
@@ -37,8 +28,7 @@ func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, docume
 	if err != nil {
 		return err
 	}
-	// Claim the document's one notice. The marker and the job commit or roll back
-	// together with the mutation they announce.
+	// Claim the document's one notice; the marker and job commit or roll back with the mutation.
 	var claimed string
 	err = tx.QueryRow(ctx, `UPDATE document SET evidence_notice_at=now() WHERE id=$1::uuid AND evidence_notice_at IS NULL RETURNING id::text`, documentID).Scan(&claimed)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -62,9 +52,8 @@ func receiptRecordedNotice(merchant, total string) string {
 	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat." + noticeFooter
 }
 
-// receiptRecordedMismatchNotice tells the household what Richmod saw when the
-// printed lines do not add up to the printed total: the printed total was
-// recorded and nothing needs deciding (RECEIPT_MISMATCH is a quality signal).
+// receiptRecordedMismatchNotice tells the household the printed lines do not add up to the printed total,
+// which was recorded; nothing needs deciding (RECEIPT_MISMATCH is a quality signal).
 func receiptRecordedMismatchNotice(merchant, total string) string {
 	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat memakai total yang tercetak. Rincian barisnya tidak pas dengan total, tetapi tidak ada yang perlu kamu putuskan." + noticeFooter
 }
@@ -77,8 +66,7 @@ func payslipRecordedNotice(employer, netPay string) string {
 	return "Slip gaji" + noticeSubject(employer) + " tercatat, gaji bersih" + noticeAmount(netPay) + "." + noticeFooter
 }
 
-// noticeSubject renders evidence-derived text for the user's own chat: one line,
-// bounded. It is data, never markup, and is only ever sent as plain text.
+// noticeSubject renders evidence-derived text for the user's chat as one bounded line of plain text, never markup.
 func noticeSubject(value string) string {
 	value = strings.TrimSpace(noticeSpaces.ReplaceAllString(value, " "))
 	if value == "" {
@@ -90,8 +78,8 @@ func noticeSubject(value string) string {
 	return " " + value
 }
 
-// noticeAmount groups a whole-rupiah amount with dots. Anything that is not a
-// plain digit string is left out rather than echoed.
+// noticeAmount groups a whole-rupiah amount with dots; anything not a plain digit string is left out rather
+// than echoed.
 func noticeAmount(amount string) string {
 	amount = strings.TrimSpace(amount)
 	if !digitsOnly.MatchString(amount) {

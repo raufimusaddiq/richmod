@@ -84,8 +84,7 @@ func (f *failedBankFixture) inTx(fn func(pgx.Tx) error) {
 	}
 }
 
-// An unusable extraction is final (the job succeeds), so the household is told
-// at once with a dismissable item, and still gets no review (ADR-048).
+// An unusable extraction is final: the household is told at once with a dismissable item and gets no review (ADR-048).
 func TestInvalidExtractionLeavesADismissableItemAndNoReview(t *testing.T) {
 	f := newFailedBankFixture(t)
 	source := f.source(1)
@@ -107,9 +106,8 @@ func TestInvalidExtractionLeavesADismissableItemAndNoReview(t *testing.T) {
 	}
 }
 
-// A retryable failure is not announced while attempts remain: a retry that
-// succeeds must not leave a stale item behind. It is announced when the job
-// gives up.
+// A retryable failure is not announced while attempts remain, so a successful retry leaves no stale item; it
+// is announced when the job gives up.
 func TestRetryableFailureIsAnnouncedOnlyWhenTheJobGivesUp(t *testing.T) {
 	f := newFailedBankFixture(t)
 	source := f.source(2)

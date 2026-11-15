@@ -11,9 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// An ambiguous investment classification must stay inside Telegram: the card
-// offers real household investment accounts and a selected ID completes the same
-// shared transfer classification without opening Settings or the Review Inbox.
+// An ambiguous investment classification stays in Telegram: the card offers real household investment accounts.
 func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -63,8 +61,6 @@ func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, review); err != nil {
 		t.Fatal(err)
 	}
-	// No deterministic Known Account mapping: the bounded chooser still offers
-	// both compatible household investment targets.
 	p := NewProcessor(pool, boundReviewGateway{})
 	callback := callbackUpdate(chat, 81, "review:investment")
 	callbackSource := seedTelegramRaw(t, pool, household, "TELEGRAM_CALLBACK", map[string]any{"callback_query": callback.CallbackQuery})
@@ -81,8 +77,6 @@ func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Multiple matching Known Accounts must also show the same chooser instead
-	// of picking one of the two investment Wealth Accounts.
 	second := callbackUpdate(chat, 81, "review:investment")
 	secondSource := seedTelegramRaw(t, pool, household, "TELEGRAM_CALLBACK", map[string]any{"callback_query": second.CallbackQuery})
 	if err = p.Process(ctx, secondSource); err != nil {

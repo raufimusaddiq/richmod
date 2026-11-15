@@ -10,9 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Bank email checks transactions other lanes already wrote (receipt,
-// screenshot, manual) before writing its own. The SPENDING_ONLY extraction is
-// untouched; dedup only links evidence. Two bank emails stay two events.
+// Bank email checks transactions other lanes wrote (receipt, screenshot, manual) before writing its own;
+// dedup only links evidence and two bank emails stay two events.
 func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -53,7 +52,6 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&source))
 			_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, source, listener.ID)
 			must(err)
-			// The transaction the earlier lane wrote.
 			var merchantID *string
 			if tt.merchant != "" {
 				var id string
@@ -113,9 +111,8 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 	}
 }
 
-// A bank-fact completion whose persist (here: a cross-lane link) committed
-// before the completion transaction failed is retried; the retry resolves the
-// review and must also settle the source instead of leaving it NEEDS_REVIEW.
+// A completion whose persist (a cross-lane link) committed before the completion transaction failed is
+// retried; the retry must resolve the review and settle the source, not leave it NEEDS_REVIEW.
 func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -142,7 +139,6 @@ func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{"kind":"TRANSACTION","amount_idr":"54000","transaction_at":"2026-10-19T06:30:00Z","merchant":"QRIS ALFAMART","confidence":0.9}','VALID')`, source, listenerID)
 	must(err)
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb) RETURNING id`, household, source).Scan(&item))
-	// The earlier attempt's persist committed: a link to the receipt transaction.
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Alfamart') RETURNING id`, household).Scan(&merchantID))
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED') RETURNING id`, household, fmt.Sprint(stamp+1), []byte(fmt.Sprint(stamp+1))).Scan(&otherSource))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR','2026-10-19T06:20:00Z',$2,now()) RETURNING id`, household, merchantID).Scan(&existing))
@@ -159,8 +155,7 @@ func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
 	}
 }
 
-// An auto-confirmed bank expense reopens a cycle waiting on a missing
-// transaction, with the recomputed residual.
+// An auto-confirmed bank expense reopens a cycle waiting on a missing transaction, with the recomputed residual.
 func TestAutoConfirmedBankEmailReopensAWaitingResidual(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

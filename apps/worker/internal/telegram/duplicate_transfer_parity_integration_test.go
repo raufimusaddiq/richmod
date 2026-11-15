@@ -92,8 +92,6 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 	}
 }
 
-// Free-text transfer meaning uses typed intelligence; callbacks map directly to
-// canonical actions.
 func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -136,9 +134,8 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
 		t.Fatal(err)
 	}
-	// Free text that is not a bound reply is ordinary conversation, handled by the
-	// agent lane. With the model unavailable it reports the outage so the queue
-	// retries; what this test pins is that nothing mutates either way.
+	// Free text that is not a bound reply is ordinary conversation; with the model down it reports the outage
+	// so the queue retries. Nothing mutates either way.
 	if err = NewProcessor(pool, boundReviewGateway{}).ProcessAgent(ctx, sourceID); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
 		t.Fatal(err)
 	}
@@ -147,7 +144,6 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	if transferType != "UNCLASSIFIED" || transferStatus != "NEEDS_REVIEW" {
 		t.Fatalf("free text must not mutate without typed intelligence: type=%s status=%s", transferType, transferStatus)
 	}
-	// The exact callback action resolves the bound review without phrase parsing.
 	cbUpdate := callbackUpdate(chatID, 61, "review:own")
 	cbRaw, _ := json.Marshal(cbUpdate)
 	var cbSourceID string
@@ -165,8 +161,6 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	}
 }
 
-// A POSSIBLE_DUPLICATE review must offer its candidate chooser inside Telegram
-// and complete the merge from a callback, without a Web detour.
 func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -199,8 +193,6 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,'IDR',$2,now()) RETURNING id`, householdID, at.Add(-30*time.Minute)).Scan(&targetID))
 	decision := `{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","decisionClass":"DUPLICATE_AMBIGUITY","missingFacts":["duplicate_relationship"],"boundedChoices":[],"allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"]}`
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb) RETURNING id`, householdID, transactionID, decision).Scan(&itemID))
-	// The card is sent by the shared projector, as producers do. It must offer one
-	// merge button per candidate and store the candidates the button resolves.
 	tx, err := pool.Begin(ctx)
 	must(err)
 	must(ProjectReviewItem(ctx, tx, householdID, itemID, 0, "", chatID))
@@ -235,9 +227,8 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	}
 }
 
-// An expense transfer review can only become an expense or an asset purchase, so
-// the chooser must not offer the own/household account classifications that the
-// canonical classifier rejects for an expense.
+// An expense transfer review can only become an expense or asset purchase, so no own/household account
+// classifications are offered.
 func TestExpenseTransferChooserOmitsInvalidClassifications(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

@@ -16,11 +16,8 @@ const (
 	agentWorkflowSalaryChoice     agentWorkflowScope = "SALARY_CHOICE"
 )
 
-// applyAgentWorkflowToolPolicy enforces server-owned target precedence before
-// the model sees the tool catalog. READ tools always remain available. When Go
-// already knows a durable workflow target, only that workflow's SIDE_EFFECT
-// tools are exposed; the model may understand the reply but cannot select a
-// different mutation lane.
+// applyAgentWorkflowToolPolicy enforces server-owned target precedence before the model sees the catalog:
+// READ tools stay, and a known durable workflow exposes only its own SIDE_EFFECT tools.
 func applyAgentWorkflowToolPolicy(
 	tools []gateway.ToolDefinition,
 	update telegramUpdate,
@@ -29,8 +26,8 @@ func applyAgentWorkflowToolPolicy(
 ) ([]gateway.ToolDefinition, agentWorkflowScope) {
 	explicitReply := update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0
 	if !explicitReply {
-		// No durable workflow owns an ordinary turn: keep READ and ordinary
-		// side-effect tools, withhold server-owned workflow mutations.
+		// No durable workflow owns an ordinary turn: keep READ and ordinary side-effect tools, withhold
+		// workflow mutations.
 		return withoutWorkflowTools(tools), agentWorkflowGeneral
 	}
 	allowed := map[string]bool{}

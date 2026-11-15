@@ -297,10 +297,8 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	return tx.Commit(ctx)
 }
 
-// projectDocumentReview gives a document/proposal review the same Telegram
-// projection as a transaction review, routed to the Telegram chat that
-// sent the source image when one exists. Non-Telegram sources keep the Inbox-only
-// behavior because there is no originating chat to bind a reply to.
+// projectDocumentReview gives a document review the same Telegram projection as a transaction review, routed
+// to the chat that sent the image; non-Telegram sources stay Inbox-only.
 func (p *Processor) projectDocumentReview(ctx context.Context, tx pgx.Tx, householdID, sourceID, reviewItemID string) error {
 	if reviewItemID == "" {
 		return nil
@@ -327,9 +325,8 @@ func jakarta() *time.Location {
 	return location
 }
 
-// sanitizeEvidenceText removes control characters and caps user-provided
-// evidence so untrusted captions or filenames cannot inflate the prompt or
-// smuggle terminal control sequences.
+// sanitizeEvidenceText strips control characters and caps user-provided evidence so captions or filenames
+// cannot inflate the prompt or smuggle terminal sequences.
 func sanitizeEvidenceText(value string) string {
 	value = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {

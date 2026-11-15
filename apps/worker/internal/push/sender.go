@@ -13,28 +13,18 @@ import (
 )
 
 const (
-	// defaultLease is longer than an HTTP send, so a claimed row is not stolen
-	// while its push service is slow (even a user with many devices). A crash
-	// after a successful send and before the result is recorded can re-send
-	// once; that window is unavoidable without a push-service idempotency key.
-	defaultLease = 5 * time.Minute
-	// defaultMaxAttempts caps retries per device before its delivery is FAILED.
+	// defaultLease outlasts an HTTP send so a slow push service does not lose its claim; a crash after send
+	// but before recording can re-send once.
+	defaultLease       = 5 * time.Minute
 	defaultMaxAttempts = 5
-	// DefaultExpiry bounds how old a notification may be before it is dropped.
-	// A review push is useful while the inbox item is fresh; replaying a month
-	// of history to a newly subscribed device is noise, not notification.
+	// DefaultExpiry drops notifications older than this; replaying history to a newly subscribed device is noise.
 	DefaultExpiry = time.Hour
-	// DefaultRetention bounds how long a terminal row is kept for diagnosis.
-	// Delivery outcomes are only useful while chasing a user's "I did not get
-	// that notification" report, which resolves within days; a week leaves a
-	// full week of history on hand without letting either table grow forever.
+	// DefaultRetention keeps terminal rows for diagnosing missed-notification reports, which resolve within days.
 	DefaultRetention = 7 * 24 * time.Hour
-	// purgeBatch caps one sweep so the first purge after a long uptime deletes
-	// in bounded chunks instead of holding locks over an arbitrarily large set.
+	// purgeBatch bounds one sweep so the first purge after long uptime does not hold locks over a huge set.
 	purgeBatch = 1000
 )
 
-// Sender claims pending outbox rows and delivers them to live subscriptions.
 type Sender struct {
 	pool        *pgxpool.Pool
 	vapid       *VAPID
@@ -73,8 +63,8 @@ type notification struct {
 	Count int    `json:"count"`
 }
 
-// secureClient refuses redirects and validates every dial target. Proxy is
-// disabled so an environment proxy cannot become an SSRF bypass.
+// secureClient refuses redirects and validates every dial target; Proxy is disabled so an environment proxy
+// cannot bypass the SSRF checks.
 func secureClient() *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
@@ -89,8 +79,7 @@ func secureClient() *http.Client {
 	}
 }
 
-// NewSender returns a disabled error when VAPID configuration is absent. The
-// caller must keep starting normally in that case.
+// NewSender returns a disabled error without VAPID config; the caller must keep starting normally.
 func NewSender(pool *pgxpool.Pool, privateKey, subject string, logger *slog.Logger) (*Sender, error) {
 	vapid, err := NewVAPID(privateKey, subject)
 	if err != nil {
@@ -115,7 +104,6 @@ func NewSender(pool *pgxpool.Pool, privateKey, subject string, logger *slog.Logg
 	}, nil
 }
 
-// Run polls until the worker context is cancelled.
 func (s *Sender) Run(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -131,8 +119,7 @@ func (s *Sender) Run(ctx context.Context) {
 	}
 }
 
-// RunOnce expires stale rows, claims one batch, and delivers one notification
-// per user/household. It returns the number of groups processed.
+// RunOnce expires stale rows, claims one batch and delivers one notification per user/household.
 func (s *Sender) RunOnce(ctx context.Context) (int, error) {
 	if err := s.expire(ctx); err != nil {
 		return 0, err
@@ -167,9 +154,8 @@ func (s *Sender) expire(ctx context.Context) error {
 	return err
 }
 
-// Expire abandons rows older than maxAge. It is a free function so the worker
-// can run the sweep even when VAPID configuration is absent and no Sender
-// exists; otherwise the outbox could grow behind a disabled feature flag.
+// Expire is a free function so the worker can sweep without VAPID config; otherwise the outbox grows behind a
+// disabled feature.
 func Expire(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, maxAge time.Duration) (int, error) {
 	rows, err := pool.Query(ctx, `
 		UPDATE push_outbox
@@ -206,20 +192,8 @@ func Expire(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, maxAge
 	return len(ids), nil
 }
 
-// Purge deletes terminal push rows older than retention, in batches of at most
-// purgeBatch per table. Expire bounds how long a row stays eligible for
-// delivery; without this sweep both tables would grow for the life of the
-// deployment. Like Expire it is a free function: the worker runs it on the same
-// unconditional tick, so a deployment with no VAPID keys still cleans up.
-//
-// The outbox -> delivery foreign key has no ON DELETE CASCADE, so nothing is
-// taken along implicitly: deliveries are deleted first (oldest first), then
-// outbox rows that no longer have any delivery row. Outbox rows whose
-// deliveries are newer than retention therefore wait for the next sweeps
-// instead of failing the delete. PENDING deliveries are never matched, and an
-// outbox row that still has a PENDING delivery keeps its row either way.
-//
-// It returns the number of outbox rows removed; both counts are logged.
+// Purge deletes terminal rows older than retention, up to purgeBatch per table, and runs without VAPID.
+// The outbox->delivery FK has no ON DELETE CASCADE, so deliveries go first; PENDING ones are never matched.
 func Purge(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, retention time.Duration) (int, error) {
 	deliveries, err := pool.Exec(ctx, `
 		WITH doomed AS (
@@ -294,8 +268,7 @@ func (s *Sender) deliver(ctx context.Context, key groupKey, rows []outboxRow, ba
 		return err
 	}
 	if !active {
-		// The row still records the skip, so the removed recipient is visible
-		// in the outbox instead of disappearing.
+		// The row still records the skip so the removed recipient stays visible.
 		return s.abandonRows(ctx, rowIDs(rows), "recipient is not an active household member")
 	}
 	ids := rowIDs(rows)
@@ -356,9 +329,7 @@ func (s *Sender) deliver(ctx context.Context, key groupKey, rows []outboxRow, ba
 		if err != nil {
 			return err
 		}
-		// Renew the lease for every row claimed in this batch before each
-		// device send, so a slow batch cannot outlive its lease and be
-		// claimed by another worker.
+		// Renew the lease for every claimed row before each device send so a slow batch is not reclaimed.
 		if _, renewErr := s.pool.Exec(ctx, `UPDATE push_outbox SET available_at=now()+($2*interval '1 second') WHERE id=ANY($1) AND sent_at IS NULL AND abandoned_at IS NULL`, batchIDs, int(s.lease.Seconds())); renewErr != nil {
 			return renewErr
 		}
@@ -390,10 +361,8 @@ func (s *Sender) deliver(ctx context.Context, key groupKey, rows []outboxRow, ba
 		if _, updateErr := s.pool.Exec(ctx, `UPDATE push_outbox_delivery SET attempts=attempts+1,status=CASE WHEN attempts+1>=$2 THEN 'FAILED' ELSE 'PENDING' END,last_error=$3,updated_at=now() WHERE id=ANY($1) AND status='PENDING'`, deliveryIDs, s.maxAttempts, lastError); updateErr != nil {
 			s.logger.Warn("push delivery record failed", "error", updateErr)
 		}
-		// failure_count is diagnostic only: a transient push-service outage
-		// must never permanently retire a valid device. Only DeliveryError.Dead
-		// (404/410) sets disabled_at. The per-event attempts cap already marks
-		// this delivery FAILED after bounded retries.
+		// failure_count is diagnostic only: a transient outage must not retire a valid device; only
+		// DeliveryError.Dead (404/410) sets disabled_at. The attempts cap already marks the delivery FAILED.
 		if _, updateErr := s.pool.Exec(ctx, `UPDATE push_subscriptions SET failure_count=failure_count+1 WHERE id=$1 AND disabled_at IS NULL`, subscriptionID); updateErr != nil {
 			s.logger.Warn("push subscription failure count failed", "error", updateErr)
 		}

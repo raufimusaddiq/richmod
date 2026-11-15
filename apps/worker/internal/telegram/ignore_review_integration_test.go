@@ -61,7 +61,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 					"message": map[string]any{"message_id": message, "chat": map[string]any{"id": chat}},
 				}})
 			}
-			processor := NewProcessor(pool, nil) // Ignore must work without AI.
+			processor := NewProcessor(pool, nil)
 			for attempt := 0; attempt < 2; attempt++ {
 				must(processor.Process(ctx, callback()))
 			}
@@ -86,11 +86,8 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 	}
 }
 
-// execWithoutReviewDecisionTrigger runs one fixture statement that recreates a
-// historical review_item with decision IS NULL, which the 00078 trigger refuses
-// for every producer. session_replication_role=replica skips triggers for this
-// transaction only (the test role owns the database); other fixtures must go
-// through the trigger.
+// Recreates a historical review_item with decision IS NULL, which the 00078 trigger refuses;
+// session_replication_role=replica skips triggers for this transaction only.
 func execWithoutReviewDecisionTrigger(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 	t.Helper()
 	ctx := context.Background()

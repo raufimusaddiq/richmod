@@ -12,10 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// contGateway serves both entry points a typed reply can reach: the date extraction
-// the deterministic review lane uses (NativeToolCall) and the conversational agent
-// (AgentTurn). It counts agent calls, so a test can prove the deterministic lane
-// answered a reply and the model was never asked.
+// Serves both entry points a reply can reach and counts agent calls, to prove the deterministic lane answered
+// without the model.
 type contGateway struct{ agentCalls int }
 
 func (*contGateway) NativeToolCall(ctx context.Context, a, b string, c any, d []gateway.ToolDefinition, o ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -35,9 +33,7 @@ type payslipReviewWorld struct {
 	gw                                             *contGateway
 }
 
-// seedPayslipReview builds a payslip whose pay date is missing: the upload was
-// message 55 in the chat, the review card is message 61, and the review is still
-// waiting for an answer. It is the shape an exact reply must reach.
+// Payslip with a missing pay date: upload is message 55, review card is message 61.
 func seedPayslipReview(t *testing.T, ctx context.Context) payslipReviewWorld {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -78,8 +74,6 @@ func seedPayslipReview(t *testing.T, ctx context.Context) payslipReviewWorld {
 	return w
 }
 
-// answerPolicy taps the salary-policy button on the card, exactly as the household
-// would, so the review is left waiting only for the date.
 func (w payslipReviewWorld) answerPolicy(t *testing.T, ctx context.Context) {
 	t.Helper()
 	raw, err := json.Marshal(callbackUpdate(w.chatID, 61, "review:salary:primary"))
@@ -103,8 +97,6 @@ func (w payslipReviewWorld) answerPolicy(t *testing.T, ctx context.Context) {
 	}
 }
 
-// reply delivers one typed message through ProcessAgent, the production entry for
-// typed text (PROCESS_TELEGRAM_TEXT), and returns its error.
 func (w payslipReviewWorld) reply(t *testing.T, ctx context.Context, text string, replyTo int64, messageID int64) error {
 	t.Helper()
 	update := telegramUpdate{}
@@ -141,8 +133,6 @@ func (w payslipReviewWorld) resolved(t *testing.T, ctx context.Context) (itemSta
 func TestDateReplyToTheUploadResolvesTheReviewWithoutReaskingKnownFacts(t *testing.T) {
 	ctx := context.Background()
 	w := seedPayslipReview(t, ctx)
-	// "tanggal 25" answers the review whether it replies to the card or to the
-	// upload; here it replies to the payslip photo itself (message 55).
 	w.answerPolicy(t, ctx)
 	if err := w.reply(t, ctx, "25 September 2026", 55, 70); err != nil {
 		t.Fatal(err)
@@ -179,8 +169,6 @@ func TestDateReplyToABoundNoticeResolvesTheReview(t *testing.T) {
 func TestReplyToUnrelatedMessageDoesNotAnswerTheReview(t *testing.T) {
 	ctx := context.Background()
 	w := seedPayslipReview(t, ctx)
-	// Message 999 is neither the upload, nor a bound notice, nor the card. The turn
-	// goes to the agent, and the review stays unanswered.
 	if err := w.reply(t, ctx, "25 September 2026", 999, 72); err != nil {
 		t.Fatal(err)
 	}
@@ -238,9 +226,6 @@ func TestReplyTargetForEvidenceReviewOnlyRedirectsExactEvidenceReplies(t *testin
 	}
 }
 
-// The agent has no binding for proposal-keyed reviews, so a typed reply to the card
-// of one used to reach the model and leave the review open. It is answered by the
-// deterministic lane at the production entry.
 func TestDateReplyToTheProposalReviewCardIsAnsweredWithoutTheModel(t *testing.T) {
 	ctx := context.Background()
 	w := seedPayslipReview(t, ctx)
@@ -278,8 +263,7 @@ func TestOnlyExactRepliesToProposalReviewsTakeTheDeterministicLane(t *testing.T)
 	}
 }
 
-// A transaction-keyed review stays with the agent: the deterministic lane must not
-// take it over just because the reply is exact.
+// A transaction-keyed review stays with the agent even when the reply is exact.
 func TestTransactionKeyedReviewRepliesStayWithTheAgent(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cont-tx-review")

@@ -10,9 +10,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// agentResolveBoundResidualWithHints keeps Wealth Account UUIDs server-private.
-// The model supplies human-readable hints; Go resolves them and passes only the
-// resolved canonical IDs into the existing deterministic residual allocator.
+// agentResolveBoundResidualWithHints keeps Wealth Account UUIDs server-private: the model supplies hints and
+// Go resolves them to canonical IDs.
 func (p *Processor) agentResolveBoundResidualWithHints(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	binding := state.ReviewBinding
@@ -20,8 +19,8 @@ func (p *Processor) agentResolveBoundResidualWithHints(ctx context.Context, stat
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
-	// Residual mutation must be tied to the concrete Telegram review message.
-	// An unsent/unbound review is not actionable from free text.
+	// A residual mutation must be tied to the concrete Telegram review message; an unsent or unbound review
+	// is not actionable from free text.
 	if binding.TelegramMessageID == 0 {
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil

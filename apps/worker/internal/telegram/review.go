@@ -33,9 +33,8 @@ type reviewExtraction struct {
 // reviewPayrollPeriodPattern matches the YYYY-MM payroll period stored on payslip evidence.
 var reviewPayrollPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
-// errReviewResidualFacts records that Telegram declined to confirm because the
-// stored residual contract was still open. The caller already replied, so this
-// is a control signal, not a user-facing failure.
+// errReviewResidualFacts is a control signal: Telegram declined to confirm while the residual contract was
+// open, and the caller already replied.
 func residualConfirmationBlockers(decision []byte, dateSupplied, categorySupplied, merchantSupplied bool) []string {
 	var stored struct {
 		MissingFacts []string `json:"missingFacts"`
@@ -80,9 +79,8 @@ func reviewNeedsFactsMessage(facts []string) string {
 	return "Masih perlu " + strings.Join(labels, " dan ") + ". Balas pesan ini (Reply) dengan detail tersebut untuk menyelesaikan tinjauan."
 }
 
-// parseSuppliedReviewDate reads a household-supplied transaction date as a
-// Jakarta calendar date. It accepts YYYY-MM-DD with or without zero padding, and
-// an RFC3339 timestamp, which is what a model proposing the date may send.
+// parseSuppliedReviewDate reads a Jakarta calendar date: YYYY-MM-DD (padding optional) or an RFC3339
+// timestamp a model may send.
 func parseSuppliedReviewDate(value string) (*string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -100,11 +98,8 @@ func parseSuppliedReviewDate(value string) (*string, error) {
 	return &canonical, nil
 }
 
-// applyReviewTransactionDate stores a validated YYYY-MM-DD date on the reviewed
-// transaction and its proposal. When the date was the last missing fact and the
-// shared confirm rule accepts the transaction without a category, it confirms
-// through the canonical operation and reports completed, so no resolved review is
-// left behind an open transaction.
+// applyReviewTransactionDate stores a validated date; if it was the last missing fact and confirm accepts the
+// transaction without a category, it confirms and reports completed.
 func (p *Processor) applyReviewTransactionDate(ctx context.Context, tx pgx.Tx, householdID, userID, reviewID, transactionID, date string) (bool, error) {
 	dateAt, err := time.ParseInLocation("2006-01-02", date, jakartaLocation())
 	if err != nil {
@@ -134,13 +129,10 @@ type categoryChoice struct {
 	Slug string
 }
 
-// ReviewProjectionOpen reports whether a queued review card is still worth
-// sending. A review resolved (or cancelled/expired) between enqueue and send must
-// not produce a fresh live card with buttons that can only answer stale.
-// An unknown request id is treated as still-open so non-review sends are unaffected.
+// ReviewProjectionOpen reports whether a queued card is still worth sending, so a review resolved between
+// enqueue and send gets no live card. An unknown request id counts as open so non-review sends are unaffected.
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
-	// Callers pass an exact reply: ProcessAgent for proposal-keyed reviews, and
-	// Process for the transfer buttons, whose callback sets the message it answers.
+	// Callers pass an exact reply: ProcessAgent for proposal-keyed reviews, Process for transfer buttons.
 	var err error
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		return false, nil
@@ -226,8 +218,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') AND c.state='AWAITING_DATE'`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&proposalReviewID, &proposalID, &sourceID, &documentID, &userID, &requestID)
 	if err == nil {
-		// An explicit date ("25 Okt", "25/10", "kemarin") is read in Go; only a
-		// reply the deterministic parser cannot read goes to the model.
+		// An explicit date is read in Go; only replies the parser cannot read go to the model.
 		var payDate string
 		if parsed, ok := parseReplyDate(update.Message.Text, p.turnTime(update)); ok {
 			payDate = parsed.Format("2006-01-02")
@@ -304,10 +295,8 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tombol tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk melanjutkan.")
 	}
-	// Only the transfer buttons reach this point (see Process). They answer a
-	// relationship or retained-account review; all other cards leave this lane.
-	// An incoming transaction may also be classified from the income card's Ubah
-	// choice (Penghasilan / Rekening sendiri / Household) whatever its kind.
+	// Only the transfer buttons reach here (see Process); an incoming transaction may also be classified from
+	// the income card's Ubah choice whatever its kind.
 	incomeChoice := transactionType == "INCOME" && (update.CallbackQuery.Data == "review:income" || update.CallbackQuery.Data == "review:own" || update.CallbackQuery.Data == "review:household")
 	if !incomeChoice && (missingFactsJSON == nil || !(reviewRequiresFact(*missingFactsJSON, "transfer_relationship") || reviewRequiresFact(*missingFactsJSON, "wealth_account"))) {
 		return false, nil
@@ -321,8 +310,8 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
 }
 
-// reviewRequiresFact reports whether a stored missingFacts JSON array names
-// fact. A JSON null or malformed value fails closed and keeps the requirement.
+// reviewRequiresFact reports whether missingFacts JSON names fact; null or malformed fails closed and keeps
+// the requirement.
 func reviewRequiresFact(raw string, fact string) bool {
 	if strings.TrimSpace(raw) == "null" {
 		return true
@@ -339,11 +328,7 @@ func reviewRequiresFact(raw string, fact string) bool {
 	return false
 }
 
-// processReviewDetailCallback is the deterministic callback lane for review
-// editing. These callbacks never enter the conversational LLM pipeline.
-// processFinancialEmailPager re-renders the bound financial-email chooser on a
-// later page, so a household with more accounts than one keyboard holds can still
-// reach the missing entity.
+// processReviewDetailCallback is the deterministic review-editing lane; it never enters the conversational pipeline.
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	if data == "review:remember" || data == "review:once" {
 		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
@@ -453,8 +438,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		if !allowed {
 			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
-		// ADR-046: confirming the duplicate as a distinct event is the canonical
-		// transaction confirm, not a Telegram-specific status update.
+		// ADR-046: confirming the duplicate as a distinct event is the canonical transaction confirm.
 		remaining, err := reviewdomain.ApplyTransactionReviewFacts(ctx, tx, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID, Relationship: "DISTINCT"})
 		if err != nil {
 			return true, err
@@ -549,8 +533,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 
 func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
 	var reviewID, transactionID string
-	// The question is its own message (merchant_learning_message_id); a question
-	// delivered before that existed was an edit of the card itself.
+	// The question is its own message (merchant_learning_message_id); earlier ones were an edit of the card itself.
 	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND (rr.merchant_learning_message_id=$3 OR rr.telegram_message_id=$3)`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
@@ -561,17 +544,14 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	return p.applyMerchantLearningChoice(ctx, sourceEventID, householdID, reviewID, transactionID, update, data == "review:remember")
 }
 
-// duplicateIntentMarkup is the initial duplicate prompt: the exact candidate list is offered when the user opens the review, so creation only needs the two terminal intents.
-// recordReviewMerchantFact advances the stored residual contract in the same
-// transaction as the user-supplied merchant; other unresolved facts stay open.
+// Advances the stored residual contract in the same transaction as the merchant; other unresolved facts stay open.
 func recordReviewMerchantFact(ctx context.Context, tx pgx.Tx, householdID, reviewID, value string) error {
 	_, err := tx.Exec(ctx, `UPDATE review_item ri SET decision=jsonb_set(jsonb_set(ri.decision,'{missingFacts}',COALESCE(ri.decision->'missingFacts','[]'::jsonb)-'merchant'),'{knownFacts}',COALESCE(ri.decision->'knownFacts','{}'::jsonb)||jsonb_build_object('merchant',$3::text)),updated_at=now() FROM review_request r WHERE r.id=$1 AND r.household_id=$2 AND ri.id=r.review_item_id AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND')`, reviewID, householdID, value)
 	return err
 }
 
-// processReviewCategoryCallback handles category buttons without converting
-// them into user text or invoking the conversational LLM. The category UUID
-// is checked against the review's household inside the same lookup.
+// Category buttons never become user text or reach the conversational model; the category UUID is checked
+// against the review's household in the same lookup.
 func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -643,8 +623,7 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return err
 	}
 	if reviewType == "TRANSFER_CLASSIFICATION" && transactionType == "UNCLASSIFIED" {
-		// The transfer card's Pengeluaran choice led here: the category completes
-		// the expense classification through the shared classifier.
+		// The transfer card's Pengeluaran choice led here: the category completes the expense classification.
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "EXPENSE", "CONFIRMED", "EXPENSE", "✅ Dicatat sebagai pengeluaran.", validCategory)
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, validCategory, update, reviewExtraction{Confidence: 1})
@@ -666,11 +645,8 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	if err := enqueueReply(ctx, tx, update, staleReviewReplyForSource(ctx, tx, sourceEventID, update, "Tinjauan ini sudah ditutup atau berubah. Tidak ada perubahan baru dari pilihan ini.")); err != nil {
 		return err
 	}
-	// A stale tap on a card that no longer belongs to a live review loses its
-	// buttons, like every other stale callback. A card whose review is still open
-	// (only this choice was invalid) keeps its keyboard so the review stays
-	// answerable, and so does a card still asking the merchant-learning question:
-	// that question is pending after the request already resolved.
+	// A stale tap loses its buttons like any stale callback; a card whose review is still open, or still
+	// asking the merchant-learning question, keeps its keyboard.
 	if update.CallbackQuery != nil {
 		var live bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id JOIN review_item ri ON ri.id=r.review_item_id JOIN review_conversation c ON c.review_request_id=r.id WHERE rr.telegram_chat_id=$1 AND (rr.telegram_message_id=$2 OR rr.merchant_learning_message_id=$2) AND (c.state='AWAITING_MERCHANT_DECISION' OR r.status IN ('PENDING_SEND','OPEN') AND r.expires_at>now() AND ri.status IN ('PENDING_SEND','OPEN')))`, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID).Scan(&live); err != nil {
@@ -685,10 +661,8 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	return tx.Commit(ctx)
 }
 
-// incomeReviewChoice reads the bounded reply to the income confirmation prompt
-// ("penghasilan" to record, "transfer sendiri" to ignore). Only an exact
-// normalized answer counts: a negation, a question or any longer sentence is
-// unclear, because the answer changes financial state. Unclear repeats the prompt.
+// incomeReviewChoice accepts only an exact normalized answer ("penghasilan", "transfer sendiri"); anything
+// else is unclear and repeats the prompt, since the answer changes financial state.
 func incomeReviewChoice(text string) string {
 	normalized := strings.ToLower(strings.Trim(strings.Join(strings.Fields(text), " "), " .,!?"))
 	switch normalized {
@@ -700,10 +674,8 @@ func incomeReviewChoice(text string) string {
 	return ""
 }
 
-// rejectBoundReview handles the generic "Abaikan" button on any transaction-bound
-// review card: it voids the transaction and completes the review. The audit
-// records the card's review type, not an assumed reason, because the same
-// button appears on transfer, expense, and income cards.
+// Generic Abaikan: voids the transaction and completes the review, auditing the card's own review type
+// because the button appears on transfer, expense and income cards.
 func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, reviewType string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -714,8 +686,8 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
-	// ADR-046: the transaction void, proposal rejection, projection cancellation,
-	// source-event refresh, and review completion are one shared operation.
+	// ADR-046: void, proposal rejection, projection cancellation, source-event refresh and review completion
+	// are one shared operation.
 	if err := reviewdomain.RejectTransactionReview(ctx, tx, reviewdomain.RejectCommand{
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
@@ -784,10 +756,8 @@ func enqueueReviewMessageWithMarkup(ctx context.Context, tx pgx.Tx, reviewID str
 	return err
 }
 
-// enqueueReviewUpdateWithMarkup edits a live review card in place. The edit
-// carries its review_request_id so the worker drops it once the request is
-// terminal: retirement has already stripped the card and this edit must not
-// put buttons back.
+// Carries review_request_id so the worker drops the edit once the request is terminal; retirement already
+// stripped the card.
 func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
 	encoded, err := json.Marshal(markup)
 	if err != nil {
@@ -797,11 +767,8 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 	return err
 }
 
-// enqueueMerchantLearningQuestion sends the optional "remember this category"
-// question as its own message, replying to the message that confirmed the
-// review. The review card itself is retired with its request; once sent, this
-// message is bound to the request's recipient row (merchant_learning_message_id)
-// so its buttons and replies still reach the pending decision.
+// Sends the optional "remember this category" question as its own message, bound to the recipient row
+// (merchant_learning_message_id) so its buttons and replies reach the pending decision.
 func enqueueMerchantLearningQuestion(ctx context.Context, tx pgx.Tx, reviewID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
 	encoded, err := json.Marshal(markup)
 	if err != nil {
@@ -813,12 +780,8 @@ func enqueueMerchantLearningQuestion(ctx context.Context, tx pgx.Tx, reviewID st
 
 func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {
 	if reviewType == "TRANSFER_CLASSIFICATION" {
-		// The canonical classifier accepts only classifications valid for the
-		// transaction type: an expense can only become an expense or an asset
-		// purchase, an incoming row (a screenshot "dana masuk") is either income or
-		// the household's own money moving between accounts, while an unclassified
-		// transfer allows every choice. Offering an invalid button would only
-		// produce a stale-action reply, so the keyboard follows the subject.
+		// The canonical classifier accepts only classifications valid for the transaction type, and offering
+		// an invalid button only yields a stale reply, so the keyboard follows the subject.
 		var kind, purpose string
 		if tx.QueryRow(ctx, `SELECT t.type,t.purpose FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind, &purpose) != nil {
 			return nil
@@ -844,22 +807,15 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 	return categoryChooserMarkup(ctx, tx, reviewID, page)
 }
 
-// merchantCategoryChoice is one category the reviewed transaction's merchant
-// was confirmed with before.
 type merchantCategoryChoice struct {
 	ID, Name  string
 	Suggested bool
 }
 
-// merchantCategoryHistory returns up to three categories the household already
-// confirmed for this transaction's merchant, ranked by how often and then how
-// recently they were used. When every earlier confirmed transaction of this
-// merchant with exactly this amount (at least two of them) used one category,
-// that category is the suggestion and comes first. It is deterministic Go over
-// household-scoped canonical rows; no model is asked.
+// merchantCategoryHistory returns up to three categories confirmed for this merchant, ranked.
+// A category used by every same-amount transaction (at least two) comes first; household-scoped, no model.
 func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []merchantCategoryChoice {
-	// The history row is an optional shortcut: it runs in a savepoint so a
-	// failure is logged and the plain chooser still renders in this transaction.
+	// Optional shortcut run in a savepoint: a failure is logged and the plain chooser still renders.
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
 		slog.Default().Warn("merchant category history unavailable", "review_request_id", reviewID, "error", err)
@@ -922,10 +878,7 @@ func queryMerchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID strin
 	return all, nil
 }
 
-// categoryChooserMarkup is the paged category chooser. Its first row is the
-// merchant's own past categories, so a merchant that sells several kinds of
-// things is answered in one tap; the generic list follows without repeating
-// them.
+// The merchant's own past categories come first and are not repeated in the generic list.
 func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page int) *InlineKeyboardMarkup {
 	markup, err := categoryChooserMarkupErr(ctx, tx, reviewID, page)
 	if err != nil {
@@ -935,8 +888,8 @@ func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page
 	return markup
 }
 
-// categoryChooserMarkupErr reports a query failure separately from "no active
-// category", so a caller never tells a household with categories it has none.
+// Reports a query failure separately from "no active category" so a household with categories is never told
+// it has none.
 func categoryChooserMarkupErr(ctx context.Context, tx pgx.Tx, reviewID string, page int) (*InlineKeyboardMarkup, error) {
 	var transactionType string
 	_ = tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType)
@@ -1015,14 +968,11 @@ func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID
 		return err
 	}
 	if itemID != "" && transaction == "" {
-		// Specialized non-transaction flows keep their subject-specific transition;
-		// this avoids inventing a transaction binding.
+		// Specialized non-transaction flows keep their own transition rather than inventing a transaction binding.
 		_, err := tx.Exec(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolution_action=$2,updated_at=now() FROM review_request rr WHERE rr.id=$1 AND ri.id=rr.review_item_id AND ri.status IN ('PENDING_SEND','OPEN')`, reviewID, action)
 		return err
 	}
-	// Idempotent by design: a review already completed by an earlier step (for
-	// example the confirm that now resolves before the optional merchant question)
-	// is success, not a failure to re-resolve.
+	// Idempotent: a review completed by an earlier step (e.g. the confirm before the merchant question) is success.
 	err := reviewdomain.ResolveByID(ctx, tx, reviewdomain.Command{HouseholdID: household, ActorUserID: userID, ReviewItemID: itemID, RequestID: reviewID, SubjectID: transaction, Action: action})
 	if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 		return nil

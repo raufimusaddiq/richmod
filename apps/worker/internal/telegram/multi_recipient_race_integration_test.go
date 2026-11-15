@@ -1,10 +1,7 @@
 package telegram
 
-// Regression matrix: multi-recipient race for a bank-fact review. One
-// UNKNOWN_BANK_TEMPLATE review_item can be delivered to several household
-// members. The first valid reply must queue the shared completion job once; once
-// the job resolves the item, a second recipient's reply on the same card must be
-// answered as stale with no second job and no second mutation.
+// Multi-recipient race: the first valid reply queues the shared completion job once; a later reply on the
+// same card is stale.
 
 import (
 	"context"
@@ -92,8 +89,7 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Mirror the bank-email producer: insert the OPEN item, then project it to
-	// every eligible household Telegram identity through the shared projector.
+	// Mirror the bank-email producer: insert the OPEN item, then project it to every eligible identity.
 	if err = tx.QueryRow(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{\"version\":1,\"reasonCode\":\"UNKNOWN_BANK_TEMPLATE\",\"allowedActions\":[\"COMPLETE_BANK_FACTS\",\"IGNORE\"]}'::jsonb) RETURNING id", householdID, sourceEventID).Scan(&itemID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
@@ -115,7 +111,6 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	if _, err = pool.Exec(ctx, "UPDATE review_request_recipient SET telegram_message_id=CASE telegram_chat_id WHEN $2 THEN 31 WHEN $3 THEN 32 END WHERE review_request_id=$1", reviewID, firstChat, secondChat); err != nil {
 		t.Fatal(err)
 	}
-	// The model extracts the facts from the typed answer; Go validates and queues.
 	processor := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
 	reply := seedTelegramReply(t, pool, householdID, firstChat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
 	if err = processor.ProcessAgent(ctx, reply); err != nil {
@@ -136,13 +131,11 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	if queued != 1 || itemStatus != "OPEN" {
 		t.Fatalf("first reply must queue exactly one job and leave the item open: jobs=%d item=%s", queued, itemStatus)
 	}
-	// The queued job resolves the item out of band; simulate that canonical outcome.
 	if _, err = pool.Exec(ctx, "UPDATE review_item SET status='RESOLVED',resolved_at=now() WHERE id=$1", itemID); err != nil {
 		t.Fatal(err)
 	}
 	reply2 := seedTelegramReply(t, pool, householdID, secondChat, 42, 32, "54000 2026-09-23T13:45:00+07:00")
-	// The review is resolved, so the second answer binds to nothing and the
-	// model gets no review tool: nothing may mutate.
+	// The item is resolved, so the second answer binds to nothing and the model gets no review tool.
 	if err = processor.ProcessAgent(ctx, reply2); err != nil {
 		t.Fatal(err)
 	}

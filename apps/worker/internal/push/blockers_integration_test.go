@@ -20,9 +20,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/pushsupport"
 )
 
-// These tests are intentionally self-contained so they can be run against the
-// pre-fix commit to demonstrate the behavioural difference.
-
 type blkFake struct {
 	mu     sync.Mutex
 	paths  []string
@@ -463,7 +460,6 @@ func TestBlockerTransientFailuresDoNotDisableSubscription(t *testing.T) {
 		t.Fatalf("failure_count=%d, want 5", failureCount)
 	}
 
-	// Recovery: a new event must reach the same device and reset the diagnostic.
 	failing = false
 	blkOutbox(t, pool, household, user)
 	if _, err := sender.RunOnce(context.Background()); err != nil {
@@ -658,9 +654,8 @@ func blkSender(t *testing.T, pool *pgxpool.Pool, fake *blkFake) *Sender {
 	return sender
 }
 
-// TestBlockerSubscriptionNeverChangesHousehold: a user belongs to one household
-// for good (migration 00088), so a refresh claiming another household is
-// refused and the stored subscription keeps its household and deliveries.
+// A user belongs to one household for good (migration 00088): a refresh claiming another household is refused
+// and the stored subscription keeps its household and deliveries.
 func TestBlockerSubscriptionNeverChangesHousehold(t *testing.T) {
 	pool := blkPool(t)
 	blkClean(t, pool)

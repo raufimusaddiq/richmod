@@ -9,9 +9,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// lockAgentReviewBindingTx revalidates the server-owned Telegram review binding
-// inside the same transaction that will mutate the bound finance subject. This
-// prevents target drift between context construction and mutation execution.
+// lockAgentReviewBindingTx revalidates the review binding inside the mutating transaction, preventing target
+// drift between context construction and mutation.
 func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, state *agentState, binding *agentReviewBinding, expectedKind string) (bool, error) {
 	if binding == nil || binding.Kind != expectedKind || binding.TargetID == "" || binding.ReviewRequestID == "" {
 		return false, nil

@@ -11,12 +11,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// One purchase seen by several lanes stays one canonical transaction with many
-// evidence rows (AGENTS.md). These pin the document side of every lane order:
-// the earlier lane's transaction may still be NEEDS_REVIEW.
+// One purchase seen by several lanes stays one canonical transaction with many evidence rows; these pin the
+// document side of every lane order, where the earlier transaction may still be NEEDS_REVIEW.
 
-// seedLaneTransaction inserts the transaction another lane already wrote for
-// the event, with that lane's evidence row.
+// seedLaneTransaction inserts the transaction another lane already wrote for the event, with that lane's evidence row.
 func seedLaneTransaction(t *testing.T, fixture receiptFixture, status, evidenceType, merchant string, at time.Time) (string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -102,7 +100,6 @@ func TestReceiptAfterAmbiguousLaneTransactionAsksAndNamesTheCandidate(t *testing
 func TestScreenshotMatcherSeesTransactionsStillInReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Cross-lane screenshot")
 	ctx := context.Background()
-	// Receipt (or bank) first: its transaction is still awaiting review.
 	existing, _ := seedLaneTransaction(t, fixture, "NEEDS_REVIEW", "RECEIPT_IMAGE", "Alfamart", receiptTime().Add(-10*time.Minute))
 	row := validatedScreenshotRow{Value: screenshotRow{Amount: ptr("57500"), Merchant: "Alfamart"}, Type: "EXPENSE", TransactionAt: receiptTime(), DateKnown: true}
 	matches, err := (&Processor{pool: fixture.pool}).findScreenshotMatches(ctx, fixture.householdID, row)
@@ -119,9 +116,8 @@ func TestScreenshotMatcherSeesTransactionsStillInReview(t *testing.T) {
 	}
 }
 
-// A bank email writing the same purchase while the receipt is being decided
-// must not produce two transactions: the receipt write re-checks under the
-// shared ledger lock and re-decides, linking to the bank transaction.
+// A bank email writing the same purchase while the receipt is being decided must not yield two transactions:
+// the receipt write re-checks under the ledger lock and links to the bank transaction.
 func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Cross-lane race")
 	ctx := context.Background()
@@ -132,7 +128,6 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'QRIS ALFAMART') RETURNING id::text`, fixture.householdID).Scan(&merchantID); err != nil {
 		t.Fatal(err)
 	}
-	// The bank lane holds the ledger lock and has written, but not committed.
 	bank, err := fixture.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -170,9 +165,8 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	}
 }
 
-// The locked re-check runs inside the writing transaction: a screenshot write
-// must complete on a single-connection pool instead of waiting forever for a
-// second connection.
+// The locked re-check runs inside the writing transaction: a screenshot write must complete on a single-
+// connection pool, not wait forever for a second connection.
 func TestScreenshotLedgerRecheckNeedsNoSecondConnection(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Cross-lane single connection")
 	config, err := pgxpool.ParseConfig(os.Getenv("TEST_DATABASE_URL"))

@@ -79,8 +79,6 @@ func TestTelegramMemberAuthorized(t *testing.T) {
 	check("removed member", f.household, false)
 }
 
-// TestQueuedTurnFromRemovedMemberIsIgnoredSilently: a message captured while
-// the sender was a member, but processed after removal, gets no answer.
 func TestQueuedTurnFromRemovedMemberIsIgnoredSilently(t *testing.T) {
 	pool := memberAccessPool(t)
 	ctx := context.Background()

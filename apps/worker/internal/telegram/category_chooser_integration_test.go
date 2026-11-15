@@ -12,9 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The category pager callback on a category-only review is already sitting on the
-// chooser message, so it must re-render the chooser in place instead of pointing
-// the user at the Review Inbox.
+// The pager callback on a category-only review sits on the chooser message, so it re-renders in place instead
+// of pointing at the Review Inbox.
 func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -94,8 +93,6 @@ func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 	}
 }
 
-// Clicking a category button on a category-only review must resolve the review,
-// not get swallowed by a chooser re-render.
 func TestCategoryOnlyReviewSelectionCompletesReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

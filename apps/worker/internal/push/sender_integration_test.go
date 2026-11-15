@@ -279,10 +279,8 @@ func TestSenderSkipsWhenVAPIDMissing(t *testing.T) {
 	}
 }
 
-// TestPurgeDeletesOnlyOldTerminalRows seeds an old SENT outbox with an old SENT
-// delivery, an old PENDING outbox with an old PENDING delivery, and an old SENT
-// outbox whose delivery is still inside the retention window. Only the first
-// pair may disappear; the third stays because its delivery row still exists.
+// Seeds old SENT and PENDING outbox/delivery pairs plus an old SENT outbox with a fresh delivery; only the
+// first pair may disappear.
 func TestPurgeDeletesOnlyOldTerminalRows(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -296,8 +294,8 @@ func TestPurgeDeletesOnlyOldTerminalRows(t *testing.T) {
 	pending := seedPurgeOutbox(t, pool, household, user, 30, false)
 	seedPurgeDelivery(t, pool, pending, subscription, "PENDING", 30)
 
-	// Terminal outbox, delivery still fresh: deleting the outbox would strand
-	// the delivery on a missing foreign key, so the sweep must skip it.
+	// Terminal outbox with a fresh delivery: deleting it would strand the delivery on a missing foreign key,
+	// so the sweep skips it.
 	freshDelivery := seedPurgeOutbox(t, pool, household, user, 30, true)
 	seedPurgeDelivery(t, pool, freshDelivery, subscription, "SENT", 0)
 
@@ -327,9 +325,8 @@ func TestPurgeDeletesOnlyOldTerminalRows(t *testing.T) {
 	}
 }
 
-// TestPurgeRunsWithoutVAPID proves the sweep does not depend on push
-// configuration: the Sender cannot even be constructed with an empty key, and
-// Purge still removes the row.
+// The sweep must not depend on push config: a Sender cannot be built with an empty key, yet Purge still
+// removes the row.
 func TestPurgeRunsWithoutVAPID(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -359,8 +356,6 @@ func TestPurgeRunsWithoutVAPID(t *testing.T) {
 	}
 }
 
-// seedPurgeOutbox inserts one outbox row created ageDays ago; sent marks it
-// terminal, otherwise it stays pending.
 func seedPurgeOutbox(t *testing.T, pool *pgxpool.Pool, household, user string, ageDays int, sent bool) int64 {
 	t.Helper()
 	var id int64
@@ -409,8 +404,7 @@ func testSender(t *testing.T, pool *pgxpool.Pool) *Sender {
 	return sender
 }
 
-// cleanOutbox isolates sender tests from pending rows left by earlier runs or
-// by review/integration fixtures in other packages.
+// cleanOutbox isolates sender tests from pending rows left by earlier runs or other packages' fixtures.
 func cleanOutbox(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `UPDATE push_outbox SET sent_at=now() WHERE sent_at IS NULL AND abandoned_at IS NULL`); err != nil {
