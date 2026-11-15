@@ -105,3 +105,46 @@ test("a failed load keeps rows but drops the stale pager cursor", () => {
   assert.doesNotMatch(source, /query\.set\("limit", "50"\)/);
   assert.match(source, /hasActiveFilters\(`\?\$\{query\}`\) && <button type="button" className="secondary" onClick=\{resetFilters\}>Hapus filter<\/button>/);
 });
+
+import { canEditTransaction, editErrorMessage, editFormErrors, editPayload, editableFields } from "../app/lib/transactionForm.js";
+
+test("edit: only live transactions are editable and transfers lock category and account", () => {
+  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
+  assert.equal(canEditTransaction({ id: "t", status: "NEEDS_REVIEW" }), false);
+  assert.equal(canEditTransaction({ id: "t", status: "VOIDED" }), false);
+  assert.equal(canEditTransaction({ status: "CONFIRMED" }), false);
+  assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, description: true, note: true });
+  assert.equal(editableFields({ type: "INCOME" }).category, true);
+});
+
+test("edit: validation and payload", () => {
+  assert.ok(editFormErrors({ description: "  " }, { description: "Lama" }).description);
+  assert.ok(editFormErrors({ description: "x".repeat(501) }).description);
+  assert.ok(editFormErrors({ description: "ok", note: "x".repeat(2001) }).note);
+  assert.deepEqual(editFormErrors({ description: "Kopi", note: "" }), {});
+  // NULL description (ingestion) stays blank without error; blanking an existing one errors.
+  assert.deepEqual(editFormErrors({ description: "", note: "" }, { description: null }), {});
+  assert.ok(editFormErrors({ description: "", note: "" }, { description: "Lama" }).description);
+  assert.deepEqual(editPayload({ type: "INCOME", description: null, categoryId: null }, { categoryId: "c1", accountId: "", description: "", note: "" }), { categoryId: "c1" });
+  assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", description: "Lama", note: "n" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
+  // Unchanged (possibly deactivated) category/account are never resent.
+  assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", accountId: "a0", description: "Lama", note: null }, { categoryId: "c0", accountId: "a0", description: "Baru", note: "" }), { description: "Baru" });
+  assert.deepEqual(editPayload({ type: "EXPENSE", description: "Lama" }, { categoryId: "", accountId: "", description: "Lama", note: "" }), {});
+  assert.deepEqual(Object.keys(editPayload({ type: "TRANSFER" }, { categoryId: "c", accountId: "a", description: "x", note: "n" })).sort(), ["description", "note"]);
+});
+
+test("edit: errors map to Indonesian and the audit action has a label", () => {
+  assert.match(editErrorMessage(409, { code: "REVIEW_OPEN" }), /tinjauan dulu/);
+  assert.match(editErrorMessage(409, { code: "STALE_EDIT" }), /sudah berubah/);
+  assert.match(editErrorMessage(409, { code: "TRANSACTION_VOIDED" }), /dibatalkan/);
+  assert.doesNotMatch(editErrorMessage(400, { code: "INVALID_CATEGORY", error: "categoryId must identify" }), /categoryId/);
+  assert.match(editErrorMessage(500), /Coba lagi/);
+  assert.equal(auditActionText("UPDATE_DETAILS"), "Detail transaksi diubah");
+});
+
+test("edit: drawer offers Ubah and the dialog keeps drawer key handling out", () => {
+  assert.match(page, />Ubah<\/button>/);
+  assert.match(page, /aria-labelledby="edit-transaction-title"/);
+  assert.match(page, /"If-Match": selected\.updatedAt/);
+  assert.match(page, /onEditKeyDown[\s\S]{0,80}stopPropagation/);
+});
