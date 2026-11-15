@@ -146,9 +146,31 @@ export function canVoidTransaction(transaction) {
 export function voidFailure(status, body = {}) {
   const text = String(body?.error || "").toLowerCase();
   if (status === 409 && text.includes("review endpoint")) return { kind: "review", message: "Transaksi ini masih menunggu keputusan, jadi belum bisa dibatalkan di sini. Selesaikan dulu di Tinjauan." };
-  if (status === 409 && body?.code === "MERGE_TARGET") return { kind: "error", message: "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan. Batalkan penggabungannya dulu." };
+  if (status === 409 && body?.code === "MERGE_TARGET") return { kind: "error", message: "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan. Pisahkan penggabungannya dulu lewat tombol “Pisahkan penggabungan” di bawah." };
   if (status === 409) return { kind: "error", message: "Status transaksi sudah berubah. Detail dimuat ulang; coba lagi jika tombol masih tersedia.", reload: true };
   if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
   if (status === 404) return { kind: "error", message: "Transaksi tidak ditemukan. Muat ulang daftar transaksi.", reload: true };
   return { kind: "error", message: "Transaksi belum dibatalkan. Coba lagi." };
+}
+
+// ---- Reverse a reconciliation merge (POST /api/v1/reconciliation-merges/{id}/reverse) ----
+
+export const REVERSE_MERGE_SUCCESS_MESSAGE = "Penggabungan dipisahkan. Transaksi yang tadi digabung kembali ke Tinjauan untuk diputuskan lagi.";
+
+// One line about an ACTIVE merge from GET /transactions/{id}: TARGET absorbed the other
+// transaction, SOURCE was folded into it. `formatAmount` is the page's money formatter.
+export function mergeSummary(merge, formatAmount = value => value) {
+  const other = [merge?.otherLabel || "Transaksi lain", merge?.otherAmount ? formatAmount(merge.otherAmount) : ""].filter(Boolean).join(" · ");
+  return merge?.role === "TARGET" ? `Menyerap transaksi duplikat: ${other}.` : `Digabung ke transaksi lain: ${other}.`;
+}
+
+export function reverseMergeConfirmMessage(merge, formatAmount) {
+  return `Pisahkan penggabungan ini? ${mergeSummary(merge, formatAmount)} Transaksi yang digabung kembali ke Tinjauan, dan bukti yang tadi disalin dilepas lagi. Tidak ada transaksi yang dihapus.`;
+}
+
+export function reverseMergeFailure(status) {
+  if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
+  if (status === 404) return { kind: "error", message: "Penggabungan ini sudah dipisahkan atau tidak ditemukan. Detail dimuat ulang.", reload: true };
+  if (status === 409) return { kind: "error", message: "Transaksi hasil gabungan sudah berubah, jadi penggabungan belum bisa dipisahkan. Detail dimuat ulang.", reload: true };
+  return { kind: "error", message: "Penggabungan belum dipisahkan. Coba lagi." };
 }

@@ -43,6 +43,23 @@ type transactionView struct {
 	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
+// activeMergeView is an ACTIVE reconciliation merge this transaction takes part in, with the
+// other side described for the drawer's "Pisahkan penggabungan" action. Role TARGET means this
+// transaction absorbed the other (voiding it is refused); SOURCE means it was folded into the other.
+type activeMergeView struct {
+	ID                 string    `json:"id"`
+	Role               string    `json:"role"`
+	OtherTransactionID string    `json:"otherTransactionId"`
+	OtherLabel         string    `json:"otherLabel"`
+	OtherAmount        string    `json:"otherAmount"`
+	OtherTransactionAt time.Time `json:"otherTransactionAt"`
+}
+
+type transactionDetail struct {
+	transactionView
+	ActiveMerges []activeMergeView `json:"activeMerges"`
+}
+
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	p, household, ok := principalHousehold(w, r)
 	if !ok {
@@ -214,7 +231,34 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
 		return
 	}
-	writeJSON(w, 200, v)
+	merges, err := h.activeMerges(r.Context(), household, v.ID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
+		return
+	}
+	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges})
+}
+
+func (h *Handler) activeMerges(ctx context.Context, household, id string) ([]activeMergeView, error) {
+	rows, err := h.pool.Query(ctx, `SELECT m.id,CASE WHEN m.target_transaction_id=$1 THEN 'TARGET' ELSE 'SOURCE' END,o.id,COALESCE(NULLIF(mm.normalized_name,''),NULLIF(o.counterparty_name,''),NULLIF(o.description,''),''),o.amount::text,o.transaction_at
+		FROM reconciliation_merge m
+		JOIN transaction o ON o.household_id=m.household_id AND o.id=CASE WHEN m.target_transaction_id=$1 THEN m.source_transaction_id ELSE m.target_transaction_id END
+		LEFT JOIN merchant mm ON mm.id=o.merchant_id
+		WHERE m.household_id=$2 AND m.status='ACTIVE' AND $1 IN (m.source_transaction_id,m.target_transaction_id)
+		ORDER BY m.created_at,m.id`, id, household)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	merges := make([]activeMergeView, 0)
+	for rows.Next() {
+		var v activeMergeView
+		if err := rows.Scan(&v.ID, &v.Role, &v.OtherTransactionID, &v.OtherLabel, &v.OtherAmount, &v.OtherTransactionAt); err != nil {
+			return nil, err
+		}
+		merges = append(merges, v)
+	}
+	return merges, rows.Err()
 }
 
 func (h *Handler) ConfirmTransaction(w http.ResponseWriter, r *http.Request) {
@@ -254,16 +298,16 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		writeJSON(w, 409, map[string]string{"error": "invalid transaction status transition"})
 		return
 	}
-	// The merge flow locks its target row FOR UPDATE, so this read cannot race a merge
-	// being created: either it sees the ACTIVE merge or the merge finds the target voided.
+	// The merge flow locks its target row FOR UPDATE, so this read cannot race a merge being
+	// created. The database guard (00100) backs it up for every other void path.
 	if target == "VOIDED" {
-		var mergeTarget bool
-		if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM reconciliation_merge WHERE target_transaction_id=$1 AND household_id=$2 AND status='ACTIVE')`, id, household).Scan(&mergeTarget); err != nil {
+		protected, err := reviewdomain.ActiveMergeTarget(r.Context(), tx, household, id)
+		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
 			return
 		}
-		if mergeTarget {
-			writeJSON(w, http.StatusConflict, map[string]string{"code": "MERGE_TARGET", "error": "Transaksi ini menjadi tujuan penggabungan yang masih aktif. Batalkan penggabungannya dulu sebelum membatalkan transaksi."})
+		if protected {
+			writeMergeTargetRefusal(w)
 			return
 		}
 	}
@@ -271,6 +315,10 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id)
 	} else {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
+	}
+	if errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
+		writeMergeTargetRefusal(w)
+		return
 	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
@@ -368,4 +416,10 @@ func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal,
 		return auth.Principal{}, "", false
 	}
 	return p, p.HouseholdID, true
+}
+
+// writeMergeTargetRefusal is the 409 for voiding the target of an ACTIVE reconciliation
+// merge; the drawer offers "Pisahkan penggabungan" for it.
+func writeMergeTargetRefusal(w http.ResponseWriter) {
+	writeJSON(w, http.StatusConflict, map[string]string{"code": "MERGE_TARGET", "error": "Transaksi ini menjadi tujuan penggabungan yang masih aktif. Pisahkan penggabungannya dulu."})
 }

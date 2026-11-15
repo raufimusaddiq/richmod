@@ -602,6 +602,9 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous), errors.Is(err, reviewdomain.ErrWealthAccountIncompatible):
 		writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
 		return
+	case errors.Is(err, reviewdomain.ErrMergeTargetActive):
+		writeMergeTargetRefusal(w)
+		return
 	case err != nil:
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
 		return
@@ -642,6 +645,10 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 			writeJSON(w, 404, map[string]string{"error": "review not found"})
+			return
+		}
+		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+			writeMergeTargetRefusal(w)
 			return
 		}
 		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
@@ -814,6 +821,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// writeMergeTargetRefusal is the 409 for a void/reject of the target of an ACTIVE merge;
+// the code matches the ledger void endpoint so the web client maps one refusal.
+func writeMergeTargetRefusal(w http.ResponseWriter) {
+	writeJSON(w, http.StatusConflict, map[string]string{"code": "MERGE_TARGET", "error": "Transaksi ini menjadi tujuan penggabungan yang masih aktif. Pisahkan penggabungannya dulu."})
 }
 
 func writeJSON(w http.ResponseWriter, status int, output any) {

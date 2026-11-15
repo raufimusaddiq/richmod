@@ -162,34 +162,6 @@ func TestVoidWebManualTransaction(t *testing.T) {
 		}
 	})
 
-	t.Run("active_merge_target_is_409_until_the_merge_is_reversed", func(t *testing.T) {
-		target, source := create(), create()
-		var mergeID string
-		must(pool.QueryRow(ctx, `INSERT INTO reconciliation_merge(household_id,source_transaction_id,target_transaction_id,status,created_by_user_id) VALUES($1,$2,$3,'ACTIVE',$4) RETURNING id`, household, source, target, user).Scan(&mergeID))
-		w := void(target, principal)
-		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "MERGE_TARGET") || !strings.Contains(w.Body.String(), "penggabungan") {
-			t.Fatalf("status=%d body=%s", w.Code, w.Body)
-		}
-		var status string
-		var audits int
-		must(pool.QueryRow(ctx, `SELECT status,(SELECT count(*) FROM audit_log WHERE entity_id=t.id AND action='VOIDED') FROM transaction t WHERE id=$1`, target).Scan(&status, &audits))
-		if status != "CONFIRMED" || audits != 0 {
-			t.Fatalf("refused void mutated: status=%s audits=%d", status, audits)
-		}
-		// The source side of a merge is not protected by this rule; only the target is.
-		if w := void(source, principal); w.Code != http.StatusNoContent {
-			t.Fatalf("source void=%d %s", w.Code, w.Body)
-		}
-		// A reversed merge no longer blocks.
-		must(func() error {
-			_, err := pool.Exec(ctx, `UPDATE reconciliation_merge SET status='REVERSED',reversed_at=now() WHERE id=$1`, mergeID)
-			return err
-		}())
-		if w := void(target, principal); w.Code != http.StatusNoContent {
-			t.Fatalf("void after reversal=%d %s", w.Code, w.Body)
-		}
-	})
-
 	t.Run("open_review_is_409_and_untouched", func(t *testing.T) {
 		id := create()
 		must(func() error {

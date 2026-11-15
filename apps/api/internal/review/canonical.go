@@ -314,6 +314,10 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
 			return
 		}
+		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
+			writeMergeTargetRefusal(w)
+			return
+		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to finalize review"})
 			return
