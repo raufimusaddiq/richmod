@@ -51,9 +51,9 @@ function comparisonCell(row, basis, lowerIsBetter) {
   return { ...view, note };
 }
 
-// Whole-rupiah daily average: the served rounded figure when the API has it, else the served one.
+// Whole-rupiah daily average, served by the API (half-up in Go).
 export function averageDailyText(shape) {
-  return shape?.averageDailyExpenseRounded ?? shape?.averageDailyExpense ?? "0";
+  return shape?.averageDailyExpenseRounded ?? "0";
 }
 
 export function kpiCells(facts) {

@@ -176,7 +176,7 @@ const matrixSeries = {
 
 test("the matrix tints each value within its own row and never invents a category", () => {
   const matrix = buildMatrix(matrixSeries, matrixHistory, "cat-1", ["cat-1"]);
-  assert.deepEqual(matrix.map(row => row.name), ["Belanja rumah", "Belum dikategorikan", "Lainnya"]);
+  assert.deepEqual(matrix.map(row => row.name), ["Belanja rumah", "Belum dikategorikan", "Kategori lain"]);
   assert.deepEqual(matrix[0].tints, [1, 2000000 / 3000000, 1000000 / 3000000]);
   assert.deepEqual(matrix[1].tints, [1, 0, 0], "zero and negative values carry no tint");
   assert.equal(matrix[0].selected, true);

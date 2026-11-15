@@ -105,3 +105,71 @@ test("a failed load keeps rows but drops the stale pager cursor", () => {
   assert.doesNotMatch(source, /query\.set\("limit", "50"\)/);
   assert.match(source, /hasActiveFilters\(`\?\$\{query\}`\) && <button type="button" className="secondary" onClick=\{resetFilters\}>Hapus filter<\/button>/);
 });
+
+test("T-16 polish: actors, evidence, minus sign, admin durations and decimal commas", async () => {
+  const { actorText, evidenceTypeText, auditActionText } = await import("../app/lib/labels.js");
+  const { money } = await import("../app/lib/format.js");
+  const { ratioLabel } = await import("../app/lib/cycleReview.js");
+  const { duration, percent, ms } = await import("../app/lib/adminFormat.js");
+  for (const code of ["WORKER", "TELEGRAM_CALLBACK", "USER", "SYSTEM", "TELEGRAM"]) assert.doesNotMatch(actorText(code), /[A-Z_]{4,}/);
+  assert.equal(evidenceTypeText("MANUAL_ENTRY"), "Input manual");
+  assert.equal(evidenceTypeText("SOME_NEW_KIND"), "Some new kind");
+  assert.equal(auditActionText("Auto confirm screenshot row"), "Baris tangkapan layar dikonfirmasi otomatis");
+  assert.equal(money("-2777998"), "\u2212Rp\u00a02.777.998");
+  assert.equal(ratioLabel("-0.165"), "\u221216,5%");
+  assert.equal(percent(1), "100,0%");
+  assert.equal(ms(40800), "40,8 dtk");
+  assert.equal(duration(3_660_000), "1 j 1 m");
+  assert.equal(duration(8000), "8 dtk");
+  assert.equal(duration(20_867_600), "5 j 47 m");
+});
+
+import { canEditTransaction, editErrorMessage, editFormErrors, editPayload, editableFields } from "../app/lib/transactionForm.js";
+
+test("edit: only live transactions are editable and transfers lock category and account", () => {
+  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
+  assert.equal(canEditTransaction({ id: "t", status: "NEEDS_REVIEW" }), false);
+  assert.equal(canEditTransaction({ id: "t", status: "VOIDED" }), false);
+  assert.equal(canEditTransaction({ status: "CONFIRMED" }), false);
+  assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, description: true, note: true });
+  assert.equal(editableFields({ type: "INCOME" }).category, true);
+});
+
+test("edit: validation and payload", () => {
+  assert.ok(editFormErrors({ description: "  " }, { description: "Lama" }).description);
+  assert.ok(editFormErrors({ description: "x".repeat(501) }).description);
+  assert.ok(editFormErrors({ description: "ok", note: "x".repeat(2001) }).note);
+  assert.deepEqual(editFormErrors({ description: "Kopi", note: "" }), {});
+  // NULL description (ingestion) stays blank without error; blanking an existing one errors.
+  assert.deepEqual(editFormErrors({ description: "", note: "" }, { description: null }), {});
+  assert.ok(editFormErrors({ description: "", note: "" }, { description: "Lama" }).description);
+  assert.deepEqual(editPayload({ type: "INCOME", description: null, categoryId: null }, { categoryId: "c1", accountId: "", description: "", note: "" }), { categoryId: "c1" });
+  assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", description: "Lama", note: "n" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
+  // Unchanged (possibly deactivated) category/account are never resent.
+  assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", accountId: "a0", description: "Lama", note: null }, { categoryId: "c0", accountId: "a0", description: "Baru", note: "" }), { description: "Baru" });
+  assert.deepEqual(editPayload({ type: "EXPENSE", description: "Lama" }, { categoryId: "", accountId: "", description: "Lama", note: "" }), {});
+  assert.deepEqual(Object.keys(editPayload({ type: "TRANSFER" }, { categoryId: "c", accountId: "a", description: "x", note: "n" })).sort(), ["description", "note"]);
+});
+
+test("edit: errors map to Indonesian and the audit action has a label", () => {
+  assert.match(editErrorMessage(409, { code: "REVIEW_OPEN" }), /tinjauan dulu/);
+  assert.match(editErrorMessage(409, { code: "STALE_EDIT" }), /sudah berubah/);
+  assert.match(editErrorMessage(409, { code: "TRANSACTION_VOIDED" }), /dibatalkan/);
+  assert.doesNotMatch(editErrorMessage(400, { code: "INVALID_CATEGORY", error: "categoryId must identify" }), /categoryId/);
+  assert.match(editErrorMessage(500), /Coba lagi/);
+  assert.equal(auditActionText("UPDATE_DETAILS"), "Detail transaksi diubah");
+});
+
+test("edit: drawer offers Ubah and the dialog keeps drawer key handling out", () => {
+  assert.match(page, />Ubah<\/button>/);
+  assert.match(page, /aria-labelledby="edit-transaction-title"/);
+  assert.match(page, /"If-Match": selected\.updatedAt/);
+  assert.match(page, /onEditKeyDown[\s\S]{0,80}stopPropagation/);
+});
+
+test("every transaction audit action written by Go has an Indonesian label", () => {
+  const codes = ["CREATE", "UPDATE_DETAILS", "LINK_BANK_EMAIL_EVIDENCE", "LINK_RECEIPT_EVIDENCE", "LINK_SCREENSHOT_EVIDENCE", "AUTO_CONFIRM_RECEIPT", "AUTO_CONFIRM_SCREENSHOT_ROW", "CREATE_RECEIPT_REVIEW", "CREATE_SCREENSHOT_REVIEW", "CREATE_FROM_PAYSLIP", "CREATE_FROM_TELEGRAM", "REMEMBER_MERCHANT", "EDIT_TRANSACTION", "CONFIRM_PENDING_BATCH", "REVIEW_DISTINCT_EVENT", "REVIEW_INCOME_CHOICE", "STAGE_EVIDENCE_DISPUTE", "SET_SCREENSHOT_AMOUNT", "REOPEN_LEGACY_UNCATEGORIZED", "ROLLBACK_REOPEN_LEGACY_UNCATEGORIZED"];
+  for (const code of codes) assert.ok(auditActionLabel[code], code);
+  assert.equal(auditActionLabel.CORRECT_TRANSACTION_CLASSIFICATION, undefined);
+  assert.equal(auditActionText("Link receipt evidence"), auditActionLabel.LINK_RECEIPT_EVIDENCE);
+});

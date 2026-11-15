@@ -117,24 +117,6 @@ func ChoiceCriteria(descriptions map[string]string) map[string]any {
 	return criteria
 }
 
-func CriteriaLabels(criteria map[string]any) []string {
-	labels := make([]string, 0, len(criteria))
-	for label := range criteria {
-		labels = append(labels, label)
-	}
-	sort.Strings(labels)
-	return labels
-}
-
-// PlainCriteria gives each bare label a neutral description so server-state choices keep a native criteria map.
-func PlainCriteria(labels []string) map[string]any {
-	criteria := make(map[string]any, len(labels))
-	for _, label := range labels {
-		criteria[label] = "allowed option"
-	}
-	return criteria
-}
-
 // CategoryChoice is an offered category's slug and household label; an empty label gets a neutral description.
 type CategoryChoice struct{ Slug, Label string }
 

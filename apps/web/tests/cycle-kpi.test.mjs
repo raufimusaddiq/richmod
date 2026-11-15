@@ -88,7 +88,6 @@ test("net-worth cell: latest observation with its date; no in-cycle change is a 
   assert.deepEqual([none.value, none.observed], ["—", "Belum ada pengamatan"]);
 });
 
-test("the daily average is the served rounded figure when present, never rounded in the browser", () => {
+test("the daily average is the served rounded figure, never rounded in the browser", () => {
   assert.equal(averageDailyText({ averageDailyExpense: "700000.40", averageDailyExpenseRounded: "700000" }), "700000");
-  assert.equal(averageDailyText({ averageDailyExpense: "700000.40" }), "700000.40");
 });

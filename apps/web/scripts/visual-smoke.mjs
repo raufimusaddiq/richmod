@@ -163,7 +163,7 @@ async function run() {
   await mkdir(output, { recursive: true });
   await mkdir(regressionOutput, { recursive: true });
   await mkdir(baselines, { recursive: true });
-  const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn("npm", ["run", "start", "--", "-p", port], { stdio: "inherit", shell: process.platform === "win32" });
+  const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: port } });
   try {
     await waitForServer();
     const browser = await chromium.launch({ headless: true });

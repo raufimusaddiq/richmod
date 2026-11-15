@@ -92,13 +92,36 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(clean, "/")
-	for _, candidate := range []string{name, name + ".html", name + "/index.html"} {
+	for _, candidate := range []string{name, segmentPayloadPath(name), name + ".html", name + "/index.html"} {
 		if h.exists(candidate) {
-			h.serve(w, r, candidate, cacheFor(candidate))
+			// A mapped payload takes its class from the route the client asked for.
+			class := candidate
+			if candidate != name && strings.HasSuffix(candidate, ".txt") {
+				class = name
+			}
+			h.serve(w, r, candidate, cacheFor(class))
 			return
 		}
 	}
 	h.notFound(w, r)
+}
+
+// segmentPayloadPath maps the dotted segment-payload URL the client requests
+// (analytics/x/__next.analytics.x.__PAGE__.txt) to the nested file an export
+// built on a non-POSIX host writes (analytics/x/__next.analytics/x/__PAGE__.txt).
+// Next leaves that rewrite to the host. The production image builds the export
+// on POSIX, where the names stay flat and match the first candidate, so this is
+// a safety net for other builds, not a production fix.
+func segmentPayloadPath(name string) string {
+	dir, base := path.Split(name)
+	if !strings.HasPrefix(base, "__next.") || !strings.HasSuffix(base, ".txt") {
+		return ""
+	}
+	rest := strings.TrimSuffix(strings.TrimPrefix(base, "__next."), ".txt")
+	if rest == "" || strings.Contains(rest, "..") || strings.HasPrefix(rest, ".") || strings.HasSuffix(rest, ".") {
+		return ""
+	}
+	return dir + "__next." + strings.ReplaceAll(rest, ".", "/") + ".txt"
 }
 
 func (h handler) serve(w http.ResponseWriter, r *http.Request, name, cache string) {
@@ -159,7 +182,12 @@ func cacheFor(name string) string {
 	// The static export's client router loads RSC payloads as `<route>.txt`;
 	// they carry the same class as the route's HTML.
 	if strings.HasSuffix(name, ".txt") {
-		return htmlCacheFor(routeOf(strings.TrimSuffix(name, ".txt") + ".html"))
+		// Segment payloads (<route>/__next.<route>.__PAGE__.txt) belong to <route>.
+		route := name
+		if i := strings.Index(route, "/__next."); i >= 0 {
+			route = route[:i]
+		}
+		return htmlCacheFor(routeOf(strings.TrimSuffix(route, ".txt") + ".html"))
 	}
 	return cachePublic
 }

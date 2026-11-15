@@ -183,8 +183,8 @@ try {
     assert.equal(await cycleLedger.locator("thead th button").count(), 6, "one column per served cycle");
     assert.equal(await cycleLedger.locator('thead th[aria-current="true"] button').getAttribute("aria-pressed"), "true");
     assert.match(await cycleLedger.locator(".ledger-verdict").textContent(), /Siklus sebelumnya di hari yang sama/);
-    assert.equal(await cycleLedger.locator("tbody tr").count(), 7, "bars, net cashflow, change, three categories, and Lainnya");
-    assert.equal(await cycleLedger.locator("tbody tr").nth(6).locator("th").textContent(), "Lainnya", "the served remainder closes the matrix");
+    assert.equal(await cycleLedger.locator("tbody tr").count(), 7, "bars, net cashflow, change, three categories, and Kategori lain");
+    assert.equal(await cycleLedger.locator("tbody tr").nth(6).locator("th").textContent(), "Kategori lain", "the served remainder closes the matrix");
     if (name === "mobile" || name === "small-mobile") {
       // Phones: whole cycle columns beside the sticky label; none cut at its edge; labels fit; it scrolls and snaps.
       const ribbon = await page.evaluate(() => {
