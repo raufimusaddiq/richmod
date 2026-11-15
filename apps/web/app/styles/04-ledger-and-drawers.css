@@ -68,6 +68,22 @@
 .create-dialog { position: fixed; }
 .dialog-close { position: absolute; top: 12px; right: 12px; display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border-color: var(--line); background: var(--surface); color: var(--ink-soft); }
 .create-dialog .section-title { padding-right: 48px; }
+/* Two-column grid: the heading owns its row, fields align to the top of their cell, long fields and actions span both columns. */
+.create-dialog .transaction-form, .create-dialog .dialog-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px 12px; }
+.create-dialog .transaction-form { grid-template-columns: minmax(0, 1fr); }
+.create-dialog .dialog-fields { grid-column: 1 / -1; }
+.create-dialog .transaction-form label { min-width: 0; }
+.create-dialog .transaction-form .section-title, .create-dialog .transaction-form label:has(input[type="datetime-local"]), .create-dialog .transaction-form label:has(textarea), .create-dialog .transaction-form .notice, .create-dialog .transaction-form .error-notice, .create-dialog .transaction-form .dialog-actions { grid-column: 1 / -1; }
+.create-dialog .transaction-form .section-title { margin: 0; }
+.create-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+@media (max-width: 719px) {
+  .create-dialog .dialog-fields { grid-template-columns: minmax(0, 1fr); }
+  .create-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+  .create-dialog .transaction-form { display: flex; flex: 1 1 auto; flex-flow: column nowrap; min-height: 0; gap: 14px; }
+  .create-dialog .dialog-fields { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 2px 2px 4px; }
+  .create-dialog .dialog-actions { flex: none; padding-top: 4px; }
+  .create-dialog .dialog-actions button { flex: 1 1 0; }
+}
 .required-mark { color: var(--danger); }
 .field-error { display: block; margin-top: 4px; color: var(--danger); }
 .transaction-form [aria-invalid="true"] { border-color: var(--danger); }
