@@ -123,11 +123,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid review cursor"})
 		return
 	}
-	// The Inbox reads the canonical review_item only. Every NEEDS_REVIEW
-	// transaction has exactly one active item carrying its ReviewDecision,
-	// whether or not the household has Telegram (which only projects it). The
-	// item ID stays the transaction id because Web actions address
-	// /reviews/{transactionId}/...
+	// The Inbox reads canonical review_item only. Every NEEDS_REVIEW transaction has one active item carrying its ReviewDecision, with or without Telegram.
+	// The item ID stays the transaction id because Web actions address /reviews/{transactionId}/...
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
 		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,

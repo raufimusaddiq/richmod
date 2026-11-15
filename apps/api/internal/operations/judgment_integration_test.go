@@ -59,11 +59,8 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Production-shaped rows: the bounded plane writes protocol 'systemone',
-	// call_kind JUDGMENT/DECISION, and the gateway's SUCCEEDED/FAILED status
-	// vocabulary. An earlier revision of this test used the bogus 'SUCCESS'/
-	// 'ERROR' spellings the code used to emit, which is exactly why the counter
-	// read zero against real data.
+	// Production-shaped rows: protocol 'systemone', call_kind JUDGMENT/DECISION, and the gateway's SUCCEEDED/FAILED statuses
+	// (not the 'SUCCESS'/'ERROR' spellings an earlier revision used, which made the counter read zero).
 	for _, row := range []struct {
 		status     string
 		callKind   string

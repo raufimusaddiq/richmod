@@ -219,11 +219,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 500, map[string]string{"error": "unable to set wealth account"})
 				return
 			}
-			// ADR-046: the observation mutation and review-learned alias live in the
-			// shared operation; Web keeps only its HTTP mapping.
-			// ADR-036 amendment: choosing the account accepts the observation and
-			// completes the review in one step; the value waits on /wealth for the
-			// next complete snapshot and never becomes a transaction.
+			// ADR-046: the observation mutation and review-learned alias live in the shared operation; Web keeps its HTTP mapping.
+			// ADR-036 amendment: choosing the account accepts the observation and completes the review; the value waits on /wealth for the next complete snapshot and never becomes a transaction.
 			if err = reviewdomain.ResolveWealthObservation(r.Context(), tx, reviewdomain.WealthObservationCommand{
 				HouseholdID: household, ObservationID: *wealthObservation,
 				WealthAccountID: values.WealthAccountID, Alias: normalizeEntityAlias(hint),
@@ -257,10 +254,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid financial entity values"})
 			return
 		}
-		// ADR-046: the merge of supplied and already-resolved entities, the
-		// household validation, the alias learning, and the canonical payload all
-		// live in the shared operation. Web keeps its HTTP mapping, its review
-		// completion, and the replay enqueue.
+		// ADR-046: entity merge, household validation, alias learning and the canonical payload live in the shared operation.
+		// Web keeps its HTTP mapping, review completion and the replay enqueue.
 		result, err := reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{
 			HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"),
 			AccountID: values.AccountID, WealthAccountID: values.WealthAccountID,
@@ -354,8 +349,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid residual review action"})
 			return
 		}
-		// ADR-046: cycle basis refresh, allocation validation, and completion live
-		// in the shared operation; Web keeps only its HTTP mapping and audit.
+		// ADR-046: cycle basis refresh, allocation validation and completion live in the shared operation; Web keeps its HTTP mapping and audit.
 		allocations := make([]reviewdomain.CycleAllocation, 0, len(values.Allocations))
 		for _, allocation := range values.Allocations {
 			allocations = append(allocations, reviewdomain.CycleAllocation{WealthAccountID: allocation.WealthAccountID, AmountIDR: allocation.AmountIDR, Note: allocation.Note})
@@ -489,8 +483,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		err = reviewdomain.IgnoreMissingAmountProposal(r.Context(), tx, reviewdomain.MissingAmountCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: r.PathValue("id"), ProposalID: *proposal, SourceEventID: *source, ActorType: "USER"})
 		payslipResolved = err == nil
 	} else if in.Action == "IGNORE" {
-		// ADR-046: the generic dismissal (evidence kept, proposal rejected, source
-		// settled by the shared lifecycle) is the shared domain operation.
+		// ADR-046: the generic dismissal (evidence kept, proposal rejected, source settled) is the shared domain operation.
 		err = reviewdomain.IgnoreReviewItem(r.Context(), tx, reviewdomain.IgnoreCommand{HouseholdID: household, ActorUserID: p.UserID, ActorType: "USER", ReviewItemID: r.PathValue("id"), Values: in.Values})
 		payslipResolved = err == nil
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {

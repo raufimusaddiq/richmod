@@ -42,11 +42,8 @@ func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string)
 		return aggregate, err
 	}
 
-	// Jev-vs-generative call share, latency, and whether the decision plane is
-	// failing: every bounded call and consumed decision lands in llm_call as
-	// protocol 'systemone'. Only JUDGMENT rows are transport calls, so failures
-	// are counted there (a DECISION row's status is SUCCEEDED/FAILED, not the
-	// outcome, which travels in error_class).
+	// Every bounded call and consumed decision lands in llm_call as protocol 'systemone'. Only JUDGMENT rows are transport calls,
+	// so failures are counted there (a DECISION row's status is SUCCEEDED/FAILED; the outcome travels in error_class).
 	var calls, failures int
 	var latencyP50 float64
 	if err := h.pool.QueryRow(ctx, `
@@ -63,11 +60,8 @@ func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string)
 		"judgmentFailures":   failures,
 		"judgmentLatencyP50": latencyP50,
 	}
-	// Phase telemetry measures model order, not product outcome. Transport success
-	// is all a phase row knows, so the aggregate never reports it as a policy or
-	// rescue success: those live in judgment_decision, which Go writes after it
-	// validates the answer. The double-pass counter is explicitly a candidate:
-	// generative output alone cannot prove that Go accepted its category.
+	// Phase telemetry measures model order, not product outcome: transport success is all a phase row knows, so policy and rescue success live in judgment_decision.
+	// The double-pass counter is a candidate only; generative output alone cannot prove Go accepted its category.
 	var jevCalls, generativeCalls, events, residualAttempts, residualSuccess, redundant, mixed int
 	var phaseP50, phaseP95 float64
 	if err := h.pool.QueryRow(ctx, `

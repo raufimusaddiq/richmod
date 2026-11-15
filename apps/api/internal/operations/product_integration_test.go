@@ -131,9 +131,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
-	// A fresh household has no full telemetry window yet. The three semantic-authority closure
-	// metrics are now measured, so only the historical-window gap remains a
-	// permanent coverage name; unknown per-metric history is reported separately.
+	// A fresh household has no full telemetry window yet, so the historical-window gap is the only permanent coverage name.
 	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
 		t.Fatalf("unmeasurable section 22 signals must stay named: %+v", aggregate.Coverage)
 	}
@@ -194,9 +192,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.AcceptedWithoutEdit != 1 {
 		t.Fatalf("an accepted proposal is reviewable-without-edit: %+v", aggregate)
 	}
-	// RHICE is now counted from append-only review-turn telemetry, so a
-	// The bank resolution emitted two fields; the explicit proposal acceptance
-	// emitted one bounded choice.
+	// RHICE counts append-only review-turn telemetry: the bank resolution emitted two fields and the proposal acceptance one bounded choice.
 	if aggregate.ExplicitInputs != 3 || aggregate.TypedFields != 2 {
 		t.Fatalf("a two-field form must count as two typed inputs: %+v", aggregate)
 	}
