@@ -254,6 +254,19 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		writeJSON(w, 409, map[string]string{"error": "invalid transaction status transition"})
 		return
 	}
+	// The merge flow locks its target row FOR UPDATE, so this read cannot race a merge
+	// being created: either it sees the ACTIVE merge or the merge finds the target voided.
+	if target == "VOIDED" {
+		var mergeTarget bool
+		if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM reconciliation_merge WHERE target_transaction_id=$1 AND household_id=$2 AND status='ACTIVE')`, id, household).Scan(&mergeTarget); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
+		if mergeTarget {
+			writeJSON(w, http.StatusConflict, map[string]string{"code": "MERGE_TARGET", "error": "Transaksi ini menjadi tujuan penggabungan yang masih aktif. Batalkan penggabungannya dulu sebelum membatalkan transaksi."})
+			return
+		}
+	}
 	if target == "CONFIRMED" {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id)
 	} else {

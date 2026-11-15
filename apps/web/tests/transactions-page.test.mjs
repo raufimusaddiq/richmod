@@ -170,6 +170,10 @@ test("void: a refused or failed request is never reported as success", () => {
   assert.match(review.message, /Tinjauan/);
   assert.doesNotMatch(review.message, /review endpoint/);
   assert.match(page, /voidNotice\.kind === "review" && <a className="button secondary" href="\/inbox\?view=transactions">Buka Tinjauan<\/a>/);
+  const merged = voidFailure(409, { code: "MERGE_TARGET", error: "raw server text" });
+  assert.equal(merged.kind, "error"); assert.notEqual(merged.reload, true, "nothing changed, so no reload");
+  assert.match(merged.message, /penggabungan yang masih aktif/);
+  assert.doesNotMatch(merged.message, /raw server text|MERGE_TARGET/);
   const stale = voidFailure(409, { error: "invalid transaction status transition" });
   assert.equal(stale.kind, "error"); assert.equal(stale.reload, true);
   for (const status of [400, 401, 403, 404, 500, 502]) {

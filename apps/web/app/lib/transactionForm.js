@@ -142,10 +142,11 @@ export function canVoidTransaction(transaction) {
 }
 
 // What the drawer shows after a refused void. Never raw API text. `review` adds the link to
-// Tinjauan; `reload` means the record changed under us, so the drawer is fetched again.
+// Tinjauan (the merge-target refusal has no screen to link to); `reload` means the record changed under us, so the drawer is fetched again.
 export function voidFailure(status, body = {}) {
   const text = String(body?.error || "").toLowerCase();
   if (status === 409 && text.includes("review endpoint")) return { kind: "review", message: "Transaksi ini masih menunggu keputusan, jadi belum bisa dibatalkan di sini. Selesaikan dulu di Tinjauan." };
+  if (status === 409 && body?.code === "MERGE_TARGET") return { kind: "error", message: "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan. Batalkan penggabungannya dulu." };
   if (status === 409) return { kind: "error", message: "Status transaksi sudah berubah. Detail dimuat ulang; coba lagi jika tombol masih tersedia.", reload: true };
   if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
   if (status === 404) return { kind: "error", message: "Transaksi tidak ditemukan. Muat ulang daftar transaksi.", reload: true };

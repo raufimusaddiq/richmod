@@ -106,8 +106,11 @@ added: `PENDING` / `CONFIRMED` → `VOIDED` was already legal.
 
 - **Allowed on** `PENDING`, `CONFIRMED`. `NEEDS_REVIEW` or any open
   (`OPEN`/`PENDING_SEND`) review item is 409 ("resolve this transaction through the
-  review endpoint"); the drawer then points to Tinjauan. `VOIDED` again is 409 and
-  writes nothing. Another household's transaction is 404.
+  review endpoint"); the drawer then points to Tinjauan. The target of an `ACTIVE`
+  `reconciliation_merge` is 409 `MERGE_TARGET` (reverse the merge first), so a merged
+  real event can never end with no live transaction; the check runs under the same row
+  lock, and the merge flow locks its target `FOR UPDATE`, so the two cannot race. The
+  merge's source side is not restricted. `VOIDED` again is 409 and writes nothing. Another household's transaction is 404.
 - **Writes** (one DB transaction, row locked `FOR UPDATE`): `status='VOIDED'`,
   `voided_at`, `confirmed_at=NULL`, and an `audit_log` row `VOIDED` with the before/after
   status. Nothing is deleted; evidence, source events and proposals stay linked.
@@ -117,8 +120,7 @@ added: `PENDING` / `CONFIRMED` → `VOIDED` was already legal.
   basis (or closes as `NO_LONGER_APPLICABLE` when nothing is left to allocate).
   Every totals query (overview, daily, category/member/cycle analytics, wealth recap,
   savings destinations, cycle basis) counts `status='CONFIRMED'` only, so a voided row
-  leaves them. Voiding does not touch a residual that was already resolved/allocated, and
-  does not reverse an `ACTIVE` `reconciliation_merge` whose target it voids.
+  leaves them. Voiding does not touch a residual that was already resolved/allocated.
 - **Authorization:** any member of the household may void; there is no role or source
   restriction.
 - Un-voiding and Telegram void are not implemented.
