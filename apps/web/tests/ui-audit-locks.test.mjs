@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import { reviewCards, tree, globalCss } from "./source.mjs";
 import { documentTypeLabels } from "../app/lib/labels.js";
+import { money } from "../app/lib/format.js";
 
 const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const css = () => globalCss();
@@ -404,11 +405,12 @@ test("documents: titles read screenshot transactions[] and fall back to date and
   assert.match(body, /parts\.length === 1/);
   assert.match(body, /transaksi/);
   // Execute the real function against screenshot, failed and receipt cards.
-  const fn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), v => `Rp${v}`, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
+  const rawFn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), money, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
+  const fn = doc => rawFn(doc).replace(/\s/g, " ");
   const shot = { documentType: "EWALLET_SCREENSHOT", status: "EXTRACTED", summary: { transactions: [{ merchant: "Kopi Kenangan", amount: "45000" }, { merchant: "X", amount: "1" }] } };
-  assert.equal(fn(shot), "Tangkapan layar dompet digital · Kopi Kenangan · Rp45000 · 2 transaksi");
-  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Struk · Toko · Rp50000");
-  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "45000.00" } }), "Struk · Toko · Rp45000.00");
+  assert.equal(fn(shot), "Tangkapan layar dompet digital · Kopi Kenangan · Rp 45.000 · 2 transaksi");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Struk · Toko · Rp 50.000");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "45000.00" } }), "Struk · Toko · Rp 45.000");
   assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "abc" } }), "Struk · Toko");
   assert.equal(fn({ documentType: "EWALLET_SCREENSHOT", status: "FAILED", summary: { transactions: [{ merchant: "Z" }] } }), "Tangkapan layar dompet digital · Gambar Telegram 15 Nov 2026, 12.48");
 });
