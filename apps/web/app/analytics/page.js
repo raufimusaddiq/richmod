@@ -3,7 +3,6 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
-import { CategoryRankingChart, CycleSpendingPatternChart } from "../components/Charts";
 import CycleLedger from "../components/CycleLedger";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
@@ -11,12 +10,13 @@ import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
 import { adjacentCycles } from "../lib/cycleLedger";
-import { averageDailyText } from "../lib/cycleKpi";
-import { cycleLabel, inclusiveEnd, ratioLabel, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
+import { cycleLabel, inclusiveEnd, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
+import { categoryKey } from "../lib/cycleWhere";
 import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
-import { SectionTitle, Metric } from "./shared";
-import { MeetingNav, ComparisonContext, ChangesTable, MerchantTable, CategoryDrivers } from "./CycleSections";
+import { Metric } from "./shared";
+import { MeetingNav, ComparisonContext, ChangesTable, MerchantTable } from "./CycleSections";
+import { CategoryDrawer, ChangesCard, DailyCard, HistoryCard, WhereCard } from "./CycleWhere";
 import { KpiStrip, NoticeStrip, PaceCard, QualityFooter, SavingsWealthCard } from "./CycleDashboard";
 import { CalendarReview } from "./CalendarReview";
 
@@ -37,6 +37,10 @@ function AnalyticsReview() {
   const [insightError, setInsightError] = useState("");
   const insightAbort = useRef(null);
   const [drafts, setDrafts] = useState({});
+  // The drawer returns focus to what opened it; a drawer opened by this page is closed with Back, one opened by a shared URL is replaced.
+  const trigger = useRef(null);
+  const drawerPushed = useRef(false);
+  const comparison = useRef(null);
   // A cycle the reader picked is the only thing allowed to mark an updated
   // figure; the first load and the insight poll are not.
   const valueNav = useRef(false);
@@ -62,10 +66,11 @@ function AnalyticsReview() {
     return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", guardLink, true); };
   }, [drafts]);
 
-  function navigate(change) {
+  function navigate(change, { replace = false } = {}) {
     if ("cycle" in change) valueNav.current = true;
-    window.history.pushState(null, "", selectionHref({ ...selection, ...change }));
+    window.history[replace ? "replaceState" : "pushState"](null, "", selectionHref({ ...selection, ...change }));
   }
+  useEffect(() => { if (!selection.category) drawerPushed.current = false; }, [selection.category]);
 
   useEffect(() => {
     if (!user || selection.view !== "cycle") return;
@@ -141,12 +146,19 @@ function AnalyticsReview() {
   }, [step, facts]);
 
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
-  const selectedCategory = selection.category ? facts?.categoryChanges.find(item => (item.id || "uncategorized") === selection.category) : null;
+  const selectedCategory = selection.category ? facts?.categoryChanges.find(item => categoryKey(item) === selection.category) : null;
   const adjacent = adjacentCycles(facts?.cycles, facts?.period?.start);
-  // Choosing the selected category again clears it; in a meeting, choosing one moves on to its evidence.
-  const chooseCategory = category => navigate({ category: category === selection.category ? "" : category, ...(meeting && category !== selection.category ? { step: "drivers" } : {}) });
-  // Choosing a category opens its evidence below without moving the reader; this is the one place focus follows an explicit request.
-  const showEvidence = event => { event.preventDefault(); const panel = document.querySelector("#drivers > details"); if (panel) panel.open = true; const title = document.getElementById("drivers-title"); title?.focus(); title?.scrollIntoView({ block: "start" }); };
+  // Choosing a category opens its drawer (the category stays in the URL); in a meeting it moves on to the evidence step.
+  const chooseCategory = (category, element) => {
+    trigger.current = element || null;
+    drawerPushed.current = true;
+    navigate({ category, ...(meeting ? { step: "drivers" } : {}) });
+  };
+  const closeCategory = () => {
+    if (drawerPushed.current) { drawerPushed.current = false; window.history.back(); }
+    else navigate({ category: "" }, { replace: true });
+  };
+  const openComparison = () => { const panel = comparison.current; if (!panel) return; panel.open = true; panel.scrollIntoView({ block: "start" }); panel.querySelector("summary")?.focus(); };
   const refreshing = selection.view === "cycle" && loading && Boolean(facts);
   return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
     <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
@@ -182,49 +194,25 @@ function AnalyticsReview() {
           <NoticeStrip facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
           <KpiStrip facts={facts} updated={valueUpdated}/>
           <div className="dash-row"><PaceCard facts={facts}/><SavingsWealthCard facts={facts}/></div>
-          {selectedCategory && !meeting && <p className="ledger-selection" role="status"><span>Bukti kategori <strong>{selectedCategory.name}</strong> terbuka di bagian bawah.</span> <a href="#drivers-title" onClick={showEvidence}>Lihat bukti</a><button type="button" className="secondary" onClick={() => navigate({ category: "" })}>Hapus pilihan</button></p>}
-          <section id="daily" className="review-section analytics-chart" aria-labelledby="daily-title">
-            <SectionTitle id="daily-title" about="pengeluaran harian" title="Pengeluaran harian" description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
-            <CycleSpendingPatternChart items={facts.daily} period={{ ...facts.period, reviewStep: step }} average={averageDailyText(facts.spendingShape)} height={260}/>
-            <dl className="review-context">
-              <Metric label="Rata-rata per hari" value={averageDailyText(facts.spendingShape) == null ? "—" : money(averageDailyText(facts.spendingShape))}/>
-              <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>
-              <Metric label="Porsi hari tertinggi" value={ratioLabel(facts.spendingShape.peakShareOfExpense)}/>
-              <Metric label="Hari tanpa pengeluaran bersih" value={`${facts.spendingShape.zeroSpendDays} hari`}/>
-            </dl>
-            <details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details>
-          </section>
-          <section id="changes" className="review-section" aria-labelledby="changes-title">
-            <details className="report-disclosure" open={step === "changes"}>
-            <summary><h2 id="changes-title" tabIndex={-1}>Detail perubahan</h2><span>Pembanding, selisih per kategori, tabel lengkap</span></summary>
-            <p className="review-description">Perubahan kategori diurutkan berdasarkan selisih absolut oleh server. Besar perubahan bukan penilaian baik atau buruk.</p>
-            <ComparisonContext comparison={facts.comparison} period={facts.period}/>
-            <ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/>
-            </details>
-          </section>
-          <section id="drivers" className="review-section" aria-labelledby="drivers-title">
-            <details key={selection.category || "none"} className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
-            <summary><h2 id="drivers-title" tabIndex={-1}>Bukti kategori</h2><span>{selectedCategory?.name || "Pilih kategori"}</span></summary>
-            <label className="driver-selector">Kategori
-              <select value={selectedCategory ? selectedCategory.id || "uncategorized" : ""} onChange={event => navigate({ category: event.target.value })}><option value="">Pilih kategori</option>{facts.categoryChanges.map(item => <option key={item.id || "uncategorized"} value={item.id || "uncategorized"}>{item.name}</option>)}</select>
-            </label>
-            <div id="category-drivers" aria-live="polite">
-              {selectedCategory ? <CategoryDrivers item={selectedCategory} period={{ ...facts.period, reviewStep: step }}/> : <p className="empty compact">Pilih kategori di atas atau melalui tabel perubahan.</p>}
-            </div>
-            </details>
-          </section>
-          <section id="destinations" className="review-section" aria-labelledby="destinations-title">
-            <details className="report-disclosure"><summary><h2 id="destinations-title">Distribusi & merchant</h2><span>{facts.categoryChanges.length} kategori · {facts.merchantDrivers.length} merchant</span></summary>
-            <p className="review-description">Distribusi pengeluaran bersih per kategori. Merchant diurutkan berdasarkan perubahan absolut dibanding siklus sebelumnya.</p>
-            <div className="review-split"><div><CategoryRankingChart items={facts.categoryChanges} serverOwned height={260}/><a href={transactionHref(facts.period)}>Lihat seluruh pengeluaran periode ini</a></div><MerchantTable items={facts.merchantDrivers} period={facts.period}/></div>
-            </details>
-          </section>
+          <div className="dash-row dash-row-half"><WhereCard facts={facts} step={step} select={chooseCategory} openComparison={openComparison}/>
+            <ChangesCard facts={facts} step={step} select={chooseCategory} comparisonRef={comparison}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/></ChangesCard></div>
+          <div className="dash-row">
+            <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
+            <HistoryCard facts={facts} onSelect={start => navigate({ cycle: start, category: "", step: "" })}/>
+          </div>
           {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
             <details className="report-disclosure" open={step === "position" || step === "changes"}>
             <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>Matriks {facts.history.length} siklus · siklus ke siklus</span></summary>
             <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>
             </details>
           </section>}
+          <section id="merchants" className="review-section" aria-labelledby="merchants-title">
+            <details className="report-disclosure"><summary><h2 id="merchants-title">Merchant pendukung</h2><span>{facts.merchantDrivers.length} merchant</span></summary>
+            <p className="review-description">Merchant diurutkan berdasarkan perubahan absolut dibanding siklus sebelumnya.</p>
+            <MerchantTable items={facts.merchantDrivers} period={facts.period}/>
+            <a href={transactionHref(facts.period)}>Lihat seluruh pengeluaran periode ini</a>
+            </details>
+          </section>
           <section id="household" className="review-section" aria-labelledby="household-title">
             <details className="report-disclosure"><summary><h2 id="household-title">Catatan rumah tangga</h2><span>{facts.memberAttribution.length ? `${facts.memberAttribution.length} pencatat` : "Belum ada atribusi"}</span></summary>
             <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
@@ -241,6 +229,7 @@ function AnalyticsReview() {
             <a href={meeting ? selectionHref({ ...selection, step: "changes" }) : "#changes"}>Lihat data pendukung pembahasan</a>
             </details>
           </section>
+          {selectedCategory && (!meeting || step === "drivers") && <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger}/>}
           {cycleStart && <CycleDecisions key={cycleStart} expanded={step === "decisions"} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))}/>}
         </>}
       </>}

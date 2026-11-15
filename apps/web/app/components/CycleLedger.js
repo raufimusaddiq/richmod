@@ -21,7 +21,7 @@ export default function CycleLedger({ history, selected, median, onSelect, categ
   }, [selected, history]);
   const anyRunning = ledger.columns.some(column => column.running);
   return <section id="ledger" className="review-section ledger" aria-labelledby="ledger-title">
-    <div className="section-title"><h2 id="ledger-title" tabIndex={-1}>Siklus ke siklus</h2></div>
+    <div className="section-title"><h3 id="ledger-title" tabIndex={-1}>Pemasukan, pengeluaran & kategori per siklus</h3></div>
     {ledger.mode === "chart"
       ? <>
         <div ref={frame} className="ledger-figure" tabIndex={0} role="region" aria-label="Perbandingan siklus, geser untuk semua kolom">
@@ -92,7 +92,7 @@ export default function CycleLedger({ history, selected, median, onSelect, categ
 function MatrixRows({ matrix, columns, onSelectCategory }) {
   return matrix.map((row, index) => <tr key={row.key} className={index === 0 ? "ledger-first-category" : undefined} data-selected-row={row.selected || undefined}>
     <th scope="row">{row.selectable && onSelectCategory
-      ? <button type="button" className="ledger-row-button" aria-pressed={row.selected} aria-controls="category-drivers" aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{row.name}</button>
+      ? <button type="button" className="ledger-row-button" aria-pressed={row.selected} aria-haspopup="dialog" aria-controls="category-drawer" aria-label={`Buka rincian ${row.name}`} onClick={event => onSelectCategory(row.id, event.currentTarget)}>{row.name}</button>
       : row.name}</th>
     {columns.map((column, i) => <td key={column.start} data-selected={column.selected || undefined} data-running={column.running || undefined}><span className="ledger-cell" style={{ "--tint": row.tints[i] }}>{compactMillions(row.amounts[i])}</span></td>)}
   </tr>);
