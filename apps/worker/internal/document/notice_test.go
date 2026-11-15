@@ -159,8 +159,8 @@ func TestEvidenceNoticeRollsBackWithItsMutation(t *testing.T) {
 	}
 }
 
-// The one-notice guarantee must not depend on job rows: they are pruned after 30
-// days, and a retry after that must not announce the same document twice.
+// The one-notice guarantee must not depend on job rows, which are pruned after 30 days; a later retry must
+// not announce the same document twice.
 func TestEvidenceNoticeStaysOnePerDocumentAfterJobsArePruned(t *testing.T) {
 	ctx := context.Background()
 	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")

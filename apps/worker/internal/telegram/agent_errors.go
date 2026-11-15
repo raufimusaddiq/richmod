@@ -5,22 +5,11 @@ import (
 	"fmt"
 )
 
-// Agent error taxonomy (ADR-033 amendment, 2026-11):
-//
-//   - model-recoverable: Go refused what the model asked for in a way the model
-//     can fix inside the turn (a period with no salary cycle, a range over a
-//     year, an unknown item_ref, an expired ref, an unparseable date). It is
-//     returned to the model as a tool result naming the next step, never as a
-//     job error. Argument-shape errors use the ADR-055 repair round; executor
-//     refusals use agentRecoverable.
-//   - permanent: retrying cannot help (a gateway 4xx, a validation failure the
-//     model could not repair). The turn ends with honest copy; the job is not
-//     retried (TextFailurePolicy).
-//   - transient: database or network trouble. The job is retried.
+// Error taxonomy (ADR-033): model-recoverable refusals return to the model as tool results, permanent
+// failures end the turn with no retry; transient database or network trouble retries the job.
 
-// agentRecoverable is an executor refusal the model can act on. Nothing was
-// written. UserCopy is what the household sees if the model runs out of turn
-// budget before it recovers.
+// agentRecoverable is an executor refusal the model can act on; nothing was written, and UserCopy is shown if
+// the model runs out of turn budget.
 type agentRecoverable struct {
 	Status   string
 	Reason   string
@@ -30,13 +19,11 @@ type agentRecoverable struct {
 
 func (e *agentRecoverable) Error() string { return e.Status + ": " + e.Reason }
 
-// toolOutput is the model-facing result of a refused call.
 func (e *agentRecoverable) toolOutput(tool string) map[string]any {
 	return map[string]any{"status": e.Status, "tool": tool, "reason": e.Reason, "next_step": e.NextStep, "executed": false}
 }
 
-// maxRecoverableResults bounds how many executor refusals one turn hands back to
-// the model, inside the phase budget.
+// maxRecoverableResults bounds executor refusals handed back to the model per turn.
 const maxRecoverableResults = 2
 
 var (
@@ -46,7 +33,6 @@ var (
 	errInvalidRange             = errors.New("invalid range")
 )
 
-// recoverableRange maps a period Go cannot serve to the model's next step.
 func recoverableRange(err error) (*agentRecoverable, bool) {
 	switch {
 	case err == nil:
@@ -71,7 +57,6 @@ func recoverableRange(err error) (*agentRecoverable, bool) {
 	return nil, false
 }
 
-// recoverableDate wraps an unparseable date/time from the model.
 func recoverableDate(err error) *agentRecoverable {
 	return &agentRecoverable{Status: "INVALID_DATE", Reason: fmt.Sprintf("Go could not read the date/time: %v", err),
 		NextStep: "use date_reference TODAY/YESTERDAY/EXPLICIT with explicit_date YYYY-MM-DD and local_time HH:MM, or ask the user for the date",

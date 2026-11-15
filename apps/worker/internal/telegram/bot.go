@@ -21,16 +21,11 @@ type Bot struct {
 }
 
 type SendPayload struct {
-	ChatID           int64  `json:"chat_id"`
-	ReplyToMessageID int64  `json:"reply_to_message_id"`
-	Text             string `json:"text"`
-	ReviewRequestID  string `json:"review_request_id,omitempty"`
-	// BindDocumentID, when set, records the sent message as about this document so
-	// a reply to it binds to the evidence.
-	BindDocumentID string `json:"bind_document_id,omitempty"`
-	// BindMerchantLearningRequestID, when set, records the sent message as the
-	// merchant-learning question of this review_request, so its buttons and
-	// replies bind to the pending decision after the review card is retired.
+	ChatID                        int64                 `json:"chat_id"`
+	ReplyToMessageID              int64                 `json:"reply_to_message_id"`
+	Text                          string                `json:"text"`
+	ReviewRequestID               string                `json:"review_request_id,omitempty"`
+	BindDocumentID                string                `json:"bind_document_id,omitempty"`
 	BindMerchantLearningRequestID string                `json:"bind_merchant_learning_request_id,omitempty"`
 	ReplyMarkup                   *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	CallbackQueryID               string                `json:"callback_query_id,omitempty"`
@@ -41,26 +36,20 @@ type EditPayload struct {
 	MessageID   int64                 `json:"message_id"`
 	Text        string                `json:"text"`
 	ReplyMarkup *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	// ReviewRequestID, when set, marks an edit of a live review card. The worker
-	// skips it once the request is terminal, so a queued edit cannot restore
-	// buttons on a card that retirement already stripped.
+	// Edits of a live review card are skipped once the request is terminal, so a queued edit cannot restore
+	// buttons that retirement stripped.
 	ReviewRequestID string `json:"review_request_id,omitempty"`
-	// OutcomeRequestID and OutcomeRevision mark an in-place outcome edit of a
-	// settled review card (ADR-046 2026-11-05). Each settle of one card bumps its
-	// revision; the worker applies only the current revision, under a lock, so a
-	// delayed or retried earlier outcome cannot restore answered buttons.
+	// Outcome edits apply only at the current revision, under a lock, so a delayed earlier outcome cannot
+	// restore answered buttons.
 	OutcomeRequestID string `json:"outcome_request_id,omitempty"`
 	OutcomeRevision  int    `json:"outcome_revision,omitempty"`
 }
 
-// APIError is a Telegram Bot API rejection: the HTTP status, Telegram's own
-// description, and the retry_after a rate limit names. It never carries the
-// request URL, which contains the bot token.
+// APIError never carries the request URL, which contains the bot token.
 type APIError struct {
-	Method      string
-	StatusCode  int
-	Description string
-	// RetryAfterSeconds is Telegram's parameters.retry_after on a 429.
+	Method            string
+	StatusCode        int
+	Description       string
 	RetryAfterSeconds int
 }
 
@@ -71,17 +60,13 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("Telegram %s API returned HTTP %d: %s", e.Method, e.StatusCode, e.Description)
 }
 
-// Permanent reports a rejection that the same request will never pass: a 400
-// (bad request, chat not found, message gone) or a 403 (bot blocked, user
-// deactivated). The queue stops retrying it and records the job FAILED. A 429
-// is a rate limit, and 401/404 mean a wrong or rotated bot token, which an
-// operator can fix, so those keep retrying; so do 5xx and transport failures.
+// Permanent means the same request will never pass (400, 403). 429, 401/404 (rotated token, operator-
+// fixable), 5xx and transport failures keep retrying.
 func (e *APIError) Permanent() bool {
 	return e.StatusCode == http.StatusBadRequest || e.StatusCode == http.StatusForbidden
 }
 
-// RetryAfter is the wait Telegram asked for on a rate limit; the queue uses it
-// instead of its own backoff. Zero means no hint.
+// Zero means no hint; the queue uses it instead of its own backoff.
 func (e *APIError) RetryAfter() time.Duration {
 	if e.StatusCode != http.StatusTooManyRequests || e.RetryAfterSeconds <= 0 {
 		return 0
@@ -89,8 +74,6 @@ func (e *APIError) RetryAfter() time.Duration {
 	return time.Duration(e.RetryAfterSeconds) * time.Second
 }
 
-// apiError reads Telegram's error description and retry hint from a non-2xx
-// response. The body is bounded and only those fields are kept.
 func apiError(method string, response *http.Response) *APIError {
 	var body struct {
 		Description string `json:"description"`
@@ -178,7 +161,7 @@ func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 	request.Header.Set("Content-Type", "application/json")
 	response, err := b.http.Do(request)
 	if err != nil {
-		// The request URL contains the bot token, so never wrap the transport error.
+		// Never wrap the transport error: its URL contains the bot token.
 		return 0, fmt.Errorf("send Telegram response failed")
 	}
 	defer response.Body.Close()
@@ -229,8 +212,6 @@ func (b *Bot) Edit(ctx context.Context, payload EditPayload) error {
 	return b.edit(ctx, "editMessageText", map[string]any{"chat_id": payload.ChatID, "message_id": payload.MessageID, "text": clean(payload.Text, 4000), "reply_markup": markup})
 }
 
-// EditReplyMarkup removes every inline button from a message without touching
-// its text, so a card whose text is unknown can still be retired.
 func (b *Bot) EditReplyMarkup(ctx context.Context, chatID, messageID int64) error {
 	if b.token == "" || chatID == 0 || messageID == 0 {
 		return fmt.Errorf("invalid Telegram reply markup edit")
@@ -250,7 +231,7 @@ func (b *Bot) edit(ctx context.Context, method string, requestBody map[string]an
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := b.http.Do(req)
 	if err != nil {
-		// The request URL contains the bot token, so never wrap the transport error.
+		// Never wrap the transport error: its URL contains the bot token.
 		return fmt.Errorf("edit Telegram message failed")
 	}
 	defer resp.Body.Close()
@@ -266,17 +247,14 @@ func (b *Bot) edit(ctx context.Context, method string, requestBody map[string]an
 	return nil
 }
 
-// editFinished classifies a failed card edit. A card that is already in the
-// wanted state, is gone, can no longer be edited, or sits in a chat the bot
-// cannot reach is finished: retrying cannot change it. Rate limits, server
-// errors, and transport failures are retried by the queue.
+// Finished means retrying cannot change it; rate limits, 5xx and transport failures are retried by the queue.
 func editFinished(err error) bool {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		return false
 	}
 	if apiErr.StatusCode == http.StatusForbidden {
-		return true // bot blocked, kicked, or the user is deactivated
+		return true
 	}
 	description := strings.ToLower(apiErr.Description)
 	for _, finished := range []string{"message is not modified", "message to edit not found", "message can't be edited", "message_id_invalid", "chat not found", "bot was blocked", "user is deactivated"} {
@@ -287,17 +265,12 @@ func editFinished(err error) bool {
 	return false
 }
 
-// editNotModified reports Telegram refusing an edit because the message already
-// shows that text and keyboard (a double tap, a repeated edit). The edit's goal
-// is met, so it is a success.
+// Telegram refuses an unchanged edit (double tap); the goal is met, so it is a success.
 func editNotModified(err error) bool {
 	var apiErr *APIError
 	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")
 }
 
-// editUnreachable reports a chat the bot can no longer write to (blocked,
-// kicked, deactivated, unknown chat). Neither an edit nor a new message can
-// reach it.
 func editUnreachable(err error) bool {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
@@ -315,8 +288,6 @@ func editUnreachable(err error) bool {
 	return false
 }
 
-// editRejected reports a Telegram rejection of the request itself (a 4xx other
-// than a rate limit) that the same request will never pass.
 func editRejected(err error) bool {
 	var apiErr *APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != http.StatusTooManyRequests

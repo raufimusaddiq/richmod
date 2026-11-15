@@ -18,7 +18,6 @@ type Match struct {
 	Slug       string
 }
 
-// Lookup returns only one household-confirmed, auto-applicable exact alias.
 func Lookup(ctx context.Context, q Querier, household, raw string) (*Match, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil

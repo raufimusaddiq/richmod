@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-// helpMessage is the one answer to /help, /start, and the model's finance_help
-// tool, so a household sees the same examples wherever they ask.
 const helpMessage = "👋 Hai! Aku Richmod, siap bantu mencatat keuangan keluarga.\n\n" +
 	"Coba kirim pesan seperti ini:\n" +
 	"• makan siang 50rb\n" +
@@ -22,9 +20,7 @@ const helpMessage = "👋 Hai! Aku Richmod, siap bantu mencatat keuangan keluarg
 	"Kamu juga bisa kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
 	"Kalau ada yang belum jelas, aku akan minta detail lewat tombol atau balasan ke pesanku."
 
-// isHelpCommand reports whether a typed message is /help or /start, with an
-// optional @BotName suffix and trailing text. Typed text reaches the worker
-// through the agent lane, so this check must run before any model call.
+// Typed text reaches the worker through the agent lane, so this must run before any model call.
 func isHelpCommand(text string) bool {
 	fields := strings.Fields(strings.ToLower(text))
 	if len(fields) == 0 {
@@ -34,13 +30,11 @@ func isHelpCommand(text string) bool {
 	return command == "/help" || command == "/start"
 }
 
-// botCommands is the menu Telegram shows next to the message box.
 func botCommands() []map[string]string {
 	return []map[string]string{{"command": "help", "description": "Contoh pesan dan cara memakai Richmod"}}
 }
 
-// SetCommands registers the command menu. It is best-effort at worker start;
-// every finance flow works without it.
+// Best-effort at worker start; every finance flow works without it.
 func (b *Bot) SetCommands(ctx context.Context) error {
 	if b.token == "" {
 		return fmt.Errorf("Telegram commands are not configured")
@@ -51,7 +45,7 @@ func (b *Bot) SetCommands(ctx context.Context) error {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/setMyCommands", bytes.NewReader(body))
 	if err != nil {
-		// The request URL contains the bot token; never wrap its errors.
+		// Never wrap errors: the request URL contains the bot token.
 		return fmt.Errorf("create Telegram commands request")
 	}
 	request.Header.Set("Content-Type", "application/json")

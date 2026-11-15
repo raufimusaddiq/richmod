@@ -10,9 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// COMPLETE_BANK_REVIEW is the job the Web and Telegram lanes queue once a
-// household supplies the amount and time an unverified bank email lacked. The
-// worker runs Complete; this drives that entry with the stored extraction.
+// COMPLETE_BANK_REVIEW is queued once a household supplies the amount and time an unverified bank email
+// lacked; this drives Complete with the stored extraction.
 func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -60,7 +59,7 @@ func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
 	if proposals != 1 || proposedAmount != "54000" && proposedAmount != "54000.00" {
 		t.Fatalf("proposals=%d amount=%s, want one proposal for 54000", proposals, proposedAmount)
 	}
-	// The completion is credited to the person who supplied the facts (#384).
+	// The completion is credited to the person who supplied the facts.
 	var actor, action string
 	must(pool.QueryRow(ctx, `SELECT COALESCE(actor_id::text,''),COALESCE(after_json->>'action','') FROM audit_log WHERE entity_id=$1 AND action='RESOLVE_REVIEW'`, itemID).Scan(&actor, &action))
 	if actor != userID || action != "COMPLETE_BANK_FACTS" {

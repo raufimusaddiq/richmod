@@ -20,19 +20,15 @@ const (
 	agentToolSideEffect agentToolClass = "SIDE_EFFECT"
 )
 
-// agentReadTools is the Telegram-native READ catalog. Overlapping reads were
-// merged: query_spending carries the category breakdown (was
-// get_category_breakdown), query_cashflow the insight extras (was
-// get_finance_insight), and search_transactions orders by LARGEST (was
-// get_largest_transactions).
+// agentReadTools is the Telegram-native READ catalog; query_spending carries the category breakdown,
+// query_cashflow the insight extras, search_transactions orders by LARGEST.
 var agentReadTools = map[string]struct{}{
 	"query_spending": {}, "query_cashflow": {}, "query_savings": {},
 	"query_wealth": {}, "list_wealth_accounts": {}, "search_transactions": {},
 	"list_review_items": {}, "get_evidence_context": {}, "get_transaction_details": {},
 }
 
-// The shared analytical READ catalog is a channel-neutral capability. Telegram
-// reuses the exact tool set and fact engine as the analytics API (BDR-006).
+// The shared analytical READ catalog is channel-neutral: Telegram reuses the analytics API's tool set and fact engine.
 func init() {
 	for _, tool := range analyticscore.Tools() {
 		agentReadTools[tool.Name] = struct{}{}
@@ -67,8 +63,8 @@ func readOnlyAgentTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition
 	return readOnly
 }
 
-// AgentFinanceTools is the default live catalog; the policy tests build it to
-// assert which tools the model can see in each server state.
+// AgentFinanceTools is the default live catalog; policy tests use it to assert which tools the model sees per
+// server state.
 func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
 }

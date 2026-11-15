@@ -8,9 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// The conversational agent lane reaches the same canonical
-// confirm as the generic reply lane, so its CONFIRM must also refuse while the
-// stored ReviewDecision still names a required residual fact.
 func TestAgentConfirmRefusesWhenStoredResidualDateIsUnsupplied(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "residual-guard")

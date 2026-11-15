@@ -16,58 +16,35 @@ type PublicTurn struct {
 	Text    string         `json:"text,omitempty"`
 	Tool    string         `json:"tool,omitempty"`
 	Context map[string]any `json:"context,omitempty"`
-	// At is when the user sent the message (USER rows), so "yang tadi pagi" can be
-	// placed in time.
+	// At is when the user sent the message (USER rows), so "yang tadi pagi" can be placed in time.
 	At string `json:"at,omitempty"`
-	// Failure marks an assistant reply that was a failure notice (TIMEOUT,
-	// UNAVAILABLE, ERROR, or an in-turn refusal): the question before it was not
-	// answered and nothing was recorded from it.
+	// Failure marks an assistant failure notice (TIMEOUT, UNAVAILABLE, ERROR, in-turn refusal): the question
+	// before it was unanswered and nothing was recorded.
 	Failure string `json:"failure,omitempty"`
-	// Compacted marks an older turn whose text was shortened and whose tool data
-	// was dropped, so the model does not treat it as the full original.
+	// Compacted marks an older turn with shortened text and dropped tool data, so the model does not treat it
+	// as the original.
 	Compacted bool `json:"compacted,omitempty"`
 }
 
-// Conversation memory. Each message is its own turn; what the agent remembers is
-// the stored turns of the same chat inside a window, trimmed by compactConversation
-// so a longer window does not mean a heavier prompt. The trimming is
-// deterministic on purpose: a model-written summary would put untrusted numbers
-// into later prompts, add a model call, and add one more thing that can time out.
-//
-// Bookkeeping rows (agentBookkeepingTools) are not memory: they exist so opaque
-// refs have a durable owner row, and are never replayed to the model.
+// Turns in a window, trimmed deterministically; a model summary would put untrusted numbers in prompts.
+// Bookkeeping rows (agentBookkeepingTools) give opaque refs a durable owner and are never replayed.
 const (
-	// conversationWindow is how far back a follow-up can reach.
-	conversationWindow = 24 * time.Hour
-	// conversationScanRows bounds how many stored rows are read for one turn.
+	conversationWindow   = 24 * time.Hour
 	conversationScanRows = 40
-	// verbatimExchanges is how many of the newest user exchanges (a USER row and
-	// every row after it up to the next USER row) are kept whole, with their tool
-	// results, because a follow-up refers to the last exchanges most. It counts
-	// exchanges, not rows, so tool rows cannot crowd the window down to one.
-	verbatimExchanges = 3
-	// olderUserChars and olderAssistantChars clip the text of older turns.
+	// verbatimExchanges: the newest user exchanges (a USER row plus the rows up to the next) kept whole with
+	// tool results; counted as exchanges so tool rows cannot crowd the window.
+	verbatimExchanges   = 3
 	olderUserChars      = 200
 	olderAssistantChars = 300
-	// conversationCharBudget caps the replayed memory: text plus the JSON of tool
-	// results. Tool data of older verbatim exchanges goes first, then the oldest
-	// compacted turns; the newest exchange is never trimmed.
+	// conversationCharBudget caps replayed memory (text plus tool JSON): older verbatim tool data goes first,
+	// then the oldest compacted turns; the newest exchange is never trimmed.
 	conversationCharBudget = 6000
 )
 
-// agentBookkeepingTools name TOOL rows that only anchor server-side refs.
 var agentBookkeepingTools = []string{"agent_transaction_refs", gatewayDeferredTool}
 
-// persistTurn stores one conversation turn. A retried message runs the turn
-// again, so the USER and ASSISTANT rows are saved once per source event; TOOL
-// rows (one per call) and rows without a source event are always inserted.
-//
-// "Once" holds even if two workers save the same turn at the same time (a stale
-// lock reclaimed while the first attempt is still finishing): for those rows the
-// insert runs behind a transaction-scoped advisory lock on the event and role, so
-// the second saver waits, then sees the first row and skips. A unique index would
-// give the same guarantee, but it would need a migration that first deletes the
-// duplicate rows retries already left behind.
+// persistTurn saves USER and ASSISTANT rows once per source event; TOOL and event-less rows always insert.
+// "Once" holds under concurrency via an advisory lock on event and role; a unique index needs a migration.
 func (p *Processor) persistTurn(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, role, text, tool string, public map[string]any) error {
 	if p.pool == nil {
 		return nil
@@ -83,10 +60,8 @@ func (p *Processor) persistTurn(ctx context.Context, householdID, sourceEventID 
 	return tx.Commit(ctx)
 }
 
-// insertTurnTx stores one turn inside the caller's transaction, with the same
-// once-per-event rule as persistTurn. A reply and its turn row then commit
-// together: the conversation can never record an answer that was not sent, or
-// miss one that was.
+// insertTurnTx stores a turn in the caller's transaction with persistTurn's once-per-event rule, so a reply
+// and its turn row commit together.
 func insertTurnTx(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, update telegramUpdate, role, text, tool string, public map[string]any) error {
 	encoded, _ := json.Marshal(public)
 	if sourceEventID != "" && (role == "USER" || role == "ASSISTANT") {
@@ -102,7 +77,6 @@ func insertTurnTx(ctx context.Context, tx pgx.Tx, householdID, sourceEventID str
 	return err
 }
 
-// recentConversation returns the chat's recent turns, oldest first, compacted.
 func (p *Processor) recentConversation(ctx context.Context, householdID string, chatID int64, currentSourceID string) ([]PublicTurn, error) {
 	rows, err := p.pool.Query(ctx, `SELECT role,COALESCE(message_text,''),COALESCE(tool_name,''),COALESCE(public_context_json,'{}'::jsonb)
 		FROM telegram_conversation_turn
@@ -123,8 +97,7 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 		}
 		_ = json.Unmarshal(raw, &turn.Context)
 		if turn.Role != "TOOL" {
-			// USER/ASSISTANT context is bookkeeping (send time, phase counters, a
-			// failure marker); only what a follow-up needs is lifted out of it.
+			// USER/ASSISTANT context is bookkeeping; only what a follow-up needs is lifted out.
 			turn.At, _ = turn.Context["current_jakarta_datetime"].(string)
 			turn.Failure, _ = turn.Context["failure"].(string)
 			turn.Context = nil
@@ -142,18 +115,11 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 	return compactConversation(chronological), nil
 }
 
-// expiredAnalyticsRef matches the opaque refs analytics READ tools issue
-// ("category.3", "category.3.merchant.1"). They are positions in one turn's fact
-// snapshot, valid only in the turn that issued them, so a replayed turn must not
-// carry them: the model would reuse one and the read would be rejected, or worse,
-// a position could point at a different category after the data changed.
-// Transaction and review refs (tx_1, review_2) are bound server-side across turns
-// and are left alone.
+// expiredAnalyticsRef matches opaque analytics refs ("category.3") that must not be replayed across turns.
+// Transaction and review refs (tx_1, review_2) are bound server-side and stay.
 var expiredAnalyticsRef = regexp.MustCompile(`^category\.[0-9]+(\.[a-z_]+\.[0-9]+)*$`)
 
-// dropExpiredAnalyticsRefs removes analytics refs from a stored tool context in
-// place: map entries whose value is such a ref, and list items that are one. The
-// names and figures next to them stay, so a follow-up can still refer to them.
+// Removes analytics refs from a stored tool context in place; the names and figures beside them stay.
 func dropExpiredAnalyticsRefs(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
@@ -178,13 +144,8 @@ func dropExpiredAnalyticsRefs(value any) any {
 	return value
 }
 
-// compactConversation takes turns oldest first. The newest verbatimExchanges
-// user exchanges stay whole. Older turns keep only what a follow-up needs: user
-// and assistant text, clipped, with tool results dropped and the turn marked
-// Compacted. Memory is then held to conversationCharBudget, counting tool JSON as
-// well as text: first the tool results of older verbatim exchanges are dropped,
-// oldest first, then the oldest compacted turns. The newest exchange is never
-// trimmed.
+// compactConversation keeps the newest verbatimExchanges whole; older turns keep clipped text only.
+// Then conversationCharBudget trims older verbatim tool results first, then the oldest compacted turns.
 func compactConversation(turns []PublicTurn) []PublicTurn {
 	cut := 0
 	seen := 0
@@ -242,9 +203,8 @@ func compactConversation(turns []PublicTurn) []PublicTurn {
 	return append(older, verbatim...)
 }
 
-// turnMemorySize is what one replayed turn costs the prompt, in characters:
-// its text plus the JSON of any tool result it carries. Characters, not bytes,
-// so non-ASCII text is not penalized.
+// turnMemorySize is a turn's prompt cost in characters (text plus tool JSON), not bytes, so non-ASCII text is
+// not penalized.
 func turnMemorySize(turn PublicTurn) int {
 	size := utf8.RuneCountInString(turn.Text)
 	if len(turn.Context) > 0 {
@@ -254,8 +214,6 @@ func turnMemorySize(turn PublicTurn) int {
 	return size
 }
 
-// clipRunes shortens text to at most limit characters, adding an ellipsis when it
-// cuts, without splitting a multi-byte character.
 func clipRunes(text string, limit int) string {
 	runes := []rune(text)
 	if len(runes) <= limit {

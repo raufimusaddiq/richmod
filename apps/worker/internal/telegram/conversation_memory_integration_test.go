@@ -22,9 +22,8 @@ func (f *terminalFixture) updateFor(messageID int64) telegramUpdate {
 	return u
 }
 
-// A retried message runs the turn again. The household's message and the
-// assistant's answer are saved once per source event; tool calls and rows
-// without a source event are not deduplicated.
+// A retried message saves the user and assistant rows once per source event; rows without a source event are
+// not deduplicated.
 func TestRetriedTurnSavesTheUserAndAssistantRowsOnce(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -50,7 +49,6 @@ func TestRetriedTurnSavesTheUserAndAssistantRowsOnce(t *testing.T) {
 		t.Fatalf("each tool call is its own row, got %d", got)
 	}
 
-	// Without a source event there is nothing to deduplicate against.
 	for i := 0; i < 2; i++ {
 		if err := processor.persistTurn(f.ctx, f.householdID, "", update, "USER", "tanpa sumber", "", nil); err != nil {
 			t.Fatal(err)
@@ -61,8 +59,6 @@ func TestRetriedTurnSavesTheUserAndAssistantRowsOnce(t *testing.T) {
 	}
 }
 
-// The memory window reaches back a day, returns oldest first, keeps the newest
-// exchange whole, and compacts what is older.
 func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -96,15 +92,12 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 			t.Fatalf("a turn older than the window must not be loaded: %+v", turn)
 		}
 	}
-	// 9 rows are inside the window (the 30-hour-old one is not).
 	if len(got) != 9 {
 		t.Fatalf("expected the 9 turns inside the window, got %d: %v", len(got), texts)
 	}
-	// Oldest first.
 	if !strings.HasPrefix(got[0].Text, "tadi pagi") || got[len(got)-1].Text != "Pengeluaran Rp6.312.512." {
 		t.Fatalf("turns must be oldest first, got %v", texts)
 	}
-	// All but the newest verbatimExchanges exchanges are compacted and clipped.
 	cut := verbatimStart(got)
 	for i, turn := range got {
 		if i < cut {
@@ -119,7 +112,6 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 			t.Fatalf("turn %d is among the newest and must stay whole: %+v", i, turn)
 		}
 	}
-	// The newest exchange keeps its tool result.
 	var toolContext any
 	for _, turn := range got {
 		if turn.Role == "TOOL" {
@@ -131,7 +123,6 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 	}
 }
 
-// Reading is bounded no matter how long the chat has been.
 func TestRecentConversationIsBoundedForALongChat(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -158,9 +149,7 @@ func TestRecentConversationIsBoundedForALongChat(t *testing.T) {
 	}
 }
 
-// Two workers saving the same turn at the same moment (a stale lock reclaimed
-// while the first attempt is still finishing) must still leave one USER row and
-// one ASSISTANT row.
+// Concurrent saves of one turn (stale lock reclaimed mid-attempt) still leave one USER and one ASSISTANT row.
 func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -191,8 +180,7 @@ func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
 	}
 }
 
-// A replayed tool result keeps its names and figures but not the analytics refs
-// that were valid only in the turn that issued them.
+// A replayed tool result drops analytics refs, which were valid only in the issuing turn.
 func TestReplayedToolResultsCarryNoExpiredCategoryRefs(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)

@@ -9,9 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Pending corrections and pending batches are confirmed with buttons, not by
-// typing "yes"/"no". Each callback binds the displayed revision; replacements
-// and batch edits rotate the token while the row remains pending.
+// Pending corrections and batches are confirmed with buttons; each callback binds the displayed revision and
+// edits rotate the token.
 const (
 	callbackPendingActionYes = "pending:action:yes"
 	callbackPendingActionNo  = "pending:action:no"
@@ -33,8 +32,6 @@ func pendingBatchMarkup(token string) *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ya, catat semua", CallbackData: callbackPendingBatchYes + ":" + token}, {Text: "Batal", CallbackData: callbackPendingBatchNo + ":" + token}}}}
 }
 
-// agentPendingMarkup returns confirmation buttons when the turn's latest
-// side effect staged something that waits for the household's answer.
 func agentPendingMarkup(history []agentToolResult) *InlineKeyboardMarkup {
 	for index := len(history) - 1; index >= 0; index-- {
 		result := history[index]
@@ -82,7 +79,6 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 	if !handled {
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 	}
-	// The answer is final, so the buttons on the question must stop working.
 	// Best effort: the decision above is already committed and idempotent.
 	outcome := "Dikonfirmasi."
 	if strings.HasSuffix(choice, ":no") {
@@ -92,8 +88,6 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 	return true, nil
 }
 
-// staleActionMessage answers a tap on a button whose question is already
-// resolved, expired, or replaced.
 const staleActionMessage = "Aksi ini sudah selesai atau tidak lagi tersedia."
 
 type jobExecer interface {
@@ -102,9 +96,7 @@ type jobExecer interface {
 
 type callbackQuestionKey struct{}
 
-// withCallbackQuestion remembers the text of the message a callback came from.
-// The Telegram update types are built by hand in many tests, so the text is read
-// from the raw stored payload instead of widening them.
+// Tests hand-build Telegram updates, so the text is read from the raw stored payload.
 func withCallbackQuestion(ctx context.Context, rawPayload string) context.Context {
 	var payload struct {
 		CallbackQuery struct {
@@ -124,14 +116,12 @@ func callbackQuestion(ctx context.Context) string {
 	return text
 }
 
-// retiredMessageText is the original question followed by what happened to it.
 func retiredMessageText(original, outcome string) string {
 	original = strings.TrimSpace(original)
 	if original == "" {
 		return ""
 	}
-	// Telegram caps a message at 4096 and clean() at 4000 runes. Trim the
-	// question, never the outcome, so a long question still shows what happened.
+	// Telegram caps messages at 4096 and clean() at 4000 runes; trim the question, never the outcome.
 	suffix := "\n\n" + outcome
 	if room := 4000 - len([]rune(suffix)); len([]rune(original)) > room {
 		original = string([]rune(original)[:room-1]) + "…"
@@ -139,10 +129,7 @@ func retiredMessageText(original, outcome string) string {
 	return original + suffix
 }
 
-// enqueueRetireButtons edits the message a callback came from so its buttons
-// disappear and the outcome is visible, which stops a second tap from reaching
-// a resolved question. Telegram can only edit text it can resend, so a message
-// whose text is unknown is left alone.
+// Telegram can only edit text it can resend, so a message with unknown text is left alone.
 func enqueueRetireButtons(ctx context.Context, db jobExecer, update telegramUpdate, outcome string) error {
 	if update.CallbackQuery == nil {
 		return nil
@@ -155,10 +142,8 @@ func enqueueRetireButtons(ctx context.Context, db jobExecer, update telegramUpda
 	if err != nil {
 		return err
 	}
-	// A review card settled in place (ADR-046 2026-11-05) belongs to its outcome
-	// edits: a stale tap never retires it, and a retirement queued before the
-	// card's first outcome carries revision 0, so a later outcome makes the
-	// worker drop it instead of erasing the newer buttons.
+	// A card settled in place (ADR-046) is never retired by a stale tap; a revision-0 retirement is dropped
+	// once an outcome lands.
 	_, err = db.Exec(ctx, `INSERT INTO job(type,lane,payload_json)
 		SELECT 'EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_strip_nulls(jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'outcome_request_id',card.request_id,'outcome_revision',CASE WHEN card.request_id IS NULL THEN NULL ELSE 0 END))
 		FROM (SELECT (SELECT c.review_request_id::text FROM review_request_recipient rr JOIN review_conversation c ON c.review_request_id=rr.review_request_id

@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// The resolve_review arguments offered for a bound card are the ones its actions
-// read, so the model cannot put the household's answer in a field the executor
-// ignores.
+// Offered resolve_review arguments are the ones the bound card's actions read.
 func TestReviewToolArgumentsFollowTheCard(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -8,11 +8,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul is the
-// invariant: Go narrows candidates deterministically, and the bounded plane may
-// reuse a surviving ledger row only on an affirmative yes. An undecided middle
-// band must keep the case in Review, because reusing the wrong row silently
-// merges two real financial events.
+// Go narrows deterministically and the plane may reuse a ledger row only on an affirmative yes; the undecided
+// middle band stays in Review.
 func TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
@@ -49,9 +46,7 @@ func TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul(t *testing.T) {
 	}
 }
 
-// TestReconcileSemanticallyWithoutAPlaneStaysInReview pins the fail-closed
-// default: with no bounded plane configured, nothing is silently merged and the
-// existing Review path still runs (ADR-038).
+// With no bounded plane configured nothing is silently merged and the Review path still runs (ADR-038).
 func TestReconcileSemanticallyWithoutAPlaneStaysInReview(t *testing.T) {
 	answer, err := (&Processor{}).reconcileSemantically(context.Background(), "req-1", "3000000", "2026-09-22T10:00:00+07:00", "desc", "UNCLASSIFIED", "", "2026-09-22T10:03:00+07:00")
 	if err != nil {
@@ -62,9 +57,7 @@ func TestReconcileSemanticallyWithoutAPlaneStaysInReview(t *testing.T) {
 	}
 }
 
-// TestReconcileSemanticallyPropagatesProviderFailure keeps a provider outage
-// from being read as a negative ruling, so the caller can distinguish "no" from
-// "could not ask".
+// A provider outage must not read as a negative ruling, so callers can tell "no" from "could not ask".
 func TestReconcileSemanticallyPropagatesProviderFailure(t *testing.T) {
 	processor := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
 	if _, err := processor.reconcileSemantically(context.Background(), "req-1", "1", "at", "d", "UNCLASSIFIED", "", "at"); err == nil {
@@ -72,9 +65,7 @@ func TestReconcileSemanticallyPropagatesProviderFailure(t *testing.T) {
 	}
 }
 
-// TestCanReconcileSemanticallyRequiresExactlyOneCandidate is the §20 narrowing
-// rule: many survivors stay ambiguous and belong to Review, not to a forced
-// bounded choice, and an already-reused row is not re-ruled on.
+// Many survivors stay ambiguous in Review, not a forced choice, and an already-reused row is not re-ruled.
 func TestCanReconcileSemanticallyRequiresExactlyOneCandidate(t *testing.T) {
 	for _, testCase := range []struct {
 		name string

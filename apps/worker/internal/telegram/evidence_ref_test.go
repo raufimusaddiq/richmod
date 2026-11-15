@@ -31,8 +31,6 @@ func TestWrapUntrustedDefangsEmbeddedBoundaryTags(t *testing.T) {
 		for _, wrap := range []func(string) string{untrustedUser, untrustedField, untrustedEvidence} {
 			out := wrap(text)
 			lower := strings.ToLower(out)
-			// Exactly one real opening and one real closing tag survive: the
-			// wrapper's own.
 			if strings.Count(lower, "</untrusted_") != 1 || strings.Count(lower, "<untrusted_") != 1 {
 				t.Fatalf("hostile boundary tag survived wrapping: %q", out)
 			}
@@ -43,7 +41,6 @@ func TestWrapUntrustedDefangsEmbeddedBoundaryTags(t *testing.T) {
 	}
 }
 
-// untrustedTagName returns the wrapper tag of an already wrapped string.
 func untrustedTagName(wrapped string) string {
 	start := strings.Index(wrapped, "<") + 1
 	return wrapped[start:strings.Index(wrapped, ">")]
@@ -62,8 +59,6 @@ func TestPromptNamesEvidenceBoundaryAndForbidsAuthorityChange(t *testing.T) {
 	}
 }
 
-// The lifetime classes must stay distinct types. A plain string would let a
-// canonical id, a cross-turn ref, or a turn-local ref be passed for one another.
 func TestReferenceLifetimeClassesAreDistinctTypes(t *testing.T) {
 	ref, id := reflect.TypeOf(evidenceRef("")), reflect.TypeOf(canonicalDocumentID(""))
 	if ref == id {
@@ -80,7 +75,7 @@ func TestEvidenceRefFormatIsOpaqueAndDisjointFromOtherRefs(t *testing.T) {
 		t.Fatalf("issued ref %q does not match the evidence pattern", issued)
 	}
 	for _, other := range []string{
-		agentScopedRefPrefix("x", "p0r0") + "_tx1", // transaction ref
+		agentScopedRefPrefix("x", "p0r0") + "_tx1",
 		"tx_1", "review_1", "category.3", "category.3.merchant.1", "ev_1", "",
 		issued + "x", "A" + issued[1:],
 	} {

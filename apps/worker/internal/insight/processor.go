@@ -26,8 +26,8 @@ const maxReadsPerTurn = 12
 const Timeout = 120 * time.Second
 const modelTimeout = 30 * time.Second
 
-// generationError preserves the cause for classification, never provider text
-// or model arguments in queue logs and audit metadata.
+// generationError keeps the cause for classification but never provider text or model arguments in logs or
+// audit metadata.
 type generationError struct {
 	reason string
 	cause  error
@@ -88,8 +88,7 @@ func (p *Processor) Process(ctx context.Context, insightID string, finalAttempt 
 	if status != "PENDING" {
 		return nil
 	}
-	// Historical successful rows are read-only compatibility data. A queued
-	// legacy contract is failed explicitly rather than regenerated as advice.
+	// Historical successful rows are read-only; a queued legacy contract is failed rather than regenerated as advice.
 	if version != promptVersion {
 		return p.fail(ctx, insightID, household, "superseded_contract")
 	}
@@ -130,8 +129,8 @@ func renderingTool() gateway.ToolDefinition {
 	}}
 }
 
-// generate uses provider-native continuations. Every batch is validated in full
-// before any read executes; there is no financial side-effect tool or text parser.
+// generate validates every batch in full before any read executes; there is no financial side-effect tool or
+// text parser.
 func (p *Processor) generate(ctx context.Context, insightID, selected string, read func(context.Context, string, json.RawMessage) (map[string]any, error)) (string, gateway.Metadata, []toolRead, error) {
 	if p.gateway == nil {
 		return "", gateway.Metadata{}, nil, fmt.Errorf("gateway unavailable")
@@ -174,8 +173,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 			}
 			callIDs[call.CallID] = true
 		}
-		// Rendering cannot be mixed with READs. It is display-only and remains
-		// unavailable until required financial and quality facts were retrieved.
+		// Rendering is display-only and cannot be mixed with READs.
 		if len(calls) == 1 && calls[0].Name == renderToolName {
 			if !renderAvailable {
 				return "", response.Metadata, reads, fmt.Errorf("rendering tool not exposed")
@@ -291,9 +289,8 @@ func (p *Processor) fail(ctx context.Context, id, household, reason string) erro
 	return tx.Commit(ctx)
 }
 
-// TerminalFailureTx runs inside the transaction that marks a GENERATE_INSIGHT job
-// FAILED. An insight the job never finished would stay PENDING and block
-// generating another for the same household and period.
+// TerminalFailureTx runs in the transaction marking a GENERATE_INSIGHT job FAILED; a never-finished insight
+// would stay PENDING and block regeneration for that household and period.
 func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, insightID string) error {
 	if !reviewdomain.IsSourceEventID(insightID) {
 		return nil

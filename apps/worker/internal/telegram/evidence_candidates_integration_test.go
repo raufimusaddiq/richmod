@@ -17,10 +17,6 @@ type duplicateEvidenceSeed struct {
 	reviewID                                string
 }
 
-// seedDuplicateEvidence builds what the document pipeline leaves for a receipt
-// that may repeat a recorded expense: a NEEDS_REVIEW transaction linked to the
-// receipt, an open POSSIBLE_DUPLICATE review bound to a Telegram card, and one
-// confirmed transaction (same type, amount, nearby time) it may merge into.
 func seedDuplicateEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, label string, uploadMessage, cardMessage int64) duplicateEvidenceSeed {
 	t.Helper()
 	var s duplicateEvidenceSeed
@@ -131,7 +127,6 @@ func TestReceiptReplyMergesIntoTheNamedExistingTransactionWithoutADuplicate(t *t
 		t.Fatalf("open reviews after a merge = %d, want 0", n)
 	}
 
-	// Duplicate delivery of the same update changes nothing more.
 	mustAgentTest(t, p.ProcessAgent(ctx, sourceID))
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status IN ('CONFIRMED','NEEDS_REVIEW')`, f.householdID); n != 1 {
 		t.Fatalf("a replayed update left %d live transactions", n)
@@ -142,8 +137,7 @@ func TestMergeRefusesRefsThatAreNotTheReviewsCurrentCandidates(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-refuse")
 	s := seedDuplicateEvidence(t, ctx, f, "a", 101, 301)
-	// A confirmed transaction of another amount is not a candidate, even though
-	// the model holds a valid, unexpired ref to it.
+	// A confirmed transaction of another amount is not a candidate, even with a valid unexpired model ref.
 	var otherID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',99000,'IDR',now(),'Other',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&otherID))
 	p := NewProcessor(f.pool, nil)
@@ -188,7 +182,7 @@ func TestMergeExistingIsOnlyAvailableForPossibleDuplicateReviews(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-type")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
-	reviewID := linkReceiptReview(t, ctx, f, a, 301) // AMBIGUOUS_CATEGORY, not a duplicate
+	reviewID := linkReceiptReview(t, ctx, f, a, 301)
 	var transactionID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT transaction_id FROM review_request WHERE id=$1`, reviewID).Scan(&transactionID))
 	var otherID string
@@ -212,9 +206,7 @@ func TestMergeExistingIsOnlyAvailableForPossibleDuplicateReviews(t *testing.T) {
 	}
 }
 
-// A merge and a refused merge must read differently even when the model call that
-// would have worded them fails (AGENTS.md: deterministic flows survive an
-// unavailable model).
+// A merge and a refused merge read differently even when the model call that would word them fails.
 func TestMergeOutcomesHaveDistinctDeterministicMessages(t *testing.T) {
 	merged := agentMutationFallback(agentToolResult{Status: "RESOLVED", Mutation: map[string]any{"action": "DUPLICATE_MERGED"}})
 	refused := agentMutationFallback(agentToolResult{Status: "INVALID_CANDIDATE"})

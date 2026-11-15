@@ -2,14 +2,11 @@ package bankemail
 
 import "github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 
-// materialResidual names only the bounded predicate that did not clear, and only
-// when it is material to the canonical decision being attempted. Non-material
-// metadata (an uncertain payment mechanism) never reaches here, so it cannot
-// independently block an otherwise safe expense.
+// materialResidual names only the bounded predicate that did not clear and is material to the attempted
+// decision; non-material metadata (an uncertain payment mechanism) never blocks a safe expense.
 func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
 	if len(v.ClaimOutcomes) == 0 {
-		// No bounded ruling: nothing was evaluated, so no predicate failed. Callers
-		// treat this as no-material-residual rather than defaulting to amount_idr.
+		// No bounded ruling means nothing failed; callers treat it as no material residual, not amount_idr.
 		return "", false, false
 	}
 	switch {
@@ -28,26 +25,21 @@ func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok
 			}
 		}
 	case v.ClaimOutcomes["semantic_grounded"] != "YES":
-		// SPEND vs TRANSFER_OR_INTERNAL unresolved: a material residual the
-		// household resolves, not a blind fail-closed (the deterministic policy
-		// still owns which canonical class a resolved case becomes).
+		// SPEND vs TRANSFER_OR_INTERNAL unresolved is a residual the household resolves; deterministic policy
+		// still owns the resolved class.
 		return "transaction_semantics", false, true
 	}
 	return "", false, false
 }
 
-// needsBankFactsReview reports whether a material residual must park the email
-// for the household to complete bank facts. Direction alone undecided, with the
-// transaction and amount verified and nothing contradicted, does not: that
-// review could only re-enter amount and time the email already holds, while the
-// policy review shows the extracted direction to confirm or reject.
+// needsBankFactsReview reports whether a residual must park for bank facts; direction alone undecided with
+// transaction and amount verified does not, since that review could only re-enter facts the email holds.
 func (v EvidenceVerification) needsBankFactsReview() bool {
 	fact, conflict, _ := v.materialResidual()
 	return fact != "direction" || conflict || v.ClaimOutcomes["transaction_observed"] != "YES"
 }
 
-// reviewPolicyVersion names the policy that actually decided each review type,
-// so the stored contract stays reproducible.
+// reviewPolicyVersion names the policy that decided each review type so the stored contract stays reproducible.
 func reviewPolicyVersion(reviewType string) string {
 	switch reviewType {
 	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE", "UNKNOWN_MERCHANT":
@@ -58,11 +50,10 @@ func reviewPolicyVersion(reviewType string) string {
 	}
 }
 
-// transactionReviewDecision builds the ReviewDecision contract for a bank expense that
-// parked a review. Which facts are missing is derived from the review reason, so
-// the Inbox asks only what is genuinely unresolved: a new merchant with an
-// undecided category is a category gap, not a request to re-enter amount, time,
-// or direction.
+// transactionReviewDecision builds the ReviewDecision for a parked bank expense; missing facts follow the
+// review reason, so a new merchant with an undecided category asks only for a category.
+// review reason, so a new merchant with an undecided category asks only for a category.
+// review reason, so a new merchant with an undecided category asks only for a category.
 func transactionReviewDecision(household, sourceEventID string, extraction Extraction, result PolicyResult, transactionID string) reviewdec.Decision {
 	known := map[string]any{}
 	if amount := value(extraction.AmountIDR); amount != "" {
@@ -88,9 +79,8 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		ReasonCode:     result.ReviewType,
 		KnownFacts:     known,
 		DecisionSource: reviewdec.SourceDeterministic,
-		// The version names the policy that actually decided this review type: the
-		// bounded verification/category plane for evidence gaps, the deterministic
-		// account-match policy for transfer classification.
+		// The version names the policy that decided this review type: bounded plane for evidence gaps,
+		// deterministic account-match for transfer classification.
 		PolicyVersion:   reviewPolicyVersion(result.ReviewType),
 		Provenance:      map[string]any{"pipeline": "bank-email-generic", "household": household},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
@@ -113,8 +103,8 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}
-		// The relationship choices come from the shared kind contract; the IGNORE-only
-		// default above would leave a classification review with no way to classify.
+		// Relationship choices come from the shared kind contract; the IGNORE-only default would leave a
+		// classification review unable to classify.
 		if preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", transactionID); ok {
 			decision.AllowedActions = preset.AllowedActions
 		}

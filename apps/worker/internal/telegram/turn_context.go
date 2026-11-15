@@ -6,30 +6,25 @@ type turnIdentityKey struct{}
 
 type turnIdentity struct{ householdID, sourceEventID string }
 
-// withTurnIdentity attaches the household and source event of a Telegram turn to
-// its context. The worker's process-wide LLM-call recorder reads it so every
-// model call is attributable without the gateway knowing about turns.
+// withTurnIdentity attaches household and source event to the context so the worker's LLM-call recorder can
+// attribute every model call.
 func withTurnIdentity(ctx context.Context, householdID, sourceEventID string) context.Context {
 	return context.WithValue(ctx, turnIdentityKey{}, turnIdentity{householdID, sourceEventID})
 }
 
-// TurnHouseholdID returns the household of the current Telegram turn, or "" for
-// callers that are not a turn (tests, background jobs).
+// TurnHouseholdID returns the turn's household, or "" outside a turn.
 func TurnHouseholdID(ctx context.Context) string {
 	identity, _ := ctx.Value(turnIdentityKey{}).(turnIdentity)
 	return identity.householdID
 }
 
-// TurnSourceEventID returns the source event of the current Telegram turn.
 func TurnSourceEventID(ctx context.Context) string {
 	identity, _ := ctx.Value(turnIdentityKey{}).(turnIdentity)
 	return identity.sourceEventID
 }
 
-// WithHousehold attributes work that is not a Telegram turn (a document, email,
-// insight or residual job) to its household, so model calls made while
-// processing it are recorded against that household. A later Telegram turn
-// context replaces it.
+// WithHousehold attributes non-Telegram work (document, email, insight, residual jobs) to its household; a
+// later Telegram turn context replaces it.
 func WithHousehold(ctx context.Context, householdID string) context.Context {
 	if householdID == "" || TurnHouseholdID(ctx) != "" {
 		return ctx

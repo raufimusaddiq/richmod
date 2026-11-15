@@ -19,15 +19,12 @@ type Job struct {
 	Payload     json.RawMessage
 	Attempts    int
 	MaxAttempts int
-	// HouseholdID is the household the job belongs to, derived when it was
-	// enqueued (migration 00087); "" for platform jobs.
+	// HouseholdID is derived at enqueue (migration 00087); empty for platform jobs.
 	HouseholdID string
-	// Deferrals counts how many times the job was set aside to wait for an
-	// unavailable dependency (Defer); deferrals spend no attempts.
+	// Deferrals counts waits on an unavailable dependency; deferrals spend no attempts.
 	Deferrals int
-	// LockedBy is the worker that holds the job's lease. Every later write of
-	// the job's state is conditional on it, so a worker whose lease was
-	// reclaimed cannot finish, fail or defer a run that now belongs to another.
+	// LockedBy holds the lease; later state writes are conditional on it, so a reclaimed worker cannot
+	// finish, fail or defer the new run.
 	LockedBy string
 }
 
@@ -67,26 +64,8 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 	return job, true, nil
 }
 
-// claimSQL takes the next due job of a lane. Households share each lane fairly:
-// only each household's oldest due job (its head) competes, and the head of
-// the household whose latest job in this lane started longest ago (or never)
-// goes first, so one household's backlog cannot starve another's. Platform
-// jobs (no household) rotate as one more group rather than jumping the queue.
-// Within one household, jobs keep their run_after/created_at order. The
-// last-start lookup runs once per household head, not once per due job.
-//
-// Telegram chat work is serialized per household, because several DEFAULT
-// loops run at once: a household's Telegram text job is not eligible while
-// another of its Telegram text jobs in the lane is running (a lease younger than
-// the stale-lock window), or while an older one is still pending — even one
-// whose retry is not due yet. So a retried message is never overtaken by the
-// household's next message, and two messages of one household never run side
-// by side, while other households keep being served. One exception keeps
-// deterministic replies flowing during an AI outage: an older job that is
-// deferred (waiting for the gateway, not yet due) does not block a newer
-// message that was never deferred, so "/help" or a button-free reply is still
-// answered; once that newer message is deferred too, it queues behind the older
-// one again, so order is restored when the gateway returns.
+// claimSQL takes a lane's next due job, rotating households fairly by who started longest ago.
+// A household's Telegram text jobs run in order; only an older deferred job lets a newer one through.
 const claimSQL = `
 	WITH heads AS (
 		SELECT DISTINCT ON (household_id) id,household_id,run_after,created_at
@@ -115,8 +94,7 @@ const claimSQL = `
 	FOR UPDATE OF j SKIP LOCKED
 	LIMIT 1`
 
-// serializedChatTypesSQL lists the job types one household may run only one at
-// a time, in creation order (see claimSQL).
+// serializedChatTypesSQL lists job types one household runs one at a time, in creation order (see claimSQL).
 const serializedChatTypesSQL = `'PROCESS_TELEGRAM_TEXT'`
 
 // Deferral backoff: 5 minutes, doubling per deferral, capped at an hour.
@@ -125,7 +103,6 @@ const (
 	deferralCap  = time.Hour
 )
 
-// DeferralDelay is how long the n-th deferral (0-based) waits.
 func DeferralDelay(deferrals int) time.Duration {
 	delay := deferralBase
 	for i := 0; i < deferrals && delay < deferralCap; i++ {
@@ -137,10 +114,8 @@ func DeferralDelay(deferrals int) time.Duration {
 	return delay
 }
 
-// Defer sets a running job aside until its dependency is likely back. The
-// attempt it just used is given back, so a long outage cannot exhaust the
-// retry budget; the caller decides when waiting must end (the job then fails
-// normally).
+// Defer sets a running job aside until its dependency is back and gives back the attempt it used, so a long
+// outage cannot exhaust retries.
 func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -150,21 +125,17 @@ func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
 	return err
 }
 
-// Succeed marks the job done, but only for the worker that still holds its
-// lease. A worker that ran past the lease and lost the job to a reclaim changes
-// nothing: the run that now owns the job decides its outcome.
+// Succeed is a no-op for a worker that lost its lease to a reclaim; the run that owns the job decides the outcome.
 func (q *Queue) Succeed(ctx context.Context, job Job) error {
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$2`, job.ID, job.LockedBy)
 	return err
 }
 
-// leaseRenewal is how often a running job extends its lease; it must stay well
-// under the five-minute stale-lock window the claim uses.
+// leaseRenewal is how often a running job extends its lease; it must stay well under the five-minute stale-lock window.
 const leaseRenewal = time.Minute
 
-// KeepLease extends the job's lease while it runs, so a slow job (an unbounded
-// Telegram send, a long model call) is not reclaimed and run twice. The
-// returned stop function must be called when the job's processing ends.
+// KeepLease extends the lease while the job runs so a slow job is not reclaimed and run twice; call the
+// returned stop when processing ends.
 func (q *Queue) KeepLease(ctx context.Context, job Job) (stop func()) {
 	done := make(chan struct{})
 	finished := make(chan struct{})
@@ -194,10 +165,8 @@ func (q *Queue) KeepLease(ctx context.Context, job Job) (stop func()) {
 	}
 }
 
-// LeaseExpiredError marks a job that was reclaimed after its lease lapsed once
-// it had already used every attempt (a worker that crashed while running it).
-// It is permanent, so the job fails through the normal final-failure path and
-// its owner is told, instead of being reclaimed forever.
+// LeaseExpiredError marks a job reclaimed after using every attempt (a crashed worker); it is permanent, so
+// the job takes the final-failure path instead of being reclaimed forever.
 type LeaseExpiredError struct{ Attempts, MaxAttempts int }
 
 func (e LeaseExpiredError) Error() string {
@@ -205,24 +174,16 @@ func (e LeaseExpiredError) Error() string {
 }
 func (LeaseExpiredError) Permanent() bool { return true }
 
-// Exhausted reports whether a claim handed out a job that had already spent
-// all its attempts (a stale RUNNING lease reclaimed once more).
+// Exhausted reports whether a claim returned a job that had already spent all its attempts.
 func Exhausted(job Job) bool { return job.Attempts > job.MaxAttempts }
 
-// Final reports whether a failed attempt is the job's last: it either used its
-// attempts or failed with an error that must not be retried.
+// Final reports whether a failed attempt is the last: attempts used up or a non-retryable error.
 func Final(job Job, processErr error) bool {
 	return job.Attempts >= job.MaxAttempts || isPermanent(processErr)
 }
 
-// FailWithHook records a failed attempt: the job is rescheduled, or marked FAILED
-// when Final says it is the last. On the last attempt it also runs onFinal in the
-// same transaction, so a caller that must tell someone the job is giving up
-// (queue a reply) does it atomically: either the job is marked FAILED and the
-// notice is queued, or neither happens and the stale-lock claim retries the job.
-// Only the worker that still owns the job runs onFinal. If onFinal itself cannot
-// succeed (bad payload, say), the job is still marked FAILED without it, because
-// a job that can never be failed would be reclaimed forever.
+// FailWithHook reschedules the job or, on the final attempt, marks it FAILED and runs onFinal in the same tx.
+// Only the lease owner runs onFinal; if it fails the job is still FAILED so it is not reclaimed forever.
 func (q *Queue) FailWithHook(ctx context.Context, job Job, processErr error, onFinal func(context.Context, pgx.Tx) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -254,7 +215,6 @@ func (q *Queue) failTx(ctx context.Context, job Job, processErr error, onFinal f
 	if err != nil {
 		return err
 	}
-	// Only the worker that still owns the job may run the final step.
 	if onFinal != nil && status == "FAILED" && tag.RowsAffected() == 1 {
 		if err := onFinal(ctx, tx); err != nil {
 			return fmt.Errorf("final failure step: %w", err)
@@ -270,8 +230,8 @@ func (q *Queue) logRetry(ctx context.Context, job Job, processErr error) error {
 	return nil
 }
 
-// retryDelaySeconds is the exponential backoff, unless the error names its own
-// wait (a Telegram 429 retry_after), which is honoured up to one hour.
+// retryDelaySeconds is exponential backoff unless the error names its own wait (a Telegram 429 retry_after),
+// honoured up to one hour.
 func retryDelaySeconds(job Job, processErr error) int {
 	delay := time.Duration(1<<min(job.Attempts, 8)) * time.Second
 	var hinted interface{ RetryAfter() time.Duration }
@@ -288,8 +248,8 @@ func isPermanent(err error) bool {
 	return errors.As(err, &permanent) && permanent.Permanent()
 }
 
-// classifyLane mirrors the database enforce_job_lane function (migration
-// 00081); TestClassifyLaneMatchesDatabase keeps them in step.
+// classifyLane mirrors the database enforce_job_lane function (migration 00081);
+// TestClassifyLaneMatchesDatabase keeps them in step.
 func classifyLane(jobType string) string {
 	switch jobType {
 	case "PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "EDIT_TELEGRAM_MESSAGE", "PROCESS_TELEGRAM_REVIEW_TEXT", "RETIRE_TELEGRAM_REVIEW_CARD", "COMPLETE_BANK_REVIEW":
@@ -326,9 +286,8 @@ func durationMillis(err error) int {
 	if err == nil {
 		return 0
 	}
-	// Errors from ctx-bound processors carry the budget timeout; the value is
-	// not always exposed, so the executor logs it via slog. We persist only the
-	// error class here and rely on the queue's last_error for the message.
+	// Errors from ctx-bound processors may hide the budget timeout; the executor logs it via slog, so only
+	// the error class is persisted here.
 	return 0
 }
 

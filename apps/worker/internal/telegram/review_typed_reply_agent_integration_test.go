@@ -12,8 +12,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// typedReplyGateway is the conversational model answering a typed reply to a
-// review card: it proposes the card's value through resolve_review once.
+// typedReplyGateway proposes the card's value through resolve_review once.
 type typedReplyGateway struct {
 	arguments string
 	calls     int
@@ -31,8 +30,6 @@ func (g *typedReplyGateway) AgentTurn(context.Context, string, gateway.AgentRequ
 	return gateway.AgentResponse{Text: "Sudah dicatat."}, nil
 }
 
-// typedReplyModes covers an exact reply and a plain message to the one open
-// review.
 var typedReplyModes = []struct {
 	name  string
 	reply bool
@@ -57,9 +54,8 @@ func sendTypedReviewReply(t *testing.T, ctx context.Context, f agentIntegrationF
 	mustAgentTest(t, p.ProcessAgent(ctx, f.sourceID))
 }
 
-// A purpose or correction typed in answer to its card is stored and, when the
-// card asked for nothing else and the transaction already has its category,
-// completes the review.
+// A purpose or correction typed in answer to a card is stored and completes the review when nothing else is
+// asked and the category exists.
 func TestTypedDetailReplyCompletesReview(t *testing.T) {
 	for _, reviewType := range []string{"UNKNOWN_PURPOSE", "MANUAL_CORRECTION"} {
 		for _, mode := range typedReplyModes {
@@ -95,9 +91,8 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 	}
 }
 
-// A bank email whose facts could not be verified asks the household for the
-// amount and time. The model extracts them from the typed answer; Go validates
-// them and queues the same completion job the Web uses.
+// A bank email with unverified facts asks for amount and time; the model extracts them, Go validates and
+// queues the Web's completion job.
 func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 	for _, mode := range typedReplyModes {
 		t.Run(mode.name, func(t *testing.T) {
@@ -136,8 +131,7 @@ func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 	}
 }
 
-// A compound card (date and category missing) stores the typed date, then moves
-// on to the category chooser rather than dropping the second fact.
+// A compound card (date and category) stores the typed date, then moves to the category chooser.
 func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 	for _, mode := range typedReplyModes {
 		t.Run(mode.name, func(t *testing.T) {
@@ -166,8 +160,7 @@ func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 	}
 }
 
-// A purpose typed for an uncategorized expense is stored and the card moves to
-// the category chooser; choosing a category there completes the review.
+// A purpose typed for an uncategorized expense is stored, then the category chooser completes the review.
 func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "typed-purpose-chooser")
@@ -200,8 +193,7 @@ func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 	}
 }
 
-// A screenshot row whose amount was unreadable is a proposal-keyed review. A
-// typed amount in answer to its card records the transaction.
+// A typed amount answering an unreadable-amount screenshot row (a proposal-keyed review) records the transaction.
 func TestTypedAmountReplyRecordsScreenshotRow(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "typed-amount")

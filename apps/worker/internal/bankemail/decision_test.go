@@ -8,8 +8,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// An unknown merchant is collected first on any channel; amount/time remain
-// known and are never requested again.
+// An unknown merchant is collected first on any channel; known amount and time are never requested again.
 func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
 	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
@@ -44,9 +43,7 @@ func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
 	}
 }
 
-// The missing-facts list must name every absent required fact, not just the
-// first: an email with neither amount nor time must ask for both, so the Inbox
-// does not silently leave one unresolved.
+// The missing-facts list names every absent required fact: an email with neither amount nor time asks for both.
 func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	decision := partialDecision("household", "source", Extraction{}, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"amount", "transaction_at"}, "facts absent")
 	if len(decision.MissingFacts) != 2 {
@@ -60,8 +57,7 @@ func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	}
 }
 
-// A bank transfer parked for classification must offer the relationship choices
-// of the shared contract, not only IGNORE (#384).
+// A bank transfer parked for classification offers the shared relationship choices, not only IGNORE.
 func TestTransferClassificationDecisionOffersRelationshipChoices(t *testing.T) {
 	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, "t")
 	preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", "t")

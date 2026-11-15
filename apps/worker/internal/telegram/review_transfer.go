@@ -54,9 +54,8 @@ func transferReviewCallbackAction(callback string) string {
 	}
 }
 
-// confirmIncomeTransferReview records an incoming row (a screenshot "dana masuk")
-// as ordinary income. It is the exact answer to the "Penghasilan" button; the
-// shared confirm revalidates that the subject is still an open income review.
+// confirmIncomeTransferReview records an incoming row (a screenshot "dana masuk") as income, the exact answer
+// to "Penghasilan"; the shared confirm revalidates the open income review.
 func (p *Processor) confirmIncomeTransferReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -109,10 +108,8 @@ func (p *Processor) confirmIncomeTransferReview(ctx context.Context, sourceEvent
 	return tx.Commit(ctx)
 }
 
-// promptAssetWealthAccount re-asks only the one server-owned missing fact. The
-// callback is an exact asset-purchase intent; the wealth-account name itself is
-// free text the typed review lane resolves inside the household, so the prompt
-// states a suggested shape instead of parsing the answer here.
+// promptAssetWealthAccount re-asks only the server-owned missing fact; the wealth-account name is free text
+// the typed lane resolves in the household, so only a suggested shape is prompted.
 func (p *Processor) promptAssetWealthAccount(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -168,8 +165,7 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	if classification == "INVESTMENT_ACCOUNT" {
 		wealthHint = selectedWealthID
 	}
-	// ADR-046: the transfer mutation, candidate resolution, proposal/source-event
-	// refresh, and review completion are one shared operation.
+	// ADR-046: transfer mutation, candidate resolution, refresh and review completion are one shared operation.
 	transfer, err := reviewdomain.ClassifyTransferReview(ctx, tx, reviewdomain.TransferCommand{
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
@@ -189,9 +185,8 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Akun kekayaan tujuan bukan aset yang kompatibel.")
 		} else if errors.Is(err, reviewdomain.ErrTransferNotFound) {
-			// The choice does not apply to this transaction (an old card, or an
-			// outgoing choice on money coming in). Say so instead of failing the
-			// callback job, which the household would only see as silence.
+			// The choice does not apply (an old card, or an outgoing choice on incoming money): say so
+			// instead of failing the job into silence.
 			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Pilihan ini tidak berlaku untuk transaksi ini. Tinjauan masih terbuka, pilih jawaban lain.")
 		} else {
@@ -218,9 +213,8 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	return tx.Commit(ctx)
 }
 
-// offerInvestmentChooser keeps ambiguous Known Account mapping in Telegram.
-// The stored review and callback are bound to real account IDs; the shared
-// classifier performs the final household/compatibility check under the lock.
+// Keeps ambiguous Known Account mapping in Telegram; buttons bind real account IDs and the shared classifier
+// does the final household/compatibility check under the lock.
 func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -234,7 +228,7 @@ func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, h
 	if !open {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
-	// ponytail: first ten investment accounts only; paginate if a household grows beyond ten.
+	// First ten investment accounts only; paginate if a household grows beyond ten.
 	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND usage_role='INVESTMENT' ORDER BY name,id LIMIT 10`, householdID)
 	if err != nil {
 		return err
