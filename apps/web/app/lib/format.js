@@ -1,7 +1,7 @@
 const rupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
 export function money(value) {
-  try { return rupiah.format(BigInt(value || "0")); } catch { return "Rp0"; }
+  try { return rupiah.format(BigInt(String(value ?? "0").trim().split(".")[0] || "0")); } catch { return "Rp0"; }
 }
 
 export function dateTime(value) {
