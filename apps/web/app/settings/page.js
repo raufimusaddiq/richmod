@@ -197,7 +197,7 @@ export function EmailOnboardingChecklist({ ingress, owner = false, isBusy = () =
   </div>;
 }
 
-// The state model: three independent facts, each possibly unknown (unknown is not false).
+// The state model. Three independent facts, each possibly unknown (unknown is not false).
 //
 //   B — does this browser hold a push endpoint?  true | false
 //   S — what does the server say about this endpoint for this session's
