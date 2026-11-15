@@ -12,6 +12,14 @@ import { ErrorNotice, Skeleton } from "../components/Feedback";
 const capabilityCheckStyle = { display: "flex", minHeight: 42, alignItems: "center", gap: 8, color: "var(--ink-soft)", whiteSpace: "nowrap", cursor: "pointer" };
 const capabilityInputStyle = { width: 24, height: 24, minHeight: 24, padding: 0, margin: 0, flex: "0 0 auto", accentColor: "var(--accent)", boxShadow: "none", cursor: "pointer" };
 
+// Server messages that deserve plain-language copy. Unknown messages pass through.
+const SERVER_ERROR_TEXT = { "active sender already exists": "Alamat pengirim ini sudah dipakai oleh sumber aktif lain." };
+const ACTIVATE_ERROR_TEXT = {
+  ADDRESS_REQUIRED: "Buat alamat email terlebih dahulu.",
+  SENDER_REQUIRED: "Tambahkan minimal satu pengirim bank atau provider yang aktif sebelum mengaktifkan email.",
+};
+const ROTATE_CONFIRM = "Alamat lama akan dinonaktifkan dan alamat baru dibuat. Aturan penerusan di Gmail atau penyedia email Anda harus dibuat ulang dengan alamat baru, lalu email perlu diaktifkan lagi. Lanjutkan?";
+
 export default function SettingsPage() {
   const { confirm, prompt, dialogs } = useDialogs();
   const user = useAuth();
@@ -49,7 +57,7 @@ export default function SettingsPage() {
       setError("");
       try {
         const response = await fetch(url, options);
-        if (!response.ok) { setError(await responseError(response, "Perubahan belum dapat disimpan.")); return false; }
+        if (!response.ok) { const message = await responseError(response, "Perubahan belum dapat disimpan."); setError(SERVER_ERROR_TEXT[message] || message); return false; }
         await load();
         return true;
       } catch {
@@ -90,6 +98,24 @@ export default function SettingsPage() {
     });
   }
   const emailIngressAction = (action = "") => request(`email-ingress-${action || "create"}`, `/api/v1/integrations/email-ingress${action ? `/${action}` : ""}`, { method: "POST" });
+  // Activation has prerequisites, so its 409s carry a code that maps to a next step.
+  const activateEmailIngress = () => runBusy("email-ingress-activate", async () => {
+    setError("");
+    try {
+      const response = await fetch("/api/v1/integrations/email-ingress/activate", { method: "POST" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setError(ACTIVATE_ERROR_TEXT[body?.code] || body?.error || "Email belum dapat diaktifkan.");
+        await load();
+        return false;
+      }
+      await load();
+      return true;
+    } catch {
+      setError("Koneksi terputus. Email belum diaktifkan.");
+      return false;
+    }
+  }).then(Boolean);
   async function copyEmailIngress() { try { await navigator.clipboard.writeText(data.emailIngress.address); } catch { setError("Alamat email tidak dapat disalin. Salin manual dari teks di atas."); } }
   const patch = (key, path, body) => request(key, `/api/v1/${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   async function rename(item, kind) { const result = await prompt(`Ganti nama ${kind}`, [{ name: "name", label: `Nama ${kind} baru`, defaultValue: item.name, required: true }]); const name = result?.name; if (name?.trim() && name.trim() !== item.name) patch(item.id, `${kind === "rekening" ? "accounts" : "categories"}/${item.id}`, { name: name.trim() }); }
@@ -128,14 +154,49 @@ export default function SettingsPage() {
       <SettingsSection title="Aturan kategori otomatis" description="Hanya aturan yang dikonfirmasi secara eksplisit yang dapat aktif.">
         <BoundedList items={data.aliases} renderItem={item => (<article key={item.id}><div><b>{item.normalizedName}</b><small>Alias: {item.rawName}</small></div><span>{item.defaultCategoryName || "Tanpa kategori"}</span>{owner && <button className={item.autoApply ? "danger" : "secondary"} disabled={isBusy(item.id)} onClick={() => patch(item.id, `merchant-aliases/${item.id}`, { autoApply: !item.autoApply })}>{item.autoApply ? "Nonaktifkan" : "Aktifkan"}</button>}</article>)} emptyMessage="Belum ada aturan merchant." emptyClassName="empty compact" />
       </SettingsSection>
-      <SettingsSection title="Email, Telegram, dan gateway" description="Alamat email dibuat Richmod dan aktif hanya setelah pemilik melakukan cutover.">
-        <div className="integration-grid"><article><span className={`health-dot ${data.emailIngress?.status === "ACTIVE" ? "ok" : ""}`}/><div><b>Email notifikasi bank</b><small>{data.emailIngress?.address || "Alamat belum dibuat"}{data.emailIngress?.status ? ` · ${data.emailIngress.status}` : ""}{data.emailIngress?.lastReceivedAt ? ` · diterima ${dateTime(data.emailIngress.lastReceivedAt)}` : ""}</small></div><div className="integration-actions">{owner && !data.emailIngress?.address && <button className="secondary" disabled={isBusy("email-ingress-create")} onClick={() => emailIngressAction()}>Buat alamat</button>}{data.emailIngress?.address && <button className="secondary" onClick={copyEmailIngress}>Salin</button>}{owner && data.emailIngress?.status === "PROVISIONED" && <button disabled={isBusy("email-ingress-activate")} onClick={() => emailIngressAction("activate")}>Aktifkan</button>}{owner && data.emailIngress?.address && <button className="secondary" disabled={isBusy("email-ingress-rotate")} onClick={async () => { if (await confirm("Alamat lama akan dinonaktifkan. Lanjutkan?", { confirmLabel: "Rotasi alamat", danger: true })) emailIngressAction("rotate"); }}>Rotasi</button>}</div></article><article><span className={`health-dot ${data.members.some(item => item.telegramConnected) ? "ok" : ""}`}/><div><b>Telegram bot</b><small>{data.members.filter(item => item.telegramConnected).length} anggota terhubung</small></div><a className="button secondary" href="/household">Kelola</a></article><article><span className={`health-dot ${data.operations?.worker?.healthy && data.operations?.llmGateway?.configured ? "ok" : ""}`}/><div><b>Worker & LLM gateway</b><small>Worker {data.operations?.worker?.healthy ? "sehat" : "perlu perhatian"} · gateway {data.operations?.llmGateway?.configured ? "terkonfigurasi" : "tidak dikonfigurasi"}</small></div></article></div>
-        {owner && data.emailIngress?.forwardingAction && <div className="settings-list" data-testid="forwarding-verification"><p className="list-count">Verifikasi penerusan Gmail</p><article><div><b>{data.emailIngress.forwardingAction.title}</b><small>Google meminta konfirmasi sebelum email diteruskan. Setelah email pertama masuk, langkah ini selesai otomatis.</small>{data.emailIngress.forwardingAction.actionCode && <small className="action-code">Kode konfirmasi: <code>{data.emailIngress.forwardingAction.actionCode}</code></small>}</div><div className="integration-actions">{data.emailIngress.forwardingAction.actionUrl && <a className="button" href={data.emailIngress.forwardingAction.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={isBusy("forwarding-resolve")} onClick={() => request("forwarding-resolve", `/api/v1/integration-actions/${data.emailIngress.forwardingAction.id}/resolve`, { method: "POST" })}>Tandai selesai</button></div></article></div>}
+      <SettingsSection title="Email, Telegram, dan gateway" description="Ikuti empat langkah untuk menghubungkan email bank. Alamat baru menerima email setelah pemilik mengaktifkannya.">
+        <EmailOnboardingChecklist ingress={data.emailIngress} owner={owner} isBusy={isBusy} onCreate={() => emailIngressAction()} onActivate={activateEmailIngress} onCopy={copyEmailIngress} onResolveForwarding={id => request("forwarding-resolve", `/api/v1/integration-actions/${id}/resolve`, { method: "POST" })}/>
+        <div className="integration-grid"><article><span className={`health-dot ${data.emailIngress?.status === "ACTIVE" ? "ok" : ""}`}/><div><b>Email notifikasi bank</b><small>{data.emailIngress?.address || "Alamat belum dibuat"}{data.emailIngress?.status ? ` · ${data.emailIngress.status}` : ""}{data.emailIngress?.lastReceivedAt ? ` · diterima ${dateTime(data.emailIngress.lastReceivedAt)}` : ""}</small></div><div className="integration-actions">{data.emailIngress?.address && <button className="secondary" onClick={copyEmailIngress}>Salin</button>}{owner && data.emailIngress?.address && <button className="secondary" disabled={isBusy("email-ingress-rotate")} onClick={async () => { if (await confirm(ROTATE_CONFIRM, { confirmLabel: "Rotasi alamat", danger: true })) emailIngressAction("rotate"); }}>Rotasi</button>}</div></article><article><span className={`health-dot ${data.members.some(item => item.telegramConnected) ? "ok" : ""}`}/><div><b>Telegram bot</b><small>{data.members.filter(item => item.telegramConnected).length} anggota terhubung</small></div><a className="button secondary" href="/household">Kelola</a></article><article><span className={`health-dot ${data.operations?.worker?.healthy && data.operations?.llmGateway?.configured ? "ok" : ""}`}/><div><b>Worker & LLM gateway</b><small>Worker {data.operations?.worker?.healthy ? "sehat" : "perlu perhatian"} · gateway {data.operations?.llmGateway?.configured ? "terkonfigurasi" : "tidak dikonfigurasi"}</small></div></article></div>
         {owner && <div className="settings-list"><p className="list-count">Pengiriman terakhir</p>{data.deliveries.length ? data.deliveries.map((item, index) => <article key={`${item.receivedAt}-${index}`}><div><b>{label(emailDeliveryStatusLabel, item.status)}</b><small>{item.sender || "Pengirim tidak diketahui"} · {dateTime(item.receivedAt)}</small></div>{item.reason && <span>{label(emailDeliveryReasonLabel, item.reason, item.reason)}</span>}</article>) : <p className="empty compact">Belum ada email yang diterima.</p>}</div>}
       </SettingsSection>
       <NotificationsSection />
     </div>
   </AppShell>;
+}
+
+const CHECKLIST_STATE_TEXT = { done: "Selesai", current: "Langkah berikutnya", blocked: "Menunggu langkah sebelumnya" };
+
+// Guided onboarding for email ingestion. A pure view of the server's step
+// states: the server decides done/current/blocked, this only presents them.
+export function EmailOnboardingChecklist({ ingress, owner = false, isBusy = () => false, onCreate, onActivate, onCopy, onResolveForwarding }) {
+  const steps = ingress?.steps;
+  if (!steps) return null;
+  const action = owner ? ingress.forwardingAction : null;
+  const items = [
+    { key: "address", title: "Buat alamat", state: steps.address,
+      detail: steps.address === "done" ? ingress.address : "Richmod membuat alamat email khusus untuk keluarga Anda.",
+      actions: steps.address === "current" && owner && <button type="button" disabled={isBusy("email-ingress-create")} onClick={onCreate}>Buat alamat</button> },
+    { key: "sender", title: "Tambah pengirim", state: steps.sender,
+      detail: steps.sender === "done" ? "Ada pengirim bank atau provider yang aktif." : steps.sender === "blocked" ? "Buat alamat email terlebih dahulu." : "Daftarkan alamat pengirim bank atau provider yang boleh masuk.",
+      actions: steps.sender === "current" && owner && <><a className="button" href="#notifikasi-bank">Tambah pengirim bank</a><a className="button secondary" href="#provider-finansial">Tambah provider</a></> },
+    { key: "forwarding", title: "Verifikasi penerusan", state: steps.forwarding,
+      detail: steps.forwarding === "done" ? "Email dari penerusan sudah diterima." : steps.forwarding === "blocked" ? "Buat alamat email terlebih dahulu." : "Tambahkan alamat ini sebagai alamat penerusan di Gmail atau penyedia email Anda. Langkah ini selesai otomatis setelah email pertama masuk.",
+      actions: steps.forwarding !== "blocked" && ingress.address && <button type="button" className="secondary" onClick={onCopy}>Salin alamat</button> },
+    { key: "activated", title: "Aktifkan", state: steps.activated,
+      detail: steps.activated === "done" ? "Email yang cocok dengan pengirim aktif akan diproses." : steps.activated === "blocked" ? (steps.address === "done" ? "Tambahkan pengirim terlebih dahulu." : "Buat alamat email terlebih dahulu.") : "Aktifkan setelah pengirim terdaftar. Disarankan memverifikasi penerusan lebih dulu.",
+      actions: steps.activated === "current" && owner && <button type="button" disabled={isBusy("email-ingress-activate")} onClick={onActivate}>Aktifkan</button> },
+  ];
+  return <div className="email-checklist" data-testid="email-checklist">
+    <ol aria-label="Langkah menghubungkan email">
+      {items.map((item, index) => <li key={item.key} data-step={item.key} data-state={item.state} aria-current={item.state === "current" ? "step" : undefined}>
+        <span className="step-index" aria-hidden="true">{item.state === "done" ? "✓" : index + 1}</span>
+        <div><b>{item.title}</b><small className="step-state">{CHECKLIST_STATE_TEXT[item.state]}</small><small>{item.detail}</small>
+          {item.key === "forwarding" && action && <div data-testid="forwarding-verification"><small><b>{action.title}</b> Google meminta konfirmasi sebelum email diteruskan.</small>{action.actionCode && <small className="action-code">Kode konfirmasi: <code>{action.actionCode}</code></small>}</div>}
+        </div>
+        <div className="integration-actions">{item.actions}{item.key === "forwarding" && action && <>{action.actionUrl && <a className="button" href={action.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button type="button" className="secondary" disabled={isBusy("forwarding-resolve")} onClick={() => onResolveForwarding(action.id)}>Tandai selesai</button></>}</div>
+      </li>)}
+    </ol>
+  </div>;
 }
 
 // The state model. Three independent facts, each of which may be unknown;
