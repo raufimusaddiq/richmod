@@ -3,7 +3,7 @@
 // callbacks and effects with cleanup, re-rendering synchronously on a change.
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import test from "node:test";
 import swc from "next/dist/build/swc/index.js";
@@ -13,7 +13,7 @@ await swc.loadBindings();
 const React = require("react");
 const internals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
 
-const file = path.resolve(new URL("../app/lib/useLoadState.js", import.meta.url).pathname);
+const file = fileURLToPath(new URL("../app/lib/useLoadState.js", import.meta.url));
 const { code } = swc.transformSync(fs.readFileSync(file, "utf8"), { filename: file, jsc: { parser: { syntax: "ecmascript" } }, module: { type: "commonjs" } });
 const mod = { exports: {} };
 new Function("module", "exports", "require", code)(mod, mod.exports, require);
