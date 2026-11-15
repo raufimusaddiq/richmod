@@ -192,8 +192,10 @@ The canonical distributable files are under `docs/assets/brand/`:
 | Telegram avatar | `richmod-telegram-avatar.svg`, `.png` (4096 × 4096), `richmod-telegram-avatar-1024.png` | Circular profile; upload the 1024 × 1024 PNG |
 
 - The Telegram artwork is circular inside a square transparent canvas. Keep
-  the three page fields centered inside the circle; do not add a rounded-square
-  tile, literal initial, or text.
+  the three page fields centered inside the circle with room for Telegram's
+  circular crop; do not add a rounded-square tile, literal initial, or text.
+  Use the 1024 × 1024 PNG for the bot profile.
+- SVG wordmarks are outlined, so they render the same without installed fonts.
 - Keep each asset's aspect ratio. Scale from SVG when another size is needed;
   never enlarge a small raster export as the source for a larger one.
 - Preserve the three fields and their negative-space seam. Do not add ruled
