@@ -1,8 +1,5 @@
-// Package categoryctx builds the household context that a bounded category
-// judgment needs: what each offered category means to this household, how this
-// household has categorized the same merchant before, and when the purchase
-// happened. It only gathers facts; the model still decides and Go still
-// resolves the chosen slug to a canonical ID (ADR-038).
+// Package categoryctx gathers household facts for bounded category judgments; the model decides and Go
+// resolves the slug to an ID (ADR-038).
 package categoryctx
 
 import (
@@ -13,16 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Querier is the read seam onto PostgreSQL.
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// StateKey names the state entry carrying the same-merchant precedent.
 const StateKey = "household_history_same_merchant"
 
-// Label renders a category as the household names it: a sub-category carries
-// its parent so "Kopi & Camilan" is read inside "Makanan & Minuman".
+// Label renders a category as the household names it, with its parent for sub-categories.
 func Label(name, parentName string) string {
 	name, parentName = strings.TrimSpace(name), strings.TrimSpace(parentName)
 	if parentName == "" {
@@ -31,10 +25,8 @@ func Label(name, parentName string) string {
 	return parentName + " > " + name
 }
 
-// History reports how many earlier confirmed expenses of the same merchant this
-// household filed under each offered category. Counts under a category that is
-// not offered roll up to its parent when the parent is offered. It returns nil
-// when there is no merchant to look up.
+// History counts earlier confirmed expenses of the same merchant per offered category, rolling unoffered ones
+// up to an offered parent; nil without a merchant.
 func History(ctx context.Context, q Querier, householdID, merchant string, offered []string) (map[string]any, error) {
 	merchant = strings.TrimSpace(merchant)
 	if merchant == "" {
@@ -88,8 +80,6 @@ var householdLocation = func() *time.Location {
 	return time.FixedZone("WIB", 7*60*60)
 }()
 
-// LocalTime renders the purchase moment in the household timezone, for example
-// "Mon 09:36".
 func LocalTime(at time.Time) string {
 	return at.In(householdLocation).Format("Mon 15:04")
 }

@@ -9,16 +9,14 @@ import (
 	"strings"
 )
 
-// Question is the native System One question contract. Each primitive has its
-// own criteria shape, so a wrong combination fails locally instead of reaching
-// the provider.
+// Question is the native System One contract; each primitive has its own criteria shape, so a wrong
+// combination fails locally.
 type Question struct {
 	Type         string
 	Instructions string
 	Criteria     any
 }
 
-// NoulCriteria describes both sides of a yes/no judgment.
 type NoulCriteria struct {
 	True  any `json:"true,omitempty"`
 	False any `json:"false,omitempty"`
@@ -111,7 +109,6 @@ func (q Question) validate() error {
 	return nil
 }
 
-// ChoiceCriteria builds a Choice criteria map from ordered labels.
 func ChoiceCriteria(descriptions map[string]string) map[string]any {
 	criteria := make(map[string]any, len(descriptions))
 	for label, description := range descriptions {
@@ -120,7 +117,6 @@ func ChoiceCriteria(descriptions map[string]string) map[string]any {
 	return criteria
 }
 
-// CriteriaLabels returns the option labels of a criteria map in stable order.
 func CriteriaLabels(criteria map[string]any) []string {
 	labels := make([]string, 0, len(criteria))
 	for label := range criteria {
@@ -130,8 +126,7 @@ func CriteriaLabels(criteria map[string]any) []string {
 	return labels
 }
 
-// PlainCriteria accepts a bare label list and gives each option a neutral
-// description so bounded server-state choices keep their native criteria map.
+// PlainCriteria gives each bare label a neutral description so server-state choices keep a native criteria map.
 func PlainCriteria(labels []string) map[string]any {
 	criteria := make(map[string]any, len(labels))
 	for _, label := range labels {
@@ -140,12 +135,10 @@ func PlainCriteria(labels []string) map[string]any {
 	return criteria
 }
 
-// CategoryChoice is one offered category: its slug and how the household names
-// it. An empty label falls back to a neutral description.
+// CategoryChoice is an offered category's slug and household label; an empty label gets a neutral description.
 type CategoryChoice struct{ Slug, Label string }
 
-// CategoryCriteria describes each active category by the household's own name
-// plus an escape hatch, so the model can tell categories apart by meaning.
+// CategoryCriteria describes each active category by the household's own name plus an escape hatch.
 func CategoryCriteria(active []CategoryChoice) map[string]any {
 	criteria := make(map[string]any, len(active)+1)
 	for _, choice := range active {
@@ -164,10 +157,8 @@ type Request struct {
 	Questions map[string]Question `json:"questions"`
 }
 
-// AnsweredDimensions narrows the per-question keys of a bounded result to the
-// semantic facts the model actually returned. It is a fact about the request
-// shape, never a policy acceptance decision, so phase telemetry can report what
-// the model answered without claiming Go accepted it. Sorted for stable labels.
+// AnsweredDimensions narrows a bounded result's keys to the dimensions the model returned, sorted; a fact
+// about request shape, never a Go acceptance decision.
 func AnsweredDimensions(questions map[string]Question, answers map[string]Answer) []string {
 	keys := make([]string, 0, len(answers))
 	for key := range answers {
@@ -185,8 +176,7 @@ type sourceEventContextKey struct{}
 type PhaseMetadata struct {
 	Purpose       string
 	PolicyVersion string
-	// Nil is unknown (including historical phases); an explicit empty slice
-	// means the caller knows no semantic dimensions were accepted at entry.
+	// Nil is unknown (including historical phases); an empty slice means no semantic dimension was accepted at entry.
 	AcceptedDimensions []string
 }
 
@@ -235,22 +225,19 @@ type Engine interface {
 	Evaluate(context.Context, string, Request) (Result, error)
 }
 
-// ChoicePolicy versions the acceptance thresholds for one decision task.
 type ChoicePolicy struct {
 	MinTop        float64
 	MinMargin     float64
 	MinConfidence float64
 }
 
-// NoulPolicy maps a yes-probability into remember / do-not-remember /
-// clarification.
+// NoulPolicy maps a yes-probability to remember, do-not-remember or clarification.
 type NoulPolicy struct {
 	High float64
 	Low  float64
 }
 
-// AcceptChoice requires a complete, server-consistent distribution. A missing
-// distribution is never synthesized into an automatic decision.
+// AcceptChoice requires a complete, server-consistent distribution; a missing one is never synthesized into a decision.
 func AcceptChoice(answer Answer, criteria map[string]any, policy ChoicePolicy) bool {
 	if answer.Type != "choice" || answer.Choice == "" || len(criteria) < 2 {
 		return false
@@ -289,8 +276,7 @@ func AcceptChoice(answer Answer, criteria map[string]any, policy ChoicePolicy) b
 	return true
 }
 
-// AcceptNoul classifies a Noul into remember (true), do-not-remember (false),
-// or an undecided middle band.
+// AcceptNoul returns remember (true), do-not-remember (false) or undecided for the middle band.
 func AcceptNoul(answer Answer, policy NoulPolicy) (bool, bool) {
 	if answer.Type != "noul" || !answer.HasNoul || math.IsNaN(answer.Noul) || math.IsInf(answer.Noul, 0) || answer.Noul < 0 || answer.Noul > 1 {
 		return false, false
