@@ -433,8 +433,9 @@ Do not bypass sender authentication or household listener matching to make a tes
 
 `GET /api/v1/integrations/email-ingress/deliveries` returns the household's ten
 latest `email_ingress_delivery` rows as `{status, reason, sender, receivedAt}`.
-It is OWNER-only and household-scoped, and it exposes no canonical IDs. Settings →
-Integrasi renders the same list as "Pengiriman terakhir".
+It is OWNER-only and household-scoped, and it exposes no canonical IDs. Owners see
+the same list in Inbox → "Email masuk" (the tab is hidden for other members);
+it is an activity log, so it no longer appears under Settings → Integrasi.
 
 Reason codes and their meaning:
 

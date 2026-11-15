@@ -85,6 +85,15 @@ input[type="file"]::file-selector-button:hover { background: var(--accent-soft);
 .history-amount { color: var(--ink); white-space: nowrap; }
 .history-list .compact { padding: 6px 10px; font-size: var(--text-xs); white-space: nowrap; }
 .review-history .link-button { margin-top: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.email-deliveries { color: var(--muted); font-size: var(--text-sm); }
+.delivery-list { max-height: min(60vh, 480px); margin: 0; padding: 0 12px 0 0; overflow-y: auto; list-style: none; overscroll-behavior: contain; }
+.delivery-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.delivery-main { min-width: 0; }
+.delivery-main b, .delivery-main small { display: block; overflow-wrap: anywhere; }
+.delivery-main b { color: var(--ink); font-weight: var(--weight-semibold); }
+.delivery-main small { margin-top: 3px; color: var(--ink-soft); font-size: var(--text-xs); }
+.delivery-reason { font-size: var(--text-xs); }
+@media (max-width: 520px) { .delivery-list li { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .history-list li { flex-wrap: wrap; } .history-main { flex-basis: 100%; } .history-title { white-space: normal; } }
 
 .invite-link { width: 100%; margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: var(--text-md); text-overflow: ellipsis; }
