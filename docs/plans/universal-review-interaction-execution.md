@@ -319,6 +319,8 @@ Super Admin aggregates back the Admin Web Reviews tab:
   exposing only safe operational metadata (reference, statuses, delivery state,
   retry count, timestamps, age, resolution surface). No amount, merchant,
   counterparty, email body, document content, or prompt text is ever selected.
+  Returns exactly one row per review request regardless of recipient count;
+  delivery state is aggregated across recipients (any delivered card counts).
 
 Stale Telegram callbacks write a household-scoped `STALE_REVIEW_ACTION` audit
 row before the acknowledgment commits. The summary counts these rows in the

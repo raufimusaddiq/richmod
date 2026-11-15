@@ -63,3 +63,11 @@
 .filter-date { display: grid; gap: 4px; min-width: 150px; flex: 1 1 170px; color: var(--muted); font-size: var(--text-xs); }
 .filter-date input { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none; }
 .filter-date input::-webkit-date-and-time-value { min-height: 1.4em; text-align: left; }
+
+/* Add-transaction dialog: close sits at the dialog corner, required fields are marked. */
+.create-dialog { position: fixed; }
+.dialog-close { position: absolute; top: 12px; right: 12px; display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border-color: var(--line); background: var(--surface); color: var(--ink-soft); }
+.create-dialog .section-title { padding-right: 48px; }
+.required-mark { color: var(--danger); }
+.field-error { display: block; margin-top: 4px; color: var(--danger); }
+.transaction-form [aria-invalid="true"] { border-color: var(--danger); }

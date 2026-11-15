@@ -281,13 +281,13 @@ test("admin: drawers reset per record, loads can fail visibly, lists guard load-
   assert.match(users, /disabled=\{Boolean\(busy\[user\.id\]\)\}/);
 });
 
-test("transactions: retry reloads with current filters, the drawer is aborted state, failure drops rows", () => {
+test("transactions: retry reloads with current filters, the drawer is aborted state, a failure keeps the visible rows", () => {
   const source = text("app/transactions/page.js");
   assert.doesNotMatch(source, /retry=\{load\}/, "a click event is never passed as `search`");
   assert.match(source, /useDrawerRecord\(/);
   assert.match(source, /\{ signal \}/, "detail requests are abortable");
   assert.doesNotMatch(source, /setDetailLoading|setDetailError/);
-  assert.match(source, /onFailure: \(\) => \{ setItems\(\[\]\)/, "no stale rows under the banner");
+  assert.doesNotMatch(source, /onFailure: \(\) => \{ setItems/, "an error must not wipe the results already on screen");
 });
 
 test("settings: request is try/catch/finally with per-key busy, load failures surface, toggles lock while busy", () => {
@@ -373,4 +373,13 @@ test("auth: an unavailable session is announced with a retry, never a silent loa
   assert.match(auth, /if \(unavailable && !loaded\)/, "`unavailable` is consumed");
   assert.match(auth, /role="alert"[\s\S]*Coba lagi/);
   assert.match(auth, /setAttempt\(count => count \+ 1\)/, "retry restarts the load");
+});
+
+test("calendar cashflow chart shows y-axis ticks in Rp juta like the cycle chart", () => {
+  const charts = text("app/components/Charts.js");
+  const start = charts.indexOf("export function MonthlyCashflowChart");
+  const body = charts.slice(start, charts.indexOf("export function CategoryDonutChart"));
+  assert.doesNotMatch(body, /<YAxis hide/);
+  assert.match(body, /<YAxis [^>]*tickFormatter=\{value => compactMillions\(String\(value\)\)\}/);
+  assert.match(body, /value: "Rp juta"/);
 });

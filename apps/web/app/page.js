@@ -10,7 +10,7 @@ import TransactionList from "./components/TransactionList";
 import LoadingShell from "./components/LoadingShell";
 import useAuth from "./components/useAuth";
 import { elapsedDaily } from "./lib/chartData";
-import { money } from "./lib/format";
+import { money, dateTime } from "./lib/format";
 import { cycleRangeLabel, windowLabel } from "./lib/cycleDates";
 import LandingPage from "./components/LandingPage";
 
@@ -75,8 +75,7 @@ export default function Home() {
   const cycleName = cycle?.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender";
   const cycleDates = cycle ? cycleRangeLabel({ start: cycle.start, end: cycle.end, active: cycle.kind === "CURRENT_CYCLE" }) : "Periode belum tersedia";
   const categoryEyebrow = windowLabel(categoryWindow || {});
-  const wealthObservedAt = latestWealth?.observedAt ? new Date(latestWealth.observedAt) : null;
-  const wealthDate = wealthObservedAt && !Number.isNaN(wealthObservedAt.valueOf()) ? wealthObservedAt.toLocaleDateString("id-ID") : null;
+  const wealthDate = latestWealth?.observedAt ? dateTime(latestWealth.observedAt) : null;
   const wealthItems = latestWealth?.items || [];
   const wealthAssetCount = wealthItems.filter(item => item.side === "ASSET").length;
   const wealthLiabilityCount = wealthItems.filter(item => item.side === "LIABILITY").length;

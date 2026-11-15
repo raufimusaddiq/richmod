@@ -37,3 +37,40 @@ export function label(map, value, fallback = "") {
 export function labels(map, values) {
   return (values || []).map(value => label(map, value)).join(", ");
 }
+
+// Transaction audit trail ("Riwayat Perubahan"): the action codes the API writes.
+// An action added later falls back to a readable form, never the raw code.
+export const auditActionLabel = {
+  CREATE: "Transaksi dibuat",
+  CREATE_MANUAL: "Transaksi dicatat manual",
+  CREATE_FROM_BANK_EMAIL: "Dibuat dari email bank",
+  UPDATE: "Transaksi diperbarui",
+  UPDATE_REVIEW_DETAIL: "Detail tinjauan diperbarui",
+  UPDATE_REVIEW_FACTS: "Fakta tinjauan diperbarui",
+  RESOLVE_REVIEW: "Tinjauan diselesaikan",
+  RESOLVE_DOCUMENT_REVIEW: "Tinjauan dokumen diselesaikan",
+  CONFIRM_REVIEW: "Tinjauan dikonfirmasi",
+  REJECT_REVIEW: "Tinjauan ditolak",
+  MERGE_REVIEW: "Digabung dengan transaksi lain",
+  MERGE_EXISTING: "Digabung dengan transaksi yang ada",
+  REVERSE_MERGE: "Penggabungan dibatalkan",
+  CLASSIFY_TRANSFER: "Transfer diklasifikasikan",
+  CONFIRM_NEW_TRANSFER: "Transfer baru dikonfirmasi",
+  TELEGRAM_CONFIRMED: "Dikonfirmasi lewat Telegram",
+  TELEGRAM_REJECTED: "Ditolak lewat Telegram",
+  TELEGRAM_MERGE_REVIEW: "Digabung lewat Telegram",
+  CONFIRMED: "Transaksi dikonfirmasi",
+  VOIDED: "Transaksi diabaikan",
+  IGNORE: "Diabaikan",
+};
+
+// Known code -> Indonesian label; unknown code -> sentence-cased words
+// ("SOME_NEW_ACTION" -> "Some new action"); empty -> a dash.
+export function auditActionText(action) {
+  if (!action) return "—";
+  if (auditActionLabel[action]) return auditActionLabel[action];
+  const words = String(action).toLowerCase().replace(/[_\s]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "—";
+}
+
+export const snapshotSourceLabel = { MANUAL: "Input manual", DOCUMENT: "Dokumen", SYSTEM: "Sistem" };
