@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { dateTime, displayDate } from "../app/lib/format.js";
+import { dateTime, displayDate, money } from "../app/lib/format.js";
 import { snapshotSourceLabel } from "../app/lib/labels.js";
 import { globalCss } from "./source.mjs";
 
@@ -68,4 +68,14 @@ test("displayDate's date-only guard is a real digit pattern", () => {
 
 test("snapshot source labels cover exactly the values the schema allows", () => {
   assert.deepEqual(Object.keys(snapshotSourceLabel).sort(), ["DOCUMENT", "MANUAL", "SYSTEM"]);
+});
+
+test("money accepts integer and decimal strings with the real formatter", () => {
+  const norm = v => money(v).replace(/\s/g, " ");
+  assert.equal(norm("45000"), "Rp 45.000");
+  assert.equal(norm("45000.00"), "Rp 45.000");
+  assert.equal(norm("45000.99"), "Rp 45.000");
+  assert.equal(norm("-1500.50"), "-Rp 1.500");
+  assert.equal(norm(null), "Rp 0");
+  assert.equal(norm("abc"), "Rp0");
 });

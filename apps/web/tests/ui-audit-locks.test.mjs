@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import { reviewCards, tree, globalCss } from "./source.mjs";
 import { documentTypeLabels } from "../app/lib/labels.js";
+import { money } from "../app/lib/format.js";
 
 const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const css = () => globalCss();
@@ -389,7 +390,7 @@ test("motion uses one scale and one reduced-motion guard", () => {
 test("documents: a failed card never claims success, titles are distinguishable, retry and filter exist", () => {
   const page = text("app/documents/page.js");
   assert.match(page, /item\.status === "FAILED" \? <p className="document-summary">/, "failed cards drop the payment summary");
-  assert.match(page, /item\.status !== "FAILED" && item\.confidence \? `Keyakinan klasifikasi/, "stored score is labelled classification and hidden on failure");
+  assert.match(page, /item\.status !== "FAILED" && item\.confidence \? `Keyakinan ekstraksi/, "stored score is document_extraction.confidence, labelled as extraction and hidden on failure");
   assert.doesNotMatch(page, /Tingkat keyakinan/);
   assert.match(page, /function documentTitle\(item\)/);
   assert.match(page, /\/api\/v1\/documents\/\$\{item\.id\}\/reprocess/, "retry uses the Go reprocess endpoint");
@@ -404,14 +405,17 @@ test("documents: titles read screenshot transactions[] and fall back to date and
   const page = text("app/documents/page.js");
   const body = page.slice(page.indexOf("function documentTitle"), page.indexOf("function stageLabel"));
   assert.match(body, /summary\?\.transactions/);
-  assert.ok(body.includes("/^\\d+$/.test"), "amount check is a real digit regex");
+  assert.ok(body.includes("/^\\d+(\\.\\d+)?$/.test"), "amount check accepts decimal strings");
   assert.ok(!body.includes("/^d+$/"));
   assert.match(body, /parts\.length === 1/);
   assert.match(body, /transaksi/);
   // Execute the real function against screenshot, failed and receipt cards.
-  const fn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), v => `Rp${v}`, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
+  const rawFn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), money, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
+  const fn = doc => rawFn(doc).replace(/\s/g, " ");
   const shot = { documentType: "EWALLET_SCREENSHOT", status: "EXTRACTED", summary: { transactions: [{ merchant: "Kopi Kenangan", amount: "45000" }, { merchant: "X", amount: "1" }] } };
-  assert.equal(fn(shot), "Tangkapan layar dompet digital · Kopi Kenangan · Rp45000 · 2 transaksi");
-  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Struk · Toko · Rp50000");
+  assert.equal(fn(shot), "Tangkapan layar dompet digital · Kopi Kenangan · Rp 45.000 · 2 transaksi");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Struk · Toko · Rp 50.000");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "45000.00" } }), "Struk · Toko · Rp 45.000");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "abc" } }), "Struk · Toko");
   assert.equal(fn({ documentType: "EWALLET_SCREENSHOT", status: "FAILED", summary: { transactions: [{ merchant: "Z" }] } }), "Tangkapan layar dompet digital · Gambar Telegram 15 Nov 2026, 12.48");
 });

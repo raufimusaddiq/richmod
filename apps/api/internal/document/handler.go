@@ -308,13 +308,32 @@ func (h *Handler) Reprocess(w http.ResponseWriter, r *http.Request) {
 	// An open document review (the normal state after a failed extraction) is
 	// resolved through the same path /reviews uses, so the Inbox stops offering
 	// REPROCESS/IGNORE for a document that is already being retried.
-	var reviewID string
-	err = tx.QueryRow(r.Context(), `SELECT id::text FROM review_item WHERE document_id=$1 AND household_id=$2 AND review_type IN ('DOCUMENT_CLASSIFICATION','DOCUMENT_EXTRACTION_LOW_CONFIDENCE') AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at LIMIT 1 FOR UPDATE`, r.PathValue("id"), household).Scan(&reviewID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	// Resolve every open document review, not just the oldest. Today the partial
+	// unique index review_item_active_document_unique (migration 00029) allows at
+	// most one OPEN/PENDING_SEND review per document, so this loop runs at most
+	// once; it stays a loop so a future relaxation of that index cannot leave a
+	// stale review behind.
+	rows, err := tx.Query(r.Context(), `SELECT id::text FROM review_item WHERE document_id=$1 AND household_id=$2 AND review_type IN ('DOCUMENT_CLASSIFICATION','DOCUMENT_EXTRACTION_LOW_CONFIDENCE') AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at FOR UPDATE`, r.PathValue("id"), household)
+	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
 		return
 	}
-	if reviewID != "" {
+	var reviewIDs []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+			return
+		}
+		reviewIDs = append(reviewIDs, id)
+	}
+	rows.Close()
+	if rows.Err() != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+		return
+	}
+	for _, reviewID := range reviewIDs {
 		if _, err = reviewdomain.ResolveDocumentReview(r.Context(), tx, reviewdomain.DocumentReviewCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: reviewID, DocumentID: r.PathValue("id"), ActorType: "USER", Action: "REPROCESS_DOCUMENT"}); err != nil {
 			writeJSON(w, 409, map[string]string{"error": "document review cannot be reprocessed"})
 			return
