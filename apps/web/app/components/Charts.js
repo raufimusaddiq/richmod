@@ -30,15 +30,26 @@ export function DashboardDailySpendingChart({ items, height = 280 }) {
   return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
 
-export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, height = 340 }) {
+// Day tick: the running day of an active cycle says it is not complete yet.
+function DayTick({ x, y, payload, partialLabel, last }) {
+  const partial = payload.value === partialLabel;
+  return <text x={x} y={y + 12} textAnchor={partial && last ? "end" : "middle"} fill="var(--chart-axis)" fontFamily="var(--font-body)" fontSize={12}>{payload.value}{partial && <tspan x={x} dy={14}>belum penuh</tspan>}</text>;
+}
+
+export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, partialDay = "", height = 190 }) {
   const data = mapDailySpending(items);
   const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage); // served figure, plotted as a line only; absent means no line
   if (!data.length || data.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
-  const dayBar = ({ x, y, width, height, payload, fill, stroke, strokeWidth, radius }) => {
-    const rectangle = <Rectangle {...{ x, y, width, height, fill, stroke, strokeWidth, radius }}/>;
+  const lastIndex = data.length - 1;
+  // Every third day, plus the running day; the tick before it is dropped so "belum penuh" never collides.
+  const partialLabel = partialDay ? partialDay.slice(8) : "";
+  const ticks = data.filter((_, index) => (index % 3 === 0 && !(partialLabel && lastIndex - index < 3 && index !== lastIndex)) || (partialLabel && index === lastIndex)).map(item => item.label);
+  const dayBar = ({ x, y, width, height, payload, fill, radius }) => {
+    const partial = partialDay && payload.period === partialDay;
+    const rectangle = <Rectangle {...{ x, y, width, height, radius }} fill={partial ? "var(--chart-expense-soft)" : fill}/>;
     return period && payload.expenseValue !== 0 ? <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>{rectangle}</a> : rectangle;
   };
-  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer data={data} margin={{ top: 16, right: 10, left: 0, bottom: 0 }} barCategoryGap="20%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 6" ifOverflow="extendDomain" label={{ value: `Rata-rata ${money(suppliedAverage)}`, position: "insideTopRight", fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={28} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="18%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" radius={[2, 2, 0, 0]} maxBarSize={24} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {
