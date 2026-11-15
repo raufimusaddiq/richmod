@@ -164,10 +164,7 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Households(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	like := "%" + strings.ToLower(q) + "%"
-	// Each figure is its own indexed subquery. Joining the four child tables
-	// and counting DISTINCT multiplied their rows (members × transactions ×
-	// reviews × source events per household), which took minutes on a single
-	// real household.
+	// Each figure is its own indexed subquery: joining the child tables and counting DISTINCT multiplied rows and took minutes on one real household.
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT h.id,h.name,h.timezone,h.created_at,
 			(SELECT count(*) FROM household_member hm WHERE hm.household_id=h.id AND hm.active),
