@@ -99,14 +99,8 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	if summary.StaleActionAttempts < 1 {
 		t.Fatalf("stale actions not counted: %+v", summary)
 	}
-	// The surface split is asserted against this fixture's own items in
-	// TestReviewOpsSurfaceComesFromTheSharedResolver, which resolves through the
-	// real shared operations. The aggregate totals below are household-wide, so a
-	// shared test database can already contain both surfaces.
-	//
-	// The same user resolves a second review from the Web lane: it must count as
-	// WEB even though the user owns a Telegram identity, and must not create a
-	// Web escape because that item never had a Telegram projection.
+	// The surface split is asserted in TestReviewOpsSurfaceComesFromTheSharedResolver; the totals below are household-wide, so a shared test database may hold both surfaces.
+	// The same user resolving from the Web lane must count as WEB despite owning a Telegram identity, and must not create a Web escape (no Telegram projection existed).
 	webResolvedItem := createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "USER")
 	_ = createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "TELEGRAM")
 	_ = webResolvedItem

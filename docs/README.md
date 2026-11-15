@@ -1,11 +1,8 @@
 # Richmod documentation
 
-This page lists the documents to start from. Feature PRDs, delivery checklists
-and Codex briefs written while a feature was built are in
-[`archive/`](archive/README.md). When two documents disagree, follow the
-priority order in [`AGENTS.md`](../AGENTS.md#project-docs): the latest explicit
-instruction, then current repository behavior, then current docs and ADRs, then
-older specs.
+The code is the primary documentation. This index lists what remains under
+`docs/`; earlier PRDs, audits, plans, business decision records and checklists
+were removed from the tree and are recoverable from git history.
 
 ## Start here
 
@@ -30,41 +27,12 @@ older specs.
 
 ## Architecture and data
 
-- [`adr/`](adr/README.md): architecture decision records, with an index. Add one before changing architecture or infrastructure.
-- [`bdr/`](bdr/): business decision records, the product decisions behind the ADRs.
+- [`adr/`](adr/README.md): the architecture decision log, one short entry per decision. Add an entry for a material architecture or infrastructure change.
 - [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md): schema reference and ERD. Schema changes update it in the same branch.
 - [`STATE_MACHINES.md`](STATE_MACHINES.md): every status machine, its legal moves, and where each rule is enforced.
-- [`RICHMOD_JEV_SYSTEM_ONE_PRD.md`](RICHMOD_JEV_SYSTEM_ONE_PRD.md): the System One (Jev) semantic decision plane.
 
-## Product
-
-- [`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md): the product alignment the current surfaces follow.
-- [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md): what the MVP covers and how it was verified.
-- [`ANALYTICS_CYCLE_REVIEW_UI.md`](ANALYTICS_CYCLE_REVIEW_UI.md): the current Analytics contract, with the [facts API](ANALYTICS_CYCLE_REVIEW_API.md), the [shared read tools](ANALYTICS_SHARED_READ_TOOLS.md) and [telemetry](ANALYTICS_CYCLE_REVIEW_TELEMETRY.md).
-- [`OPEN_GRAPH_SHARE_PREVIEW.md`](OPEN_GRAPH_SHARE_PREVIEW.md): the public share-preview metadata.
-
-## Next initiative
-
-- [`audits/CEU-00-architecture-audit.md`](audits/CEU-00-architecture-audit.md): CEU (Conversational Evidence Understanding) architecture audit, binding precedence and risks. Decision: [ADR-050](adr/ADR-050-conversational-evidence-understanding.md). Slices: [`plans/ceu-execution.md`](plans/ceu-execution.md). Corpus, metrics and freeze status: [`audits/CEU-07-corpus-and-metrics.md`](audits/CEU-07-corpus-and-metrics.md).
-
-## Interface and quality
+## Interface
 
 - [`brand-guidelines.md`](brand-guidelines.md): colors, type scale, hit areas and shape, enforced by `apps/web/tests/ui-audit-locks.test.mjs`.
 - [`UI_MOTION.md`](UI_MOTION.md): the motion scale, what animates and why, the single reduced-motion guard, and what is deliberately still.
-- [`audits/UI-AUDIT-2026-10-02.md`](audits/UI-AUDIT-2026-10-02.md): the phone, tablet and desktop UI audit, what each fix changed, and what remains open.
-- [`RICHMOD_UI_REDESIGN_2026-09-07.md`](RICHMOD_UI_REDESIGN_2026-09-07.md): the redesign the current interface grew from.
-
-## Folders
-
-| Folder | Contents |
-| --- | --- |
-| [`adr/`](adr/README.md) | Architecture decision records |
-| [`bdr/`](bdr/) | Business decision records |
-| [`runbooks/`](runbooks/) | Operating procedures |
-| [`audits/`](audits/) | Point-in-time audits and their closure notes |
-| [`plans/`](plans/) | Execution plans for multi-sprint work |
-| [`assets/`](assets/) | README screenshots and the logo |
-| [`archive/`](archive/README.md) | Historical PRDs, checklists, Codex briefs and verification records |
-
-Treat an archived PRD, checklist or Codex brief as the record of how something
-was built, not as the current specification.
+- [`assets/`](assets/): README screenshots and brand logos, used by `README.md` and regenerated per the readme-showcase runbook.
