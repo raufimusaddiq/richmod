@@ -14,8 +14,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// wealthDocumentGateway answers the classification call and the bounded wealth
-// extraction call so the complete-observation path can be exercised end to end.
+// wealthDocumentGateway answers the classification call and the bounded wealth extraction call so the
+// complete-observation path runs end to end.
 type wealthDocumentGateway struct {
 	extraction json.RawMessage
 }
@@ -117,8 +117,7 @@ func TestUnresolvedWealthObservationCreatesOnlyAccountResolutionReview(t *testin
 	if err = storage.Put(ctx, fmt.Sprintf("test/wealth-%d.jpg", stamp), []byte("img"), "image/jpeg"); err != nil {
 		t.Fatal(err)
 	}
-	// "Bibit" is shared by two active accounts, so this is a real unresolved-account
-	// residual rather than a machine-null hint.
+	// "Bibit" is shared by two active accounts, so this is a real unresolved-account residual, not a machine-null hint.
 	gw := &wealthDocumentGateway{extraction: json.RawMessage(`{"institution":"Provider","account_hint":"Bibit","observed_value_idr":"42700000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.5}`)}
 	if err = (&Processor{pool: pool, gateway: gw, storage: storage}).Process(ctx, documentID); err != nil {
 		t.Fatal(err)

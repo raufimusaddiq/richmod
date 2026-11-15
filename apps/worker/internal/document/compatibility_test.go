@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The generic document interpretation pipeline must stay decoupled from the
-// frozen bank SPENDING_ONLY pipeline and the generic provider email pipeline.
+// The generic document pipeline must stay decoupled from the frozen bank SPENDING_ONLY pipeline and the
+// generic provider email pipeline.
 func TestDocumentPackageDoesNotDependOnEmailPipelines(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

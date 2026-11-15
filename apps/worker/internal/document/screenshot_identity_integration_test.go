@@ -24,7 +24,6 @@ func seedScreenshotIdentityCandidate(t *testing.T, f screenshotFixture, metadata
 	return transactionID
 }
 
-// Baseline regression: only the matcher call requires the old argument shape.
 func TestScreenshotIdentityLegacyTimeConflict(t *testing.T) {
 	f := seedScreenshotFixture(t, "Synthetic legacy screenshot identity")
 	at := screenshotRowTime()
@@ -50,7 +49,6 @@ func TestScreenshotF02IdentitylessPaymentsStayDistinct(t *testing.T) {
 				t.Fatal(err)
 			}
 			first := seedScreenshotIdentityCandidate(t, f, string(metadata), at)
-			// A separate upload is a separate source, never a replay of the first.
 			if err := f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',now(),$2,'PROCESSING') RETURNING id`, f.householdID, []byte("synthetic second payment")).Scan(&f.sourceID); err != nil {
 				t.Fatal(err)
 			}
