@@ -62,7 +62,7 @@ test("Indonesian copy replaces raw MANUAL and the Test button", () => {
 
 test("displayDate's date-only guard is a real digit pattern", () => {
   // A date-only value must be read as a Jakarta calendar day, never as UTC midnight.
-  assert.match(read("app/lib/format.js"), /\/\^\d\{4\}-\d\{2\}-\d\{2\}\$\//);
+  assert.ok(read("app/lib/format.js").includes(String.raw`/^\d{4}-\d{2}-\d{2}$/`));
   assert.equal(displayDate("2026-12-31"), "31 Des 2026");
 });
 
