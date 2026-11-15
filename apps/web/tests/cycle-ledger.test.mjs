@@ -141,7 +141,7 @@ test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => 
   assert.match(page, /setFacts\(null\); setError\(/, "a failed load clears facts instead of showing another cycle");
   assert.match(page, /data-stale=\{refreshing \? "true" : undefined\}/);
   assert.match(page, /title=\{selection\.view === "calendar" \? "Analisis kalender" : "Laporan siklus"\}/);
-  assert.ok(page.includes("money(averageDailyText(facts.spendingShape))"), "whole-rupiah daily average comes from the served figure");
+  assert.ok(page.includes("averageDailyText(facts.spendingShape)"), "whole-rupiah daily average comes from the served figure");
   assert.doesNotMatch(page, /Math\.round/, "no rounding of served money in the page");
   assert.doesNotMatch(page, /maximumFractionDigits: 2/);
   assert.match(page, /ari ini belum penuh/);

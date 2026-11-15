@@ -32,7 +32,7 @@ export function DashboardDailySpendingChart({ items, height = 280 }) {
 
 export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, height = 340 }) {
   const data = mapDailySpending(items);
-  const average = Number(suppliedAverage); // served figure, plotted as a line only
+  const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage); // served figure, plotted as a line only; absent means no line
   if (!data.length || data.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
   const dayBar = ({ x, y, width, height, payload, fill, stroke, strokeWidth, radius }) => {
     const rectangle = <Rectangle {...{ x, y, width, height, fill, stroke, strokeWidth, radius }}/>;
@@ -53,7 +53,7 @@ function PaceTooltip({ active, payload }) {
 
 // Single series on its own scale (never mixed with the daily bars): "are we on pace?".
 // Served curves and totals only; the line stops at the latest measured day (no projection).
-export function CyclePaceChart({ items, references = [], pace, height = 200 }) {
+export function CyclePaceChart({ items, references = [], pace, period, height = 200 }) {
   if (!items?.length) return null;
   if (!hasPace(items)) return <p className="empty compact">Total pengeluaran sampai hari ini belum tersedia.</p>;
   const data = mapPace(items, pace);
@@ -73,7 +73,7 @@ export function CyclePaceChart({ items, references = [], pace, height = 200 }) {
           <XAxis dataKey="day" type="number" domain={[1, Math.max(data.length, 2)]} ticks={paceTicks(data.length)} tickFormatter={day => paceDateLabel(items, day)} allowDecimals={false} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/>
           <YAxis width={40} type="number" domain={[0, "auto"]} tickCount={5} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/>
           <Tooltip content={<PaceTooltip/>}/>
-          <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1} label={{ value: `Hari ini · hari ke-${last.day}`, position: "top", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 }}/>
+          <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1} label={{ value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: "top", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 }}/>
           {curves.previous && <Line type="linear" dataKey="previousTotal" stroke="var(--line-strong)" strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false}/>}
           {curves.median && <Line type="linear" dataKey="medianTotal" stroke="var(--chart-reference)" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} activeDot={false} isAnimationActive={false}/>}
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}

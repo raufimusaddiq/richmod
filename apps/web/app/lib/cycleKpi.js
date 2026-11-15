@@ -28,7 +28,7 @@ export function deltaView(value, { relative = null, lowerIsBetter = false } = {}
   if (value == null) return { tone: "none", empty: true, mark: "", text: "—", percent: "" };
   if (isZero(value)) return { tone: "none", zero: true, mark: "", text: money("0"), percent: "" };
   const percent = percentText(relative);
-  return { tone: deltaTone(value, lowerIsBetter), mark: isNegative(value) ? "▼" : "▲", text: money(magnitude(value)), percent: percent ? `(${percent})` : "" };
+  return { tone: deltaTone(value, lowerIsBetter), mark: isNegative(value) ? "▼" : "▲", word: isNegative(value) ? "turun" : "naik", text: money(magnitude(value)), percent: percent ? `(${percent})` : "" };
 }
 
 // Which served baseline a cycle compares against: an active cycle against the previous
@@ -51,9 +51,9 @@ function comparisonCell(row, basis, lowerIsBetter) {
   return { ...view, note };
 }
 
-// Whole-rupiah daily average, served by the API (half-up in Go).
+// Whole-rupiah daily average, served by the API (half-up in Go); null when absent, never 0.
 export function averageDailyText(shape) {
-  return shape?.averageDailyExpenseRounded ?? "0";
+  return shape?.averageDailyExpenseRounded ?? null;
 }
 
 export function kpiCells(facts) {

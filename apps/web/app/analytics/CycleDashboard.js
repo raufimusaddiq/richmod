@@ -37,7 +37,7 @@ export function QualityFooter({ facts, step }) {
 function Delta({ delta }) {
   if (!delta) return null;
   return <p className="kpi-delta" data-tone={delta.tone}>
-    <strong>{delta.mark && <span aria-hidden="true">{delta.mark} </span>}{delta.text}{delta.percent && ` ${delta.percent}`}</strong>
+    <strong>{delta.mark && <span aria-hidden="true">{delta.mark} </span>}{delta.word && <span className="visually-hidden">{delta.word} </span>}{delta.text}{delta.percent && ` ${delta.percent}`}</strong>
     {delta.note && <small>{delta.note}</small>}
   </p>;
 }
@@ -76,7 +76,7 @@ export function PaceCard({ facts }) {
         {median && <li data-series="median"><i aria-hidden="true"/>Median 3 siklus</li>}
       </ul>
     </div>
-    <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={pace} height={200}/>
+    <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={pace} period={period} height={200}/>
     <p className="dash-caption">Garis berhenti di data terakhir; tidak ada proyeksi.{!comparison.median3Available && ` Median 3 siklus tampil setelah 3 siklus penuh (${comparison.eligibleCycles}/3).`}</p>
   </section>;
 }

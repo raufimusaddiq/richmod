@@ -187,7 +187,7 @@ function AnalyticsReview() {
             <SectionTitle id="daily-title" about="pengeluaran harian" title="Pengeluaran harian" description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
             <CycleSpendingPatternChart items={facts.daily} period={{ ...facts.period, reviewStep: step }} average={averageDailyText(facts.spendingShape)} height={260}/>
             <dl className="review-context">
-              <Metric label="Rata-rata per hari" value={money(averageDailyText(facts.spendingShape))}/>
+              <Metric label="Rata-rata per hari" value={averageDailyText(facts.spendingShape) == null ? "—" : money(averageDailyText(facts.spendingShape))}/>
               <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>
               <Metric label="Porsi hari tertinggi" value={ratioLabel(facts.spendingShape.peakShareOfExpense)}/>
               <Metric label="Hari tanpa pengeluaran bersih" value={`${facts.spendingShape.zeroSpendDays} hari`}/>

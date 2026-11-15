@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { averageDailyText, baselineFor, deltaTone, deltaView, kpiCells } from "../app/lib/cycleKpi.js";
@@ -90,4 +91,29 @@ test("net-worth cell: latest observation with its date; no in-cycle change is a 
 
 test("the daily average is the served rounded figure, never rounded in the browser", () => {
   assert.equal(averageDailyText({ averageDailyExpense: "700000.40", averageDailyExpenseRounded: "700000" }), "700000");
+});
+
+test("a missing served rounded average is null: no Rp 0 row and no reference line", () => {
+  assert.equal(averageDailyText({ averageDailyExpense: "700000.40" }), null);
+  assert.equal(averageDailyText(undefined), null);
+  const page = readFileSync(new URL("../app/analytics/page.js", import.meta.url), "utf8");
+  assert.ok(page.includes('averageDailyText(facts.spendingShape) == null ? "—"'), "the metric row shows a dash");
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.ok(charts.includes("suppliedAverage == null ? Number.NaN"), "no average, no reference line");
+});
+
+test("delta direction is also text for screen readers, beside the aria-hidden glyph", () => {
+  assert.equal(deltaView("-750000", { lowerIsBetter: true }).word, "turun");
+  assert.equal(deltaView("750000").word, "naik");
+  assert.equal(deltaView("0").word, undefined);
+  assert.equal(deltaView(null).word, undefined);
+  const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
+  assert.ok(view.includes('aria-hidden="true">{delta.mark} </span>'));
+  assert.ok(view.includes('className="visually-hidden">{delta.word} </span>'));
+});
+
+test("the pace marker says today only while the cycle runs", () => {
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.ok(charts.includes('period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"'));
+  assert.ok(readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8").includes("period={period}"));
 });
