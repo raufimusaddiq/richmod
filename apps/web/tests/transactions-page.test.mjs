@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
-import { createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, listSearch, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
+import { createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
 
 const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
@@ -65,10 +65,19 @@ test("page size label describes a page, not a cap", () => {
   assert.match(page, /\{PAGE_SIZE\} per halaman/);
 });
 
-test("opening ?id= does not narrow the list to one row", () => {
-  assert.equal(listSearch("?id=abc&q=grab"), "?q=grab&limit=50");
-  assert.equal(listSearch("?id=abc"), "?limit=50");
+test("an ?id= evidence link keeps scoping the ledger to that row", () => {
+  assert.equal(listSearch("?id=abc&q=grab"), "?id=abc&q=grab&limit=50");
   assert.equal(listSearch("?limit=20"), "?limit=20");
+  assert.equal(isScopedToTransaction("?id=abc"), true);
+  assert.equal(isScopedToTransaction("?q=x"), false);
+});
+
+test("locale-formatted amounts are normalized, malformed ones rejected", () => {
+  assert.equal(normalizeAmount("25.000"), "25000");
+  assert.equal(normalizeAmount("1.250.000"), "1250000");
+  assert.equal(normalizeAmount("2.5"), "2.5");
+  assert.deepEqual(createFormErrors({ type: "EXPENSE", amount: "25.000", description: "Kopi" }), {});
+  assert.ok(createFormErrors({ type: "EXPENSE", amount: "2.5", description: "x" }).amount);
 });
 
 test("audit actions show Indonesian labels with a safe fallback", () => {

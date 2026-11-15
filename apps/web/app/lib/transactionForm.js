@@ -24,17 +24,25 @@ export function createErrorMessage(status, body = {}) {
   return "Transaksi belum dapat disimpan. Periksa isian lalu coba lagi.";
 }
 
-// Params that select the list. `id` only opens the drawer, so it must not narrow
-// the list to one row; the window's other params stay untouched.
+// Params that select the list. An evidence link carries ?id=, which scopes the
+// ledger to that one row on purpose; the list request keeps it.
 export function listSearch(search) {
   const query = new URLSearchParams(search);
-  query.delete("id");
   if (!query.has("limit")) query.set("limit", "50");
   return `?${query}`;
 }
 
-// Everything that narrows the list is cleared, including the cycle hand-off.
-export function clearedFilterSearch() { return ""; }
+// True when the URL scopes the ledger to a single linked transaction.
+export function isScopedToTransaction(search) {
+  return Boolean(new URLSearchParams(search).get("id"));
+}
+
+// "25.000" (id-ID thousands dots) -> "25000". Only well-formed grouping is
+// stripped, so "2.5" or "1.2.3" still fail validation.
+export function normalizeAmount(value) {
+  const text = String(value || "").trim();
+  return /^[1-9]\d{0,2}(\.\d{3})+$/.test(text) ? text.replace(/\./g, "") : text;
+}
 
 export function hasActiveFilters(search) {
   const query = new URLSearchParams(search);
@@ -45,7 +53,7 @@ export function hasActiveFilters(search) {
 // Inline validation for the add form. Returns {field: message}.
 export function createFormErrors(values, { cycle = false } = {}) {
   const errors = {};
-  if (!/^[1-9][0-9]*$/.test(String(values.amount || "").trim())) errors.amount = "Isi jumlah dengan angka bulat lebih dari 0.";
+  if (!/^[1-9][0-9]*$/.test(normalizeAmount(values.amount))) errors.amount = "Isi jumlah dengan angka bulat lebih dari 0.";
   if (!String(values.description || "").trim()) errors.description = "Deskripsi wajib diisi.";
   if (values.type === "TRANSFER" && !values.accountId) errors.accountId = "Pilih akun sumber.";
   if (values.type === "TRANSFER" && values.purpose && values.purpose !== "INTERNAL_TRANSFER" && !values.relatedWealthAccountId) errors.relatedWealthAccountId = "Pilih akun kekayaan.";
