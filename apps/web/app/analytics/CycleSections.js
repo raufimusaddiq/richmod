@@ -111,15 +111,15 @@ export function SavingsWealth({ facts }) {
       <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
         <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/>
       </dl>
-      <p className="snapshot-context">{wealth.previous && wealth.current ? <>Dibandingkan: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a> → <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.current.id)}`}>{dateTime(wealth.current.observedAt)}</a></> : null}</p>
-      {wealth.netWorthChange == null && <p>{!wealth.current ? "Belum ada pengamatan di siklus ini." : !wealth.previous ? "Belum ada catatan kekayaan sebelum siklus ini untuk dibandingkan." : "Belum dapat direkonsiliasi."}</p>}
+      <p className="snapshot-context">{wealth.previous && wealth.current ? <>Dibandingkan: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a> → <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.current.id)}`}>{dateTime(wealth.current.observedAt)}</a></> : wealth.previous ? <>Pengamatan terakhir: <a href={`/wealth?snapshotId=${encodeURIComponent(wealth.previous.id)}`}>{dateTime(wealth.previous.observedAt)}</a></> : null}</p>
+      {wealth.netWorthChange == null && <p>{!wealth.current ? "Belum ada pengamatan baru setelah awal siklus." : !wealth.previous ? "Belum ada catatan kekayaan sebelum siklus ini untuk dibandingkan." : "Belum dapat direkonsiliasi."}</p>}
       <details className="review-daily"><summary>Rincian saldo & rekonsiliasi</summary><dl className="review-context">
         {wealth.current ? <><Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current.netWorth)}/></> : <Metric label="Kekayaan bersih pengamatan terakhir" value={amountLabel(wealth.previous?.netWorth)}/>}
         <Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
         <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
       </dl>
       <details className="review-explainer"><summary>Tentang rekonsiliasi</summary><p>Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p></details>
-      {(wealth.current ? [["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]] : [["Pengamatan terakhir", wealth.previous]]).map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <><a href={`/wealth?snapshotId=${encodeURIComponent(snapshot.id)}`}>{dateTime(snapshot.observedAt)}</a> · usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
+      {(wealth.current ? [["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]] : [["Pengamatan terakhir", wealth.previous]]).map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <>usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
       {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
       </details>
       <a href="/wealth">Buka detail Kekayaan</a></div>

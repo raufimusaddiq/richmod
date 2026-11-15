@@ -443,6 +443,19 @@ func TestCycleReviewWealthUsesCycleBoundaries(t *testing.T) {
 			t.Fatalf("a baseline alone is not an in-cycle observation: %+v %+v", facts.Wealth, facts.Quality)
 		}
 	})
+	t.Run("request on the start day shows a start-day snapshot as the latest observation", func(t *testing.T) {
+		f := cycleReviewFixture(t)
+		f.anchor(t, "2026-08-23")
+		f.anchor(t, "2026-09-10")
+		today := f.snapshot(t, "2026-09-10T08:00:00+07:00", "500")
+		facts := f.review(t, "?cycle_start=2026-09-10")
+		if facts.Wealth.Current != nil || facts.Wealth.Change != nil || facts.Wealth.Previous == nil || facts.Wealth.Previous.ID != today {
+			t.Fatalf("a start-day snapshot is the baseline until the cycle has an observation window: %+v", facts.Wealth)
+		}
+		if !hasBlocker(facts, "WEALTH_SNAPSHOT_BEFORE_CYCLE") || hasBlocker(facts, "MISSING_WEALTH_SNAPSHOT") {
+			t.Fatalf("quality=%+v", facts.Quality)
+		}
+	})
 	t.Run("multiple in-cycle snapshots use the newest", func(t *testing.T) {
 		f := setup(t)
 		f.snapshot(t, "2026-07-20T09:00:00+07:00", "100")

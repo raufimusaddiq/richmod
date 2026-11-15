@@ -243,7 +243,7 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	rows, err := tx.Query(ctx, `WITH selected AS (
 		(SELECT 1 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at>=$3 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 1)
 		UNION ALL
-		(SELECT 2 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$3 ORDER BY observed_at DESC,id LIMIT 1)
+		(SELECT 2 AS rn,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$3 AND observed_at<$2 ORDER BY observed_at DESC,id LIMIT 1)
 	) SELECT s.rn,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,
 		COALESCE(array_agg(a.id::text ORDER BY a.id) FILTER(WHERE a.id IS NOT NULL),ARRAY[]::text[])
 	FROM selected s LEFT JOIN wealth_snapshot_item i ON i.snapshot_id=s.id LEFT JOIN wealth_account a ON a.id=i.wealth_account_id AND a.household_id=$1
@@ -270,11 +270,7 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 		// No observation inside the cycle: no delta. The newest earlier observation
 		// is still exposed as the latest observation, never as a comparison.
 		facts.Wealth.Previous = picked[2]
-		var any bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$2)`, household, end).Scan(&any); err != nil {
-			return err
-		}
-		if any {
+		if picked[2] != nil {
 			facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")
 		} else {
 			facts.block("MISSING_WEALTH_SNAPSHOT", 1, nil, "/wealth")
