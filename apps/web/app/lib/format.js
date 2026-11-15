@@ -9,6 +9,16 @@ export function dateTime(value) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
 }
 
+// Display date without time, e.g. "22 Okt 2026". Accepts a date-only string
+// ("2026-10-22", read as a Jakarta calendar day) or any timestamp.
+export function displayDate(value) {
+  if (!value) return "—";
+  const text = String(value);
+  const date = new Date(/^d{4}-d{2}-d{2}$/.test(text) ? `${text}T00:00:00+07:00` : value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric" });
+}
+
 export function monthLabel(value) {
   if (!value) return "";
   const [year, month] = value.split("-").map(Number);

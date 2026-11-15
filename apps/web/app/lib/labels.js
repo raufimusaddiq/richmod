@@ -37,3 +37,5 @@ export function label(map, value, fallback = "") {
 export function labels(map, values) {
   return (values || []).map(value => label(map, value)).join(", ");
 }
+
+export const snapshotSourceLabel = { MANUAL: "Input manual", TELEGRAM: "Telegram", EMAIL: "Email", DOCUMENT: "Dokumen", IMPORT: "Impor" };
