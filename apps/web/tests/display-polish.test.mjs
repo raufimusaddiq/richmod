@@ -75,7 +75,7 @@ test("money accepts integer and decimal strings with the real formatter", () => 
   assert.equal(norm("45000"), "Rp 45.000");
   assert.equal(norm("45000.00"), "Rp 45.000");
   assert.equal(norm("45000.99"), "Rp 45.000");
-  assert.equal(norm("-1500.50"), "-Rp 1.500");
+  assert.equal(norm("-1500.50"), "−Rp 1.500");
   assert.equal(norm(null), "Rp 0");
   assert.equal(norm("abc"), "Rp0");
 });

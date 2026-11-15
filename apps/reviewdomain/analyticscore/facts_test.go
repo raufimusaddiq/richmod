@@ -188,12 +188,12 @@ func TestBuildHistoryReconcilesEveryCycleExactly(t *testing.T) {
 	for i, id := range []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"} {
 		first[id], second[id] = []string{"100", "200", "300", "400", "500", "600", "700", "800"}[i], "10"
 	}
-	first["p9"], second["p9"] = "50", "5"    // ninth by total, so it falls into Other
+	first["p9"], second["p9"] = "50", "5"    // eighth/ninth by total, so p1 and p9 fall into Other
 	first["r1"], second["r1"] = "-30", "-20" // refund-only category
 	first["z"], second["z"] = "0", "0"       // never listed: zero over the window
 	measures := []cycleMeasure{historyMeasure("2026-06-01", first), historyMeasure("2026-07-01", second)}
-	history, matrix := buildHistory(measures, []int{0, 1})
-	if len(history) != 2 || len(matrix.Rows) != 8 || matrix.Rows[0].ID != "p8" || matrix.Rows[7].ID != "p1" {
+	history, matrix := buildHistory(measures, []int{0, 1}, nil, "")
+	if len(history) != 2 || len(matrix.Rows) != 7 || matrix.Rows[0].ID != "p8" || matrix.Rows[6].ID != "p2" {
 		t.Fatalf("rows=%+v", matrix.Rows)
 	}
 	if history[0].ExpenseDelta != nil || history[1].ExpenseDelta == nil || *history[1].ExpenseDelta != "-3555" {
@@ -202,7 +202,7 @@ func TestBuildHistoryReconcilesEveryCycleExactly(t *testing.T) {
 	if strings.Join(matrix.CycleStarts, ",") != "2026-06-01,2026-07-01" {
 		t.Fatalf("starts=%v", matrix.CycleStarts)
 	}
-	if got := strings.Join(matrix.Other.Amounts, ","); got != "20,-15" {
+	if got := strings.Join(matrix.Other.Amounts, ","); got != "120,-5" {
 		t.Fatalf("other=%s (nonlisted categories net, negative allowed)", got)
 	}
 	for i := range history {
@@ -219,19 +219,19 @@ func TestBuildHistoryReconcilesEveryCycleExactly(t *testing.T) {
 func TestBuildHistoryOrdersTiesByNameThenIDAndKeepsUncategorized(t *testing.T) {
 	m := historyMeasure("2026-06-01", map[string]string{"b": "100", "a": "100", "": "300"})
 	m.categories[""] = reviewValue{ID: "", Name: "Belum dikategorikan", Amount: "300"}
-	_, matrix := buildHistory([]cycleMeasure{m}, []int{0})
+	_, matrix := buildHistory([]cycleMeasure{m}, []int{0}, nil, "")
 	if len(matrix.Rows) != 3 || matrix.Rows[0].ID != "" || matrix.Rows[0].Name != "Belum dikategorikan" || matrix.Rows[1].ID != "a" || matrix.Rows[2].ID != "b" {
 		t.Fatalf("rows=%+v", matrix.Rows)
 	}
 }
 
 func TestEmptyHistoryEncodesArraysAndKeepsTheContractFieldNames(t *testing.T) {
-	history, matrix := buildHistory(nil, nil)
+	history, matrix := buildHistory(nil, nil, nil, "")
 	raw, err := json.Marshal(Facts{History: history, CategoryHistory: matrix})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"history":[]`, `"cycleStarts":[]`, `"rows":[]`, `"other":{"amounts":[]}`} {
+	for _, want := range []string{`"history":[]`, `"cycleStarts":[]`, `"rows":[]`, `"other":{"amounts":[],"deltaVsPrevious":null}`, `"totals":[]`, `"sameDay":null`, `"selectedIndex":null`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("missing %s in %s", want, raw)
 		}

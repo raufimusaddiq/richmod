@@ -85,7 +85,7 @@ export function buildMatrix(categoryHistory, history = [], selectedCategory = ""
     const id = row.id || "uncategorized";
     return { key: id, id, name: row.name, amounts: row.amounts, tints: tints(row.amounts), other: false, selected: id === selectedCategory, selectable: pickable.has(id) };
   });
-  matrix.push({ key: "other", id: "", name: "Lainnya", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
+  matrix.push({ key: "other", id: "", name: "Kategori lain", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
   return matrix;
 }
 

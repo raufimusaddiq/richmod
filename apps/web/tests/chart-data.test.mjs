@@ -11,7 +11,7 @@ test("compactCategories keeps the top five and groups the remainder", () => {
   assert.equal(compactCategories(categories(6)).length, 6);
   const compact = compactCategories(categories(10));
   assert.deepEqual(compact.slice(0, 5).map(item => item.name), ["Kategori 0", "Kategori 1", "Kategori 2", "Kategori 3", "Kategori 4"]);
-  assert.equal(compact.at(-1).name, "Lainnya");
+  assert.equal(compact.at(-1).name, "Kategori lain");
   assert.equal(compact.at(-1).amount, "1500");
   assert.ok(Math.abs(compact.reduce((sum, item) => sum + item.share, 0) - 1) < 0.000001);
 });
@@ -23,7 +23,7 @@ test("compactCategories excludes non-positive amounts", () => {
 test("category ranking keeps real category names without synthetic remainder", () => {
   const ranked = rankCategories(categories(10));
   assert.equal(ranked.length, 10);
-  assert.equal(ranked.some(item => item.name === "Lainnya"), false);
+  assert.equal(ranked.some(item => item.name === "Kategori lain"), false);
   assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.share, 0) - 1) < 0.000001);
 });
 
