@@ -79,7 +79,8 @@
 .cycle-review[data-meeting-step]:not([data-meeting-step="quality"]) section#quality,
 .cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]) #discussion,
 .cycle-review[data-meeting-step]:not([data-meeting-step="decisions"]) #decisions,
-.cycle-review[data-meeting-step] #destinations,
+.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]):not([data-meeting-step="drivers"]) #where,
+.cycle-review[data-meeting-step]:not([data-meeting-step="position"]) #history,
 .cycle-review[data-meeting-step] #merchants,
 .cycle-review[data-meeting-step] #household { display: none; }
 .cycle-review[data-meeting-step] .dash-row { display: contents; }

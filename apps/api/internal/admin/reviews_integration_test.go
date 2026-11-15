@@ -551,12 +551,12 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	}
 	var parsed struct {
 		ReviewDiagnostics struct {
-			EligibleTelegram      int `json:"eligibleTelegram"`
-			ActionableProjections int `json:"actionableProjections"`
+			EligibleTelegram      int        `json:"eligibleTelegram"`
+			ActionableProjections int        `json:"actionableProjections"`
 			LatestFailureAt       *time.Time `json:"latestDeliveryFailureAt"`
-			LatestFailureError    *string `json:"latestDeliveryFailureErrorClass"`
-			UndeliveredCards      int     `json:"undeliveredReviewCards"`
-			QueuedCards           int     `json:"queuedReviewCards"`
+			LatestFailureError    *string    `json:"latestDeliveryFailureErrorClass"`
+			UndeliveredCards      int        `json:"undeliveredReviewCards"`
+			QueuedCards           int        `json:"queuedReviewCards"`
 		} `json:"reviewDiagnostics"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &parsed); err != nil {

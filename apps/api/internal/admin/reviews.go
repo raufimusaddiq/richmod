@@ -211,7 +211,11 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	start := adminRange(q.Get("range"))
 	limit := pageLimit(r, 50, 200)
-	cursor, ok := parseCursor(q.Get("cursor"))
+	cursor, ok, err := parseCursor(q.Get("cursor"), cursorUUID)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT rr.id,ri.review_type,ri.status,rr.status,
 		       EXISTS (SELECT 1 FROM review_request_recipient rc WHERE rc.review_request_id=rr.id AND COALESCE(rc.telegram_message_id,0)>0) AS delivered,

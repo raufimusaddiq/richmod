@@ -35,6 +35,8 @@
   --info-soft: #e1eaf0;
   --chart-income: var(--income);
   --chart-expense: #8b4437;
+  --chart-expense-soft: #c9978c;
+  --delta-bad: #a23b2c;
   --chart-axis: var(--muted);
   --chart-grid: #d5d9c8;
   --chart-reference: #3a5867;

@@ -1,3 +1,5 @@
+import { inclusiveEnd } from "./cycleReview.js";
+
 // Cycle ledger helpers. Every amount, delta, median and total is served by the API
 // (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
 // picks served fields. It never derives a total, delta, median or share.
@@ -19,12 +21,33 @@ export function compactMillions(value) {
   return `${number < 0 ? "−" : ""}${millions.format(Math.abs(number))}`;
 }
 
+export function signedMillions(value) {
+  const text = compactMillions(value);
+  if (text === "—" || text.startsWith("−") || text === "0,0") return text;
+  return `+${text}`;
+}
+
 // Direction is a neutral marker beside the signed value, never a colour alone.
 export function directionMark(value) {
   if (value == null) return "";
   const text = String(value);
   if (text.startsWith("-")) return "▼";
   return /^0+(\.0+)?$/.test(text) ? "" : "▲";
+}
+
+// History columns: the cycle's range and served net cashflow, for the cycle-columns
+// card. No bar length and no derived total (the matrix owns the category series).
+export function buildLedger(history = [], selectedStart = "") {
+  return {
+    columns: history.map(item => ({
+      start: item.start,
+      label: dayMonth(item.start),
+      until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
+      running: item.state === "ACTIVE",
+      selected: item.start === selectedStart,
+      net: item.netCashflow,
+    })),
+  };
 }
 
 // `cycles` is newest first, as served. Older is the next entry, newer the one before.

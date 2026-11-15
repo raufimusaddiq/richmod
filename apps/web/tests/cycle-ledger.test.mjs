@@ -106,8 +106,8 @@ test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day 
   assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
   const page = tree("app/analytics");
   assert.match(page, /<CategoryHeatmap facts=\{facts\}/);
-  assert.match(page, /<details className="report-disclosure" open=\{step === "changes"\}>\s*<summary><h2 id="changes-title" tabIndex=\{-1\}>Detail perubahan<\/h2>/);
-  for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="change-ranking"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
+  assert.match(page, /<details className="review-daily" ref=\{comparisonRef\} open=\{step === "changes" \|\| undefined\}>\s*<summary>Perbandingan lengkap/);
+  for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="diverge"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
   assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
   assert.match(page, /Selisih vs hari yang sama/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
@@ -123,7 +123,7 @@ test("data marks are neutral or chart-coloured; decreases are hatched, never ano
   assert.match(text("app/components/Charts.js"), /dataKey="amountValue" fill="var\(--chart-category-2\)"/, "chart colour comes from the chart ramp");
   const page = tree("app/analytics");
   assert.match(page, /Total sampai hari ini<\/th>/, "the pace chart has a table equivalent");
-  assert.match(page, /facts\.categoryChanges\.length\} kategori · \{facts\.merchantDrivers\.length\} merchant/, "collapsed sections say what is inside");
+  assert.match(page, /facts\.merchantRanking\?\.rows\?\.length \|\| 0\} teratas/, "collapsed sections say what is inside");
 });
 
 test("the analytics page is a composition shell over named modules", () => {
@@ -147,12 +147,12 @@ test("an active cycle leads with spending so far; a closed cycle with the full-c
 
 test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back, the limit up front", () => {
   const page = tree("app/analytics");
-  assert.match(page, /const chooseCategory = category => navigate\(\{ category: category === selection\.category \? "" : category/, "choosing the selected category again clears it");
-  assert.equal(page.split("chooseCategory").length - 1, 3, "the ledger matrix and the change list both use it");
+  assert.match(page, /const chooseCategory = \(category, element\) =>/, "every category entry point opens the drawer");
+  assert.equal(page.split("chooseCategory").length - 1, 5, "ranking, changes, full table and matrix all use it");
   assert.doesNotMatch(page, /Buka semua detail|allOpen/, "the open-all control is gone; sections are few and collapsed by intent");
   assert.match(text("app/analytics/shared.js"), /Tentang \{about \|\| "data ini"\}/);
   for (const about of ["laju pengeluaran", "pengeluaran harian", "tabungan dan kekayaan", "arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
-  assert.match(text("app/analytics/CycleSections.js"), /\{!period\.reviewStep && <a className="evidence-back" href="#matrix">Kembali ke ringkasan siklus<\/a>\}/, "a way back from the evidence, outside meetings");
+  assert.match(text("app/analytics/CycleWhere.js"), /aria-label="Tutup rincian kategori"/, "the drawer has a close button; Escape and Back also close it");
   const card = text("app/components/InsightCard.js");
   assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");
   assert.match(card, /Buat pembahasan/);
@@ -187,8 +187,8 @@ test("pace chart source: curves from the served series; levels only when no curv
 test("choosing a category opens its evidence without moving the reader; length and waiting are stated", () => {
   const page = text("app/analytics/page.js");
   assert.doesNotMatch(page, /if \(!selection\.category \|\| step \|\| loading\) return;/, "no effect pulls focus to the evidence after a choice");
-  assert.match(page, /className="ledger-selection" role="status"/, "the choice is announced where it was made");
-  assert.match(page, /onClick=\{showEvidence\}/, "moving to the evidence is an explicit request");
+  assert.match(text("app/analytics/CycleWhere.js"), /role="dialog" aria-modal="true" aria-labelledby="drivers-title"/, "the choice opens a named modal dialog");
+  assert.match(text("app/analytics/CycleWhere.js"), /trapKeyDown\(event, drawer/, "focus trap and Escape come from lib/focusTrap");
   const insight = text("app/components/InsightCard.js");
   assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
   assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");

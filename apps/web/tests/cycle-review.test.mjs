@@ -25,7 +25,6 @@ test("comparison labels expose the measured prefix, not the whole closed cycle",
 	const page = tree("app/analytics");
 	assert.match(page, /measuredLabel\(comparison.previous\)/);
   assert.match(page, /measuredLabel\(comparison.previousFullCycle\)/);
-	assert.match(page, /Batang menunjukkan besar selisih relatif, bukan persentase kenaikan/);
 });
 
 test("currency and ratio formatting never invent a value for null", () => {
@@ -53,7 +52,7 @@ test("rent compares full cycles by default, not a zero equal-day prefix", () => 
   assert.equal(signedMoney(rent.deltaVsPreviousFullCycle), money("0"));
   const page = tree("app/analytics");
   assert.match(page, /signedMoney\(item.deltaVsPreviousFullCycle\)/);
-  assert.match(page, /changeWidth\(item, items, "deltaVsPreviousFullCycle"\)/);
+  assert.match(text("app/lib/cycleWhere.js"), /changeWidth\(item, items, basis\.delta\)/);
   assert.match(page, /Sebelumnya · hari yang sama/);
 });
 
@@ -103,12 +102,12 @@ test("meeting step round-trips; ledger preserves step and cycle on return", () =
 
 test("review page renders deterministic sections, native chart, and AI-disabled path", () => {
   const page = tree("app/analytics");
-  for (const section of ["position", "spending-shape", "changes", "drivers", "destinations", "household", "savings-wealth", "quality", "discussion"]) assert.match(page, new RegExp(`id="${section}"`));
+  for (const section of ["position", "spending-shape", "where", "changes", "drivers", "merchants", "household", "savings-wealth", "quality", "discussion"]) assert.match(page, new RegExp(`id="${section}"`));
   assert.match(page, /analytics\/cycle-review/);
   assert.match(page, /fetch\(`\/api\/v1\/insights\?\$\{query\}/);
   assert.match(page, /cycle_start: cycleStart/);
   assert.match(page, /generate\?\${query}|insights\/generate\?\${query}/);
-  assert.match(page, /window\.history\.pushState/);
+  assert.match(page, /"pushState"/);
   assert.match(page, /Suspense/);
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(page, /AI says|AI advice|skor kesehatan/i);
@@ -141,10 +140,11 @@ test("insight card hides historical advice rows and any quality score", () => {
 test("scan-first report keeps every comparison and evidence behind native drill-downs", () => {
   const page = tree("app/analytics");
   assert.match(page, /className="comparison-bars" aria-label="Perbandingan pengeluaran bersih"/);
-  assert.match(page, /className="change-ranking" aria-label="Perubahan kategori"/);
-  assert.match(page, /<details className="review-daily"><summary>Perbandingan lengkap/);
+  assert.match(page, /className="diverge" aria-label="Perubahan kategori terbesar"/);
+  assert.doesNotMatch(page, /change-ranking/, "the 25-row list is gone");
+  assert.match(page, /<summary>Perbandingan lengkap/);
   for (const field of ["previous", "median3", "deltaVsPrevious", "deltaVsMedian3", "relativeDeltaVsPrevious", "relativeDeltaVsMedian3", "contributionToExpenseChange"]) assert.ok(page.includes(`item.${field}`), field);
-  assert.match(page, /open={Boolean\(selectedCategory\) \|\| step === "drivers"}/);
+  assert.match(page, /selectedCategory && \(!meeting \|\| step === "drivers"\)/);
   assert.match(page, /open={step === "discussion"}/);
   assert.match(text("app/components/CycleDecisions.js"), /open={expanded \|\| Boolean\(body\)}/);
   assert.match(page, /aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"/);
