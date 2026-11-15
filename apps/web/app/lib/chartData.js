@@ -8,13 +8,9 @@ export function compactCategories(items = [], limit = 5) {
   const compact = sorted.slice(0, limit);
   const rest = sorted.slice(limit);
   if (rest.length) {
-    compact.push({ id: "other", name: "Lainnya", amount: String(rest.reduce((sum, item) => sum + Number(item.amount || 0), 0)) });
+    compact.push({ id: "other", name: "Kategori lain", amount: String(rest.reduce((sum, item) => sum + Number(item.amount || 0), 0)) });
   }
   return compact.map(item => ({ ...item, share: total > 0 ? Number(item.amount || 0) / total : 0 }));
-}
-
-export function rankCategories(items = []) {
-  return compactCategories(items, items.length);
 }
 
 export function elapsedDaily(items = [], daysElapsed) {
@@ -32,6 +28,10 @@ export function dayLabel(value) {
 }
 
 // `partialPeriod` ("YYYY-MM") marks the running month so the tooltip can say it is not complete.
+// Months before the first confirmed transaction are not drawn as blank slots; the table
+// still lists them, marked "belum ada transaksi".
 export function mapMonthlyCashflow(items = [], partialPeriod = "") {
-  return items.map(item => ({ ...item, partial: Boolean(partialPeriod) && item.period === partialPeriod, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
+  const rows = items.map(item => ({ ...item, partial: Boolean(partialPeriod) && item.period === partialPeriod, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
+  const first = rows.findIndex(row => row.incomeValue !== 0 || row.expenseValue !== 0 || Number(row.refund || 0) !== 0);
+  return first < 0 ? [] : rows.slice(first);
 }

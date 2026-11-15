@@ -551,12 +551,12 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	}
 	var parsed struct {
 		ReviewDiagnostics struct {
-			EligibleTelegram      int `json:"eligibleTelegram"`
-			ActionableProjections int `json:"actionableProjections"`
+			EligibleTelegram      int        `json:"eligibleTelegram"`
+			ActionableProjections int        `json:"actionableProjections"`
 			LatestFailureAt       *time.Time `json:"latestDeliveryFailureAt"`
-			LatestFailureError    *string `json:"latestDeliveryFailureErrorClass"`
-			UndeliveredCards      int     `json:"undeliveredReviewCards"`
-			QueuedCards           int     `json:"queuedReviewCards"`
+			LatestFailureError    *string    `json:"latestDeliveryFailureErrorClass"`
+			UndeliveredCards      int        `json:"undeliveredReviewCards"`
+			QueuedCards           int        `json:"queuedReviewCards"`
 		} `json:"reviewDiagnostics"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &parsed); err != nil {
@@ -635,5 +635,53 @@ func TestReviewOpsProjectionsOneRowPerRequestWithManyRecipients(t *testing.T) {
 	must(json.Unmarshal(response.Body.Bytes(), &parsed))
 	if len(parsed.Items) != 1 || parsed.Items[0].ProjectionID != requestID || parsed.Items[0].DeliveryStatus != "SUCCEEDED" {
 		t.Fatalf("want exactly one SUCCEEDED row for %s, got %+v", requestID, parsed.Items)
+	}
+}
+
+func TestReviewOpsProjectionAgeFreezesForCancelledRequest(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := time.Now().UnixNano()
+	var adminID, householdID, sourceID, itemID, requestID string
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,is_super_admin) VALUES($1,'Admin','!',true) RETURNING id`, fmt.Sprintf("admin-cancel-%d@example.test", stamp)).Scan(&adminID))
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Cancel %d", stamp)).Scan(&householdID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("cancel-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	// The review item was rejected two hours after the request was created; the
+	// cancelled request never receives its own resolved_at.
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,created_at,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now()-interval '5 hours',now()-interval '3 hours','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','CANCELLED',now()-interval '5 hours') RETURNING id`, itemID, householdID).Scan(&requestID))
+
+	handler := NewHandler(pool, false, "responses")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reviews/projections?range=24h&q="+requestID, nil)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: adminID, IsSuperAdmin: true}))
+	response := httptest.NewRecorder()
+	handler.ReviewOpsProjections(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var parsed struct {
+		Items []struct {
+			AgeMs int64 `json:"ageMs"`
+		} `json:"items"`
+	}
+	must(json.Unmarshal(response.Body.Bytes(), &parsed))
+	if len(parsed.Items) != 1 {
+		t.Fatalf("want one row, got %+v", parsed.Items)
+	}
+	if want := (2 * time.Hour).Milliseconds(); parsed.Items[0].AgeMs < want-5000 || parsed.Items[0].AgeMs > want+5000 {
+		t.Fatalf("cancelled age must freeze at ~2h, got %dms", parsed.Items[0].AgeMs)
 	}
 }

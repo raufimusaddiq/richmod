@@ -1,5 +1,4 @@
-import { money } from "./format.js";
-import { inclusiveEnd, ratioLabel, signedMoney } from "./cycleReview.js";
+import { inclusiveEnd, signedMoney } from "./cycleReview.js";
 
 // Cycle ledger helpers. Every amount, delta, median and total is served by the API
 // (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
@@ -40,29 +39,23 @@ export function directionText(value) {
   return value == null ? "—" : `${directionMark(value)} ${signedMoney(value)}`.trim();
 }
 
-const CLOSED_FOR_CHART = 4;
-
-// Ledger columns. Lengths are fractions of the largest income/expense shown, so equal
-// amounts have equal bars; the median tick uses the same scale.
-export function buildLedger(history = [], selectedStart = "", median = null) {
-  const amounts = history.flatMap(item => [Number(item.income), Number(item.expense)]).filter(Number.isFinite);
-  const peak = Math.max(0, ...amounts);
+// History columns: the cycle's range, served net expense and net cashflow, plus a
+// bar length that is a fraction of the largest served expense (visual mapping only).
+export function buildLedger(history = [], selectedStart = "") {
+  const peak = Math.max(0, ...history.map(item => Number(item.expense)).filter(Number.isFinite));
   const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
-  const columns = history.map(item => ({
-    start: item.start,
-    label: dayMonth(item.start),
-    until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
-    running: item.state === "ACTIVE",
-    selected: item.start === selectedStart,
-    income: item.income,
-    expense: item.expense,
-    net: item.netCashflow,
-    delta: item.expenseDelta ?? null,
-    incomeLength: length(item.income),
-    expenseLength: length(item.expense),
-  }));
-  const closed = history.filter(item => item.state === "CLOSED").length;
-  return { columns, mode: closed >= CLOSED_FOR_CHART ? "chart" : "cards", medianLength: median == null ? null : length(median) };
+  return {
+    columns: history.map(item => ({
+      start: item.start,
+      label: dayMonth(item.start),
+      until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
+      running: item.state === "ACTIVE",
+      selected: item.start === selectedStart,
+      expense: item.expense,
+      expenseLength: length(item.expense),
+      net: item.netCashflow,
+    })),
+  };
 }
 
 // The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"
@@ -85,7 +78,7 @@ export function buildMatrix(categoryHistory, history = [], selectedCategory = ""
     const id = row.id || "uncategorized";
     return { key: id, id, name: row.name, amounts: row.amounts, tints: tints(row.amounts), other: false, selected: id === selectedCategory, selectable: pickable.has(id) };
   });
-  matrix.push({ key: "other", id: "", name: "Lainnya", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
+  matrix.push({ key: "other", id: "", name: "Kategori lain", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
   return matrix;
 }
 
@@ -94,23 +87,6 @@ export function adjacentCycles(cycles = [], start = "") {
   const index = cycles.findIndex(item => item.start === start);
   if (index < 0) return { older: "", newer: "" };
   return { older: cycles[index + 1]?.start || "", newer: index > 0 ? cycles[index - 1].start : "" };
-}
-
-// Label : value pairs from served fields only; no sentence is composed.
-export function verdictPairs({ comparison, period, spendingShape }) {
-  const expense = comparison?.expense;
-  if (!expense || !period) return [];
-  if (period.state === "ACTIVE") {
-    const days = spendingShape?.days;
-    const pairs = [[days ? `Pengeluaran bersih · hari ke-${days}` : "Pengeluaran bersih", money(expense.amount)]];
-    pairs.push(["Siklus sebelumnya di hari yang sama", expense.previous == null ? "Belum ada pembanding" : `${money(expense.previous)} · ${directionText(expense.deltaVsPrevious)}`]);
-    if (expense.median3 != null) pairs.push(["Median 3 siklus di hari yang sama", `${money(expense.median3)} · ${directionText(expense.deltaVsMedian3)}`]);
-    return pairs;
-  }
-  const pairs = [["Pengeluaran bersih", money(expense.amount)]];
-  pairs.push(["Dibanding siklus sebelumnya", expense.deltaVsPreviousFullCycle == null ? "Belum ada pembanding" : `${directionText(expense.deltaVsPreviousFullCycle)} · ${ratioLabel(expense.relativeDeltaVsPreviousFullCycle)}`]);
-  if (expense.deltaVsMedian3 != null) pairs.push(["Dibanding median 3 siklus", directionText(expense.deltaVsMedian3)]);
-  return pairs;
 }
 
 // Pace references are the served comparison totals. Equal-day values are totals over
@@ -159,6 +135,53 @@ export function mapPace(items = [], pace) {
   }));
 }
 
-export function monthMarkers(items = []) {
-  return items.flatMap((item, index) => (index > 0 && item.period?.slice(8) === "01" ? [{ day: index + 1, label: dayMonth(item.period) }] : []));
+// Calendar date of cycle day `day` (1-based), continuing past the measured days for the
+// previous-cycle tail. Date labelling only.
+export function paceDate(items = [], day) {
+  const first = items[0]?.period;
+  if (!first || !(day >= 1)) return "";
+  const time = Date.parse(`${first}T00:00:00Z`);
+  return Number.isNaN(time) ? "" : new Date(time + (day - 1) * 86400000).toISOString().slice(0, 10);
+}
+
+export function paceDateLabel(items, day) {
+  return dayMonth(paceDate(items, day));
+}
+
+// Three or four x ticks whatever the cycle length: a phone cannot fit a weekly label
+// on a 30-day axis, and four dates read the same on a wide card.
+export function paceTicks(length, step) {
+  const stride = step || Math.max(1, Math.ceil(length / 4));
+  const ticks = [];
+  for (let day = 1; day <= length; day += stride) ticks.push(day);
+  return ticks;
+}
+
+// The visual ceiling of the pace plot: the highest served point of any drawn series or
+// reference. Tick positions only; the values themselves stay served.
+export function paceCeiling({ data = [], levels = [], markers = [], last = null } = {}) {
+  let top = Number(last) || 0;
+  for (const row of data) {
+    for (const key of ["previousTotal", "medianTotal"]) {
+      const value = Number(row?.[key]);
+      if (Number.isFinite(value) && value > top) top = value;
+    }
+  }
+  for (const value of [...levels, ...markers]) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > top) top = number;
+  }
+  return top;
+}
+
+// A round upper bound and its five evenly spaced ticks, for an axis whose top is
+// pushed by a reference level rather than by the series. Tick positions are visual
+// mapping only; the plotted values stay served.
+export function paceAxis(maxValue) {
+  const number = Number(maxValue);
+  if (!Number.isFinite(number) || number <= 0) return { domain: [0, 1], ticks: [0, 1] };
+  const raw = number / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map(multiplier => multiplier * magnitude).find(candidate => raw <= candidate) ?? 10 * magnitude;
+  return { domain: [0, step * 4], ticks: [0, step, step * 2, step * 3, step * 4] };
 }

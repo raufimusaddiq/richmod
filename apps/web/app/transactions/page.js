@@ -6,13 +6,14 @@ import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import TransactionList from "../components/TransactionList";
 import useAuth from "../components/useAuth";
+import useDialogs from "../components/useDialogs";
 import useDrawerA11y from "../components/useDrawerA11y";
 import { LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { selectionHref } from "../lib/cycleReview";
 import { cycleEntryWindow, withinCycleWindow } from "../lib/missingTransaction";
-import { auditActionText } from "../lib/labels";
-import { createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../lib/transactionForm";
+import { actorText, auditActionText, evidenceTypeText } from "../lib/labels";
+import { VOID_CONFIRM_MESSAGE, REVERSE_MERGE_SUCCESS_MESSAGE, VOID_SUCCESS_MESSAGE, canEditTransaction, canVoidTransaction, createErrorMessage, createFormErrors, editErrorMessage, editFormErrors, editPayload, editableFields, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, transactionsErrorMessage, trapTarget, voidFailure } from "../lib/transactionForm";
 
 const PAGE_SIZE = 50;
 const focusable = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -71,9 +72,75 @@ export default function TransactionsPage() {
     const target = trapTarget(items, document.activeElement, event.shiftKey, dialog);
     if (target) { event.preventDefault(); target.focus(); }
   }
+  // Edit form: same native modal <dialog> pattern as the add form. The drawer's
+  // own Escape/Tab handler is on document, so the dialog stops key events here.
+  const editDialog = useRef(null), editOpener = useRef(null), editStale = useRef(false);
+  const [editError, setEditError] = useState(""), [editing, setEditing] = useState(false), [editFieldErrors, setEditFieldErrors] = useState({});
+  function openEdit() {
+    setEditError(""); setEditFieldErrors({}); editStale.current = false; editOpener.current = document.activeElement;
+    const dialog = editDialog.current; if (!dialog || dialog.open) return;
+    dialog.showModal(); (dialog.querySelector("select, input") || dialog).focus();
+  }
+  function closeEdit() { editDialog.current?.close(); }
+  function onEditClosed() {
+    setEditError(""); setEditFieldErrors({});
+    const opener = editOpener.current; editOpener.current = null;
+    if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    if (editStale.current && drawer.id) { editStale.current = false; drawer.open(drawer.id); }
+  }
+  function onEditKeyDown(event) {
+    event.stopPropagation();
+    if (event.key !== "Tab") return;
+    const dialog = editDialog.current, items = [...dialog.querySelectorAll(focusable)];
+    const target = trapTarget(items, document.activeElement, event.shiftKey, dialog);
+    if (target) { event.preventDefault(); target.focus(); }
+  }
+  async function saveEdit(event) {
+    event.preventDefault(); if (editing || !selected?.id) return;
+    const formEl = event.currentTarget, values = Object.fromEntries(new FormData(formEl));
+    const errors = editFormErrors(values, selected); setEditFieldErrors(errors);
+    if (Object.keys(errors).length) { setEditError("Lengkapi isian yang ditandai."); formEl.querySelector("[aria-invalid=true]")?.focus(); return; }
+    setEditing(true); setEditError("");
+    try {
+      const payload = editPayload(selected, values);
+      if (!Object.keys(payload).length) { closeEdit(); return; }
+      const response = await fetch(`/api/v1/transactions/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "If-Match": selected.updatedAt }, body: JSON.stringify(payload) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) { if (body?.code === "STALE_EDIT") editStale.current = true; throw new Error(editErrorMessage(response.status, body)); }
+      closeEdit(); drawer.open(selected.id); load();
+    } catch (err) { setEditError(err.name === "TypeError" ? "Koneksi terputus. Coba lagi." : err.message || "Koneksi terputus. Coba lagi."); }
+    finally { setEditing(false); }
+  }
   // Set when the residual review handed off a missing transaction: the form opens with
   // the date limited to that salary cycle.
   const [missingWindow, setMissingWindow] = useState(null);
+
+  // Drawer mutations (void, reverse a merge): the confirm dialog, then POST, then re-read the record
+  // and the list. The ref refuses a second start in the same tick; `busyAction` only disables the
+  // buttons. The notice belongs to one record.
+  const { confirm, dialogs } = useDialogs();
+  const actionPending = useRef(false), openId = useRef(null);
+  const [busyAction, setBusyAction] = useState(""), [actionNotice, setActionNotice] = useState(null);
+  useEffect(() => { openId.current = drawer.id; setActionNotice(null); }, [drawer.id]);
+  async function runDrawerAction({ key, confirmText, confirmLabel, url, success, failure }) {
+    const id = selected?.id;
+    if (actionPending.current || !id) return;
+    actionPending.current = true;
+    try {
+      if (!(await confirm(confirmText, { confirmLabel, danger: true }))) return;
+      setBusyAction(key); setActionNotice(null);
+      let outcome;
+      try {
+        const response = await fetch(url, { method: "POST" });
+        outcome = response.ok ? { kind: "success", message: success.message, inbox: success.inbox } : failure(response.status, await response.json().catch(() => ({})));
+      } catch { outcome = { kind: "error", message: "Koneksi terputus. Periksa status transaksi sebelum mencoba lagi.", reload: true }; }
+      // A drawer closed or pointed at another row while the request ran is left alone.
+      if (openId.current === id) { setActionNotice(outcome); if (outcome.kind === "success" || outcome.reload) drawer.open(id); }
+      if (outcome.kind === "success" || outcome.reload) load();
+    } finally { actionPending.current = false; setBusyAction(""); }
+  }
+  const voidTransaction = () => canVoidTransaction(selected) && runDrawerAction({ key: "void", confirmText: VOID_CONFIRM_MESSAGE, confirmLabel: "Ya, batalkan", url: `/api/v1/transactions/${selected.id}/void`, success: { message: VOID_SUCCESS_MESSAGE }, failure: voidFailure });
+  const reverseMerge = merge => runDrawerAction({ key: merge.id, confirmText: reverseMergeConfirmMessage(merge, money), confirmLabel: "Ya, pisahkan", url: `/api/v1/reconciliation-merges/${merge.id}/reverse`, success: { message: REVERSE_MERGE_SUCCESS_MESSAGE, inbox: true }, failure: reverseMergeFailure });
 
   // Superseded loads are aborted and ignored. A failure keeps the rows on screen under
   // the error banner; the first-load skeleton shows only until one load succeeds.
@@ -179,10 +246,12 @@ export default function TransactionsPage() {
     <form key={filterKey} className="filter-bar surface" onSubmit={filter} inert={loading}><input aria-label="Cari transaksi" name="q" placeholder="Cari tempat transaksi atau catatan" defaultValue={query.get("q") || ""}/><label className="filter-date"><span>Dari tanggal</span><DateInput name="from" type="date" defaultValue={query.get("from") || ""}/></label><label className="filter-date"><span>Sampai tanggal</span><DateInput name="to" type="date" defaultValue={query.get("to") || ""}/></label><select aria-label="Tipe transaksi" name="type" defaultValue={query.get("type") || ""}><option value="">Semua tipe</option><option value="SPENDING">Pengeluaran & refund</option>{Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Kategori" name="categoryId" defaultValue={query.get("categoryId") || ""}><option value="">Semua kategori</option><option value="uncategorized">Belum dikategorikan</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Anggota" name="memberId" defaultValue={query.get("memberId") || ""}><option value="">Semua anggota</option>{members.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select><select aria-label="Status" name="status" defaultValue={query.get("status") || ""}><option value="">Semua status</option>{Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Akun" name="accountId" defaultValue={query.get("accountId") || ""}><option value="">Semua akun</option>{accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Sumber" name="source" defaultValue={query.get("source") || ""}><option value="">Semua sumber</option><option value="BANK_EMAIL">Email bank</option><option value="TELEGRAM_TEXT">Pesan Telegram</option><option value="TELEGRAM_IMAGE">Gambar Telegram</option><option value="WEB_MANUAL">Input web</option><option value="WEB_IMAGE">Dokumen web</option></select><input name="merchantId" type="hidden" defaultValue={query.get("merchantId") || ""}/><button>Terapkan filter</button>{hasActiveFilters(`?${query}`) && <button type="button" className="secondary" onClick={resetFilters}>Hapus filter</button>}</form>{filterError && <p role="alert" className="error-notice">{filterError}</p>}
     <ErrorNotice message={error} retry={() => load()}/>
     {!loader.hasLoaded && !loader.failed ? <Skeleton cards={1} rows={6}/> : !loader.hasLoaded ? null : <><section className="surface ledger-panel" aria-busy={loading} data-refreshed={(refreshPending && !loading) || undefined}><div className="section-title"><div><span className="eyebrow">HASIL</span><h2>{items.length} transaksi</h2>{scoped && <p className="notice">Menampilkan hanya transaksi dari tautan bukti. <a href="/transactions" onClick={event => { event.preventDefault(); resetFilters(); }}>Lihat semua transaksi</a></p>}</div></div><TransactionList items={items} onSelect={openDetail} newId={createdId}/></section>{!scoped && <div className="pagination-actions"><button className="secondary" disabled={loading || !cursorHistory.length} onClick={previousPage}>Sebelumnya</button><button className="secondary" disabled={loading || !nextCursor} onClick={nextPage}>Berikutnya</button></div>}</>}
-    {drawer.status !== "closed" && <div className="drawer-backdrop" onClick={closeDetail}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer" role="dialog" aria-modal="true" aria-label="Detail transaksi" aria-busy={drawer.status === "loading"} onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeDetail}>×</button>{drawer.status === "loading" ? <p>Memuat detail…</p> : drawer.status === "error" ? <div><p role="alert">{drawer.error}</p><button onClick={drawer.retry}>Coba lagi</button></div> : <><span className="eyebrow">DETAIL TRANSAKSI</span><h2>{selected.merchantName || selected.description || typeLabel[selected.type]}</h2><strong className="detail-amount">{money(selected.amount)}</strong><dl style={{ border: 0, borderRadius: 0, overflow: "visible" }}><div><dt>Tanggal</dt><dd>{dateTime(selected.transactionAt)}</dd></div><div><dt>Kategori</dt><dd>{selected.categoryName || "Belum dikategorikan"}</dd></div><div><dt>Akun</dt><dd>{selected.accountName || "—"}</dd></div><div><dt>Sumber pencatatan</dt><dd>{sourceLabel(selected.sourceType)}</dd></div><div><dt>Status</dt><dd>{statusLabel[selected.status] || selected.status}</dd></div>{selected.type === "TRANSFER" && <><div><dt>Tujuan transfer</dt><dd>{purposeLabel(selected.purpose)}</dd></div><div><dt>Akun kekayaan</dt><dd>{selected.relatedWealthAccountName || "—"}</dd></div></>}</dl><h3>Sumber Pencatatan</h3><div className="timeline">{evidence.map(item => <article key={item.id}><i>✓</i><div><b>{evidenceLabel(item.evidenceType)}</b><small>{sourceLabel(item.sourceType)} · {dateTime(item.receivedAt)}</small></div></article>)}{!evidence.length && <p className="empty compact">Belum ada sumber pencatatan terhubung.</p>}</div><h3>Riwayat Perubahan</h3><div className="timeline">{audit.map(item => <article key={item.id}><i>•</i><div><b>{auditActionText(item.action)}</b><small>{item.actorType} · {dateTime(item.createdAt)}</small></div></article>)}{!audit.length && <p className="empty compact">Belum ada perubahan tercatat.</p>}</div></>}</aside></div>}
+    {drawer.status === "ready" && canEditTransaction(selected) && (() => { const fields = editableFields(selected); return <dialog ref={editDialog} className="create-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-transaction-title" tabIndex={-1} onClose={onEditClosed} onKeyDown={onEditKeyDown}><button type="button" className="dialog-close" aria-label="Tutup" onClick={closeEdit}>×</button><form key={`${selected.id}-${selected.updatedAt}`} className="transaction-form" onSubmit={saveEdit} noValidate><div className="section-title"><h2 id="edit-transaction-title">Ubah transaksi</h2></div><p className="notice">Jumlah, waktu, dan jenis tidak bisa diubah. Batalkan lalu catat ulang jika salah.</p>{fields.category && <label>Kategori<select name="categoryId" defaultValue={selected.categoryId || ""}><option value="">Tanpa kategori</option>{categories.filter(item => item.active || item.id === selected.categoryId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{fields.account && <label>Akun<select name="accountId" defaultValue={selected.accountId || ""}><option value="">Tanpa akun</option>{accounts.filter(item => item.active || item.id === selected.accountId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Deskripsi{selected.description && <span className="required-mark" aria-hidden="true"> *</span>}<input name="description" maxLength="500" required={Boolean(selected.description)} aria-required={selected.description ? "true" : undefined} defaultValue={selected.description || ""} aria-invalid={editFieldErrors.description ? "true" : undefined} aria-describedby={editFieldErrors.description ? "edit-description-error" : undefined}/>{editFieldErrors.description && <small id="edit-description-error" className="field-error">{editFieldErrors.description}</small>}</label><label>Catatan<textarea name="note" maxLength="2000" defaultValue={selected.note || ""} aria-invalid={editFieldErrors.note ? "true" : undefined} aria-describedby={editFieldErrors.note ? "edit-note-error" : undefined}/>{editFieldErrors.note && <small id="edit-note-error" className="field-error">{editFieldErrors.note}</small>}</label>{editError && <p role="alert" className="error-notice">{editError}</p>}<div className="dialog-actions"><button type="button" onClick={closeEdit}>Batal</button><button disabled={editing}>{editing ? "Menyimpan…" : "Simpan"}</button></div></form></dialog>; })()}
+    {dialogs}
+    {drawer.status !== "closed" && <div className="drawer-backdrop" onClick={closeDetail}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer" role="dialog" aria-modal="true" aria-label="Detail transaksi" aria-busy={drawer.status === "loading"} onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeDetail}>×</button>{drawer.status === "loading" ? <p>Memuat detail…</p> : drawer.status === "error" ? <div><p role="alert">{drawer.error}</p><button onClick={drawer.retry}>Coba lagi</button></div> : <><span className="eyebrow">DETAIL TRANSAKSI</span><h2>{selected.merchantName || selected.description || typeLabel[selected.type]}</h2><strong className="detail-amount">{money(selected.amount)}</strong><dl style={{ border: 0, borderRadius: 0, overflow: "visible" }}><div><dt>Tanggal</dt><dd>{dateTime(selected.transactionAt)}</dd></div><div><dt>Kategori</dt><dd>{selected.categoryName || "Belum dikategorikan"}</dd></div><div><dt>Akun</dt><dd>{selected.accountName || "—"}</dd></div><div><dt>Sumber pencatatan</dt><dd>{sourceLabel(selected.sourceType)}</dd></div><div><dt>Status</dt><dd>{statusLabel[selected.status] || selected.status}</dd></div>{selected.type === "TRANSFER" && <><div><dt>Tujuan transfer</dt><dd>{purposeLabel(selected.purpose)}</dd></div><div><dt>Akun kekayaan</dt><dd>{selected.relatedWealthAccountName || "—"}</dd></div></>}</dl>{actionNotice && <div className={`notice${actionNotice.kind === "success" ? "" : " error"}`} role={actionNotice.kind === "success" ? "status" : "alert"}><span>{actionNotice.message}</span>{(actionNotice.kind === "review" || actionNotice.inbox) && <a className="button secondary" href="/inbox?view=transactions">Buka Tinjauan</a>}</div>}{(canEditTransaction(selected) || canVoidTransaction(selected)) && <div className="drawer-actions">{canEditTransaction(selected) && <button type="button" className="secondary" onClick={openEdit}>Ubah</button>}{canVoidTransaction(selected) && <button type="button" className="danger" disabled={Boolean(busyAction)} aria-busy={busyAction === "void" || undefined} onClick={voidTransaction}>{busyAction === "void" ? "Membatalkan…" : "Batalkan transaksi"}</button>}</div>}{selected.activeMerges?.length > 0 && <section className="merge-links" aria-labelledby="merge-links-title"><h3 id="merge-links-title">Penggabungan</h3>{selected.activeMerges.map(merge => <div key={merge.id} className="merge-link"><p>{mergeSummary(merge, money)}</p><button type="button" className="secondary" disabled={Boolean(busyAction)} aria-busy={busyAction === merge.id || undefined} onClick={() => reverseMerge(merge)}>{busyAction === merge.id ? "Memisahkan…" : "Pisahkan penggabungan"}</button></div>)}</section>}<h3>Bukti pencatatan</h3><div className="timeline">{evidence.map(item => <article key={item.id}><i>✓</i><div><b>{evidenceLabel(item.evidenceType)}</b><small>{sourceLabel(item.sourceType)} · {dateTime(item.receivedAt)}</small></div></article>)}{!evidence.length && <p className="empty compact">Belum ada sumber pencatatan terhubung.</p>}</div><h3>Riwayat Perubahan</h3><div className="timeline">{audit.map(item => <article key={item.id}><i>•</i><div><b>{auditActionText(item.action)}</b><small>{actorText(item.actorType)} · {dateTime(item.createdAt)}</small></div></article>)}{!audit.length && <p className="empty compact">Belum ada perubahan tercatat.</p>}</div></>}</aside></div>}
   </AppShell>;
 }
 
 function purposeLabel(value) { return ({ INTERNAL_TRANSFER: "Transfer internal", SAVINGS_TRANSFER: "Pindah ke tabungan", INVESTMENT_CONTRIBUTION: "Kontribusi investasi", ASSET_PURCHASE: "Pembelian aset", DEBT_PRINCIPAL_PAYMENT: "Pembayaran pokok utang" }[value] || value || "—"); }
-function sourceLabel(value) { return ({ BANK_EMAIL: "Email bank", TELEGRAM_TEXT: "Pesan Telegram", TELEGRAM_IMAGE: "Gambar Telegram", WEB_MANUAL: "Input Web", WEB_IMAGE: "Dokumen Web" }[value] || value || "—"); }
-function evidenceLabel(value) { return ({ BANK_EMAIL: "Email Bank", TELEGRAM_REVIEW_REPLY: "Balasan tinjauan Telegram", TELEGRAM_TEXT: "Pesan Telegram", TELEGRAM_IMAGE: "Gambar Telegram", PAYSLIP_IMAGE: "Slip Gaji", TRANSACTION_SCREENSHOT: "Bukti Transaksi" }[value] || value || "Sumber pencatatan"); }
+function sourceLabel(value) { return ({ BANK_EMAIL: "Email bank", TELEGRAM_TEXT: "Pesan Telegram", TELEGRAM_IMAGE: "Gambar Telegram", WEB_MANUAL: "Input web", WEB_IMAGE: "Dokumen web" }[value] || (value ? evidenceTypeText(value) : "—")); }
+function evidenceLabel(value) { return evidenceTypeText(value); }

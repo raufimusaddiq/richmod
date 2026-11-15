@@ -1,6 +1,6 @@
 "use client";
 
-import { time, number, percent, Badge, Metric, Empty, Pending, useLoad, Table } from "./shared";
+import { time, number, percent, duration, Badge, Metric, Empty, Pending, useLoad, Table } from "./shared";
 
 export default function Overview({ setError }) {
   const [data, refresh, state] = useLoad("/api/v1/admin/overview", setError);
@@ -51,11 +51,11 @@ export default function Overview({ setError }) {
           note={`${number(data.llm.failed24h)} gagal`}
         />
         <Metric
-          label="Success LLM"
+          label="Keberhasilan LLM"
           value={
             data.llm.successRate == null
               ? "—"
-              : `${(data.llm.successRate * 100).toFixed(1)}%`
+              : percent(data.llm.successRate)
           }
           note="24 jam"
         />
@@ -91,7 +91,7 @@ export default function Overview({ setError }) {
               <small>
                 {l.oldestDueAgeMs == null
                   ? "Tidak ada job jatuh tempo"
-                  : `Tertua ${Math.round(l.oldestDueAgeMs / 1000)} dtk`}
+                  : `Tertua ${duration(l.oldestDueAgeMs)}`}
               </small>
             </div>
           ))}
@@ -105,7 +105,7 @@ export default function Overview({ setError }) {
             <dd>
               {data.llm.successRate == null
                 ? "—"
-                : `${(data.llm.successRate * 100).toFixed(1)}%`}
+                : percent(data.llm.successRate)}
             </dd>
             <dt>P95</dt>
             <dd>

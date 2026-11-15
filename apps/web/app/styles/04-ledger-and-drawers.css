@@ -48,6 +48,10 @@
 .detail-drawer dl > div:nth-last-child(-n + 2) { border-bottom: 0; }
 .detail-drawer dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
 .detail-drawer dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); }
+.merge-links { margin: 20px 0; }
+.merge-link { display: grid; gap: var(--space-2, 8px); justify-items: start; margin-bottom: var(--space-3, 12px); }
+.merge-link p { margin: 0; overflow-wrap: anywhere; font-size: 12px; }
 .timeline { display: grid; gap: 0; margin: 20px 0; }
 .timeline article { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 9px; padding: 15px 0; border-top: 1px solid var(--line); }
 .timeline article > i { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: var(--surface-muted); color: var(--accent); font-size: var(--text-xs); font-style: normal; }

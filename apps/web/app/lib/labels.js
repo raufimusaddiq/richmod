@@ -43,6 +43,7 @@ export const auditActionLabel = {
   CREATE: "Transaksi dibuat",
   CREATE_FROM_BANK_EMAIL: "Dibuat dari email bank",
   UPDATE: "Transaksi diperbarui",
+  UPDATE_DETAILS: "Detail transaksi diubah",
   UPDATE_REVIEW_DETAIL: "Detail tinjauan diperbarui",
   UPDATE_REVIEW_FACTS: "Fakta tinjauan diperbarui",
   RESOLVE_REVIEW: "Tinjauan diselesaikan",
@@ -60,15 +61,63 @@ export const auditActionLabel = {
   CONFIRMED: "Transaksi dikonfirmasi",
   VOIDED: "Transaksi diabaikan",
   IGNORE: "Diabaikan",
+  AUTO_CONFIRM_SCREENSHOT_ROW: "Baris tangkapan layar dikonfirmasi otomatis",
+  CREATE_FROM_TELEGRAM: "Dibuat dari Telegram",
+  CREATE_SCREENSHOT_REVIEW: "Tinjauan tangkapan layar dibuat",
+  LINK_BANK_EMAIL_EVIDENCE: "Bukti email bank ditautkan",
+  LINK_RECEIPT_EVIDENCE: "Bukti struk ditautkan",
+  LINK_SCREENSHOT_EVIDENCE: "Bukti tangkapan layar ditautkan",
+  AUTO_CONFIRM_RECEIPT: "Struk dikonfirmasi otomatis",
+  CREATE_RECEIPT_REVIEW: "Tinjauan struk dibuat",
+  CREATE_FROM_PAYSLIP: "Dibuat dari slip gaji",
+  REMEMBER_MERCHANT: "Merchant diingat",
+  EDIT_TRANSACTION: "Transaksi diubah",
+  CONFIRM_PENDING_BATCH: "Kumpulan transaksi tertunda dikonfirmasi",
+  REVIEW_DISTINCT_EVENT: "Ditinjau sebagai kejadian terpisah",
+  REVIEW_INCOME_CHOICE: "Pilihan pemasukan ditinjau",
+  STAGE_EVIDENCE_DISPUTE: "Sengketa bukti diajukan",
+  SET_SCREENSHOT_AMOUNT: "Jumlah dari tangkapan layar ditetapkan",
+  REOPEN_LEGACY_UNCATEGORIZED: "Transaksi lama tanpa kategori dibuka kembali",
+  ROLLBACK_REOPEN_LEGACY_UNCATEGORIZED: "Pembukaan kembali transaksi lama dibatalkan",
 };
 
 // Known code -> Indonesian label; unknown code -> sentence-cased words
 // ("SOME_NEW_ACTION" -> "Some new action"); empty -> a dash.
 export function auditActionText(action) {
   if (!action) return "—";
-  if (auditActionLabel[action]) return auditActionLabel[action];
-  const words = String(action).toLowerCase().replace(/[_\s]+/g, " ").trim();
-  return words ? words[0].toUpperCase() + words.slice(1) : "—";
+  const code = String(action).trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return auditActionLabel[action] || auditActionLabel[code] || humanizeCode(action);
 }
 
 export const snapshotSourceLabel = { MANUAL: "Input manual", DOCUMENT: "Dokumen", SYSTEM: "Sistem" };
+
+// Who performed an audit-trail action (audit_event.actor_type).
+export const actorLabel = { USER: "Pengguna", SYSTEM: "Sistem", WORKER: "Sistem otomatis", TELEGRAM: "Telegram", TELEGRAM_CALLBACK: "Telegram", WEB: "Web", ADMIN: "Admin" };
+
+// Evidence kinds shown under "Sumber pencatatan" on a transaction.
+export const evidenceTypeLabel = {
+  BANK_EMAIL: "Email bank",
+  FINANCIAL_EMAIL: "Email penyedia keuangan",
+  TELEGRAM_REVIEW_REPLY: "Balasan tinjauan Telegram",
+  TELEGRAM_CALLBACK: "Tombol Telegram",
+  TELEGRAM_TEXT: "Pesan Telegram",
+  TELEGRAM_IMAGE: "Gambar Telegram",
+  MANUAL_ENTRY: "Input manual",
+  WEB_MANUAL: "Input web",
+  WEB_IMAGE: "Dokumen web",
+  PAYSLIP_IMAGE: "Slip gaji",
+  RECEIPT_IMAGE: "Struk",
+  TRANSACTION_SCREENSHOT: "Bukti transaksi",
+  BANK_TRANSACTION_SCREENSHOT: "Tangkapan layar transaksi bank",
+  EWALLET_SCREENSHOT: "Tangkapan layar dompet digital",
+  TRANSACTION_HISTORY_SCREENSHOT: "Riwayat transaksi",
+};
+
+// Unknown codes become sentence-cased words, never the raw enum.
+export function humanizeCode(value, fallback = "—") {
+  const words = String(value ?? "").toLowerCase().replace(/[_\s]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : fallback;
+}
+
+export const actorText = value => actorLabel[value] || humanizeCode(value);
+export const evidenceTypeText = value => evidenceTypeLabel[value] || humanizeCode(value, "Sumber pencatatan");

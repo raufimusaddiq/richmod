@@ -174,10 +174,24 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	return result, nil
 }
 
+// Why a cycle review was asked again; stored as the reopened review's provenance and in its
+// REOPEN_REVIEW audit row, and read by nothing else.
+const (
+	CycleReopenTransactionRecorded = "TRANSACTION_RECORDED"
+	CycleReopenTransactionVoided   = "TRANSACTION_VOIDED"
+)
+
 // RefreshOpenCycleResiduals re-evaluates open cycle reviews affected by a newly
 // confirmed transaction. Every lane that writes a CONFIRMED transaction calls it
 // (empty actor for worker writes), inside the transaction's commit boundary.
 func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
+	return RefreshOpenCycleResidualsFor(ctx, tx, householdID, at, actorID, CycleReopenTransactionRecorded)
+}
+
+// RefreshOpenCycleResidualsFor is RefreshOpenCycleResiduals with the reason a waiting
+// ("transaksi belum tercatat") cycle is asked again: CycleReopenTransactionVoided when a
+// confirmed transaction left the cycle's totals.
+func RefreshOpenCycleResidualsFor(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID, reason string) error {
 	rows, err := tx.Query(ctx, `SELECT c.id::text,ri.id::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id WHERE c.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY c.id`, householdID, at)
 	if err != nil {
 		return err
@@ -202,7 +216,7 @@ func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID strin
 			return err
 		}
 	}
-	// A cycle marked "transaksi belum tercatat" is asked again once a transaction lands in it.
+	// A cycle marked "transaksi belum tercatat" is asked again once a transaction lands in it (or leaves it).
 	waiting, err := tx.Query(ctx, `SELECT c.id::text FROM cycle_residual_case c WHERE c.household_id=$1
 		AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')
 		AND NOT EXISTS (SELECT 1 FROM review_item o WHERE o.cycle_residual_case_id=c.id AND o.status IN ('PENDING_SEND','OPEN'))
@@ -216,7 +230,7 @@ func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID strin
 		return err
 	}
 	for _, caseID := range cases {
-		if _, err := reopenCycleResidual(ctx, tx, householdID, caseID, actorID, "TRANSACTION_RECORDED"); err != nil {
+		if _, err := reopenCycleResidual(ctx, tx, householdID, caseID, actorID, reason); err != nil {
 			return err
 		}
 	}

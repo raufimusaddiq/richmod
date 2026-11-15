@@ -211,13 +211,17 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	start := adminRange(q.Get("range"))
 	limit := pageLimit(r, 50, 200)
-	cursor, ok := parseCursor(q.Get("cursor"))
+	cursor, ok, err := parseCursor(q.Get("cursor"), cursorUUID)
+	if err != nil {
+		writeError(w, 400, "INVALID_CURSOR")
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT rr.id,ri.review_type,ri.status,rr.status,
 		       EXISTS (SELECT 1 FROM review_request_recipient rc WHERE rc.review_request_id=rr.id AND COALESCE(rc.telegram_message_id,0)>0) AS delivered,
 		       (SELECT count(*) FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=rr.id::text AND j.status='FAILED') AS failed,
 		       (SELECT count(*) FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=rr.id::text AND j.status='SUCCEEDED') AS sent,
-		       rr.created_at,COALESCE(rr.resolved_at,rr.created_at),
+		       rr.created_at,COALESCE(rr.resolved_at,rr.created_at),COALESCE(rr.resolved_at,ri.resolved_at),
 		       COALESCE(s.surface,'') AS resolved_surface
 		FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id
 		`+resolutionSurfaceSQL+`
@@ -234,7 +238,8 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 		var delivered bool
 		var failed, sent int
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&id, &reviewType, &reviewStatus, &projectionStatus, &delivered, &failed, &sent, &createdAt, &updatedAt, &resolvedSurface); err != nil {
+		var resolvedAt *time.Time
+		if err := rows.Scan(&id, &reviewType, &reviewStatus, &projectionStatus, &delivered, &failed, &sent, &createdAt, &updatedAt, &resolvedAt, &resolvedSurface); err != nil {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
 		}
@@ -257,7 +262,7 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 			"delivered":        delivered,
 			"createdAt":        createdAt,
 			"updatedAt":        updatedAt,
-			"ageMs":            time.Since(createdAt).Milliseconds(),
+			"ageMs":            reviewAgeMs(createdAt, resolvedAt, time.Now()),
 			"resolvedSurface":  resolvedSurface,
 		})
 	}
@@ -272,4 +277,17 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 		nextCursor = makeCursor(last["createdAt"].(time.Time), last["projectionId"].(string))
 	}
 	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": nextCursor})
+}
+
+// reviewAgeMs is how long a review was open: frozen at resolution time once the
+// review is resolved, still growing while it is open.
+func reviewAgeMs(createdAt time.Time, resolvedAt *time.Time, now time.Time) int64 {
+	end := now
+	if resolvedAt != nil {
+		end = *resolvedAt
+	}
+	if end.Before(createdAt) {
+		return 0
+	}
+	return end.Sub(createdAt).Milliseconds()
 }

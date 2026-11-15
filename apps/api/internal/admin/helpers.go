@@ -3,10 +3,14 @@ package admin
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type pageCursor struct {
@@ -14,23 +18,49 @@ type pageCursor struct {
 	ID   string
 }
 
-func parseCursor(value string) (pageCursor, bool) {
+// errInvalidCursor marks a cursor that was supplied but cannot be decoded to a
+// usable keyset position. Callers turn it into 400 instead of page one.
+var errInvalidCursor = errors.New("invalid cursor")
+
+// cursorIDKind is the shape the endpoint's SQL casts the cursor id to.
+type cursorIDKind int
+
+const (
+	cursorUUID cursorIDKind = iota
+	cursorNumeric
+	cursorText
+)
+
+// parseCursor decodes the shared (created_at, id) keyset cursor. An absent
+// cursor is (zero, false, nil); a malformed one is an error, never a fallback
+// to the first page.
+func parseCursor(value string, kind cursorIDKind) (pageCursor, bool, error) {
 	if value == "" {
-		return pageCursor{}, false
+		return pageCursor{}, false, nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
-		return pageCursor{}, false
+		return pageCursor{}, false, errInvalidCursor
 	}
-	parts := strings.SplitN(string(raw), "|", 2)
-	if len(parts) != 2 {
-		return pageCursor{}, false
+	at, id, ok := strings.Cut(string(raw), "|")
+	if !ok || id == "" {
+		return pageCursor{}, false, errInvalidCursor
 	}
-	t, err := time.Parse(time.RFC3339Nano, parts[0])
-	if err != nil || parts[1] == "" {
-		return pageCursor{}, false
+	t, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return pageCursor{}, false, errInvalidCursor
 	}
-	return pageCursor{Time: t, ID: parts[1]}, true
+	switch kind {
+	case cursorUUID:
+		if _, err := uuid.Parse(id); err != nil {
+			return pageCursor{}, false, errInvalidCursor
+		}
+	case cursorNumeric:
+		if _, err := strconv.ParseInt(id, 10, 64); err != nil {
+			return pageCursor{}, false, errInvalidCursor
+		}
+	}
+	return pageCursor{Time: t, ID: id}, true, nil
 }
 
 func makeCursor(t time.Time, id string) string {
