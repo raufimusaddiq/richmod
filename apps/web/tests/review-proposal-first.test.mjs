@@ -60,7 +60,7 @@ test("the primary accept action never posts a request the server must reject", (
 test("transaction-date residual opens one native date field and submits it", () => {
   assert.match(source, /transactionAt: missing\.includes\("transaction_at"\)/);
   // The native date field stays; a bounded one-tap date choice may replace it.
-  assert.match(source, /missing\.transactionAt && !dateChoice && <label>Tanggal transaksi<input name="transactionAt" type="date" required\/>/);
+  assert.match(source, /missing\.transactionAt && !dateChoice && <label>Tanggal transaksi<input name="transactionAt" type="date" required\/><small className="date-hint">Format: hh\/bb\/tttt \(mengikuti browser\)<\/small>/);
   assert.match(source, /transactionAt: dateChoice \? null : form\.get\("transactionAt"\) \|\| null/);
   assert.match(source, /dateChoice: dateChoice \|\| null/);
   assert.match(source, /!missing\.transactionAt/);
