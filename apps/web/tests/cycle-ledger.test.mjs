@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, paceCurves, compactMillions, directionMark, directionText, hasPace, mapPace, monthMarkers, paceReferences, signedMillions, verdictPairs } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, paceCurves, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -73,23 +73,6 @@ test("previous and next follow the served newest-first cycle list", () => {
   assert.deepEqual(adjacentCycles(undefined, "2026-09-26"), { older: "", newer: "" });
 });
 
-test("the verdict shows served fields as label and value pairs only", () => {
-  const closed = { period: { state: "CLOSED" }, spendingShape: { days: 31 }, comparison: { expense: { amount: "8600000", deltaVsPreviousFullCycle: "1400000", relativeDeltaVsPreviousFullCycle: "0.1944", deltaVsMedian3: "700000" } } };
-  const pairs = verdictPairs(closed);
-  assert.deepEqual(pairs.map(([label]) => label), ["Pengeluaran bersih", "Dibanding siklus sebelumnya", "Dibanding median 3 siklus"]);
-  assert.match(pairs[1][1], /^▲ \+Rp.* · 19,4%$/);
-  assert.ok(pairs.every(([label, value]) => typeof label === "string" && typeof value === "string" && !/[.!?]$/.test(label)), "no composed sentences");
-  closed.comparison.expense.deltaVsPreviousFullCycle = null;
-  closed.comparison.expense.deltaVsMedian3 = null;
-  assert.deepEqual(verdictPairs(closed).map(([, value]) => value).slice(1), ["Belum ada pembanding"], "missing history is shown as missing");
-  const active = { period: { state: "ACTIVE" }, spendingShape: { days: 7 }, comparison: { expense: { amount: "2900000", previous: "1700000", deltaVsPrevious: "1200000", median3: null } } };
-  const activePairs = verdictPairs(active);
-  assert.equal(activePairs[0][0], "Pengeluaran bersih · hari ke-7");
-  assert.equal(activePairs[1][0], "Siklus sebelumnya di hari yang sama");
-  assert.equal(activePairs.length, 2, "no median means no median row");
-  assert.deepEqual(verdictPairs({ period: { state: "CLOSED" }, comparison: {} }), []);
-});
-
 test("pace references are the served comparison totals, markers for equal-day values", () => {
   const active = paceReferences({ period: { state: "ACTIVE" }, comparison: { expense: { previous: "1700000", median3: "1900000", previousFullCycle: "8600000" } } });
   assert.deepEqual(active.map(item => [item.key, item.shape]), [["previous-same-day", "marker"], ["median-same-day", "marker"], ["previous-full", "line"]]);
@@ -99,14 +82,12 @@ test("pace references are the served comparison totals, markers for equal-day va
   assert.deepEqual(paceReferences({ period: { state: "CLOSED" }, comparison: {} }), []);
 });
 
-test("the pace series uses the served running total and marks month starts", () => {
+test("the pace series uses the served running total ", () => {
   const daily = [{ period: "2026-09-29", cumulativeExpense: "100" }, { period: "2026-09-30", cumulativeExpense: "250" }, { period: "2026-10-01", cumulativeExpense: "400" }];
   assert.equal(hasPace(daily), true);
   assert.equal(hasPace([{ period: "2026-09-29" }]), false, "no served total means no chart");
   assert.equal(hasPace([]), false);
   assert.deepEqual(mapPace(daily).map(item => [item.day, item.runningTotal, item.exact]), [[1, 100, "100"], [2, 250, "250"], [3, 400, "400"]]);
-  assert.deepEqual(monthMarkers(daily), [{ day: 3, label: "1 Okt" }]);
-  assert.deepEqual(monthMarkers([{ period: "2026-09-01" }, { period: "2026-09-02" }]), [], "the first day is not a crossing");
 });
 
 test("the reviewed cycle survives a Calendar visit", () => {
@@ -129,7 +110,7 @@ test("ledger source: served numbers only, no colour-only direction, accent reser
   const block = styles.slice(styles.indexOf("/* Cycle ledger:"), styles.indexOf("/* end cycle ledger */"));
   assert.ok(block.length > 500, "ledger styles present");
   assert.doesNotMatch(block, /var\(--accent|var\(--danger|var\(--income-soft|var\(--expense-soft/, "no accent or good/bad tinting in the ledger");
-  assert.match(styles, /\[data-meeting-step\]:not\(\[data-meeting-step="position"\]\):not\(\[data-meeting-step="changes"\]\) > #ledger/, "the ledger belongs to the position and changes meeting steps");
+  assert.ok(styles.includes(':not([data-meeting-step="changes"]) #matrix'), "the matrix belongs to the position and changes meeting steps");
 });
 
 test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => {
@@ -141,9 +122,10 @@ test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => 
   assert.match(page, /setFacts\(null\); setError\(/, "a failed load clears facts instead of showing another cycle");
   assert.match(page, /data-stale=\{refreshing \? "true" : undefined\}/);
   assert.match(page, /title=\{selection\.view === "calendar" \? "Analisis kalender" : "Laporan siklus"\}/);
-  assert.match(page, /money\(String\(Math\.round\(Number\(facts\.spendingShape\.averageDailyExpense\)\)\)\)/, "whole-rupiah daily average");
+  assert.ok(page.includes("averageDailyText(facts.spendingShape)"), "whole-rupiah daily average comes from the served figure");
+  assert.doesNotMatch(page, /Math\.round/, "no rounding of served money in the page");
   assert.doesNotMatch(page, /maximumFractionDigits: 2/);
-  assert.match(page, /hari ini belum penuh/);
+  assert.match(page, /ari ini belum penuh/);
   const charts = text("app/components/Charts.js");
   assert.match(charts, /export function CyclePaceChart/);
   assert.match(charts, /Total pengeluaran sampai hari ini belum tersedia/, "a missing running total is explained, not silent");
@@ -226,30 +208,29 @@ test("the analytics page is a composition shell over named modules", () => {
   const lines = path => text(path).split("\n").length;
   assert.ok(lines("app/analytics/page.js") < 260, "page.js keeps selection, data loading and composition only");
   assert.match(text("app/analytics/shared.js"), /export function SectionTitle/);
-  assert.match(text("app/analytics/CycleSections.js"), /export function CyclePosition/);
+  assert.match(text("app/analytics/CycleDashboard.js"), /export function KpiStrip/);
+  assert.match(text("app/analytics/CycleDashboard.js"), /export function NoticeStrip/);
   assert.match(text("app/analytics/CalendarReview.js"), /^"use client";/, "the calendar view owns its hooks");
   assert.match(text("app/analytics/CalendarReview.js"), /export function CalendarReview/);
-  assert.doesNotMatch(text("app/analytics/page.js"), /function (CyclePosition|ChangesTable|CalendarReview|MerchantTable)\b/, "section components live in their modules");
 });
 
-test("an active cycle leads with spending so far", () => {
-  const sections = text("app/analytics/CycleSections.js");
-  assert.match(sections, /const active = facts\.period\.state === "ACTIVE"/);
-  assert.match(sections, /<dt>Pengeluaran bersih sejauh ini<\/dt><dd>\{money\(facts\.cashflow\.expense\)\}<\/dd>/, "active cycles lead with spending");
-  assert.match(sections, /<dt>Arus kas bersih<\/dt><dd>\{money\(facts\.cashflow\.netCashflow\)\}<\/dd>/, "closed cycles still lead with net cashflow");
-  assert.match(sections, /Arus kas bersih sejauh ini/, "net cashflow stays visible, as a regular metric, while the cycle runs");
-  for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(sections, new RegExp(`money\\(facts\\.cashflow\\.${field}\\)`), field);
+test("an active cycle leads with spending so far; a closed cycle with the full-cycle baseline", () => {
+  const kpi = text("app/lib/cycleKpi.js");
+  assert.match(kpi, /key: "expense", lead: true/, "net spending is the lead cell");
+  assert.ok(kpi.includes("active && days ? ` · hari ke-"), "the lead names the elapsed day while active");
+  assert.match(kpi, /Arus kas bersih sejauh ini/, "net cashflow stays visible, as a regular metric, while the cycle runs");
+  for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(kpi, new RegExp(`cashflow\.${field}`), field);
+  assert.doesNotMatch(kpi, /Math\.|reduce|BigInt|parseFloat/, "no arithmetic on served money");
 });
 
 test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back, the limit up front", () => {
   const page = tree("app/analytics");
   assert.match(page, /const chooseCategory = category => navigate\(\{ category: category === selection\.category \? "" : category/, "choosing the selected category again clears it");
   assert.equal(page.split("chooseCategory").length - 1, 3, "the ledger matrix and the change list both use it");
-  assert.match(page, /\{allOpen \? "Tutup semua detail" : "Buka semua detail"\}/, "open-all is a toggle");
-  assert.match(page, /useEffect\(\(\) => \{ setAllOpen\(false\); \}, \[cycleStart\]\)/, "a new cycle starts collapsed again");
+  assert.doesNotMatch(page, /Buka semua detail|allOpen/, "the open-all control is gone; sections are few and collapsed by intent");
   assert.match(text("app/analytics/shared.js"), /Tentang \{about \|\| "data ini"\}/);
-  for (const about of ["posisi siklus", "pola pengeluaran", "tabungan dan kekayaan", "kelengkapan data", "arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
-  assert.match(text("app/analytics/CycleSections.js"), /\{!period\.reviewStep && <a className="evidence-back" href="#ledger">Kembali ke ringkasan siklus<\/a>\}/, "a way back from the evidence, outside meetings");
+  for (const about of ["laju pengeluaran", "pengeluaran harian", "tabungan dan kekayaan", "arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
+  assert.match(text("app/analytics/CycleSections.js"), /\{!period\.reviewStep && <a className="evidence-back" href="#matrix">Kembali ke ringkasan siklus<\/a>\}/, "a way back from the evidence, outside meetings");
   const card = text("app/components/InsightCard.js");
   assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");
   assert.match(card, /Buat pembahasan/);
@@ -277,7 +258,7 @@ test("pace chart source: curves from the served series; levels only when no curv
   assert.match(charts, /!\(reference\.tone === "previous" && curves\.previous\)/);
   assert.match(charts, /!\(reference\.tone === "median" && curves\.median\)/);
   assert.match(charts, /reference\.shape === "marker"/, "equal-day markers stay and sit on the curves");
-  assert.match(tree("app/analytics"), /pace=\{facts\.pace\}/);
+  assert.match(tree("app/analytics"), /pace={pace}/);
   assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "still a separate single-purpose line chart");
 });
 

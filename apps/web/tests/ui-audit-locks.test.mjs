@@ -333,7 +333,7 @@ test("the visual smoke fails on scrolling regions that keyboard users cannot rea
 });
 
 test("unfinished sources link to the Tindakan tab, which can show and close them", () => {
-  const sections = text("app/analytics/CycleSections.js");
+  const sections = text("app/analytics/CycleDashboard.js");
   assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
   assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
   const inbox = text("app/inbox/page.js");

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { cycleCommentary, cycleFacts, stableCycleFacts } from "../tests/fixtures/cycle-review.mjs";
 
@@ -93,18 +94,18 @@ try {
     });
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
-    const explanation = page.locator("#position .section-title .review-explainer");
+    const explanation = page.locator("#spending-shape .section-title .review-explainer");
     assert.equal(await explanation.locator("p").isVisible(), false, "explanation is secondary to the figures");
     await explanation.locator("summary").focus();
     await page.keyboard.press("Enter");
     assert.equal(await explanation.locator("p").isVisible(), true, "native disclosure is keyboard accessible");
     await page.keyboard.press("Enter");
     assert.equal(await explanation.locator("p").isVisible(), false);
-    assert.equal(await page.locator(".cycle-footnote > span").isVisible(), true, "refund amount stays visible");
+    assert.equal(await page.locator(".kpi-note").isVisible(), true, "refund amount stays visible");
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.evaluate(() => document.fonts.check('500 16px "Fraunces"') && document.fonts.check('400 14px "Inter"')), true, "brand fonts loaded");
-    assert.equal(await page.locator(".cycle-net dt").textContent(), "Pengeluaran bersih sejauh ini", "a running cycle leads with spending, not a net cashflow that looks large on day 1");
-    assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(4200000n));
+    assert.equal((await page.locator(".kpi-cell[data-lead] dt").textContent()).startsWith("Pengeluaran bersih"), true, "a running cycle leads with spending, not a net cashflow that looks large on day 1");
+    assert.equal(await page.locator(".kpi-cell[data-lead] dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(4200000n));
     assert.equal(await page.locator("#position").getByText("Arus kas bersih sejauh ini", { exact: true }).isVisible(), true, "net cashflow stays visible as a regular metric");
     assert.equal(requests.filter(request => request.method === "POST").length, 0, "opening review never invokes generation");
     assert.equal(await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).count(), 0, "active cycle cannot enter closed-cycle meeting");
@@ -132,7 +133,7 @@ try {
     assert.equal(await page.getByRole("columnheader", { name: "Sebelumnya · penuh", exact: true }).isVisible(), true);
     await page.getByRole("region", { name: "Perbandingan kategori lengkap, geser untuk semua kolom", exact: true }).focus();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} expanded comparison has no page overflow`);
-    if (name === "desktop") await page.screenshot({ path: new URL("readme-analytics.png", output).pathname, fullPage: false, animations: "disabled" });
+    if (name === "desktop") await page.screenshot({ path: fileURLToPath(new URL("readme-analytics.png", output)), fullPage: false, animations: "disabled" });
     assert.equal(await page.locator("#changes tbody tr").count(), 3);
     assert.equal(await page.locator("#changes tbody tr").nth(1).locator("td").nth(2).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1350000n), "previous outlier does not hide recent median");
     // Detail perubahan stays open: the category buttons below live inside it.
@@ -169,20 +170,22 @@ try {
     await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} review has no page overflow`);
-    await page.screenshot({ path: new URL(`${name}.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}.png`, output)), fullPage: true, animations: "disabled" });
     await page.locator(".cycle-spending-chart .recharts-bar-rectangle").first().hover();
     await page.locator(".chart-tooltip").waitFor();
     assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
-    await page.screenshot({ path: new URL(`${name}-tooltip.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-tooltip.png`, output)), fullPage: true, animations: "disabled" });
 
     // Cycle ledger: one column per served cycle; selection is a URL change and the
     // reviewed cycle survives a Calendar visit. Numbers are served, never derived.
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Kategori × siklus", exact: true }).waitFor();
+    await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
     await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
     const cycleLedger = page.locator("#ledger");
     assert.equal(await cycleLedger.locator("thead th button").count(), 6, "one column per served cycle");
     assert.equal(await cycleLedger.locator('thead th[aria-current="true"] button').getAttribute("aria-pressed"), "true");
-    assert.match(await cycleLedger.locator(".ledger-verdict").textContent(), /Siklus sebelumnya di hari yang sama/);
+    assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu di hari ke-6/);
     assert.equal(await cycleLedger.locator("tbody tr").count(), 7, "bars, net cashflow, change, three categories, and Kategori lain");
     assert.equal(await cycleLedger.locator("tbody tr").nth(6).locator("th").textContent(), "Kategori lain", "the served remainder closes the matrix");
     if (name === "mobile" || name === "small-mobile") {
@@ -230,28 +233,29 @@ try {
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category") && document.querySelector('button.ledger-row-button[aria-label="Buka bukti Belanja rumah"]')?.getAttribute("aria-pressed") === "false");
     assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
-    const charts = await page.evaluate(() => { const [a, b] = [".shape-charts > :nth-child(1)", ".shape-charts > :nth-child(2)"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1, section: Math.round(document.querySelector("#spending-shape")?.getBoundingClientRect().width ?? 0) }; });
+    const charts = await page.evaluate(() => { const [a, b] = ["#spending-shape", "#savings-wealth"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1, section: Math.round(a?.height || 0) }; });
     if (name !== "tablet") assert.equal(charts.sameRow, name === "desktop", `${name} daily charts ${name === "desktop" ? "share a row" : "stack"} (section ${charts.section}px)`);
     assert.equal(await page.locator(".cycle-pace-chart .recharts-line-curve").count(), 3, "the selected cycle, the previous cycle and the median are drawn as curves");
     assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
-    await page.screenshot({ path: new URL(`${name}-ledger.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-ledger.png`, output)), fullPage: true, animations: "disabled" });
     await cycleLedger.locator("thead th button", { hasText: "26 Agu" }).click();
-    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
-    assert.match(await cycleLedger.locator(".ledger-verdict").textContent(), /Dibanding siklus sebelumnya/);
+    await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
+    assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu .penuh./);
     assert.equal(await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
     await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).click();
-    await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
     await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).click();
-    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     await page.getByRole("button", { name: "Kalender", exact: true }).click();
     await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26", "Calendar keeps the reviewed cycle in the URL");
     assert.equal(await page.getByRole("heading", { name: "Analisis kalender", exact: true }).count(), 1, "the page title follows the view");
     await page.getByRole("button", { name: "Siklus Gaji", exact: true }).click();
-    await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Pengeluaran harian", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26", "returning from Calendar keeps the reviewed cycle");
 
     olderCommentary = true;
@@ -270,12 +274,12 @@ try {
     aiAvailable = false;
     requests.length = 0;
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
-    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     await page.locator("#discussion > details > summary").getByText("Belum tersedia", { exact: true }).waitFor();
     for (const id of ["position", "spending-shape", "changes", "drivers", "destinations", "household", "savings-wealth", "quality"]) assert.equal(await page.locator(`#${id}`).count(), 1);
     assert.equal(requests.filter(request => request.method === "POST").length, 0);
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).count(), 1);
-    await page.screenshot({ path: new URL(`${name}-closed-ai-unavailable.png`, output).pathname, fullPage: true });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-closed-ai-unavailable.png`, output)), fullPage: true });
 
     // A complete, URL-bound closed-cycle meeting works without AI. Typing does
     // not write; explicit failed save preserves the draft for retry.
@@ -287,7 +291,7 @@ try {
     const nav = page.getByRole("navigation", { name: "Langkah tinjauan siklus" });
     assert.equal(await nav.getByRole("button").count(), 8);
     await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
-    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
     await page.getByRole("button", { name: "Belanja rumah", exact: true }).click();
     assert.equal(new URL(page.url()).searchParams.get("review"), "drivers");
@@ -323,7 +327,7 @@ try {
     assert.equal(requests.filter(request => request.path === "/api/v1/analytics/cycle-decisions" && request.method === "POST").length, 2, "only explicit save and explicit retry");
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} meeting has no overflow`);
-    await page.screenshot({ path: new URL(`${name}-meeting-decisions.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-meeting-decisions.png`, output)), fullPage: true, animations: "disabled" });
     await page.getByRole("button", { name: "Batalkan keputusan", exact: true }).click();
     await page.locator("dialog[open]").getByRole("button", { name: "Ya, batalkan", exact: true }).click();
     await page.getByText("Keputusan dibatalkan. Riwayat tetap tersimpan.", { exact: true }).waitFor();
@@ -390,7 +394,7 @@ try {
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-08-26`, { waitUntil: "networkidle" });
     await page.locator("#discussion > details > summary").click();
     await page.getByText("Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", { exact: true }).waitFor();
-    assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(0n));
+    assert.equal(await page.locator(".kpi-cell:nth-child(3) dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(0n));
     assert.equal(await page.locator(".insight-text p").count(), 1, "stable commentary is not expanded into filler");
     assert.equal(await page.locator("#changes tbody tr").count(), 1);
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0, "stable review never auto-generates commentary");
@@ -400,17 +404,15 @@ try {
     stable = false;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-25`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Posisi siklus", exact: true }).waitFor();
-    assert.equal(await page.locator(".cycle-net dd").evaluate(element => element.scrollWidth > element.clientWidth + 1), false, "headline amount fits its metric cell");
+    assert.equal(await page.locator(".kpi-cell[data-lead] dd").evaluate(element => element.scrollWidth > element.clientWidth + 1), false, "headline amount fits its metric cell");
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-25");
-    await page.screenshot({ path: new URL(`${name}-september25-overview.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-september25-overview.png`, output)), fullPage: true, animations: "disabled" });
     assert.equal(await page.locator("#changes table").isVisible(), false);
     assert.equal(await page.locator("#discussion .insight-card").isVisible(), false);
-    await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
+    await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
     assert.equal(await page.locator("#changes table").isVisible(), true);
     for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
-    await page.getByRole("button", { name: "Tutup semua detail", exact: true }).click();
-    for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, "the same button closes everything it opened");
-    await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
+    await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
     assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 7, "all exact daily rows retained");
     const dailyTable = page.getByRole("region", { name: "Nilai pengeluaran harian, geser untuk semua kolom", exact: true });
     const dayName = "Lihat pengeluaran 25 Sep 2026";
@@ -431,7 +433,7 @@ try {
     assert.equal(await page.locator("#changes table tbody tr").count(), 3, "all exact category comparisons retained");
     assert.equal(await page.locator("#household .review-attribution > div").count(), 2);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} complete report has no page overflow`);
-    await page.screenshot({ path: new URL(`${name}-september25-complete.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-september25-complete.png`, output)), fullPage: true, animations: "disabled" });
     generationStatus = 429;
     await page.getByRole("button", { name: "Buat pembahasan", exact: true }).click();
     await page.getByText("Batas satu pembahasan per jam. Coba lagi setelah jeda satu jam dari permintaan terakhir.", { exact: true }).waitFor();

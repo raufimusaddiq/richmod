@@ -52,8 +52,10 @@ test("analytics commentary is selected-cycle prose, safely rendered after determ
   assert.match(analytics, /api\/v1\/insights/);
   assert.match(analytics, /pollInsight/);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
-  const ordered = ["<CyclePosition", 'id="spending-shape"', 'id="changes"', 'id="drivers"', 'id="destinations"', 'id="household"', "<SavingsWealth", "<QualitySection", 'id="discussion"', "<InsightCard"];
-  for (let index = 1; index < ordered.length; index += 1) assert.ok(analytics.indexOf(ordered[index - 1]) < analytics.indexOf(ordered[index]), ordered[index]);
+  const page = text("app/analytics/page.js");
+  const ordered = ["<NoticeStrip", "<KpiStrip", "<PaceCard", 'id="daily"', 'id="changes"', 'id="drivers"', 'id="destinations"', 'id="matrix"', 'id="household"', "<QualityFooter", 'id="discussion"', "<InsightCard"];
+  for (let index = 1; index < ordered.length; index += 1) assert.ok(page.indexOf(ordered[index - 1]) < page.indexOf(ordered[index]), ordered[index]);
+  assert.match(page, /<PaceCard facts=\{facts\}\/><SavingsWealthCard/);
 });
 
 test("analytics controls are labelled and charts use theme colour tokens", () => {
