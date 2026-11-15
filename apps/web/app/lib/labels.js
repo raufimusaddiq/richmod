@@ -59,7 +59,8 @@ export const auditActionLabel = {
   TELEGRAM_CONFIRMED: "Dikonfirmasi lewat Telegram",
   TELEGRAM_REJECTED: "Ditolak lewat Telegram",
   TELEGRAM_MERGE_REVIEW: "Digabung lewat Telegram",
-  VOID: "Transaksi diabaikan",
+  CONFIRMED: "Transaksi dikonfirmasi",
+  VOIDED: "Transaksi diabaikan",
   IGNORE: "Diabaikan",
 };
 

@@ -91,3 +91,17 @@ test("audit actions show Indonesian labels with a safe fallback", () => {
   assert.equal(auditActionText(undefined), "—");
   assert.match(page, /auditActionText\(item\.action\)/);
 });
+
+test("ledger lifecycle audit actions read in Indonesian", () => {
+  assert.equal(auditActionText("CONFIRMED"), "Transaksi dikonfirmasi");
+  assert.equal(auditActionText("VOIDED"), "Transaksi diabaikan");
+  assert.equal(auditActionLabel.VOID, undefined);
+});
+
+test("a failed load keeps rows but drops the stale pager cursor", () => {
+  const source = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
+  assert.match(source, /onFailure: \(\) => setNextCursor\(""\)/);
+  assert.doesNotMatch(source, /onFailure: \(\) => \{ setItems\(\[\]\)/);
+  assert.doesNotMatch(source, /query\.set\("limit", "50"\)/);
+  assert.match(source, /hasActiveFilters\(`\?\$\{query\}`\) && <button type="button" className="secondary" onClick=\{resetFilters\}>Hapus filter<\/button>/);
+});
