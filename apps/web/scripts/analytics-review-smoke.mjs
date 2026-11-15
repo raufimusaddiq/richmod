@@ -113,19 +113,19 @@ try {
     assert.equal(salaryCalls, 1, "explicit cycle uses one facts request");
     assert.equal(await page.getByText("Historical advice should never display.").count(), 0);
     assert.equal(await page.getByText("Stale cutoff must never display.").count(), 0);
-    for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) {
+    for (const id of ["merchants", "household", "discussion", "decisions"]) {
       assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, `${id} is available on demand, not a wall of text`);
     }
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).isVisible(), true, "blockers stay actionable without expansion");
     assert.equal(await page.locator(".comparison-bars > div").count(), 4);
-    assert.equal(await page.locator(".change-ranking > li").count(), 3);
-    const completeComparison = page.locator("#changes > details");
-    assert.equal(await completeComparison.evaluate(element => element.open), false, "detail perubahan is secondary to the ledger and matrix");
-    await completeComparison.locator(":scope > summary").focus();
-    await page.keyboard.press("Enter");
-    assert.equal(await completeComparison.evaluate(element => element.open), true, "detail perubahan is keyboard accessible");
+    assert.equal(await page.locator(".diverge > li").count(), 3, "Yang berubah draws the served changes (at most five)");
+    assert.equal(await page.locator(".change-ranking").count(), 0, "the 25-row list is gone");
+    assert.equal(await page.locator("#where .where-list > li").count(), 3, "three ranked categories; an empty remainder is not drawn");
+    assert.equal(await page.locator("#where .where-total strong").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(4200000n), "the list total is the served net expense");
+    const rowAmounts = await page.locator("#where .where-list > li:not([data-other]) .where-amount").allTextContents();
+    assert.deepEqual(rowAmounts, [2100000n, 1400000n, 700000n].map(value => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value)), "ranking order is the served order");
     const fullComparison = page.locator("#changes details.review-daily");
-    assert.equal(await fullComparison.evaluate(element => element.open), false);
+    assert.equal(await fullComparison.evaluate(element => element.open), false, "the full comparison is secondary to the two cards");
     await fullComparison.locator(":scope > summary").focus();
     await page.keyboard.press("Enter");
     assert.equal(await fullComparison.evaluate(element => element.open), true, "complete comparison is keyboard accessible");
@@ -140,21 +140,38 @@ try {
     await page.locator("#discussion > details > summary").click();
     await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
     await page.locator("#discussion > details > summary").click();
-    const groceries = page.getByRole("button", { name: "Belanja rumah", exact: true });
+    const groceries = page.locator("#where").getByRole("button", { name: /^Belanja rumah/ });
+    const drawer = page.getByRole("dialog", { name: "Belanja rumah", exact: true });
     await page.keyboard.press("Tab");
     await groceries.focus();
     assert.notEqual(await groceries.evaluate(element => getComputedStyle(element).outlineStyle), "none");
+    const rankedAmount = await groceries.locator(".where-amount").textContent();
     await page.keyboard.press("Enter");
-    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
+    await drawer.waitFor();
     assert.equal(new URL(page.url()).searchParams.get("category"), "11111111-1111-4111-8111-111111111111");
+    assert.equal(await drawer.evaluate(element => element.contains(document.activeElement)), true, "focus moves into the drawer");
+    assert.equal(await drawer.locator(".detail-amount").textContent(), rankedAmount, "drill-down total equals the row it was opened from");
+    for (let index = 0; index < 40; index += 1) await page.keyboard.press("Tab");
+    assert.equal(await drawer.evaluate(element => element.contains(document.activeElement)), true, "Tab stays inside the modal");
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "detached" });
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
+    assert.equal(await groceries.evaluate(element => element === document.activeElement), true, "Escape returns focus to the row that opened it");
+    await groceries.click();
+    await drawer.waitFor();
+    await page.goBack();
+    await drawer.waitFor({ state: "detached" });
+    assert.equal(new URL(page.url()).searchParams.has("category"), false, "Back closes the drawer");
+    await groceries.click();
+    await drawer.waitFor();
     assert.equal(salaryCalls, 1, "category drill-down reuses returned facts");
-    assert.equal(await page.locator("#category-drivers tbody tr").count(), 3);
-    const merchant = page.locator("#category-drivers a").filter({ hasText: "Pasar Keluarga" }).first();
+    assert.equal(await drawer.locator(".drawer-list li").count(), 3);
+    const merchant = drawer.locator("a").filter({ hasText: "Pasar Keluarga" }).first();
     const merchantHref = new URL(await merchant.getAttribute("href"), base);
     assert.equal(merchantHref.searchParams.get("merchantId"), "22222222-2222-4222-8222-222222222222");
     assert.equal(merchantHref.searchParams.get("to"), "2026-09-06");
     assert.equal(merchantHref.searchParams.get("type"), "SPENDING");
-    const transaction = page.locator("#category-drivers").getByRole("link", { name: "Buka transaksi", exact: true }).first();
+    const transaction = drawer.getByRole("link", { name: /^Buka transaksi/ }).first();
     const transactionLink = new URL(await transaction.getAttribute("href"), base);
     assert.equal(transactionLink.searchParams.get("id"), "33333333-3333-4333-8333-333333333333");
     await transaction.click();
@@ -162,15 +179,18 @@ try {
     await page.getByRole("heading", { name: "Pasar Keluarga", exact: true }).waitFor();
     assert.equal(await page.locator(".transaction-row").count(), 1, "evidence link scopes the ledger to one row");
     await page.goBack({ waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
+    await drawer.waitFor();
     const ledger = page.getByRole("link", { name: "Lihat transaksi Belanja rumah dalam periode ini" });
     await ledger.click();
     await page.getByRole("link", { name: "Kembali ke tinjauan siklus" }).waitFor();
     await page.goBack({ waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
+    await drawer.waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} review has no page overflow`);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}.png`, output)), fullPage: true, animations: "disabled" });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}-drawer.png`, output)), animations: "disabled" });
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "detached" });
     await page.locator(".cycle-spending-chart .recharts-bar-rectangle").first().hover();
     await page.locator(".chart-tooltip").waitFor();
     assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
@@ -181,7 +201,8 @@ try {
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Kategori × siklus", exact: true }).waitFor();
     await page.evaluate(() => { document.querySelector("#matrix details").open = true; });
-    await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Pemasukan, pengeluaran & kategori per siklus", exact: true }).waitFor();
+    assert.equal(await page.locator("#history .history-cols > li").count(), 6, "the cycle columns card draws every served cycle");
     const cycleLedger = page.locator("#ledger");
     assert.equal(await cycleLedger.locator("thead th button").count(), 6, "one column per served cycle");
     assert.equal(await cycleLedger.locator('thead th[aria-current="true"] button').getAttribute("aria-pressed"), "true");
@@ -209,30 +230,21 @@ try {
       assert.deepEqual(ribbon.labelOverflow, [], `${name} row labels fit their column`);
       assert.match(ribbon.snap, /x mandatory/, `${name} columns snap`);
     }
-    const matrixRow = cycleLedger.getByRole("button", { name: "Buka bukti Belanja rumah", exact: true });
+    const matrixRow = cycleLedger.getByRole("button", { name: "Buka rincian Belanja rumah", exact: true });
     assert.equal(await matrixRow.count(), 1);
     assert.equal(await cycleLedger.locator("tbody tr").nth(3).locator("td").last().textContent(), "2,1", "the selected column shows the served category amount");
     await matrixRow.focus();
     await page.keyboard.press("Enter");
-    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
+    await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("category"), "11111111-1111-4111-8111-111111111111");
-    assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), true, "a matrix row opens the category evidence");
-    assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "choosing a category leaves focus on the row instead of jumping to the evidence");
-    const selection = page.locator(".ledger-selection");
-    assert.match(await selection.textContent(), /Belanja rumah/, "the choice is announced next to the ledger");
-    await page.locator("#drivers > details > summary").click();
-    assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), false, "the reader can collapse the evidence");
-    await selection.getByRole("link", { name: "Lihat bukti", exact: true }).click();
-    assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), true, "Lihat bukti reopens a collapsed panel");
-    await page.waitForFunction(() => document.activeElement?.id === "drivers-title");
-    assert.equal(await page.locator("#category-drivers").getByRole("link", { name: "Kembali ke ringkasan siklus", exact: true }).isVisible(), true, "the evidence links back to the ledger");
-    await matrixRow.focus();
-    await page.keyboard.press("Enter");
-    // The URL changes before React re-renders (next 16.4 defers the update), so
-    // wait for the state this line asserts, not for a proxy for it.
-    await page.waitForFunction(() => !new URL(location.href).searchParams.has("category") && document.querySelector('button.ledger-row-button[aria-label="Buka bukti Belanja rumah"]')?.getAttribute("aria-pressed") === "false");
-    assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
+    await page.keyboard.press("Escape");
+    // The URL changes before React re-renders (next 16.4 defers the update), so wait for the state this line asserts.
+    await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor({ state: "detached" });
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
+    assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "closing the drawer returns focus to the matrix row");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
+    const rows = await page.evaluate(() => { const box = selector => document.querySelector(selector)?.getBoundingClientRect(); const same = (x, y) => Boolean(x && y) && Math.abs(x.top - y.top) < 4 && x.right <= y.left + 1; return { where: same(box("#where"), box("#changes")), daily: same(box("#daily"), box("#history")) }; });
+    if (name !== "tablet") { assert.equal(rows.where, name === "desktop", `${name} "Ke mana uangnya" and "Yang berubah" ${name === "desktop" ? "share a row" : "stack"}`); assert.equal(rows.daily, name === "desktop", `${name} daily and cycle columns ${name === "desktop" ? "share a row" : "stack"}`); }
     const charts = await page.evaluate(() => { const [a, b] = ["#spending-shape", "#savings-wealth"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1, section: Math.round(a?.height || 0) }; });
     if (name !== "tablet") assert.equal(charts.sameRow, name === "desktop", `${name} daily charts ${name === "desktop" ? "share a row" : "stack"} (section ${charts.section}px)`);
     assert.equal(await page.locator(".cycle-pace-chart .recharts-line-curve").count(), 3, "the selected cycle, the previous cycle and the median are drawn as curves");
@@ -276,7 +288,7 @@ try {
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     await page.locator("#discussion > details > summary").getByText("Belum tersedia", { exact: true }).waitFor();
-    for (const id of ["position", "spending-shape", "changes", "drivers", "destinations", "household", "savings-wealth", "quality"]) assert.equal(await page.locator(`#${id}`).count(), 1);
+    for (const id of ["position", "spending-shape", "where", "changes", "daily", "history", "merchants", "household", "savings-wealth", "quality"]) assert.equal(await page.locator(`#${id}`).count(), 1);
     assert.equal(requests.filter(request => request.method === "POST").length, 0);
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).count(), 1);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-closed-ai-unavailable.png`, output)), fullPage: true });
@@ -294,6 +306,7 @@ try {
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
     await page.getByRole("button", { name: "Belanja rumah", exact: true }).click();
+    await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("review"), "drivers");
     const meetingLedger = page.getByRole("link", { name: "Lihat transaksi Belanja rumah dalam periode ini" });
     assert.equal(new URL(await meetingLedger.getAttribute("href"), base).searchParams.get("review"), "drivers");
@@ -302,7 +315,8 @@ try {
     await returnLink.waitFor();
     assert.equal(new URL(await returnLink.getAttribute("href"), base).searchParams.get("review"), "drivers");
     await returnLink.click();
-    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
+    await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
+    await page.keyboard.press("Escape");
     for (const [button, section] of [["5. Tabungan & kekayaan", "savings-wealth"], ["6. Tindak lanjut", "quality"], ["7. Pembahasan", "discussion"], ["8. Keputusan", "decisions"]]) {
       await page.getByRole("navigation", { name: "Langkah tinjauan siklus" }).getByRole("button", { name: button, exact: true }).click();
       await page.locator(`#${section}`).waitFor({ state: "visible" });
@@ -411,9 +425,9 @@ try {
     assert.equal(await page.locator("#discussion .insight-card").isVisible(), false);
     await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
     assert.equal(await page.locator("#changes table").isVisible(), true);
-    for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
+    for (const id of ["merchants", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
     await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
-    assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 7, "all exact daily rows retained");
+    assert.equal(await page.locator("#daily .review-daily table").locator("tbody tr").count(), 7, "all exact daily rows retained");
     const dailyTable = page.getByRole("region", { name: "Nilai pengeluaran harian, geser untuk semua kolom", exact: true });
     const dayName = "Lihat pengeluaran 25 Sep 2026";
     const dayHref = "/transactions?from=2026-09-25&to=2026-09-25&status=CONFIRMED&type=SPENDING&cycle=2026-09-25";
@@ -424,9 +438,9 @@ try {
     const dayChart = page.locator(".cycle-spending-chart");
     assert.equal(await dayChart.getByRole("link", { name: dayName, exact: true }).getAttribute("href"), dayHref, "chart and table share the same drill");
     assert.equal(await dayChart.getByRole("link", { name: "Lihat pengeluaran 26 Sep 2026", exact: true }).count(), 0, "zero-spend day has no chart link");
-    const rentRanking = page.locator(".change-ranking > li").filter({ has: page.getByRole("button", { name: "Tempat Tinggal", exact: true }) });
-    assert.match(await rentRanking.textContent(), /0%/);
-    assert.doesNotMatch(await rentRanking.textContent(), /100%/);
+    const rentChange = page.locator(".diverge > li").filter({ hasText: "Tempat Tinggal" });
+    assert.match(await rentChange.textContent(), /naik.*1\.950\.000/, "a running cycle shows the served same-day change");
+    assert.doesNotMatch(await rentChange.textContent(), /100%/);
     const rentRow = page.locator("#changes table tbody tr").filter({ hasText: "Tempat Tinggal" });
     assert.equal(await rentRow.locator("td").nth(6).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1950000n));
     assert.match(await rentRow.locator("td").nth(7).textContent(), /0%/);

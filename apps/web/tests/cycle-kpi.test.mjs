@@ -96,8 +96,8 @@ test("the daily average is the served rounded figure, never rounded in the brows
 test("a missing served rounded average is null: no Rp 0 row and no reference line", () => {
   assert.equal(averageDailyText({ averageDailyExpense: "700000.40" }), null);
   assert.equal(averageDailyText(undefined), null);
-  const page = readFileSync(new URL("../app/analytics/page.js", import.meta.url), "utf8");
-  assert.ok(page.includes('averageDailyText(facts.spendingShape) == null ? "—"'), "the metric row shows a dash");
+  const daily = readFileSync(new URL("../app/analytics/CycleWhere.js", import.meta.url), "utf8");
+  assert.ok(daily.includes("average != null &&"), "no served average, no Rp 0 legend entry");
   const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
   assert.ok(charts.includes("suppliedAverage == null ? Number.NaN"), "no average, no reference line");
 });
@@ -127,9 +127,9 @@ test("the median note names the same-day basis while the cycle runs", () => {
   assert.equal(kpiCells(closed)[0].extra.note, "vs median 3 siklus");
 });
 
-test("the way back from category evidence targets the rendered matrix summary, not the collapsed ledger", () => {
+test("the category drawer replaces the evidence section and its way back", () => {
   const sections = readFileSync(new URL("../app/analytics/CycleSections.js", import.meta.url), "utf8");
-  assert.ok(sections.includes('href="#matrix">Kembali ke ringkasan siklus'));
+  assert.equal(sections.includes("Kembali ke ringkasan siklus"), false);
   assert.equal(sections.includes('href="#ledger"'), false);
   const page = readFileSync(new URL("../app/analytics/page.js", import.meta.url), "utf8");
   assert.ok(page.includes('<section id="matrix"') && page.includes('id="matrix-title"'), "the target and its summary heading exist");
