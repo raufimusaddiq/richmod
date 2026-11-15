@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, paceCurves, compactMillions, directionMark, hasPace, mapPace, paceReferences } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, paceCurves, compactMillions, directionMark, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -13,6 +13,11 @@ test("compact amounts are display-only and never invent a value", () => {
   assert.equal(compactMillions("-600000"), "−0,6");
   assert.equal(compactMillions(null), "—");
   assert.equal(compactMillions("abc"), "—");
+  assert.equal(signedMillions("4600000"), "+4,6");
+  assert.equal(signedMillions("-700000"), "−0,7");
+  assert.equal(signedMillions("0"), "0,0");
+  assert.equal(signedMillions("40000"), "0,0", "a rounded zero carries no sign");
+  assert.equal(signedMillions(null), "—");
 });
 
 test("direction is a neutral marker, never a colour", () => {

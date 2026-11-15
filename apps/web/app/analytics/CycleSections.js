@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { compactMillions, directionMark } from "../lib/cycleLedger";
-import { buildHeatmap, deltaTone, householdRows, merchantBars } from "../lib/cycleSections";
+import { buildHeatmap, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../lib/cycleSections";
 import { money } from "../lib/format";
 import { Metric } from "./shared";
 
@@ -85,7 +85,7 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
     </div>}
     <p className="review-description">{heat.mode === "SAME_DAY" ? `Setiap siklus dihitung sampai hari ke-${sameDay.elapsedDays} agar siklus berjalan setara.` : "Total akhir tiap siklus. Kolom berjalan ditandai garis putus-putus dan tidak ikut pewarnaan karena belum selesai."}</p>
     <div className="heat-wrap" tabIndex={0} role="region" aria-label="Pengeluaran per kategori dan siklus, geser untuk semua kolom">
-      <table className="heat-table" style={{ "--heat-cols": heat.columns.length }}>
+      <table className="heat-table">
         <caption className="visually-hidden">Pengeluaran bersih per kategori untuk setiap siklus gaji, dalam jutaan rupiah. {deltaLabel}.</caption>
         <thead><tr>
           <th scope="col" className="heat-unit">Rp juta · {heat.mode === "SAME_DAY" ? `hari 1–${sameDay.elapsedDays}` : "total siklus"}</th>
@@ -98,7 +98,7 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
           {heat.rows.map(row => <tr key={row.key} data-selected-row={row.selected || undefined}>
             <th scope="row">
               {row.selectable && onSelectCategory
-                ? <button type="button" className="heat-row-button" aria-pressed={row.selected} aria-controls="category-drivers" aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{row.name}</button>
+                ? <button type="button" className="heat-row-button" aria-pressed={row.selected} aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{row.name}</button>
                 : <span data-muted={row.muted || undefined}>{row.name}</span>}
               <small className="heat-row-delta"><Delta value={row.delta} label={deltaLabel}/></small>
             </th>
@@ -140,7 +140,7 @@ export function MerchantRanking({ ranking, period }) {
             <td>{amountLabel(item.previous)}</td>
             <td><Delta value={item.deltaVsPrevious}/></td>
           </tr>)}
-          {list.other && <tr data-other="true">
+          {list.other && nonZeroAmount(list.other.amount) && <tr data-other="true">
             <th scope="row">{name({ ...list.other, name: `Merchant lain · ${list.other.merchantCount}` }, true)}{bar(list.other)}</th>
             <td>{list.other.count ?? "—"}</td>
             <td>{money(list.other.amount)}</td>

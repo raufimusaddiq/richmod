@@ -38,6 +38,7 @@ try {
     let stable = false;
     let salaryCalls = 0;
     let failDecisionSave = false;
+    let decisionsFail = false;
     const notes = new Map([["2026-07-26", [{ id: "77777777-7777-4777-8777-777777777777", cycleStart: "2026-07-26", body: "Jaga lebih banyak kas likuid.", author: "Dina", authorUserId: "synthetic-user", createdAt: "2026-08-26T10:00:00+07:00" }]]]);
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/v1/**", async route => {
@@ -66,6 +67,7 @@ try {
           const start = url.searchParams.get("cycle_start");
           const previous = cycleFacts(start).comparison.previous.start;
           body = { items: notes.get(start) || [], previous: notes.get(previous) || [], previousCycleStart: previous };
+          if (decisionsFail) status = 500;
         }
       } else if (url.pathname.endsWith("/revoke")) {
         const id = url.pathname.split("/").at(-2);
@@ -282,11 +284,19 @@ try {
     assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} matrix has no page overflow`);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-ledger.png`, output)), fullPage: true, animations: "disabled" });
+    decisionsFail = true;
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
     await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
     assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu .penuh./);
+    await page.locator("#decisions > details > summary").click();
+    await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat dimuat" }).waitFor();
+    assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).count(), 1, "a failed list still allows recording a decision");
+    decisionsFail = false;
+    await page.evaluate(() => { document.querySelector("#decisions > details").open = true; });
+    await page.locator("#decisions").getByRole("button", { name: "Coba lagi", exact: true }).click();
+    await page.locator("#decisions .decision-list, #decisions .empty").first().waitFor();
     assert.equal(await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
     await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).click();
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();

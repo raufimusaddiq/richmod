@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildHeatmap, decisionCount, deltaTone, householdRows, merchantBars } from "../app/lib/cycleSections.js";
+import { buildHeatmap, decisionCount, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../app/lib/cycleSections.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss } from "./source.mjs";
 
@@ -105,6 +105,43 @@ test("the heatmap resets its mode when the selected cycle changes", () => {
   const closed = cycleFacts("2026-08-26");
   assert.equal(buildHeatmap(closed.categoryHistory, closed.history, "FULL").mode, "FULL");
   assert.equal(closed.categoryHistory.sameDay, undefined, "a closed cycle has no same-day matrix");
+});
+
+test("the decision form renders even when the list request fails", () => {
+  const decisions = text("app/components/CycleDecisions.js");
+  const guard = decisions.indexOf('{data && <div className="decision-columns">');
+  const guardEnd = decisions.indexOf("</div>}", guard);
+  const form = decisions.indexOf("{closed ? <form");
+  assert.ok(guard >= 0 && guardEnd > guard && form > guardEnd, "the compose form sits outside the data guard");
+  assert.match(decisions, /<form className="decision-form" onSubmit=\{save\}/);
+});
+
+test("full-mode tints ignore the untinted running column", () => {
+  const history = [
+    { start: "2026-07-26", state: "CLOSED" },
+    { start: "2026-08-26", state: "CLOSED" },
+    { start: "2026-09-26", state: "ACTIVE" },
+  ];
+  const matrix = {
+    cycleStarts: history.map(item => item.start),
+    selectedIndex: 2,
+    rows: [{ id: "cat-1", name: "Belanja", amounts: ["1000000", "2000000", "9000000"] }],
+    other: { amounts: ["0", "0", "0"] },
+    totals: ["1000000", "2000000", "9000000"],
+  };
+  const heat = buildHeatmap(matrix, history, "FULL");
+  assert.equal(heat.rows[0].tints[1], 1, "the largest completed column fills the tint");
+  assert.equal(heat.rows[0].tints[2], 0, "the running column is never tinted");
+  assert.equal(heat.rows[0].tints[0], 0.5, "completed columns keep their relative scale");
+});
+
+test("the merchant remainder is only drawn when it has an amount", () => {
+  assert.equal(nonZeroAmount("0"), false);
+  assert.equal(nonZeroAmount("0.00"), false);
+  assert.equal(nonZeroAmount("1"), true);
+  assert.equal(nonZeroAmount(null), false);
+  const sections = text("app/analytics/CycleSections.js");
+  assert.match(sections, /list\.other && nonZeroAmount\(list\.other\.amount\)/, "a zero remainder row is not rendered");
 });
 
 test("fixtures carry the served section fields", () => {

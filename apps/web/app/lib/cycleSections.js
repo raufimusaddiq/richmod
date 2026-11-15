@@ -23,7 +23,7 @@ export function buildHeatmap(categoryHistory, history = [], mode = "FULL", { sel
     return { start, running, selected: source.selectedIndex === index, untinted: !sameDay && running, subhead: sameDay ? `${running ? "berjalan · " : ""}hari 1–${days[index] ?? "?"}` : running ? "belum penuh" : "" };
   });
   const tints = values => {
-    const peak = Math.max(0, ...values.map(amount).filter(value => value != null && Number.isFinite(value)));
+    const peak = Math.max(0, ...values.map((value, index) => (columns[index].untinted ? null : amount(value))).filter(value => value != null && Number.isFinite(value)));
     return values.map((value, index) => {
       const number = amount(value);
       return columns[index].untinted || !(peak > 0) || number == null || !Number.isFinite(number) ? 0 : Math.max(0, number) / peak;
@@ -36,6 +36,13 @@ export function buildHeatmap(categoryHistory, history = [], mode = "FULL", { sel
   });
   categories.push({ key: "other", id: "", name: "Kategori lain", amounts: other, tints: tints(other), delta: source.other?.deltaVsPrevious, muted: true, selectable: false });
   return { mode: sameDay ? "SAME_DAY" : "FULL", columns, rows: categories, total: { amounts: totals, delta: source.totalDeltaVsPrevious } };
+}
+
+// A served amount is "present" only when it is a non-zero number; the API always
+// serves the remainder row, so the UI must not print "Merchant lain · 0".
+export function nonZeroAmount(value) {
+  const number = amount(value);
+  return number != null && Number.isFinite(number) && number !== 0;
 }
 
 // Bar length is a fraction of the largest served amount in the list; the served

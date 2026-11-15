@@ -3,7 +3,6 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
-import { CategoryRankingChart, CycleSpendingPatternChart } from "../components/Charts";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
