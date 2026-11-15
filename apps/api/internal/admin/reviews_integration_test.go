@@ -594,3 +594,52 @@ func TestReviewOpsRequiresSuperAdmin(t *testing.T) {
 		t.Fatalf("non-super-admin status=%d", response.Code)
 	}
 }
+
+// A review_request has one recipient row per household member. The projections
+// list must still return each request exactly once.
+func TestReviewOpsProjectionsOneRowPerRequestWithManyRecipients(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustExec := func(_ pgconn.CommandTag, err error) { must(err) }
+	stamp := time.Now().UnixNano()
+	var adminID, householdID, sourceID, itemID, requestID string
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,is_super_admin) VALUES($1,'Admin','!',true) RETURNING id`, fmt.Sprintf("admin-fanout-%d@example.test", stamp)).Scan(&adminID))
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Fanout %d", stamp)).Scan(&householdID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("fanout-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID))
+	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,11)`, requestID, stamp))
+	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,12)`, requestID, stamp+1))
+
+	handler := NewHandler(pool, false, "responses")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reviews/projections?range=24h&q="+requestID, nil)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: adminID, IsSuperAdmin: true}))
+	response := httptest.NewRecorder()
+	handler.ReviewOpsProjections(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var parsed struct {
+		Items []struct {
+			ProjectionID   string `json:"projectionId"`
+			DeliveryStatus string `json:"deliveryStatus"`
+		} `json:"items"`
+	}
+	must(json.Unmarshal(response.Body.Bytes(), &parsed))
+	if len(parsed.Items) != 1 || parsed.Items[0].ProjectionID != requestID || parsed.Items[0].DeliveryStatus != "SUCCEEDED" {
+		t.Fatalf("want exactly one SUCCEEDED row for %s, got %+v", requestID, parsed.Items)
+	}
+}
