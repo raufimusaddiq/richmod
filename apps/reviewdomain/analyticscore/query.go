@@ -2,6 +2,7 @@ package analyticscore
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,12 +49,17 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 		SELECT ordinality-1 AS idx,s::date AS start_date,e::date AS end_date FROM unnest($2::text[],$3::text[]) WITH ORDINALITY AS p(s,e,ordinality)
 	)
 	SELECT p.idx,to_char(t.transaction_at AT TIME ZONE 'Asia/Jakarta','YYYY-MM-DD'),t.type,t.purpose,
-		COALESCE(c.id::text,''),COALESCE(c.name,'Belum dikategorikan'),COALESCE(m.id::text,''),COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui'),
+		COALESCE(c.id::text,''),COALESCE(c.name,'Belum dikategorikan'),COALESCE(m.id::text,''),COALESCE(m.normalized_name,NULLIF(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'),''),'Tanpa merchant'),
 		COALESCE(u.id::text,''),COALESCE(u.display_name,'Bersama / otomatis / belum diatribusikan'),COALESCE(a.id::text,''),COALESCE(a.name,'Belum ditautkan'),sum(t.amount)::text,count(*)::int
 	FROM periods p JOIN transaction t ON t.household_id=$1 AND t.status='CONFIRMED'
 		AND t.transaction_at >= (p.start_date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.transaction_at < (p.end_date::timestamp AT TIME ZONE 'Asia/Jakarta')
 	LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id
-	LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
+	LEFT JOIN LATERAL (
+		SELECT min(a.normalized_merchant_id::text)::uuid AS merchant_id FROM merchant_alias a
+		WHERE t.merchant_id IS NULL AND a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'))
+		HAVING count(DISTINCT a.normalized_merchant_id)=1
+	) al ON true
+	LEFT JOIN merchant m ON m.id=COALESCE(t.merchant_id,al.merchant_id) AND m.household_id=t.household_id
 	LEFT JOIN household_member hm ON hm.user_id=t.created_by_user_id AND hm.household_id=t.household_id
 	LEFT JOIN "user" u ON u.id=hm.user_id
 	LEFT JOIN wealth_account a ON a.id=t.related_wealth_account_id AND a.household_id=t.household_id
@@ -111,7 +117,7 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 			}
 			m.dailyNet[day] = financialmath.Add(prior, amount)
 			accumulate(m.categories, cid, cid, cname, amount, count)
-			merchantKey := mid + ":" + mname
+			merchantKey := mid + ":" + strings.ToLower(mname)
 			accumulate(m.merchants, merchantKey, mid, mname, amount, count)
 			if m.categoryMerchants[cid] == nil {
 				m.categoryMerchants[cid] = map[string]reviewValue{}
@@ -172,7 +178,7 @@ func accumulate(values map[string]reviewValue, key, id, name, amount string, cou
 
 func loadReviewTransactions(ctx context.Context, tx pgx.Tx, household string, facts *Facts) error {
 	rows, err := tx.Query(ctx, `WITH ranked AS (
-		SELECT t.id,t.transaction_at,t.type,t.amount,t.category_id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui') merchant,
+		SELECT t.id,t.transaction_at,t.type,t.amount,t.category_id,COALESCE(m.normalized_name,NULLIF(btrim(t.counterparty_name),''),'Tanpa merchant') merchant,
 		row_number() OVER(PARTITION BY t.category_id ORDER BY t.amount DESC,t.transaction_at DESC,t.id) AS rank
 		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
 		WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND')

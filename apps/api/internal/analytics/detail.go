@@ -143,14 +143,21 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `WITH merchants AS (
-		SELECT m.id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui') AS name,
-		sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) AS amount
-		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
+	rows, err := h.pool.Query(r.Context(), `WITH resolved AS (
+		SELECT t.type,t.amount,COALESCE(t.merchant_id,al.merchant_id) AS merchant_id,regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g') AS cp
+		FROM transaction t LEFT JOIN LATERAL (
+			SELECT min(a.normalized_merchant_id::text)::uuid AS merchant_id FROM merchant_alias a
+			WHERE t.merchant_id IS NULL AND a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'))
+			HAVING count(DISTINCT a.normalized_merchant_id)=1
+		) al ON true
 		WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3
-		GROUP BY m.id,2
-	) SELECT id,name,amount::text,(SELECT COALESCE(sum(amount),0)::text FROM merchants)
-	FROM merchants WHERE amount>0 ORDER BY amount DESC,name,id LIMIT 10`, household, start, end)
+	), merchants AS (
+		SELECT m.id,COALESCE(m.normalized_name,NULLIF(min(r.cp),''),'Tanpa merchant') AS merchant_name,
+		sum(CASE WHEN r.type='EXPENSE' THEN r.amount WHEN r.type='REFUND' THEN -r.amount ELSE 0 END) AS total
+		FROM resolved r LEFT JOIN merchant m ON m.id=r.merchant_id AND m.household_id=$1
+		GROUP BY m.id,m.normalized_name,CASE WHEN m.id IS NULL THEN lower(r.cp) END
+	) SELECT id,merchant_name,total::text AS amount_text,(SELECT COALESCE(sum(total),0)::text FROM merchants)
+	FROM merchants WHERE total>0 ORDER BY merchants.total DESC,merchant_name,id LIMIT 10`, household, start, end)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate merchant spending"})
 		return

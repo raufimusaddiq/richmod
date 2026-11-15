@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 )
 
 type reviewFixture struct {
@@ -371,6 +372,73 @@ func TestCycleReviewPaceCurvesComeFromServedDailyNetExpense(t *testing.T) {
 	}
 	if first := f.review(t, "?cycle_start=2026-06-01"); first.Pace.PreviousFullCycle != nil || first.Pace.Median3 != nil {
 		t.Fatalf("the first cycle has no history to compare: %+v", first.Pace)
+	}
+}
+
+// N4: one payee must be one driver row. A null merchant_id resolves through the
+// household merchant alias, and the ledger drill-down for that row agrees.
+func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) {
+	f := cycleReviewFixture(t)
+	ctx := context.Background()
+	f.anchor(t, "2026-08-01")
+	f.anchor(t, "2026-09-01")
+	var payee string
+	if err := f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Orang Tua Payee') RETURNING id`, f.household).Scan(&payee); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'Orang Tua Payee',$2)`, f.household, payee); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(amount, day string, merchant *string, counterparty *string) {
+		t.Helper()
+		if _, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at,merchant_id,counterparty_name,created_by_user_id,purpose) VALUES($1,'EXPENSE','CONFIRMED',$2::numeric,($3::date::timestamp AT TIME ZONE 'Asia/Jakarta'),now(),$4,$5,$6,'GENERAL')`, f.household, amount, day, merchant, counterparty, f.user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := "ORANG  tua payee"
+	insert("3000000", "2026-08-05", &payee, nil)
+	insert("2500000", "2026-08-06", nil, &alias)
+	insert("1586492", "2026-08-07", nil, nil)
+	facts := f.review(t, "?cycle_start=2026-08-01")
+	var parents, anonymous int
+	var parentsAmount, parentsID string
+	for _, m := range facts.Merchants {
+		switch m.Name {
+		case "Orang Tua Payee":
+			parents++
+			parentsAmount, parentsID = m.Amount, m.ID
+		case "Tanpa merchant":
+			anonymous++
+			if m.ID != "" || m.Amount != "1586492" {
+				t.Fatalf("Tanpa merchant row=%+v", m)
+			}
+		}
+	}
+	if parents != 1 || anonymous != 1 || parentsAmount != "5500000" || parentsID != payee || len(facts.Merchants) != 2 {
+		t.Fatalf("drivers=%+v", facts.Merchants)
+	}
+	// Drill-down by the row's merchant id must reach the same total.
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?merchantId="+parentsID+"&type=SPENDING", nil)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+	response := httptest.NewRecorder()
+	ledger.NewHandler(f.pool).ListTransactions(response, request)
+	if response.Code != 200 {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var rows []struct {
+		Amount string `json:"amount"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	var drill int
+	for _, r := range rows {
+		var n int
+		fmt.Sscan(r.Amount, &n)
+		drill += n
+	}
+	if len(rows) != 2 || fmt.Sprint(drill) != parentsAmount {
+		t.Fatalf("drill-down rows=%d total=%d, driver row=%s", len(rows), drill, parentsAmount)
 	}
 }
 
