@@ -138,15 +138,17 @@ net expense reuses the measures query that already loads every comparison cycle.
 ## Wealth and quality
 
 The current snapshot is the latest observation before the measured cutoff
-(capped at request time for an active cycle). The previous snapshot is the latest
-observation before cycle start. No snapshot from after the selected cycle enters
+(capped at request time for an active cycle). The previous snapshot is its immediate
+predecessor: the nearest earlier observation (ties on timestamp resolve by ID),
+never the same snapshot, and independent of the cycle start. When there is none,
+`wealth.previous` is `null` and `MISSING_PREVIOUS_WEALTH_SNAPSHOT` is reported. No snapshot from after the selected cycle enters
 its review. Each snapshot exposes observation time and age in Jakarta days.
 
 Wealth movement reconciles the **observation interval**, not an invented cycle
 end balance: net-worth delta minus confirmed cashflow in `(previous, current]`
 is valuation/other change. Transfers are excluded from that cashflow, matching
-the existing Wealth summary. A missing snapshot, unchanged snapshot, or changed
-account set leaves reconciliation unavailable. This is not investment P/L or
+the existing Wealth summary. A missing current or previous snapshot, or a changed
+account set, leaves reconciliation unavailable. This is not investment P/L or
 an inferred savings transfer.
 
 The ledger's "complete" (`status='CONFIRMED'` with no active review item) and the cycle's `OPEN_REVIEWS` share the same columns. `UNCATEGORIZED_EXPENSE` is a separate data-quality block: a manual entry may legitimately be confirmed without a category. The one review-flow record that violated this (legacy, #353) is reopened by migration `00083`.
