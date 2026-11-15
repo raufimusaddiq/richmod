@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
-import { createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
+import { VOID_CONFIRM_MESSAGE, canVoidTransaction, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
 
 const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
@@ -147,4 +147,51 @@ test("edit: drawer offers Ubah and the dialog keeps drawer key handling out", ()
   assert.match(page, /aria-labelledby="edit-transaction-title"/);
   assert.match(page, /"If-Match": selected\.updatedAt/);
   assert.match(page, /onEditKeyDown[\s\S]{0,80}stopPropagation/);
+});
+
+test("void: the button is offered for PENDING and CONFIRMED only", () => {
+  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canVoidTransaction({ id: "t1", status }), true, status);
+  for (const status of ["NEEDS_REVIEW", "VOIDED", undefined]) assert.equal(canVoidTransaction({ id: "t1", status }), false, String(status));
+  assert.equal(canVoidTransaction({ status: "CONFIRMED" }), false, "no id, no action");
+  assert.equal(canVoidTransaction(null), false);
+  assert.match(page, /\{canVoidTransaction\(selected\) && <button type="button" className="danger"[^>]*>[^<]*\{voiding \? "Membatalkan…" : "Batalkan transaksi"\}<\/button>\}/);
+});
+
+test("void: the confirm dialog is danger-styled and says the row leaves the totals but stays in history", () => {
+  assert.match(page, /confirm\(VOID_CONFIRM_MESSAGE, \{ confirmLabel: "Ya, batalkan", danger: true \}\)/);
+  assert.match(VOID_CONFIRM_MESSAGE, /keluar dari semua total/);
+  assert.match(VOID_CONFIRM_MESSAGE, /tetap tersimpan di riwayat/);
+  assert.match(page, /\{dialogs\}/);
+});
+
+test("void: a refused or failed request is never reported as success", () => {
+  const review = voidFailure(409, { error: "resolve this transaction through the review endpoint" });
+  assert.equal(review.kind, "review");
+  assert.match(review.message, /Tinjauan/);
+  assert.doesNotMatch(review.message, /review endpoint/);
+  assert.match(page, /voidNotice\.kind === "review" && <a className="button secondary" href="\/inbox\?view=transactions">Buka Tinjauan<\/a>/);
+  const stale = voidFailure(409, { error: "invalid transaction status transition" });
+  assert.equal(stale.kind, "error"); assert.equal(stale.reload, true);
+  for (const status of [400, 401, 403, 404, 500, 502]) {
+    const outcome = voidFailure(status, { error: "boom" });
+    assert.equal(outcome.kind, "error", String(status));
+    assert.doesNotMatch(outcome.message, /boom|^Transaksi dibatalkan/, "no raw API text, no success wording");
+  }
+  assert.match(voidFailure(500).message, /Coba lagi/);
+  // Success is declared only from response.ok; a thrown fetch is an error that re-reads the record.
+  assert.match(page, /response\.ok \? \{ kind: "success"/);
+  assert.match(page, /catch \{ outcome = \{ kind: "error", message: "Koneksi terputus\./);
+});
+
+test("void: posts once, then reloads the drawer and the list", () => {
+  assert.match(page, /`\/api\/v1\/transactions\/\$\{id\}\/void`, \{ method: "POST" \}/);
+  assert.match(page, /if \(voidPending\.current \|\| !canVoidTransaction\(selected\)\) return;\s+voidPending\.current = true;/);
+  assert.match(page, /finally \{ voidPending\.current = false; setVoiding\(false\); \}/);
+  assert.match(page, /drawer\.open\(id\)[\s\S]{0,120}load\(\)/);
+  assert.match(page, /openId\.current === id/, "a drawer closed or moved to another row is not reopened");
+});
+
+test("void: Escape inside the confirm dialog does not also close the drawer", () => {
+  const hook = readFileSync(new URL("../app/components/useDrawerA11y.js", import.meta.url), "utf8");
+  assert.match(hook, /event\.key === "Escape"\) \{ if \(!event\.target\?\.closest\?\.\("dialog"\)\) closeRef\.current\(\)/);
 });

@@ -130,3 +130,24 @@ export function editErrorMessage(status, body = {}) {
   if (status >= 500) return "Perubahan belum dapat disimpan. Coba lagi.";
   return "Perubahan belum dapat disimpan. Periksa isian lalu coba lagi.";
 }
+
+// ---- Void a transaction (POST /api/v1/transactions/{id}/void) ----
+
+export const VOID_CONFIRM_MESSAGE = "Batalkan transaksi ini? Transaksi keluar dari semua total dan tetap tersimpan di riwayat beserta catatan perubahannya.";
+export const VOID_SUCCESS_MESSAGE = "Transaksi dibatalkan. Tidak lagi dihitung dalam total, dan tetap ada di riwayat.";
+
+// Same statuses the API voids. NEEDS_REVIEW is resolved in Tinjauan; VOIDED is already final.
+export function canVoidTransaction(transaction) {
+  return Boolean(transaction?.id) && ["PENDING", "CONFIRMED"].includes(transaction.status);
+}
+
+// What the drawer shows after a refused void. Never raw API text. `review` adds the link to
+// Tinjauan; `reload` means the record changed under us, so the drawer is fetched again.
+export function voidFailure(status, body = {}) {
+  const text = String(body?.error || "").toLowerCase();
+  if (status === 409 && text.includes("review endpoint")) return { kind: "review", message: "Transaksi ini masih menunggu keputusan, jadi belum bisa dibatalkan di sini. Selesaikan dulu di Tinjauan." };
+  if (status === 409) return { kind: "error", message: "Status transaksi sudah berubah. Detail dimuat ulang; coba lagi jika tombol masih tersedia.", reload: true };
+  if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
+  if (status === 404) return { kind: "error", message: "Transaksi tidak ditemukan. Muat ulang daftar transaksi.", reload: true };
+  return { kind: "error", message: "Transaksi belum dibatalkan. Coba lagi." };
+}

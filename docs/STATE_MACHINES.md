@@ -97,3 +97,28 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
   or creates a `review_item`.
 - **Errors** return `{"error": "...", "code": "..."}`; the web app maps `code`
   to Indonesian copy and never shows the English text. No schema change.
+
+## Voiding a transaction
+
+`POST /api/v1/transactions/{id}/void` (`ledger/lifecycle.go`, `transition`) is the
+web "Batalkan transaksi" action in the `/transactions` drawer. No transition is
+added: `PENDING` / `CONFIRMED` → `VOIDED` was already legal.
+
+- **Allowed on** `PENDING`, `CONFIRMED`. `NEEDS_REVIEW` or any open
+  (`OPEN`/`PENDING_SEND`) review item is 409 ("resolve this transaction through the
+  review endpoint"); the drawer then points to Tinjauan. `VOIDED` again is 409 and
+  writes nothing. Another household's transaction is 404.
+- **Writes** (one DB transaction, row locked `FOR UPDATE`): `status='VOIDED'`,
+  `voided_at`, `confirmed_at=NULL`, and an `audit_log` row `VOIDED` with the before/after
+  status. Nothing is deleted; evidence, source events and proposals stay linked.
+- **Side effects, all in that transaction:** `salary_event` follows through
+  `transaction_salary_event_status`; voiding a `CONFIRMED` transaction also re-runs
+  `RefreshOpenCycleResiduals` for its cycle, so an open residual review shows the new
+  basis (or closes as `NO_LONGER_APPLICABLE` when nothing is left to allocate).
+  Every totals query (overview, daily, category/member/cycle analytics, wealth recap,
+  savings destinations, cycle basis) counts `status='CONFIRMED'` only, so a voided row
+  leaves them. Voiding does not touch a residual that was already resolved/allocated, and
+  does not reverse an `ACTIVE` `reconciliation_merge` whose target it voids.
+- **Authorization:** any member of the household may void; there is no role or source
+  restriction.
+- Un-voiding and Telegram void are not implemented.

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 type transactionView struct {
@@ -237,7 +238,8 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	defer tx.Rollback(r.Context())
 	var before string
 	var reviewOpen bool
-	if err := tx.QueryRow(r.Context(), `SELECT t.status,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
+	var occurredAt time.Time
+	if err := tx.QueryRow(r.Context(), `SELECT t.status,t.transaction_at,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &occurredAt, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "transaction not found"})
 		return
 	} else if err != nil {
@@ -264,6 +266,14 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,$3,'transaction',$4,jsonb_build_object('status',$5::text),jsonb_build_object('status',$6::text))`, household, p.UserID, target, id, before, target); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to audit transaction"})
 		return
+	}
+	// A voided CONFIRMED transaction leaves the totals, so an open cycle residual review
+	// built on them is recomputed in the same commit (as a newly recorded one does).
+	if target == "VOIDED" && before == "CONFIRMED" {
+		if err = reviewdomain.RefreshOpenCycleResiduals(r.Context(), tx, household, occurredAt, p.UserID); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
