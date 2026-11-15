@@ -162,3 +162,23 @@ export function mapPace(items = [], pace) {
 export function monthMarkers(items = []) {
   return items.flatMap((item, index) => (index > 0 && item.period?.slice(8) === "01" ? [{ day: index + 1, label: dayMonth(item.period) }] : []));
 }
+
+// Calendar date of cycle day `day` (1-based), continuing past the measured days for the
+// previous-cycle tail. Date labelling only.
+export function paceDate(items = [], day) {
+  const first = items[0]?.period;
+  if (!first || !(day >= 1)) return "";
+  const time = Date.parse(`${first}T00:00:00Z`);
+  return Number.isNaN(time) ? "" : new Date(time + (day - 1) * 86400000).toISOString().slice(0, 10);
+}
+
+export function paceDateLabel(items, day) {
+  return dayMonth(paceDate(items, day));
+}
+
+// Weekly x ticks (day 1, 8, 15 …) up to the last plotted day.
+export function paceTicks(length, step = 7) {
+  const ticks = [];
+  for (let day = 1; day <= length; day += step) ticks.push(day);
+  return ticks;
+}

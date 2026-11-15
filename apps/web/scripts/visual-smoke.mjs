@@ -228,7 +228,7 @@ async function run() {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} analytics calendar has horizontal overflow`);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-calendar.png`, output)), fullPage: true });
         await page.getByRole("button", { name: "Siklus Gaji" }).click();
-        await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+        await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
         await page.locator(".recharts-bar-rectangle").first().hover();
         await page.locator(".chart-tooltip").waitFor();
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-tooltip.png`, output)), fullPage: true });
@@ -273,14 +273,14 @@ async function run() {
       await regressionPage.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
       await compareScreenshot(regressionPage, "analytics-calendar-desktop");
       await regressionPage.getByRole("button", { name: "Siklus Gaji" }).click();
-      await regressionPage.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+      await regressionPage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
       await regressionPage.locator(".recharts-bar-rectangle").first().hover();
       await regressionPage.locator(".chart-tooltip").waitFor();
       await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
       await regressionPage.close();
       // Cycle-view states the default capture does not reach: a closed cycle, a selected category row, and too few cycles for the ribbon.
       for (const [name, path, scenario, ready] of [
-        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" })],
+        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
         ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator(".ledger-cards")],
       ]) {

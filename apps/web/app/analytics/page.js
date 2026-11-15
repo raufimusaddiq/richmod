@@ -3,19 +3,21 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
-import { CategoryRankingChart, CyclePaceChart, CycleSpendingPatternChart } from "../components/Charts";
+import { CategoryRankingChart, CycleSpendingPatternChart } from "../components/Charts";
 import CycleLedger from "../components/CycleLedger";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
-import { adjacentCycles, paceReferences, verdictPairs } from "../lib/cycleLedger";
-import { cycleLabel, ratioLabel, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
+import { adjacentCycles } from "../lib/cycleLedger";
+import { averageDailyText } from "../lib/cycleKpi";
+import { cycleLabel, inclusiveEnd, ratioLabel, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
 import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
 import { SectionTitle, Metric } from "./shared";
-import { MeetingNav, CyclePosition, ComparisonContext, ChangesTable, MerchantTable, CategoryDrivers, SavingsWealth, QualitySection } from "./CycleSections";
+import { MeetingNav, ComparisonContext, ChangesTable, MerchantTable, CategoryDrivers } from "./CycleSections";
+import { KpiStrip, NoticeStrip, PaceCard, QualityFooter, SavingsWealthCard } from "./CycleDashboard";
 import { CalendarReview } from "./CalendarReview";
 
 export default function AnalyticsPage() {
@@ -90,8 +92,6 @@ function AnalyticsReview() {
   const cycleStart = facts?.period?.kind === "SALARY_CYCLE" ? facts.period.start : "";
   const cycleEnd = facts?.period?.measuredUntil || "";
   const cycleState = facts?.period?.state || "";
-  const [allOpen, setAllOpen] = useState(false);
-  useEffect(() => { setAllOpen(false); }, [cycleStart]);
   const loadInsights = useCallback(async signal => {
     const query = new URLSearchParams({ cycle_start: cycleStart });
     const response = await fetch(`/api/v1/insights?${query}`, { signal, cache: "no-store" });
@@ -165,7 +165,12 @@ function AnalyticsReview() {
         <div className="cycle-step" role="group" aria-label="Pindah siklus">
           <button type="button" className="secondary" disabled={!adjacent.older} onClick={() => navigate({ cycle: adjacent.older, category: "", step: "" })}>‹ Siklus sebelumnya</button>
           <button type="button" className="secondary" disabled={!adjacent.newer} onClick={() => navigate({ cycle: adjacent.newer, category: "", step: "" })}>Siklus berikutnya ›</button>
-        </div></>}
+        </div>
+        {facts && !error && <div className="cycle-status" aria-live="polite">
+          <strong>{facts.period.state === "ACTIVE" ? `Berjalan · hari ke-${facts.spendingShape.days} · data sampai ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}` : `Ditutup · ${facts.spendingShape.days} hari · data sampai ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}`}</strong>
+          <span>{facts.period.state === "ACTIVE" && "Hari ini belum penuh · "}Asia/Jakarta</span>
+          {facts.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && !meeting && <button type="button" onClick={() => navigate({ step: "position" })}>Tinjau siklus ini</button>}
+        </div>}</>}
       </div>
       {selection.view === "calendar" ? <CalendarReview selection={selection} navigate={navigate}/> : <>
         <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
@@ -173,26 +178,16 @@ function AnalyticsReview() {
         {loading && !facts && <Skeleton cards={3} rows={4}/>}
         {refreshing && <p className="ledger-loading" role="status">Memuat siklus…</p>}
         {facts && !error && <>
-          <div className="cycle-period" aria-live="polite">
-            <strong>{cycleLabel(facts.period)}</strong>
-            <span>{facts.period.state === "ACTIVE" ? `Berjalan · hari ke-${facts.spendingShape.days}, hari ini belum penuh` : `Ditutup · ${facts.spendingShape.days} hari`} · Asia/Jakarta</span>
-            <small>Data sampai {dayLabel(facts.period.measuredUntil)} (batas akhir tidak termasuk).</small>
-            {facts.period.kind !== "SALARY_CYCLE" && <p>Menampilkan bulan kalender sementara. Belum ada gaji utama terkonfirmasi untuk menentukan siklus.</p>}
-            {facts.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && !meeting && <button type="button" onClick={() => navigate({ step: "position" })}>Tinjau siklus ini</button>}
-            {!meeting && <button type="button" className="secondary" onClick={event => { const next = !allOpen; event.currentTarget.closest(".cycle-review").querySelectorAll("details").forEach(details => { details.open = next; }); setAllOpen(next); }}>{allOpen ? "Tutup semua detail" : "Buka semua detail"}</button>}
-          </div>
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
-          {facts.history?.length > 0 && <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={verdictPairs(facts)} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>}
+          <NoticeStrip facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
+          <KpiStrip facts={facts} updated={valueUpdated}/>
+          <div className="dash-row"><PaceCard facts={facts}/><SavingsWealthCard facts={facts}/></div>
           {selectedCategory && !meeting && <p className="ledger-selection" role="status"><span>Bukti kategori <strong>{selectedCategory.name}</strong> terbuka di bagian bawah.</span> <a href="#drivers-title" onClick={showEvidence}>Lihat bukti</a><button type="button" className="secondary" onClick={() => navigate({ category: "" })}>Hapus pilihan</button></p>}
-          <CyclePosition facts={facts} updated={valueUpdated}/>
-          <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
-            <SectionTitle id="shape-title" about="pola pengeluaran" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
-            <div className="shape-charts">
-              <CycleSpendingPatternChart items={facts.daily} period={{ ...facts.period, reviewStep: step }} average={facts.spendingShape.averageDailyExpense} height={260}/>
-              <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={facts.pace} height={260}/>
-            </div>
+          <section id="daily" className="review-section analytics-chart" aria-labelledby="daily-title">
+            <SectionTitle id="daily-title" about="pengeluaran harian" title="Pengeluaran harian" description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
+            <CycleSpendingPatternChart items={facts.daily} period={{ ...facts.period, reviewStep: step }} average={averageDailyText(facts.spendingShape)} height={260}/>
             <dl className="review-context">
-              <Metric label="Rata-rata per hari" value={money(String(Math.round(Number(facts.spendingShape.averageDailyExpense))))}/>
+              <Metric label="Rata-rata per hari" value={money(averageDailyText(facts.spendingShape))}/>
               <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>
               <Metric label="Porsi hari tertinggi" value={ratioLabel(facts.spendingShape.peakShareOfExpense)}/>
               <Metric label="Hari tanpa pengeluaran bersih" value={`${facts.spendingShape.zeroSpendDays} hari`}/>
@@ -224,6 +219,12 @@ function AnalyticsReview() {
             <div className="review-split"><div><CategoryRankingChart items={facts.categoryChanges} serverOwned height={260}/><a href={transactionHref(facts.period)}>Lihat seluruh pengeluaran periode ini</a></div><MerchantTable items={facts.merchantDrivers} period={facts.period}/></div>
             </details>
           </section>
+          {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
+            <details className="report-disclosure" open={step === "position" || step === "changes" || Boolean(selection.category)}>
+            <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>Matriks {facts.history.length} siklus · siklus ke siklus</span></summary>
+            <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={[]} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>
+            </details>
+          </section>}
           <section id="household" className="review-section" aria-labelledby="household-title">
             <details className="report-disclosure"><summary><h2 id="household-title">Catatan rumah tangga</h2><span>{facts.memberAttribution.length ? `${facts.memberAttribution.length} pencatat` : "Belum ada atribusi"}</span></summary>
             <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
@@ -231,8 +232,7 @@ function AnalyticsReview() {
             {!facts.memberAttribution.length && <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
             </details>
           </section>
-          <SavingsWealth facts={facts}/>
-          <QualitySection facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
+          <QualityFooter facts={facts} step={step}/>
           <section id="discussion" className="review-section" aria-labelledby="discussion-title">
             <details className="report-disclosure" open={step === "discussion"}>
             <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional"}</span></summary>
