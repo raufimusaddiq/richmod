@@ -1,0 +1,5 @@
+# Tests compare these files byte-for-byte (or by substring across lines), so
+# they must keep LF endings on Windows checkouts too.
+*.golden.json text eol=lf
+docs/**/*.md text eol=lf
+*.sql text eol=lf
