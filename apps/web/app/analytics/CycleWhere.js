@@ -22,7 +22,7 @@ function Delta({ delta }) {
 export function WhereCard({ facts, step, select, openComparison }) {
   const view = rankingView(facts);
   const count = facts.categoryChanges.length;
-  return <section id="where" className="dash-card where-card" aria-labelledby="where-title">
+  return <section id="where" className="surface dash-card where-card" aria-labelledby="where-title">
     <SectionTitle id="where-title" about="peringkat kategori" title="Ke mana uangnya" description="Pengeluaran bersih setelah refund, diurutkan menurut jumlah oleh server. Selisih dibandingkan dengan siklus lalu pada hari yang sama saat siklus berjalan, atau siklus lalu penuh setelah ditutup."/>
     <p className="dash-sub">Pengeluaran bersih per kategori · {view ? view.baseline : "pembanding belum tersedia"}</p>
     {!view || (!view.rows.length && !view.other) ? <p className="empty compact">Belum ada pengeluaran bersih pada periode ini.</p> : <ol className="where-list" aria-label="Kategori menurut jumlah">
@@ -54,7 +54,7 @@ function RankRow({ row }) {
 // "Yang berubah": first five served changes as diverging bars, merchant movers, and the full comparison on demand.
 export function ChangesCard({ facts, step, select, comparisonRef, children }) {
   const view = changesView(facts);
-  return <section id="changes" className="dash-card changes-card" aria-labelledby="changes-title">
+  return <section id="changes" className="surface dash-card changes-card" aria-labelledby="changes-title">
     <SectionTitle id="changes-title" about="perubahan" title="Yang berubah" description="Lima perubahan kategori terbesar menurut urutan server, bukan penilaian baik atau buruk. Merchant penggerak diurutkan menurut selisih absolut."/>
     <p className="dash-sub">Selisih {view.baseline}</p>
     {!view.hasBaseline ? <p className="empty compact">Belum ada siklus pembanding.</p> : !view.rows.length ? <p className="empty compact">Belum ada perubahan kategori pada periode ini.</p> : <>
@@ -84,7 +84,7 @@ export function DailyCard({ facts, step, children }) {
   const average = averageDailyText(facts.spendingShape);
   const shape = facts.spendingShape;
   const partial = partialDay(facts.period, facts.daily);
-  return <section id="daily" className="dash-card daily-card" aria-labelledby="daily-title">
+  return <section id="daily" className="surface dash-card daily-card" aria-labelledby="daily-title">
     <div className="dash-card-head">
       <div>
         <SectionTitle id="daily-title" about="pengeluaran harian" title="Pengeluaran harian" description="Nilai harian sudah dikurangi refund; transfer tidak termasuk. Hari berjalan belum penuh."/>
@@ -106,7 +106,7 @@ export function DailyCard({ facts, step, children }) {
 export function HistoryCard({ facts, onSelect }) {
   const columns = buildLedger(facts.history, facts.period.start, null).columns;
   if (!columns.length) return null;
-  return <section id="history" className="dash-card history-card" aria-labelledby="history-title">
+  return <section id="history" className="surface dash-card history-card" aria-labelledby="history-title">
     <SectionTitle id="history-title" about="riwayat siklus" title="Siklus ke siklus" description="Pengeluaran bersih setiap siklus gaji. Siklus berjalan belum penuh dan tidak sebanding dengan siklus yang sudah ditutup."/>
     <p className="dash-sub">Pengeluaran bersih, Rp juta</p>
     <ul className="history-cols" aria-label="Pengeluaran bersih per siklus">
