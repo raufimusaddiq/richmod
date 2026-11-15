@@ -32,11 +32,19 @@ async function file(path) {
   }
 }
 
+// The client requests segment payloads dotted (/a/x/__next.a.x.__PAGE__.txt); an export built
+// on a non-POSIX host writes them nested (/a/x/__next.a/x/__PAGE__.txt) and Next leaves the
+// rewrite to the host. Production builds on POSIX with flat names, so apps/api/internal/webui
+// only carries the same mapping as a safety net.
+const segmentPayload = /^(.*\/)?__next\.([^/]+)\.txt$/;
+const nestedPayload = path => path.replace(segmentPayload, (match, dir = "", rest) => (rest.includes("..") ? match : `${dir}__next.${rest.replaceAll(".", "/")}.txt`));
+
 async function resolve(pathname) {
   if (pathname === "/") return "index.html";
   const path = decodeURIComponent(pathname).replace(/^\/+/, "");
   if (path.includes("..")) return null;
-  return (await file(path)) || (await file(`${path}.html`)) || (await file(`${path.replace(/\/$/, "")}/index.html`));
+  const nested = nestedPayload(path);
+  return (await file(path)) || (nested !== path && (await file(nested))) || (await file(`${path}.html`)) || (await file(`${path.replace(/\/$/, "")}/index.html`));
 }
 
 createServer(async (request, response) => {
