@@ -299,6 +299,58 @@ Financial email may proceed only after trusted authentication evidence passes an
 
 Old/rotated addresses no longer create financial state.
 
+### Activation prerequisites
+
+`POST /api/v1/integrations/email-ingress/activate` (OWNER only) requires a
+`PROVISIONED` address and at least one active sender in the household: an active
+`bank_email_listener` or an `ACTIVE` `financial_email_source`. Otherwise it
+returns `409` with a machine-readable `code`:
+
+- `ADDRESS_REQUIRED` — there is no `PROVISIONED` address (none created yet, or already `ACTIVE`).
+- `SENDER_REQUIRED` — no active bank listener or provider source exists, so an
+  activated address could never match a delivery.
+
+Forwarding verification is recommended but not required to activate.
+
+### Onboarding checklist payload
+
+`GET /api/v1/integrations/email-ingress` includes `steps`, derived from canonical
+rows on every read (never stored):
+
+```json
+{ "steps": { "address": "done", "sender": "current", "forwarding": "current", "activated": "blocked" } }
+```
+
+Each value is `done`, `current` or `blocked`.
+
+- `address` — `done` once a `PROVISIONED`/`ACTIVE` address exists.
+- `sender` — `done` with an active listener or provider source; `blocked` without an address.
+- `forwarding` — `done` once a non-control delivery (`PROVISIONED_RECEIVED`, `INGESTED` or `DUPLICATE`) reached the current address. A Gmail confirmation email is a delivery but never counts. `blocked` without an address.
+- `activated` — `done` when the address is `ACTIVE`; `current` when a sender exists; `blocked` otherwise.
+
+Settings → Integrasi renders these as the checklist "Buat alamat → Tambah
+pengirim → Verifikasi penerusan → Aktifkan". The Gmail confirmation code and link
+and the "Tandai selesai" fallback appear inline in the forwarding step (OWNER
+only). The Bank Email, Provider and delivery sections below the checklist remain
+for management.
+
+### Rotation
+
+Rotating disables the current address and provisions a new `PROVISIONED` one.
+Forwarding rules at Gmail or the mail provider still point at the old address
+and must be redone with the new one, and the new address must be activated again.
+The Settings confirmation dialog says so.
+
+Rotation also resolves any open Gmail forwarding verification in the same transaction (audit `AUTO_RESOLVE_INTEGRATION_ACTION`, actor `SYSTEM`, reason `ADDRESS_ROTATED`), because its code and link belong to the old address. `forwardingAction` additionally ignores actions whose source delivery belongs to a `DISABLED` address. Request a new Gmail confirmation for the new address.
+
+### Duplicate senders
+
+Creating or re-activating a bank listener or provider source for a sender that
+already has an active route returns `409 active sender already exists`. Only the
+unique violations `bank_email_listener_sender_unique` and
+`email_sender_route_active_unique` map to `409`; any other database failure
+returns `500`.
+
 ## Gmail forwarding setup
 
 Gmail is not an application integration anymore; it is only one possible user-controlled forwarding source.
@@ -316,7 +368,7 @@ Typical setup:
    Richmod resolves the action automatically (audit `AUTO_RESOLVE_INTEGRATION_ACTION`, actor `SYSTEM`) when the first non-control email arrives on the address, because that proves forwarding works. A Gmail confirmation email never counts as proof. "Tandai selesai" stays as a manual fallback (`POST /api/v1/integration-actions/{id}/resolve`). Resolution is idempotent per webhook delivery and a replayed confirmation email does not reopen a resolved action.
 9. Send a real configured financial email while still `PROVISIONED` to inspect authentication evidence if needed.
 10. Configure trusted authserv IDs.
-11. Activate the Richmod email ingress.
+11. Add at least one sender (bank listener or provider source), then activate the Richmod email ingress. Activation returns `409 SENDER_REQUIRED` until one exists.
 
 Richmod must never server-side click the Google verification URL.
 

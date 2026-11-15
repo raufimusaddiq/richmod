@@ -93,6 +93,9 @@ func TestProvisionedConfirmationCreatesOnlyIntegrationAction(t *testing.T) {
 	if actions != 1 {
 		t.Fatalf("unrecognized provisioned email created action: %d", actions)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Control Bank','alerts@test.invalid',$2)`, householdA, userA); err != nil {
+		t.Fatal(err)
+	}
 	if err := service.Activate(ctx, householdA, userA); err != nil {
 		t.Fatal(err)
 	}

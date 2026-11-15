@@ -130,12 +130,12 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 		var sourceID string
 		err = tx.QueryRow(r.Context(), `INSERT INTO financial_email_source(household_id,provider_name,sender_address,capabilities,default_wealth_account_id,status,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, p.HouseholdID, in.ProviderName, in.SenderAddress, in.Capabilities, in.DefaultWealthAccountID, in.Status, p.UserID).Scan(&sourceID)
 		if err != nil {
-			jsonError(w, 409, "active sender already exists")
+			writeSenderWriteError(w, err, "unable to create financial source")
 			return
 		}
 		if in.Status == "ACTIVE" {
 			if _, err = tx.Exec(r.Context(), `INSERT INTO email_sender_route(household_id,sender_address,route_kind,financial_source_id) VALUES($1,$2,'FINANCIAL',$3)`, p.HouseholdID, in.SenderAddress, sourceID); err != nil {
-				jsonError(w, 409, "active sender already exists")
+				writeSenderWriteError(w, err, "unable to create financial source")
 				return
 			}
 		}
@@ -235,7 +235,7 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 	_, _ = tx.Exec(r.Context(), `UPDATE email_sender_route SET active=false,updated_at=now() WHERE financial_source_id=$1`, id)
 	if status == "ACTIVE" {
 		if _, err = tx.Exec(r.Context(), `INSERT INTO email_sender_route(household_id,sender_address,route_kind,financial_source_id,active) VALUES($1,$2,'FINANCIAL',$3,true)`, p.HouseholdID, sender, id); err != nil {
-			jsonError(w, 409, "active sender already exists")
+			writeSenderWriteError(w, err, "unable to update financial source")
 			return
 		}
 	}

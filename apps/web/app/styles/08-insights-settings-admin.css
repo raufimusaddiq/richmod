@@ -62,3 +62,13 @@ button.admin-link:active:not(:disabled) { border: 0; background: transparent; tr
 .admin-lane small { color: var(--muted); font-size: var(--text-xs); text-align: right; }
 .admin-more { margin-top: 12px; }
 
+
+.email-checklist ol { display: grid; gap: 0; margin: 0 0 var(--space-4, 16px); padding: 0; list-style: none; }
+.email-checklist li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+.email-checklist li b, .email-checklist li small { display: block; }
+.email-checklist li small { margin-top: 3px; color: var(--ink-soft); font-size: var(--text-md); }
+.email-checklist .step-index { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-muted); color: var(--ink-soft); font-size: var(--text-md); font-weight: 700; }
+.email-checklist li[data-state="done"] .step-index { background: var(--income-soft); color: var(--income); }
+.email-checklist li[data-state="current"] .step-index { background: var(--accent); color: var(--surface, #fff); }
+.email-checklist li[data-state="current"] .step-state { color: var(--accent); font-weight: 700; }
+.email-checklist li[data-state="blocked"] { opacity: .72; }
