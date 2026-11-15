@@ -431,8 +431,8 @@ Do not bypass sender authentication or household listener matching to make a tes
 
 ### Owner cannot see why an email was ignored
 
-`GET /api/v1/integrations/email-ingress/deliveries` returns the household's ten
-latest `email_ingress_delivery` rows as `{status, reason, sender, receivedAt}`.
+`GET /api/v1/integrations/email-ingress/deliveries` returns one page (20) of the household's
+`email_ingress_delivery` rows, newest first, as `{status, reason, sender, receivedAt}`; `?cursor=` with the `X-Next-Cursor` header reaches older rows.
 It is OWNER-only and household-scoped, and it exposes no canonical IDs. Owners see
 the same list in Inbox → "Email masuk" (the tab is hidden for other members);
 it is an activity log, so it no longer appears under Settings → Integrasi.
