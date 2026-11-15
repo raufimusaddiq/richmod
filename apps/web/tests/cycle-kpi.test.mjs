@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { averageDailyText, baselineFor, deltaTone, deltaView, kpiCells } from "../app/lib/cycleKpi.js";
-import { cycleFacts } from "./fixtures/cycle-review.mjs";
+import { cycleFacts, firstCycleFacts, noSpendingFacts, noWealthFacts } from "./fixtures/cycle-review.mjs";
 
 const text = value => value.replace(/ /g, " ");
 
@@ -133,4 +133,43 @@ test("the category drawer replaces the evidence section and its way back", () =>
   assert.equal(sections.includes('href="#ledger"'), false);
   const page = readFileSync(new URL("../app/analytics/page.js", import.meta.url), "utf8");
   assert.ok(page.includes('<section id="matrix"') && page.includes('id="matrix-title"'), "the target and its summary heading exist");
+});
+
+test("first cycle: every comparison is named as missing, never invented", () => {
+  const cells = Object.fromEntries(kpiCells(firstCycleFacts()).map(cell => [cell.key, cell]));
+  for (const key of ["expense", "income", "net"]) {
+    assert.equal(cells[key].delta.empty, true, `${key} has no comparison`);
+    assert.equal(cells[key].delta.note, "Belum ada pembanding");
+    assert.equal(cells[key].delta.tone, "none");
+  }
+  assert.equal(cells.expense.extra, null, "no median line without a served median");
+});
+
+test("no wealth snapshot: a dash and a sentence, not a delta", () => {
+  const worth = kpiCells(noWealthFacts()).find(cell => cell.key === "worth");
+  assert.equal(worth.value, "—");
+  assert.equal(worth.observed, "Belum ada pengamatan");
+  assert.equal(worth.delta.empty, true);
+});
+
+test("a cycle with no spending: Rp 0 everywhere, and the served delta still decides the tone", () => {
+  const cells = Object.fromEntries(kpiCells(noSpendingFacts()).map(cell => [cell.key, cell]));
+  assert.match(text(cells.expense.value), /^Rp\s?0$/);
+  assert.equal(cells.expense.delta.tone, "good", "spending below the previous cycle is green");
+  assert.match(text(cells.net.value), /^Rp\s?0$/);
+  assert.match(text(cells.unallocated.sub), /^Ditabung Rp\s?0$/);
+});
+
+test("a missing comparison is one line of words, not a dash plus a sentence", () => {
+  const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
+  assert.ok(view.includes("!delta.empty && <strong>"), "the dash is not drawn when the note already says it is missing");
+  assert.ok(view.includes("delta.empty && !delta.note"), "an empty delta with no note renders nothing");
+});
+
+test("the pace chart has a keyboard-reachable data table of the same served totals", () => {
+  const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
+  assert.ok(view.includes("Lihat nilai laju pengeluaran"), "the disclosure exists");
+  assert.ok(view.includes("day.cumulativeExpense"), "the current cycle column is the served cumulative total");
+  assert.ok(view.includes("previousCurve[index]") && view.includes("medianCurve[index]"), "the comparison columns are the served curves");
+  assert.ok(view.includes('role="region" aria-label="Nilai laju pengeluaran'), "the scrolling table is named");
 });

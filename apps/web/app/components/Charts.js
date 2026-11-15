@@ -1,8 +1,8 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, rankCategories } from "../lib/chartData";
-import { compactMillions, hasPace, mapPace, paceCurves, paceDateLabel, paceTicks } from "../lib/cycleLedger";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow } from "../lib/chartData";
+import { compactMillions, hasPace, mapPace, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { transactionHref } from "../lib/cycleReview";
 
@@ -20,14 +20,18 @@ function DailyTooltip({ active, payload, label }) {
 
 function MonthlyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
-  const net = payload[0]?.payload?.netValue || 0;
-  return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}{payload[0]?.payload?.partial && " · berjalan"}</b>{payload.map(item => <div className="chart-tooltip-row" key={item.dataKey}><span>{item.dataKey === "incomeValue" ? "Pemasukan" : "Pengeluaran"}</span><strong>{money(String(Math.round(item.value || 0)))}</strong></div>)}<div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(String(Math.round(net)))}</strong></div></div>;
+  const item = payload[0]?.payload;
+  // Served strings, printed as they arrive: the browser never rounds money.
+  return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}{item?.partial && " · berjalan"}</b>
+    <div className="chart-tooltip-row"><span>Pemasukan</span><strong>{money(item?.income)}</strong></div>
+    <div className="chart-tooltip-row"><span>Pengeluaran</span><strong>{money(item?.expense)}</strong></div>
+    <div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(item?.netCashflow)}</strong></div></div>;
 }
 
 export function DashboardDailySpendingChart({ items, height = 280 }) {
   const data = mapDailySpending(items);
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran pada periode ini.</p>;
-  return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
 
 // Day tick: the running day of an active cycle says it is not complete yet.
@@ -47,9 +51,16 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
   const dayBar = ({ x, y, width, height, payload, fill, radius }) => {
     const partial = partialDay && payload.period === partialDay;
     const rectangle = <Rectangle {...{ x, y, width, height, radius }} fill={partial ? "var(--chart-expense-soft)" : fill}/>;
-    return period && payload.expenseValue !== 0 ? <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>{rectangle}</a> : rectangle;
+    if (!period || payload.expenseValue === 0) return rectangle;
+    // The link covers the whole day band and the full plot height, so a thin bar is
+    // still a large target; the drawn bar keeps its own width.
+    const band = width / 0.9; // barCategoryGap="10%"
+    return <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>
+      <rect x={x - (band - width) / 2} y={0} width={band} height={y + height} fill="transparent"/>
+      {rectangle}
+    </a>;
   };
-  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="18%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" radius={[2, 2, 0, 0]} maxBarSize={24} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="10%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {
@@ -76,15 +87,21 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   // A level that a served curve already draws would only repeat it; equal-day markers sit on the curve.
   const levels = references.filter(reference => reference.shape === "line" && !(reference.tone === "previous" && curves.previous) && !(reference.tone === "median" && curves.median));
   const endLabel = (value, position, fill = "var(--chart-axis)") => ({ value: compactMillions(value), position, fill, fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600 });
+  // A reference level or a comparison curve can push the top of the plot past the series;
+  // a round axis keeps the ticks readable. Curve points are served values, read only for
+  // the visual ceiling — never written back into a money figure.
+  const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
+  // On a phone the label at the last day has no room to the right, so it sits above the line's left side.
+  const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: "insideTopLeft", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
   return <div className="cycle-pace">
     <div className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart accessibilityLayer data={data} margin={{ top: 24, right: 44, left: 0, bottom: 0 }}>
+        <LineChart accessibilityLayer={false} data={data} margin={{ top: 26, right: 44, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false}/>
           <XAxis dataKey="day" type="number" domain={[1, Math.max(data.length, 2)]} ticks={paceTicks(data.length)} tickFormatter={day => paceDateLabel(items, day)} allowDecimals={false} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/>
-          <YAxis width={40} type="number" domain={[0, "auto"]} tickCount={5} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/>
+          <YAxis width={40} type="number" domain={axis.domain} ticks={axis.ticks} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/>
           <Tooltip content={<PaceTooltip/>}/>
-          <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1} label={{ value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: "top", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 }}/>
+          <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1} label={markerLabel}/>
           {curves.previous && <Line type="linear" dataKey="previousTotal" stroke="var(--line-strong)" strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false}/>}
           {curves.median && <Line type="linear" dataKey="medianTotal" stroke="var(--chart-reference)" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} activeDot={false} isAnimationActive={false}/>}
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}
@@ -102,7 +119,9 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
 export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }) {
   const data = mapMonthlyCashflow(items, partialPeriod);
   if (!data.length) return <p className="empty compact">Belum ada data bulanan pada periode ini.</p>;
-  return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend formatter={value => ({ incomeValue: "Pemasukan", expenseValue: "Pengeluaran" }[value])}/><Bar dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
+  // Legend in bar order (income, then expense), not Recharts' reversed payload order.
+  const legend = () => <ul className="dash-legend" aria-label="Keterangan grafik"><li data-series="income"><i aria-hidden="true"/>Pemasukan</li><li data-series="expense"><i aria-hidden="true"/>Pengeluaran</li></ul>;
+  return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }
 
 export function CategoryDonutChart({ items, height = 260 }) {
@@ -111,13 +130,20 @@ export function CategoryDonutChart({ items, height = 260 }) {
   return <div className="category-visual"><div className="chart-wrap" role="img" aria-label="Grafik distribusi kategori" style={{ height }}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} labelLine={false} label={false} isAnimationActive={false}>{data.map((item, index) => <Cell key={item.id || item.name} fill={colors[index % colors.length]} stroke="var(--ink)" strokeWidth={2}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={defaultTooltipStyle}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.map((item, index) => <div key={item.id || item.name}><i style={{ background: colors[index % colors.length] }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
 }
 
-export function CategoryRankingChart({ items, serverOwned = false, height = 320 }) {
-  const data = (serverOwned ? items : rankCategories(items)).map(item => ({ ...item, amountValue: Number(item.amount || 0) }));
+export function CategoryRankingChart({ items, height = 320 }) {
+  // Server order, always: the API already ranks by amount, and the browser never sorts money.
+  const data = items.map(item => ({ ...item, amountValue: Number(item.amount || 0), amountLabel: compactMillions(item.amount) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi.</p>;
-  return <div className="chart-wrap" role="img" aria-label="Distribusi kategori pengeluaran, dalam rupiah" style={{ height: Math.max(height, data.length * 36) }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer data={data} layout="vertical" margin={{ top: 4, right: 12, left: 12, bottom: 4 }}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><Tooltip formatter={(_, __, item) => [money(item.payload.amount), serverOwned ? "Pengeluaran bersih" : `${Math.round(Number(item.payload.share || 0) * 100)}%`]} contentStyle={defaultTooltipStyle}/><Bar isAnimationActive={false} dataKey="amountValue" fill="var(--chart-category-2)" stroke="var(--ink)" strokeWidth={2} radius={[0, 4, 4, 0]} maxBarSize={24}/></BarChart></ResponsiveContainer></div>;
+  return <div className="category-ranking">
+    <p className="chart-unit">Rp juta</p>
+    <div className="chart-wrap" role="img" aria-label="Distribusi kategori pengeluaran, dalam jutaan rupiah" style={{ height: Math.max(height, data.length * 40) }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} layout="vertical" margin={{ top: 4, right: 56, left: 12, bottom: 4 }}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><Tooltip formatter={(_, __, item) => [money(item.payload.amount), "Pengeluaran bersih"]} contentStyle={defaultTooltipStyle}/><Bar isAnimationActive={false} dataKey="amountValue" fill="var(--chart-category-2)" stroke="var(--ink)" strokeWidth={2} radius={[0, 4, 4, 0]} maxBarSize={24}><LabelList dataKey="amountLabel" position="right" fill="var(--ink-soft)" fontFamily="var(--font-body)" fontSize={12}/></Bar></BarChart></ResponsiveContainer></div>
+  </div>;
 }
 
 export function NetWorthHistoryChart({ items, height = 260 }) {
   const data = [...items].reverse().map(item => ({ label: new Date(item.observedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" }), value: Number(item.netWorthIdr || 0), raw: item.netWorthIdr || "0" }));
-  return <div className="chart-wrap" role="img" aria-label="Riwayat kekayaan bersih" style={{ height }}><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip formatter={(_, __, item) => money(item.payload.raw)} contentStyle={defaultTooltipStyle}/><Line type="linear" dataKey="value" stroke="var(--chart-category-2)" strokeWidth={3} dot={{ r: 4, fill: "var(--butter)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap" role="img" aria-label="Riwayat kekayaan bersih" style={{ height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip formatter={(_, __, item) => money(item.payload.raw)} contentStyle={defaultTooltipStyle}/><Line type="linear" dataKey="value" stroke="var(--chart-category-2)" strokeWidth={3} dot={{ r: 4, fill: "var(--butter)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
+
+
+
