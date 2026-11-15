@@ -69,6 +69,7 @@ function AdminConsole() {
           <button
             key={key}
             className={tab === key ? "active" : "secondary"}
+            aria-pressed={tab === key}
             onClick={() => select(key)}
           >
             {label}
