@@ -233,14 +233,27 @@ func (h *Handler) store(household string, content []byte, extension string) (str
 	return ref, nil
 }
 
+// documentPendingSQL is true while something actionable still waits on the
+// document: an open review item, or a linked transaction or proposal that is
+// itself NEEDS_REVIEW. The badge derives from it, so a document never reads
+// "Perlu ditinjau" with nothing to review (N5).
+const documentPendingSQL = `
+			EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=d.household_id AND ri.status IN ('OPEN','PENDING_SEND') AND (
+				ri.document_id=d.id OR ri.source_event_id=d.source_event_id
+				OR ri.transaction_id IN (SELECT te.transaction_id FROM transaction_evidence te WHERE te.source_event_id=d.source_event_id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE')
+				OR ri.proposal_id IN (SELECT p.id FROM transaction_proposal p WHERE p.source_event_id=d.source_event_id)
+				OR ri.wealth_observation_id IN (SELECT w.id FROM wealth_observation w WHERE w.document_id=d.id)))
+			OR COALESCE(linked.needs_review,false)
+			OR EXISTS(SELECT 1 FROM transaction_proposal p WHERE p.household_id=d.household_id AND p.source_event_id=d.source_event_id AND p.proposal_status='NEEDS_REVIEW')`
+
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principalHousehold(w, r)
 	if !ok {
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT d.id,d.document_type,d.status,a.media_type,a.byte_size,a.width,a.height,d.created_at,
-		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),d.status='NEEDS_REVIEW' OR COALESCE(linked.needs_review,false),
+		SELECT d.id,d.document_type,CASE WHEN d.status='NEEDS_REVIEW' AND NOT pending.any THEN 'EXTRACTED' ELSE d.status END,a.media_type,a.byte_size,a.width,a.height,d.created_at,
+		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),pending.any,
 		       EXISTS(SELECT 1 FROM job j WHERE j.type='PROCESS_DOCUMENT' AND j.payload_json->>'document_id'=d.id::text AND j.status IN ('PENDING','RUNNING'))
 		FROM document d
 		JOIN attachment a ON a.id=d.attachment_id
@@ -252,6 +265,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			WHERE (te.source_event_id=d.source_event_id OR te.metadata_json->>'disputed_document_id'=d.id::text)
 			AND t.household_id=d.household_id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'
 		) linked ON true
+		CROSS JOIN LATERAL (SELECT `+documentPendingSQL+` AS any) pending
 		WHERE d.household_id=$1 ORDER BY d.created_at DESC LIMIT 100`, household)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list documents"})
