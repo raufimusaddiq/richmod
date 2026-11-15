@@ -264,25 +264,3 @@ func decodeAgentArgsRaw[T any](call gateway.ToolCall) (T, error) {
 	}
 	return out, nil
 }
-
-func decodeAgentArgs[T any](call gateway.ToolCall, validate func(T) error) (map[string]any, error) {
-	args, err := decodeAgentArgsRaw[T](call)
-	if err != nil {
-		return nil, err
-	}
-	if err := validate(args); err != nil {
-		return nil, err
-	}
-	return remarshal(args), nil
-}
-
-func validatePeriodArgs(args periodArgs) error {
-	valid := map[string]bool{"TODAY": true, "THIS_WEEK": true, "LAST_WEEK": true, "THIS_MONTH": true, "LAST_MONTH": true, "CURRENT_CYCLE": true, "PREVIOUS_CYCLE": true, "CUSTOM": true}
-	if !valid[args.Period] {
-		return fmt.Errorf("invalid period")
-	}
-	if args.Period == "CUSTOM" && (args.FromDate == nil || args.ToDate == nil || strings.TrimSpace(*args.FromDate) == "" || strings.TrimSpace(*args.ToDate) == "") {
-		return fmt.Errorf("custom period requires dates")
-	}
-	return nil
-}
