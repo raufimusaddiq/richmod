@@ -79,3 +79,6 @@ dialog::backdrop { background: rgba(37, 58, 54, .42); backdrop-filter: blur(2px)
 
 .mobile-nav, .mobile-more { display: none; }
 
+
+.not-found-card { max-width: 560px; text-align: left; }
+.not-found-card .button { display: inline-flex; width: fit-content; }

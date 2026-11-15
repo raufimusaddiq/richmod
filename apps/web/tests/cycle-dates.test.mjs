@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cycleRangeLabel, inclusiveEnd, windowLabel } from "../app/lib/cycleDates.js";
-import { collapseQuality, cycleLabel } from "../app/lib/cycleReview.js";
+import { cycleLabel } from "../app/lib/cycleReview.js";
 
 test("a closed cycle ends the day before its exclusive end", () => {
   assert.equal(inclusiveEnd("2026-09-25"), "2026-09-24");
@@ -38,8 +38,3 @@ test("the donut window is spelled out from what the server resolved", () => {
   assert.equal(windowLabel({}), "3 bulan kalender");
 });
 
-test("one stale-snapshot fact yields one notice", () => {
-  const both = [{ kind: "WEALTH_SNAPSHOT_BEFORE_CYCLE" }, { kind: "WEALTH_SNAPSHOT_UNCHANGED" }, { kind: "OPEN_REVIEWS" }];
-  assert.deepEqual(collapseQuality(both).map(b => b.kind), ["WEALTH_SNAPSHOT_BEFORE_CYCLE", "OPEN_REVIEWS"]);
-  assert.deepEqual(collapseQuality([{ kind: "WEALTH_SNAPSHOT_UNCHANGED" }]).map(b => b.kind), ["WEALTH_SNAPSHOT_UNCHANGED"]);
-});

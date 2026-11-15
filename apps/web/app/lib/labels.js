@@ -71,3 +71,5 @@ export function auditActionText(action) {
   const words = String(action).toLowerCase().replace(/[_\s]+/g, " ").trim();
   return words ? words[0].toUpperCase() + words.slice(1) : "—";
 }
+
+export const snapshotSourceLabel = { MANUAL: "Input manual", DOCUMENT: "Dokumen", SYSTEM: "Sistem" };
