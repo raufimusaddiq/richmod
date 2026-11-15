@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 const maxUploadBytes = 10 << 20
@@ -303,6 +304,21 @@ func (h *Handler) Reprocess(w http.ResponseWriter, r *http.Request) {
 	if status != "FAILED" {
 		writeJSON(w, 409, map[string]string{"error": "only failed documents can be reprocessed"})
 		return
+	}
+	// An open document review (the normal state after a failed extraction) is
+	// resolved through the same path /reviews uses, so the Inbox stops offering
+	// REPROCESS/IGNORE for a document that is already being retried.
+	var reviewID string
+	err = tx.QueryRow(r.Context(), `SELECT id::text FROM review_item WHERE document_id=$1 AND household_id=$2 AND review_type IN ('DOCUMENT_CLASSIFICATION','DOCUMENT_EXTRACTION_LOW_CONFIDENCE') AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at LIMIT 1 FOR UPDATE`, r.PathValue("id"), household).Scan(&reviewID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+		return
+	}
+	if reviewID != "" {
+		if _, err = reviewdomain.ResolveDocumentReview(r.Context(), tx, reviewdomain.DocumentReviewCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: reviewID, DocumentID: r.PathValue("id"), ActorType: "USER", Action: "REPROCESS_DOCUMENT"}); err != nil {
+			writeJSON(w, 409, map[string]string{"error": "document review cannot be reprocessed"})
+			return
+		}
 	}
 	tag, err := tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) SELECT 'PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid),5 WHERE NOT EXISTS(SELECT 1 FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1::text AND status IN ('PENDING','RUNNING'))`, r.PathValue("id"))
 	if err != nil {

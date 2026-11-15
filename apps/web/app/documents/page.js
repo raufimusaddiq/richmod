@@ -103,15 +103,22 @@ function matchesFilter(item, filter) {
   return true;
 }
 // A card title that tells documents apart: the type plus the merchant/employer and
-// amount when extraction found them. Failed documents never borrow classification
-// output as if it were extracted fact.
+// amount when extraction found them (screenshots keep them in transactions[]), else
+// the received date and source. Failed documents never borrow classification output.
 function documentTitle(item) {
   const type = documentTypeLabel(item.documentType) || "Sedang diklasifikasikan";
-  if (item.status === "FAILED" || !item.summary || typeof item.summary !== "object") return type;
-  const who = item.summary.merchant || item.summary.employer;
-  const value = item.summary.total ?? item.summary.net_pay ?? item.summary.amount;
-  const amount = value !== undefined && value !== null && value !== "" && /^d+$/.test(String(value)) ? money(value) : "";
-  return [type, who, amount].filter(Boolean).join(" · ");
+  const parts = [type];
+  const summary = item.status !== "FAILED" && item.summary && typeof item.summary === "object" ? item.summary : null;
+  const rows = Array.isArray(summary?.transactions) ? summary.transactions : [];
+  const row = rows[0] || summary;
+  const who = row?.merchant || summary?.employer;
+  const value = row?.total ?? row?.net_pay ?? row?.amount ?? summary?.net_pay;
+  const amount = value !== undefined && value !== null && /^\d+$/.test(String(value)) ? money(value) : "";
+  if (who) parts.push(who);
+  if (amount) parts.push(amount);
+  if (rows.length > 1) parts.push(`${rows.length} transaksi`);
+  if (parts.length === 1) parts.push(`${sourceLabel(item.sourceType)} ${dateTime(item.createdAt)}`);
+  return parts.join(" · ");
 }
 function stageLabel(stage) { return ({ CLASSIFICATION: "Klasifikasi", classification: "Klasifikasi", EXTRACTION: "Ekstraksi", extract: "Ekstraksi" }[stage]) || documentTypeLabel(stage) || stage; }
 

@@ -83,6 +83,17 @@ func TestReprocessQueuesFailedDocumentOnceAndAudits(t *testing.T) {
 			t.Fatalf("call %d: status=%d", i, got)
 		}
 	}
+	var reviewID string
+	if err = pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN','{"reasonCode":"EXTRACTION_FAILED","allowedActions":["REPROCESS_DOCUMENT","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID, documentID).Scan(&reviewID); err != nil {
+		t.Fatal(err)
+	}
+	if got := call(householdID, documentID); got != http.StatusAccepted {
+		t.Fatalf("with open review: status=%d", got)
+	}
+	var reviewStatus, action string
+	if err = pool.QueryRow(ctx, `SELECT status,COALESCE(resolution_action,'') FROM review_item WHERE id=$1`, reviewID).Scan(&reviewStatus, &action); err != nil || reviewStatus != "RESOLVED" || action != "REPROCESS_DOCUMENT" {
+		t.Fatalf("open review must be resolved by web reprocess: %s %s %v", reviewStatus, action, err)
+	}
 	if n := count(jobs); n != 1 {
 		t.Fatalf("expected exactly one pending job, got %d", n)
 	}

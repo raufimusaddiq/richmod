@@ -394,3 +394,19 @@ test("documents: a failed card never claims success, titles are distinguishable,
   assert.doesNotMatch(page, /CLASSIFICATION"?\s*[<}]/, "the raw enum is never rendered");
   assert.match(page, /file-picker-button/, "the native file input is replaced by Indonesian copy");
 });
+
+test("documents: titles read screenshot transactions[] and fall back to date and source", () => {
+  const page = text("app/documents/page.js");
+  const body = page.slice(page.indexOf("function documentTitle"), page.indexOf("function stageLabel"));
+  assert.match(body, /summary\?\.transactions/);
+  assert.ok(body.includes("/^\\d+$/.test"), "amount check is a real digit regex");
+  assert.ok(!body.includes("/^d+$/"));
+  assert.match(body, /parts\.length === 1/);
+  assert.match(body, /transaksi/);
+  // Execute the real function against screenshot, failed and receipt cards.
+  const fn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), v => `Rp${v}`, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
+  const shot = { documentType: "EWALLET_SCREENSHOT", status: "EXTRACTED", summary: { transactions: [{ merchant: "Kopi Kenangan", amount: "45000" }, { merchant: "X", amount: "1" }] } };
+  assert.equal(fn(shot), "Tangkapan layar dompet digital · Kopi Kenangan · Rp45000 · 2 transaksi");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Struk · Toko · Rp50000");
+  assert.equal(fn({ documentType: "EWALLET_SCREENSHOT", status: "FAILED", summary: { transactions: [{ merchant: "Z" }] } }), "Tangkapan layar dompet digital · Gambar Telegram 15 Nov 2026, 12.48");
+});
