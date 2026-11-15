@@ -96,9 +96,8 @@ type reviewWealth struct {
 	Other    *string         `json:"valuationAndOtherChange"`
 }
 
-// historyCycle is one ledger column: whole-cycle totals for the cycle-to-cycle
-// view. Closed cycles are measured to their exclusive end; the active cycle to
-// its measuredUntil. Equal-day comparisons stay in Facts.Comparison.
+// historyCycle is one ledger column: whole-cycle totals for the cycle-to-cycle view.
+// Closed cycles are measured to their exclusive end, the active cycle to measuredUntil.
 type historyCycle struct {
 	Start            string  `json:"start"`
 	End              *string `json:"end"`
@@ -178,9 +177,9 @@ type Facts struct {
 	Quality      []reviewBlocker  `json:"dataQuality"`
 }
 
-// Completeness retains ADR-015's coverage gate, using gross confirmed expense
-// so refunds cannot inflate category coverage. Open reviews apply the existing
-// 0.90 coverage factor; this measures data quality, never noteworthiness.
+// Completeness retains ADR-015's coverage gate on gross confirmed expense so refunds
+// cannot inflate category coverage. Open reviews apply the 0.90 coverage factor; this
+// measures data quality, never noteworthiness.
 func (f Facts) Completeness() string {
 	gross, _ := new(big.Int).SetString(f.Cashflow.GrossExpense, 10)
 	if gross == nil {
@@ -439,10 +438,9 @@ func buildPace(previousFull *cycleMeasure, eligible []cycleMeasure, medianAvaila
 	return pace
 }
 
-// historyWindow selects the ledger cycles from periods (newest first): the n
-// most recent, or n ending at the selected cycle when it is older. The result is
-// oldest first. Closed cycles are measured to their full exclusive end, even when
-// the shared periods slice carries an equal-day cutoff for the comparison.
+// historyWindow selects the ledger cycles from periods (newest first): the n most
+// recent, or n ending at the selected cycle when it is older, returned oldest first.
+// Closed cycles are measured to their full exclusive end.
 func historyWindow(periods []reviewPeriod, index, n int) []reviewPeriod {
 	if n <= 0 || index < 0 || index >= len(periods) {
 		return nil

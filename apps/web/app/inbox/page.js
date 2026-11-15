@@ -37,8 +37,8 @@ export default function InboxPage() {
   const owner = user?.household?.role === "OWNER";
   // Only the owner has the email tab: a stale ?view=email shows the transactions for anyone else.
   const view = rawView === "email" && !owner ? "transactions" : rawView;
-  // A reload (after a 409, a reopen, a save) is a refresh: the cards stay mounted
-  // so a typed note, the merchant and the category hint survive it.
+  // A reload (after a 409, a reopen, a save) is a refresh: cards stay mounted so a typed
+  // note and the merchant/category hint survive.
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const [reviewResponse, actionResponse, categoryResponse, wealthResponse, accountResponse] = await Promise.all(["/api/v1/reviews", "/api/v1/integration-actions", "/api/v1/categories", "/api/v1/wealth/accounts", "/api/v1/accounts"].map(url => fetch(url, { signal })));
     // Each list stands on its own: one failing request must not hide the other.

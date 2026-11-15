@@ -2,8 +2,7 @@
 @font-face { font-family: "Inter"; src: url("/fonts/inter-latin.woff2") format("woff2"); font-style: normal; font-weight: 400 700; font-display: swap; }
 
 :root {
-  /* Retro Ledger: cream paper, deep teal, butter and coral accents.
-     This is the existing shared token source, not a parallel theme. */
+  /* Retro Ledger: cream paper, deep teal, butter and coral accents. */
   --canvas: #f7f3e8;
   --canvas-deep: #eee8d8;
   --surface: #fffcf4;
@@ -70,8 +69,8 @@
   --text-xl: 19px;
   --weight-semibold: 650;
   --sidebar: 244px;
-  /* Motion scale: every duration and easing in the app is one of these. The
-     reduced-motion guard that turns all of it off lives in 15-motion.css. */
+  /* Motion scale: every duration and easing is one of these; the reduced-motion guard is
+     in 15-motion.css. */
   --motion-fast: 120ms; /* press, hover and a dismissal on its way out */
   --motion-base: 180ms; /* something enters: a row, a drawer, a dialog, a page */
   --motion-slow: 260ms; /* a figure the user's own action just changed */

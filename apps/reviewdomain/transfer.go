@@ -52,12 +52,12 @@ var (
 	ErrWealthAccountIncompatible = errors.New("reviewdomain: incompatible wealth account")
 )
 
-// ClassifyTransferReview applies one canonical transfer classification: it locks
-// the subject, resolves Wealth Account/category candidates deterministically,
-// mutates the transaction and proposal, refreshes source-event state, and
-// completes the review item(s). Web and Telegram both call it (ADR-046).
-// ErrMissingFacts leaves a validated classification pending in this transaction;
-// a partial-answer adapter may commit it without completing the review.
+// ClassifyTransferReview applies one canonical transfer classification: it locks the
+// subject, resolves Wealth Account/category candidates deterministically, mutates the
+// transaction and proposal, refreshes source-event state, and completes the review
+// item(s). Web and Telegram both call it (ADR-046). ErrMissingFacts leaves a
+// validated classification pending in this transaction; a partial-answer adapter may
+// commit it without completing the review.
 func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand) (TransferResult, error) {
 	var result TransferResult
 	var transactionType, purpose string
@@ -180,11 +180,10 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 }
 
 // transferClassificationApplies reports whether a classification is valid for the
-// transaction's current type. An unclassified transfer accepts every
-// classification; an expense can only become an asset purchase; an incoming row
-// the extractor typed as INCOME (a screenshot "dana masuk") can be recognised as
-// the household's own money moving between accounts, or ignored. Expense, asset
-// and investment contribution describe money leaving, so they never apply to it.
+// transaction's current type. An unclassified transfer accepts every classification;
+// an expense can only become an asset purchase; an incoming row typed INCOME (a
+// screenshot "dana masuk") can be recognised as own-account movement or ignored,
+// since expense, asset and investment contribution describe money leaving.
 func transferClassificationApplies(transactionType, classification string) bool {
 	switch transactionType {
 	case "UNCLASSIFIED":

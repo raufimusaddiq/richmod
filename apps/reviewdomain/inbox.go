@@ -1,7 +1,7 @@
-// Inbox action contract. The stored ReviewDecision says what a review asks;
-// the binding says which of those answers the canonical resolvers can actually
-// execute for this item. Every surface offers the intersection, so no surface
-// renders a button that can only fail (ADR-054 amendment, 2026-11).
+// Inbox action contract. The stored ReviewDecision says what a review asks; the
+// binding says which answers the canonical resolvers can execute. Every surface
+// offers the intersection, so none renders a button that can only fail (ADR-054
+// amendment, 2026-11).
 package reviewdomain
 
 import (
@@ -24,9 +24,9 @@ const (
 	SubjectCycleResidual     = "cycle_residual_case"
 )
 
-// Presentation values. A NOTICE asks nothing the household can decide: the only
-// executable answer is acknowledging it, so surfaces render it as information
-// ("Mengerti") and keep it out of the needs-your-decision count.
+// Presentation values. A NOTICE asks nothing to decide: the only executable answer
+// is acknowledging it, so surfaces render it as information ("Mengerti") outside the
+// needs-your-decision count.
 const (
 	PresentationDecision = "DECISION"
 	PresentationNotice   = "NOTICE"
@@ -50,9 +50,9 @@ type Binding struct {
 	// accepts (LoadTransferMergeSet). MERGE_EXISTING is offered only when one
 	// exists, so a merge button never leads to a refused merge.
 	MergeableTransferCandidates int
-	// HasWealthObservation reports a bound wealth observation. A provider-email
-	// wealth review binds both the observation and the email observation
-	// (migration 00052), so the subject discriminator alone is not enough.
+	// HasWealthObservation reports a bound wealth observation. A provider-email wealth
+	// review binds both observations (migration 00052), so the subject discriminator
+	// alone is not enough.
 	HasWealthObservation bool
 	// FinancialTransferCase reports that the open case is bound to a provider
 	// email observation, which is the resolver's overflow predicate.
@@ -112,11 +112,10 @@ func Executable(kind, action string, b Binding) bool {
 	}
 }
 
-// ExecutableActions returns what a surface may offer: the stored decision's
-// actions (ADR-054: the stored decision is what users see), falling back to the
-// kind's preset contract and then the registry Inbox list only for rows written
-// before the decision contract, filtered by Executable. A transfer review with
-// an open reconciliation case additionally carries the bounded chooser.
+// ExecutableActions returns what a surface may offer: the stored decision's actions
+// (ADR-054), falling back to the kind's preset and then the registry Inbox list for
+// rows written before the decision contract, filtered by Executable. A transfer
+// review with an open reconciliation case also carries the bounded chooser.
 func ExecutableActions(kind string, stored []string, b Binding) []string {
 	base := stored
 	if len(base) == 0 {
@@ -140,9 +139,8 @@ func ExecutableActions(kind string, stored []string, b Binding) []string {
 		out = append(out, action)
 	}
 	if len(out) == 0 && Executable(kind, "IGNORE", b) {
-		// Nothing the decision asked can be answered any more on this binding
-		// (for example the transaction it asked about is already final). The
-		// review is still acknowledged rather than stranded.
+		// Nothing the decision asked can be answered on this binding any more (for example
+		// its transaction is already final); the review is acknowledged rather than stranded.
 		out = append(out, "IGNORE")
 	}
 	return out
@@ -156,9 +154,8 @@ func PresentationFor(actions []string) string {
 	return PresentationDecision
 }
 
-// LoadBinding reads the binding of one review item inside the caller's
-// transaction. It is used by the dispatcher so "offered" and "accepted" are the
-// same rule.
+// LoadBinding reads the binding of one review item inside the caller's transaction,
+// so "offered" and "accepted" are the same rule.
 func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID string) (string, []string, Binding, error) {
 	var kind, caseID string
 	var decision []byte

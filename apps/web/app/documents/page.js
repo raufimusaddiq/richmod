@@ -42,10 +42,9 @@ export default function DocumentsPage() {
   }, { fallback: "Dokumen belum dapat dimuat. Periksa koneksi lalu coba lagi." });
   const load = loader.run;
   useEffect(() => { if (user) load(); }, [user, load]);
-  // An upload is classified in the background. Poll with a self-rescheduling
-  // timeout: the next tick is armed only once the previous request has settled
-  // (READY), so a slow list is never aborted by the next poll. It stops on a
-  // failure and after MAX_POLLS, then offers a manual reload.
+  // An upload is classified in the background. Poll with a self-rescheduling timeout,
+  // armed only once the previous request settles so a slow list is never aborted by the
+  // next poll. It stops on failure and after MAX_POLLS, then offers a manual reload.
   useEffect(() => {
     if (!processing || loader.status !== LOAD.READY) return undefined;
     if (polls.current >= MAX_POLLS) { setPollStopped(true); return undefined; }

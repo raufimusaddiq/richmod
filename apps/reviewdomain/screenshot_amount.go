@@ -51,9 +51,8 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	if source != cmd.SourceEventID {
 		return result, ErrMissingAmountReviewInvalid
 	}
-	// Retain the extracted/fallback instant as a second duplicate probe anchor.
-	// Replacing it with a day-only user date can miss the same event at the edge
-	// of the original 72-hour matching window.
+	// Retain the extracted/fallback instant as a second duplicate probe anchor; a
+	// day-only user date can miss the same event at the edge of the 72-hour window.
 	probeAt := at
 	if !dateKnown {
 		if cmd.TransactionDate == "" {
@@ -89,13 +88,12 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type=$2 AND currency='IDR' AND amount=$3::numeric AND (transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' OR transaction_at BETWEEN $5::timestamptz-interval '72 hours' AND $5::timestamptz+interval '96 hours'))`, cmd.HouseholdID, typ, *cmd.AmountIDR, probeAt, at).Scan(&duplicate); err != nil {
 		return result, err
 	}
-	// A reprocess carries the transactions this source event was already linked
-	// to. They are a duplicate signal regardless of amount and window: the drift
-	// that hid them from the matcher is exactly what this review must not miss.
-	// Only live transactions of this household survive; the rest is history.
-	// Any survivor blocks auto-confirm, since drift can flip the extracted type
-	// too, but only same type and currency ones are offered: MergeDuplicateReview
-	// waives amount and time for a carried target, never type or currency.
+	// A reprocess carries the transactions this source event was already linked to. They
+	// are a duplicate signal regardless of amount and window, since the drift that hid
+	// them from the matcher is what this review must not miss. Only live transactions of
+	// this household survive. Any survivor blocks auto-confirm, but only same type and
+	// currency ones are offered: MergeDuplicateReview waives amount and time for a carried
+	// target, never type or currency.
 	var carried int
 	var priorMatches []string
 	if err := tx.QueryRow(ctx, `SELECT count(*),COALESCE(array_agg(t.id::text ORDER BY t.id) FILTER (WHERE t.type=$3 AND t.currency='IDR'),'{}') FROM review_item ri

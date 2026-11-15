@@ -1,8 +1,7 @@
-// Indonesian labels for values the API returns as machine enums. Screens show these
-// instead of the raw value (MUTUAL_FUND, TRANSFER_PROOF, ...). Every map falls back to
-// the raw value through label(), so a value added to the backend degrades to its code
-// instead of disappearing; tests/ui-audit-locks.test.mjs checks the document types
-// against the worker's own list so a new one is noticed.
+// Indonesian labels for values the API returns as machine enums (MUTUAL_FUND,
+// TRANSFER_PROOF, ...). Every map falls back to the raw value through label(), so a
+// backend value added later degrades to its code; tests/ui-audit-locks.test.mjs checks
+// the document types against the worker's own list.
 
 export const wealthTypeLabel = { BANK: "Bank", CASH: "Tunai", EWALLET: "Dompet digital", MUTUAL_FUND: "Reksa dana", GOLD: "Emas", BROKERAGE: "Rekening efek", DEPOSIT: "Deposito", CRYPTO: "Kripto", LOAN: "Pinjaman", OTHER: "Lainnya" };
 export const usageRoleLabel = { TRANSACTIONAL: "Transaksional", SAVINGS: "Tabungan", INVESTMENT: "Investasi", OTHER: "Lainnya" };
