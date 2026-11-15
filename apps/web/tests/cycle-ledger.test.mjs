@@ -113,9 +113,9 @@ test("ledger source: served numbers only, no colour-only direction, accent reser
   assert.ok(styles.includes(':not([data-meeting-step="changes"]) #matrix'), "the matrix belongs to the position and changes meeting steps");
 });
 
-test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => {
+test("page wiring: heatmap, stale-while-revalidate, calendar-aware title", () => {
   const page = tree("app/analytics");
-  assert.match(page, /<CycleLedger history=\{facts\.history\}/);
+  assert.match(page, /<CategoryHeatmap facts=\{facts\}/);
   assert.match(page, /facts\.history\?\.length > 0/, "an absent series renders nothing");
   assert.match(page, /\{loading && !facts && <Skeleton/, "the skeleton is only for the first load");
   assert.match(page, /\{facts && !error && <>/);
@@ -177,19 +177,19 @@ test("a matrix that does not line up with history or has no rows is not drawn", 
   assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [{ id: "x", name: "X", amounts: ["1"] }] }, matrixHistory), []);
 });
 
-test("matrix source: text cells, keyboard rows, evidence-only buttons, detail demoted without removing facts", () => {
-  const component = text("app/components/CycleLedger.js");
-  assert.match(component, /<th scope="row">\{row\.selectable && onSelectCategory/);
+test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day default", () => {
+  const component = text("app/analytics/CycleSections.js");
   assert.match(component, /aria-label=\{`Buka bukti \$\{row\.name\}`\}/, "row buttons are named by their action, apart from the category buttons in the detail list");
   assert.match(component, /aria-pressed=\{row\.selected\}/);
-  assert.match(component, /\{compactMillions\(row\.amounts\[i\]\)\}/, "every cell is text");
+  assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
   const page = tree("app/analytics");
-  assert.match(page, /categoryHistory=\{facts\.categoryHistory\}/);
+  assert.match(page, /<CategoryHeatmap facts=\{facts\}/);
   assert.match(page, /<details className="report-disclosure" open=\{step === "changes"\}>\s*<summary><h2 id="changes-title" tabIndex=\{-1\}>Detail perubahan<\/h2>/);
   for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="change-ranking"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
   assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
   assert.match(page, /Selisih vs hari yang sama/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
+  assert.match(component, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/, "same-day is the default while the cycle runs");
 });
 
 test("data marks are neutral or chart-coloured; decreases are hatched, never another hue; accent stays on interaction", () => {

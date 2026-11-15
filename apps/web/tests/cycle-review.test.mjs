@@ -112,8 +112,8 @@ test("review page renders deterministic sections, native chart, and AI-disabled 
   assert.match(page, /Suspense/);
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(page, /AI says|AI advice|skor kesehatan/i);
-  assert.match(page, /Bukan saran keuangan atau keputusan rumah tangga/);
-  assert.match(page, /#changes/);
+  assert.match(text("app/components/InsightCard.js"), /Bukan saran keuangan atau keputusan rumah tangga/);
+  assert.match(text("app/components/InsightCard.js"), /#changes/);
 });
 
 test("review page keeps month-end inclusive bounds and no browser-side totals", () => {

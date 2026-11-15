@@ -4,7 +4,6 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 import { CategoryRankingChart, CycleSpendingPatternChart } from "../components/Charts";
-import CycleLedger from "../components/CycleLedger";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
@@ -16,7 +15,7 @@ import { cycleLabel, inclusiveEnd, ratioLabel, readReviewSelection, selectionHre
 import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
 import { SectionTitle, Metric } from "./shared";
-import { MeetingNav, ComparisonContext, ChangesTable, MerchantTable, CategoryDrivers } from "./CycleSections";
+import { MeetingNav, ComparisonContext, ChangesTable, MerchantTable, CategoryDrivers, CategoryHeatmap, MerchantRanking, HouseholdSection } from "./CycleSections";
 import { KpiStrip, NoticeStrip, PaceCard, QualityFooter, SavingsWealthCard } from "./CycleDashboard";
 import { CalendarReview } from "./CalendarReview";
 
@@ -221,27 +220,26 @@ function AnalyticsReview() {
           </section>
           {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
             <details className="report-disclosure" open={step === "position" || step === "changes"}>
-            <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>Matriks {facts.history.length} siklus · siklus ke siklus</span></summary>
-            <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>
+            <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>{facts.history.length} siklus · {facts.categoryHistory?.rows?.length || 0} kategori + kategori lain</span></summary>
+            <CategoryHeatmap facts={facts} selectedCategory={selection.category} onSelectCategory={chooseCategory}/>
             </details>
           </section>}
-          <section id="household" className="review-section" aria-labelledby="household-title">
-            <details className="report-disclosure"><summary><h2 id="household-title">Catatan rumah tangga</h2><span>{facts.memberAttribution.length ? `${facts.memberAttribution.length} pencatat` : "Belum ada atribusi"}</span></summary>
-            <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
-            <dl className="review-attribution">{facts.memberAttribution.map(item => <Metric key={item.id || item.name} label={item.name} value={`${money(item.amount)} · ${item.count} transaksi`}/>)}</dl>
-            {!facts.memberAttribution.length && <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
+          <section id="merchants" className="review-section" aria-labelledby="merchants-title">
+            <details className="report-disclosure">
+            <summary><h2 id="merchants-title">Merchant pendukung</h2><span>{facts.merchantRanking?.rows?.length || 0} teratas · satu baris per penerima</span></summary>
+            <p className="review-description">Pengeluaran bersih setelah refund, terbesar dulu. Pembanding mengikuti siklus: hari yang sama saat berjalan, siklus penuh saat ditutup.</p>
+            <MerchantRanking ranking={facts.merchantRanking} period={facts.period}/>
             </details>
           </section>
+          <HouseholdSection members={facts.memberAttribution}/>
           <QualityFooter facts={facts} step={step}/>
           <section id="discussion" className="review-section" aria-labelledby="discussion-title">
             <details className="report-disclosure" open={step === "discussion"}>
-            <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional"}</span></summary>
-            <p className="review-description">Bukan saran keuangan atau keputusan rumah tangga.</p>
-            <InsightCard insight={insight} cycle={facts.period} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
-            <a href={meeting ? selectionHref({ ...selection, step: "changes" }) : "#changes"}>Lihat data pendukung pembahasan</a>
+            <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional · bukan saran keuangan"}</span></summary>
+            <InsightCard insight={insight} cycle={facts.period} days={facts.spendingShape.days} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
             </details>
           </section>
-          {cycleStart && <CycleDecisions key={cycleStart} expanded={step === "decisions"} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))}/>}
+          {cycleStart && <CycleDecisions key={cycleStart} expanded={step === "decisions"} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} range={cycleLabel(facts.period)} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))}/>}
         </>}
       </>}
     </div>
