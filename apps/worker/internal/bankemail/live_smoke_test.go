@@ -9,8 +9,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Run explicitly with RICHMOD_LIVE_LLM_SMOKE=1. It makes one non-mutating
-// native-tool request and never connects to PostgreSQL.
+// Run with RICHMOD_LIVE_LLM_SMOKE=1; makes one non-mutating native-tool request and never connects to PostgreSQL.
 func TestLivePrimaryNativeBankEmailSmoke(t *testing.T) {
 	if os.Getenv("RICHMOD_LIVE_LLM_SMOKE") != "1" {
 		t.Skip("live LLM smoke test is gated")

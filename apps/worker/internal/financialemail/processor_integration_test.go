@@ -286,7 +286,6 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=$2,resolved_wealth_account_id=$3,status='PENDING' WHERE id=$1`, cashObservation, account, wealth); err != nil {
 		t.Fatal(err)
 	}
-	// A previously selected canonical account survives an absent source hint.
 	if _, err := pool.Exec(ctx, `UPDATE financial_email_observation SET facts_json=facts_json-'funding_account_hint' WHERE id=$1`, cashObservation); err != nil {
 		t.Fatal(err)
 	}
@@ -311,8 +310,8 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE source_event_id=$1 AND ordinal=1`, source).Scan(&wealthObservationStatus); err != nil {
 		t.Fatal(err)
 	}
-	// A uniquely resolved wealth account observation is accepted without routine
-	// human confirmation; the cash leg still parks its own review.
+	// A uniquely resolved wealth account observation is accepted without human confirmation; the cash leg
+	// still parks its own review.
 	if wealthChildren != 1 || wealthReviews != 0 || transactions != 1 {
 		t.Fatalf("wealth children=%d reviews=%d transactions=%d", wealthChildren, wealthReviews, transactions)
 	}
@@ -371,7 +370,6 @@ func TestSelectedAccountConflictingSourceHintFailsClosed(t *testing.T) {
 	if decision.Consequence != reviewdec.IndependentEvidenceConflict || decision.KnownFacts["funding_account"] != account || len(decision.Conflicting["funding_account"]) != 2 {
 		t.Fatalf("source hint conflict must retain canonical account and both evidence values: %+v", decision)
 	}
-	// A human decision on this exact conflict must end the loop on replay.
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' WHERE id=$1`, reviewID); err != nil {
 		t.Fatal(err)
 	}
@@ -642,11 +640,8 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return source
 }
 
-// TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite proves the evidence-review rule for
-// provider email: a cash observation whose typed evidence predicates failed is
-// parked as FINANCIAL_EMAIL_FACTS with only IGNORE allowed, names the exact
-// unsupported dimension, keeps the accepted amount/date/hint facts, and writes
-// no canonical transaction.
+// Parks provider cash facts whose predicates failed as FINANCIAL_EMAIL_FACTS (IGNORE only), naming the
+// unsupported dimension and writing no canonical transaction.
 func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -700,9 +695,8 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "evidence_support" {
 		t.Fatalf("the residual must name the exact unsupported dimension: %v", decision.MissingFacts)
 	}
-	// The residual is evidence_support, so the email does not fully support these
-	// value facts: they must be proposed, not recorded as known, or the Web card
-	// would show an unsupported amount as "Tercatat".
+	// Residual evidence_support means these value facts must be proposed, not recorded, or the Web card would
+	// show an unsupported amount as "Tercatat".
 	if _, known := decision.KnownFacts["amount_idr"]; known {
 		t.Fatalf("an unsupported amount must not be a known fact: %+v", decision.KnownFacts)
 	}
@@ -718,10 +712,8 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	}
 }
 
-// The worker is the only writer of a partial resolution, and the Inbox list API
-// reads what is already known from the observation columns. So the column the
-// decision calls known must actually be written, or the card the Inbox renders
-// (asking only for the other entity) is rejected by the resolver on submit.
+// The worker alone writes a partial resolution and the Inbox reads known entities from observation columns,
+// so the known column must be written or the resolver rejects the submit.
 func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -756,7 +748,6 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	// The evidence settled the bank account but not the provider Wealth Account.
 	if err = (&Processor{pool: pool}).resolutionReview(ctx, tx, household, source, observation, account, "", nil, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -783,9 +774,8 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	}
 }
 
-// A financial email job that runs out of attempts finalizes its source as FAILED
-// and leaves one Tindakan item; a stranded preview becomes FAILED so it no
-// longer blocks activating the source.
+// A job out of attempts finalizes its source FAILED and leaves one Tindakan item; a stranded preview becomes
+// FAILED so it stops blocking activation.
 func TestFinancialEmailTerminalFailureFinalizesSourceAndPreview(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
