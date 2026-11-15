@@ -116,7 +116,7 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	}
 	for _, check := range []struct {
 		filter string
-		count int
+		count  int
 	}{
 		{"merchantId=" + merchantID + "&categoryId=" + categoryID, 2},
 		{"merchantId=none", 1},

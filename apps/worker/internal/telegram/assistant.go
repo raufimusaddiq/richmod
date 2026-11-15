@@ -2,12 +2,9 @@ package telegram
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 type assistantRange struct{ From, To time.Time }
@@ -91,95 +88,6 @@ func resolveAssistantRange(now time.Time, period, fromDate, toDate *string) (ass
 		return assistantRange{}, errRangeOutOfBounds
 	}
 	return assistantRange{From: from, To: to}, nil
-}
-
-func (p *Processor) replySpending(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
-	var total, topName, topAmount string
-	err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&total)
-	if err != nil {
-		return err
-	}
-	err = p.pool.QueryRow(ctx, `SELECT COALESCE(c.name,'Tanpa kategori'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY COALESCE(c.name,'Tanpa kategori') HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END) DESC LIMIT 1`, householdID, r.From, r.To).Scan(&topName, &topAmount)
-	message := "📊 Ini ringkasan pengeluaranmu\nPeriode: " + r.label() + "\n\nTotal: Rp" + FormatIDR(total)
-	if err == nil {
-		message += "\nTerbesar: " + topName + " (Rp" + FormatIDR(topAmount) + ")"
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-	return p.finishAssistant(ctx, sourceID, update, message, nil)
-}
-
-func (p *Processor) replySavings(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
-	var total string
-	if err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&total); err != nil {
-		return err
-	}
-	return p.finishAssistant(ctx, sourceID, update, "💾 Ini ringkasan tabunganmu\nPeriode: "+r.label()+"\n\nTotal: Rp"+FormatIDR(total), nil)
-}
-
-func (p *Processor) replyWealth(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {
-	var observed time.Time
-	var value string
-	if err := p.pool.QueryRow(ctx, `SELECT s.observed_at,COALESCE(sum(CASE WHEN w.side='LIABILITY' THEN -i.value_idr ELSE i.value_idr END),0)::text FROM wealth_snapshot s JOIN wealth_snapshot_item i ON i.snapshot_id=s.id JOIN wealth_account w ON w.id=i.wealth_account_id WHERE s.household_id=$1 AND s.id=(SELECT id FROM wealth_snapshot WHERE household_id=$1 ORDER BY observed_at DESC,id DESC LIMIT 1) GROUP BY s.id,s.observed_at`, householdID).Scan(&observed, &value); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return p.finishAssistant(ctx, sourceID, update, "Belum ada snapshot kekayaan untuk ditampilkan.", nil)
-		}
-		return err
-	}
-	return p.finishAssistant(ctx, sourceID, update, "💎 Kekayaan bersih di snapshot terbaru\nRp"+FormatIDR(value)+"\nDiamati: "+observed.In(jakartaLocation()).Format(time.RFC3339), nil)
-}
-
-func (p *Processor) replyCashflow(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
-	var income, expense, net string
-	err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text,(COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0))::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&income, &expense, &net)
-	if err != nil {
-		return err
-	}
-	return p.finishAssistant(ctx, sourceID, update, "📊 Ini ringkasan arus kasmu\nPeriode: "+r.label()+"\n\nPemasukan: Rp"+FormatIDR(income)+"\nPengeluaran: Rp"+FormatIDR(expense)+"\nArus kas bersih: Rp"+FormatIDR(net), nil)
-}
-
-func (p *Processor) replyReviews(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {
-	rows, err := p.pool.Query(ctx, `SELECT r.review_type,t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi') FROM review_request r JOIN transaction t ON t.id=r.transaction_id WHERE r.household_id=$1 AND r.status IN('PENDING_SEND','OPEN') ORDER BY r.created_at DESC LIMIT 5`, householdID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	lines := []string{"🟡 Ini yang masih perlu ditinjau"}
-	for rows.Next() {
-		var kind, amount, label string
-		if err = rows.Scan(&kind, &amount, &label); err != nil {
-			return err
-		}
-		lines = append(lines, "• "+label+" · Rp"+FormatIDR(amount)+" · "+kind)
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	if len(lines) == 1 {
-		lines = []string{"Tidak ada tinjauan yang masih terbuka."}
-	}
-	return p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil)
-}
-
-func (p *Processor) finishAssistant(ctx context.Context, sourceID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-assistant',parser_version='1' WHERE id=$1`, sourceID); err != nil {
-		return err
-	}
-	if markup == nil {
-		if err = enqueueReply(ctx, tx, update, message); err != nil {
-			return err
-		}
-	} else {
-		if err = enqueueReplyMarkup(ctx, tx, update, message, markup); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
 }
 
 func pointerValue(value *string) string {

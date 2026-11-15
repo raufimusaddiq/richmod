@@ -5,15 +5,10 @@ import "github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 type agentWorkflowScope string
 
 const (
-	agentWorkflowGeneral          agentWorkflowScope = "GENERAL"
-	agentWorkflowExactReview      agentWorkflowScope = "EXACT_REVIEW"
-	agentWorkflowExactMerchant    agentWorkflowScope = "EXACT_MERCHANT_LEARNING"
-	agentWorkflowExplicitUnbound  agentWorkflowScope = "EXPLICIT_REPLY_UNBOUND"
-	agentWorkflowPendingAction    agentWorkflowScope = "PENDING_ACTION"
-	agentWorkflowPendingBatch     agentWorkflowScope = "PENDING_BATCH"
-	agentWorkflowUniqueReview     agentWorkflowScope = "UNIQUE_REVIEW"
-	agentWorkflowMerchantLearning agentWorkflowScope = "MERCHANT_LEARNING"
-	agentWorkflowSalaryChoice     agentWorkflowScope = "SALARY_CHOICE"
+	agentWorkflowGeneral         agentWorkflowScope = "GENERAL"
+	agentWorkflowExactReview     agentWorkflowScope = "EXACT_REVIEW"
+	agentWorkflowExactMerchant   agentWorkflowScope = "EXACT_MERCHANT_LEARNING"
+	agentWorkflowExplicitUnbound agentWorkflowScope = "EXPLICIT_REPLY_UNBOUND"
 )
 
 // applyAgentWorkflowToolPolicy enforces server-owned target precedence before the model sees the catalog:

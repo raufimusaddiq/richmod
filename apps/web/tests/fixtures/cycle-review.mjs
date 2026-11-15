@@ -1,4 +1,13 @@
 // Synthetic only. Mirrors cycle-review-v1; no household/provider evidence.
+// Mirrors the API's amount-ranked categoryRanking (top 7 + remainder); fixtures only.
+function rankingFor(facts) {
+  const rows = facts.categoryChanges.filter(item => BigInt(item.amount) !== 0n).sort((a, b) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : 0)).slice(0, 7)
+    .map(item => ({ id: item.id || null, name: item.name, amount: item.amount, count: item.count ?? 0, shareOfExpense: item.shareOfExpense ?? null, baselineAmount: item.previous ?? null, deltaVsBaseline: item.deltaVsPrevious ?? null, relativeDeltaVsBaseline: item.relativeDeltaVsPrevious ?? null }));
+  const listed = rows.reduce((sum, row) => sum + BigInt(row.amount), 0n);
+  return { baseline: facts.comparison.mode === "ELAPSED_DAYS" ? "SAME_DAY" : "PREVIOUS_FULL", rows,
+    other: { name: "Kategori lain", amount: String(BigInt(facts.cashflow.expense) - listed), count: 0, categoryCount: 0, shareOfExpense: null, baselineAmount: null, deltaVsBaseline: null, relativeDeltaVsBaseline: null } };
+}
+
 export function cycleFacts(start = "2026-09-01") {
   const closed = start === "2026-08-26";
   const september25 = start === "2026-09-25";
@@ -38,7 +47,7 @@ export function cycleFacts(start = "2026-09-01") {
     comparison: { mode: closed ? "FULL_CYCLE" : "ELAPSED_DAYS", previous, previousFullCycle: { ...previous, measuredUntil: previous.end }, eligibleCycles: 3, median3Available: true,
       expense: change("", "", "4200000", "2800000", "3800000", "1400000", "400000", "0.5000", null, null) },
     cashflow: { income: "12000000", grossExpense: "4500000", refund: "300000", expense: "4200000", netCashflow: "7800000", savingsAllocated: "5000000", unallocatedSurplus: "2800000" },
-    spendingShape: { days: 6, averageDailyExpense: "700000.00", peakDay: daily[2].period, peakExpense: "1100000", peakShareOfExpense: "0.2619", zeroSpendDays: 0 },
+    spendingShape: { days: 6, averageDailyExpense: "700000.00", averageDailyExpenseRounded: "700000", peakDay: daily[2].period, peakExpense: "1100000", peakShareOfExpense: "0.2619", zeroSpendDays: 0 },
     daily, categoryChanges: [groceries, dining, transport], merchantDrivers: groceries.merchants,
     memberAttribution: [{ id: "member-1", name: "Dina memulai", amount: "2000000", count: 4 }, { id: "member-2", name: "Rafi memulai", amount: "2200000", count: 5 }],
     savingsDestinations: [{ id: "account-1", name: "Tabungan keluarga", amount: "5000000", count: 1 }],
@@ -53,7 +62,7 @@ export function cycleFacts(start = "2026-09-01") {
     facts.comparison.eligibleCycles = 1; facts.comparison.median3Available = false;
     facts.comparison.expense = { ...facts.comparison.expense, amount: "5450000", previous: "2200000", deltaVsPrevious: "3250000", relativeDeltaVsPrevious: "1.4773", previousFullCycle: "4150000", deltaVsPreviousFullCycle: "1300000", relativeDeltaVsPreviousFullCycle: "0.3133", median3: null, deltaVsMedian3: null };
     facts.cashflow = { ...facts.cashflow, grossExpense: "5750000", expense: "5450000", netCashflow: "6550000", unallocatedSurplus: "1550000" };
-    facts.spendingShape = { days: 7, averageDailyExpense: "778571.43", peakDay: "2026-10-01", peakExpense: "1950000", peakShareOfExpense: "0.3578", zeroSpendDays: 1 };
+    facts.spendingShape = { days: 7, averageDailyExpense: "778571.43", averageDailyExpenseRounded: "778571", peakDay: "2026-10-01", peakExpense: "1950000", peakShareOfExpense: "0.3578", zeroSpendDays: 1 };
     for (const item of facts.categoryChanges) { item.median3 = null; item.deltaVsMedian3 = null; item.relativeDeltaVsMedian3 = null; }
     groceries.shareOfExpense = "0.3853"; dining.shareOfExpense = "0.2569"; transport.shareOfExpense = "0.3578";
     groceries.contributionToExpenseChange = "0.2154"; dining.contributionToExpenseChange = "0.1846"; transport.contributionToExpenseChange = "0.6000";
@@ -77,6 +86,7 @@ export function cycleFacts(start = "2026-09-01") {
     rows: facts.categoryChanges.map((change, row) => ({ id: change.id, name: change.name, amounts: columns.map(column => column[row]) })),
     other: { amounts: facts.history.map((item, index) => String(BigInt(item.expense) - columns[index].reduce((sum, value) => sum + BigInt(value), 0n))) },
   };
+  facts.categoryRanking = rankingFor(facts);
   return facts;
 }
 
@@ -99,10 +109,11 @@ export function stableCycleFacts() {
   Object.assign(last, { income: "1400000", grossExpense: "1400000", expense: "1400000", netCashflow: "0" });
   last.expenseDelta = String(BigInt(last.expense) - BigInt(facts.history.at(-2).expense));
   facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [{ id: category.id, name: category.name, amounts: facts.history.map(item => item.expense) }], other: { amounts: facts.history.map(() => "0") } };
-  facts.spendingShape = { days: 6, averageDailyExpense: "233333.33", peakDay: facts.daily[4].period, peakExpense: "300000", peakShareOfExpense: "0.2143", zeroSpendDays: 0 };
+  facts.spendingShape = { days: 6, averageDailyExpense: "233333.33", averageDailyExpenseRounded: "233333", peakDay: facts.daily[4].period, peakExpense: "300000", peakShareOfExpense: "0.2143", zeroSpendDays: 0 };
   facts.merchantDrivers = []; facts.memberAttribution = [{ name: "Shared / unattributed", amount: "1400000", count: 6 }]; facts.savingsDestinations = [];
   facts.wealth.current.netWorth = facts.wealth.previous.netWorth;
   facts.wealth.netWorthChange = "0"; facts.wealth.confirmedCashflow = "0"; facts.wealth.valuationAndOtherChange = "0";
   facts.dataQuality = [];
+  facts.categoryRanking = rankingFor(facts);
   return facts;
 }

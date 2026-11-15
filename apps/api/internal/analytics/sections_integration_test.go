@@ -73,6 +73,9 @@ func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *tes
 	if h.SameDay == nil || h.SameDay.ElapsedDays != 10 {
 		t.Fatalf("an active cycle serves a same-day matrix: %+v", h.SameDay)
 	}
+	if fmt.Sprint(h.SameDay.MeasuredDays) != "[10 10 10 10]" {
+		t.Fatalf("every column covers the same ten days here: %v", h.SameDay.MeasuredDays)
+	}
 	if h.SelectedIndex == nil || *h.SelectedIndex != 3 || h.SameDay.SelectedIndex == nil || *h.SameDay.SelectedIndex != 3 {
 		t.Fatalf("selected column: %v %v", h.SelectedIndex, h.SameDay.SelectedIndex)
 	}

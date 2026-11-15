@@ -22,6 +22,19 @@ func TestSameDayWindowCutsEveryClosedCycleAtTheSameElapsedDay(t *testing.T) {
 	if short := sameDayWindow(window, 25); short[1].MeasuredUntil != end2 {
 		t.Fatalf("a cycle shorter than the elapsed days is measured to its own end: %s", short[1].MeasuredUntil)
 	}
+	// Each column reports the days it really covers, so the UI never labels a
+	// 19-day cycle "hari 1-25".
+	measures := []cycleMeasure{
+		historyMeasure("2026-06-01", map[string]string{"a": "1"}), historyMeasure("2026-07-01", map[string]string{"a": "1"}), historyMeasure("2026-07-20", map[string]string{"a": "1"}),
+	}
+	for i, p := range sameDayWindow(window, 25) {
+		measures[i].period.MeasuredUntil = p.MeasuredUntil
+	}
+	measures[2].period.MeasuredUntil = "2026-08-14" // active, 25 elapsed days
+	_, matrix := buildHistory(measures, []int{0, 1, 2}, []int{0, 1, 2}, "2026-07-20")
+	if matrix.SameDay == nil || matrix.SameDay.ElapsedDays != 25 || fmt.Sprint(matrix.SameDay.MeasuredDays) != "[25 19 25]" {
+		t.Fatalf("measuredDays=%+v", matrix.SameDay)
+	}
 	if window[0].MeasuredUntil != end1 {
 		t.Fatal("the input window must not be mutated")
 	}

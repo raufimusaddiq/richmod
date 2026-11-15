@@ -147,6 +147,9 @@ type categoryMatrix struct {
 // compared with a full one. It uses the same rows as the full matrix.
 type sameDayMatrix struct {
 	ElapsedDays int `json:"elapsedDays"`
+	// MeasuredDays is how many days each column actually covers: ElapsedDays, or
+	// fewer for a cycle that ended sooner (kept whole, so the UI can say "hari 1-N").
+	MeasuredDays []int `json:"measuredDays"`
 	categoryMatrix
 }
 
@@ -236,21 +239,24 @@ type Facts struct {
 	Cashflow      reviewCashflow      `json:"cashflow"`
 	Daily         []map[string]string `json:"daily"`
 	SpendingShape struct {
-		Days        int     `json:"days"`
-		Average     string  `json:"averageDailyExpense"`
-		PeakDay     *string `json:"peakDay"`
-		PeakExpense string  `json:"peakExpense"`
-		PeakShare   *string `json:"peakShareOfExpense"`
-		ZeroDays    int     `json:"zeroSpendDays"`
+		Days    int    `json:"days"`
+		Average string `json:"averageDailyExpense"`
+		// AverageRounded is the average in whole rupiah, half away from zero, so the web never rounds money.
+		AverageRounded string  `json:"averageDailyExpenseRounded"`
+		PeakDay        *string `json:"peakDay"`
+		PeakExpense    string  `json:"peakExpense"`
+		PeakShare      *string `json:"peakShareOfExpense"`
+		ZeroDays       int     `json:"zeroSpendDays"`
 	} `json:"spendingShape"`
-	Categories   []reviewCategory `json:"categoryChanges"`
-	Merchants    []reviewChange   `json:"merchantDrivers"`
+	CategoryRanking categoryRanking  `json:"categoryRanking"`
+	Categories      []reviewCategory `json:"categoryChanges"`
+	Merchants       []reviewChange   `json:"merchantDrivers"`
 	// MerchantRanking is the amount-ranked payee list for the cycle view.
 	MerchantRanking merchantRanking `json:"merchantRanking"`
 	Members         []reviewMember  `json:"memberAttribution"`
-	Destinations []reviewValue    `json:"savingsDestinations"`
-	Wealth       reviewWealth     `json:"wealth"`
-	Quality      []reviewBlocker  `json:"dataQuality"`
+	Destinations    []reviewValue   `json:"savingsDestinations"`
+	Wealth          reviewWealth    `json:"wealth"`
+	Quality         []reviewBlocker `json:"dataQuality"`
 }
 
 // Completeness retains ADR-015's coverage gate on gross confirmed expense so refunds
@@ -305,9 +311,8 @@ func newCycleMeasure(period reviewPeriod) cycleMeasure {
 
 const (
 	// DefaultHistory and MaxHistory bound the ledger window (cycles).
-	DefaultHistory       = 6
-	MaxHistory           = 12
-	historyTopCategories = 8
+	DefaultHistory = 6
+	MaxHistory     = 12
 )
 
 // Load computes one household's authoritative cycle facts in a read-only
@@ -349,7 +354,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if err != nil {
 		return Facts{}, err
 	}
-	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, MerchantRanking: emptyMerchantRanking(), Members: []reviewMember{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
+	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), CategoryRanking: emptyCategoryRanking(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, MerchantRanking: emptyMerchantRanking(), Members: []reviewMember{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
 	index := 0
 	if selected != "" {
 		index = -1
@@ -449,6 +454,15 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	facts.MerchantRanking = buildMerchantRanking(measures, facts.Comparison.Mode)
 	facts.Pace = buildPace(full, measures[1:], facts.Comparison.Median3Available)
 	facts.Cashflow = measures[0].cash
+	var rankBase *cycleMeasure
+	if facts.Comparison.Mode == "ELAPSED_DAYS" {
+		if len(measures) > 1 {
+			rankBase = &measures[1]
+		}
+	} else {
+		rankBase = full
+	}
+	facts.CategoryRanking = buildCategoryRanking(measures[0], rankBase, facts.Comparison.Mode)
 	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense }, full)
 	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income }, full)
 	facts.Comparison.NetCashflow = cashChange(measures, func(c reviewCashflow) string { return c.Net }, full)
@@ -627,13 +641,17 @@ func buildHistory(measures []cycleMeasure, window, sameDay []int, selectedStart 
 		}
 		return ids[a] < ids[b]
 	})
-	if len(ids) > historyTopCategories {
-		ids = ids[:historyTopCategories]
+	if len(ids) > rankingTopCategories {
+		ids = ids[:rankingTopCategories]
 	}
 	matrix := categoryHistory{categoryMatrix: buildMatrix(measures, window, ids, names, selected)}
 	if len(sameDay) == len(window) && len(window) > 0 && selected >= 0 {
 		cut := measures[sameDay[selected]].period
-		matrix.SameDay = &sameDayMatrix{ElapsedDays: daysBetween(cut.Start, cut.MeasuredUntil), categoryMatrix: buildMatrix(measures, sameDay, ids, names, selected)}
+		days := make([]int, 0, len(sameDay))
+		for _, i := range sameDay {
+			days = append(days, daysBetween(measures[i].period.Start, measures[i].period.MeasuredUntil))
+		}
+		matrix.SameDay = &sameDayMatrix{ElapsedDays: daysBetween(cut.Start, cut.MeasuredUntil), MeasuredDays: days, categoryMatrix: buildMatrix(measures, sameDay, ids, names, selected)}
 	}
 	return history, matrix
 }
