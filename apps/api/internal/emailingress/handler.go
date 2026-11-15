@@ -93,6 +93,25 @@ func (h *Handler) Integration(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, address)
 }
 
+// Deliveries lists the household's latest inbound email outcomes for the owner.
+func (h *Handler) Deliveries(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !p.HasHousehold {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})
+		return
+	}
+	if p.HouseholdRole != "OWNER" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required"})
+		return
+	}
+	deliveries, err := h.service.RecentDeliveries(r.Context(), p.HouseholdID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to load email deliveries"})
+		return
+	}
+	writeJSON(w, 200, deliveries)
+}
+
 func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) { h.change(w, r, "activate") }
 func (h *Handler) Rotate(w http.ResponseWriter, r *http.Request)   { h.change(w, r, "rotate") }
 

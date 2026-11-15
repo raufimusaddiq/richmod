@@ -174,6 +174,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/financial-email-sources/{id}/test", authHandler.RequireSession(http.HandlerFunc(settingsHandler.TestFinancialEmailSource)))
 	mux.Handle("GET /api/v1/financial-email-previews/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.FinancialEmailPreview)))
 	mux.Handle("GET /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
+	mux.Handle("GET /api/v1/integrations/email-ingress/deliveries", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Deliveries)))
 	mux.Handle("POST /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
 	mux.Handle("POST /api/v1/integrations/email-ingress/activate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Activate)))
 	mux.Handle("POST /api/v1/integrations/email-ingress/rotate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Rotate)))

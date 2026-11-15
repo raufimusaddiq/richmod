@@ -376,6 +376,26 @@ Transport success is not financial acceptance. Check:
 
 Do not bypass sender authentication or household listener matching to make a test pass.
 
+### Owner cannot see why an email was ignored
+
+`GET /api/v1/integrations/email-ingress/deliveries` returns the household's ten
+latest `email_ingress_delivery` rows as `{status, reason, sender, receivedAt}`.
+It is OWNER-only and household-scoped, and it exposes no canonical IDs. Settings →
+Integrasi renders the same list as "Pengiriman terakhir".
+
+Reason codes and their meaning:
+
+- `UNTRUSTED_AUTHENTICATION` — `Authentication-Results`/ARC evidence did not match
+  `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS`; the sender is not authenticated.
+- `TRUSTED_AUTHSERV_UNCONFIGURED` — the API has no trusted authserv configured, so
+  every `ACTIVE` delivery is rejected. Set `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS`.
+- `UNMATCHED_SENDER` — authenticated, but the sender matches neither an active
+  `bank_email_listener` nor an active `financial_email_source` for the household.
+- `DUPLICATE_PAYLOAD` — the same content hash was already delivered.
+
+An empty list means no email reached the address at all: check the Cloudflare
+Worker logs and the queue before changing household configuration.
+
 ### Gmail confirmation email arrives but no action appears
 
 Check that:

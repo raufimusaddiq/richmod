@@ -38,6 +38,17 @@ type Address struct {
 	LastReceivedAt *time.Time `json:"lastReceivedAt"`
 }
 
+// Delivery is the household-visible outcome of one inbound email. It carries no
+// canonical IDs: the owner only needs to know what happened and why.
+type Delivery struct {
+	Status     string    `json:"status"`
+	Reason     string    `json:"reason,omitempty"`
+	Sender     string    `json:"sender,omitempty"`
+	ReceivedAt time.Time `json:"receivedAt"`
+}
+
+const recentDeliveryLimit = 10
+
 type deliveryInput struct {
 	Signed SignedRequest
 	Email  ParsedEmail
@@ -59,6 +70,24 @@ func (s *Service) Current(ctx context.Context, householdID string) (Address, boo
 	}
 	out.Address = out.LocalPart + "@" + s.domain
 	return out, true, nil
+}
+
+// RecentDeliveries lists the household's latest inbound email outcomes.
+func (s *Service) RecentDeliveries(ctx context.Context, householdID string) ([]Delivery, error) {
+	rows, err := s.pool.Query(ctx, `SELECT status,COALESCE(reason_code,''),COALESCE(observed_sender,''),received_at FROM email_ingress_delivery WHERE household_id=$1 ORDER BY received_at DESC LIMIT $2`, householdID, recentDeliveryLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Delivery{}
+	for rows.Next() {
+		var d Delivery
+		if err := rows.Scan(&d.Status, &d.Reason, &d.Sender, &d.ReceivedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }
 
 func (s *Service) Provision(ctx context.Context, householdID, userID string) (Address, error) {
