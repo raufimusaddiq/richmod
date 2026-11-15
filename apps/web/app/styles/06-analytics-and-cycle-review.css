@@ -20,6 +20,7 @@
    holds the cycle picker too, so it carries no chrome of its own. */
 .cycle-review .range-control-group { gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
 .cycle-review .cycle-step-button { border-color: var(--line-strong); background: var(--surface); color: var(--ink); }
+.cycle-review .custom-range button { border-color: var(--line-strong); background: var(--surface); color: var(--ink); }
 .cycle-selector { min-width: min(320px, 100%); }
 .cycle-selector select { min-height: 40px; }
 .cycle-period { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 20px 4px 18px; border-top: 1px solid var(--line-strong); }

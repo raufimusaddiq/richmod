@@ -303,3 +303,24 @@ test("chart units are on screen and the whole-value list is not a tooltip", () =
   const calendar = readFileSync(new URL("../app/analytics/CalendarReview.js", import.meta.url), "utf8");
   assert.match(calendar, /Lihat nilai kategori/, "the value list is reachable without a hover");
 });
+
+test("no chart is an unnamed focusable surface: accessibilityLayer is off everywhere", () => {
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  const chartsInFile = charts.match(/<(LineChart|BarChart|AreaChart)\b[^>]*>/g) || [];
+  assert.ok(chartsInFile.length >= 5, "the charts are present");
+  for (const tag of chartsInFile) assert.match(tag, /accessibilityLayer=\{false\}/, `every chart turns the layer off: ${tag.slice(0, 40)}`);
+  for (const component of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "CyclePaceChart", "MonthlyCashflowChart", "CategoryRankingChart", "NetWorthHistoryChart"]) {
+    assert.ok(charts.includes(`export function ${component}`), `${component} exists`);
+  }
+  // The daily bars stay focusable links, so the drill-down survives without the layer.
+  assert.match(charts, /<a href=\{transactionHref\(period/, "daily bars remain links");
+  assert.match(charts, /tabIndex=\{0\}/, "and stay in the tab order");
+});
+
+test("the phone range controls never clip a native month field", () => {
+  const css = globalCss();
+  assert.match(css, /\.cycle-review \.custom-range \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/, "two fields share a row");
+  assert.match(css, /@media \(max-width: 430px\) \{[^}]*\.cycle-review \.custom-range \{ grid-template-columns: minmax\(0, 1fr\)/, "and stack below 430");
+  assert.match(css, /\.cycle-review \.custom-range button \{ grid-column: 1 \/ -1; \}/, "the submit sits under the fields");
+});
+

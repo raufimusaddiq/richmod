@@ -348,13 +348,19 @@ async function run() {
           if (!element || element === document.body) return null;
           const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();
-          return { name: (element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 40), tag: element.tagName.toLowerCase(), visible: rect.width > 0 && rect.height > 0, ring: style.outlineStyle !== "none" || style.boxShadow !== "none" };
+          const tag = element.tagName.toLowerCase();
+          const labelledBy = element.getAttribute("aria-labelledby");
+          // An svg's text content is its plotted labels, not an accessible name.
+          const name = (element.getAttribute("aria-label") || (labelledBy ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ") : "") || (tag === "svg" ? "" : element.textContent) || "").trim();
+          return { name: name.slice(0, 40), tag, role: element.getAttribute("role") || "", visible: rect.width > 0 && rect.height > 0, ring: style.outlineStyle !== "none" || style.boxShadow !== "none" };
         });
         if (stop) stops.push(stop);
       }
       assert.ok(stops.length > 5, "the dashboard is reachable by keyboard");
       assert.deepEqual(stops.filter(stop => !stop.visible), [], "no keyboard stop is invisible");
       assert.deepEqual(stops.filter(stop => !stop.ring), [], "every keyboard stop shows a focus ring");
+      assert.deepEqual(stops.filter(stop => !stop.name), [], "every keyboard stop has an accessible name");
+      assert.deepEqual(stops.filter(stop => stop.role === "application"), [], "no chart is a focusable role=application stop");
       assert.ok(stops.some(stop => stop.name.startsWith("Lihat nilai laju pengeluaran")), "the pace chart's data table is reachable by keyboard");
       assert.ok(stops.some(stop => stop.name.startsWith("Lihat nilai harian")), "the daily chart's data table is reachable by keyboard");
       await keyboardPage.close();
