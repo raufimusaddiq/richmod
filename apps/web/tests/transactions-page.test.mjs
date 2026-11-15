@@ -190,7 +190,7 @@ test("void: a refused or failed request is never reported as success", () => {
   assert.doesNotMatch(review.message, /review endpoint/);
   assert.match(page, /\(actionNotice\.kind === "review" \|\| actionNotice\.inbox\) && <a className="button secondary" href="\/inbox\?view=transactions">Buka Tinjauan<\/a>/);
   const merged = voidFailure(409, { code: "MERGE_TARGET", error: "raw server text" });
-  assert.equal(merged.kind, "error"); assert.notEqual(merged.reload, true, "nothing changed, so no reload");
+  assert.equal(merged.kind, "error"); assert.equal(merged.reload, true, "a stale drawer re-reads so activeMerges and the Pisahkan penggabungan button appear");
   assert.match(merged.message, /penggabungan yang masih aktif/);
   assert.match(merged.message, /Pisahkan penggabungan/, "the refusal points at the drawer action");
   assert.doesNotMatch(merged.message, /raw server text|MERGE_TARGET/);
