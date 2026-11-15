@@ -44,6 +44,7 @@ export const auditActionLabel = {
   CREATE: "Transaksi dibuat",
   CREATE_FROM_BANK_EMAIL: "Dibuat dari email bank",
   UPDATE: "Transaksi diperbarui",
+  UPDATE_DETAILS: "Detail transaksi diubah",
   UPDATE_REVIEW_DETAIL: "Detail tinjauan diperbarui",
   UPDATE_REVIEW_FACTS: "Fakta tinjauan diperbarui",
   RESOLVE_REVIEW: "Tinjauan diselesaikan",

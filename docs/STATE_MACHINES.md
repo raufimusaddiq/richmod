@@ -57,3 +57,39 @@ Screens that load data follow ADR-019's addendum: a `useGuardedLoad` status
 `useDrawerRecord` for drawers, and `useBusyMap` for per-action busy state. A
 reload keeps rendered children mounted; every failed request says so and offers
 a retry.
+
+## Editing a transaction's details
+
+`PATCH /api/v1/transactions/{id}` (session auth, household-scoped, owned by
+`apps/api/internal/ledger/edit.go`) lets the household file an existing
+transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
+
+- **Editable:** `categoryId` (UUID or `null`), `accountId` (UUID or `null`),
+  `description` (required, max 500), `note` (max 2000, `null`/empty clears).
+- **Locked (400 `LOCKED_FIELD`):** amount, transaction time, type, currency,
+  status, purpose, related wealth account, merchant, evidence. Correcting these
+  stays void + re-create so evidence integrity is preserved. Any other field is
+  400 `UNKNOWN_FIELD`; an empty body is 400 `EMPTY_EDIT`.
+- **Preconditions:** `If-Match: <updatedAt>` from the last read is required
+  (428 `IF_MATCH_REQUIRED` if absent). A stale value is 409 `STALE_EDIT`; the row
+  is locked `FOR UPDATE`, so two concurrent edits cannot both win.
+- **Status:** allowed on `PENDING`, `NEEDS_REVIEW`, `CONFIRMED`; `VOIDED` is
+  409 `TRANSACTION_VOIDED`. Another household's transaction is 404.
+- **Review boundary (deterministic reject, no bypass):** while the transaction
+  has an `OPEN` or `PENDING_SEND` review item the edit is 409 `REVIEW_OPEN`
+  ("selesaikan tinjauan dulu"); the review resolution path owns those facts.
+  A `TRANSFER` keeps its source account and has no category, so `categoryId` and
+  `accountId` on a transfer are 409 `TRANSFER_FIELD_LOCKED`; its description and
+  note remain editable.
+- **Validation:** category and account must belong to the household and be
+  active (400 `INVALID_CATEGORY` / `INVALID_ACCOUNT`). Categories carry no
+  income/expense kind in the schema, so no type filter applies beyond the
+  transfer rule above.
+- **Audit:** a change writes exactly one `audit_log` row, action
+  `UPDATE_DETAILS`, whose `before_json`/`after_json` hold only the changed
+  fields. A no-op edit writes nothing and leaves `updated_at` untouched.
+- **Derived data:** analytics read the ledger live (no materialised category
+  aggregates). Changing `accountId` re-runs `RefreshOpenCycleResiduals` in the
+  same database transaction because open-cycle residuals depend on the account.
+- **Errors** return `{"error": "...", "code": "..."}`; the web app maps `code`
+  to Indonesian copy and never shows the English text. No schema change.

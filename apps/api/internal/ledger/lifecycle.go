@@ -39,6 +39,7 @@ type transactionView struct {
 	WealthAccountName      *string    `json:"wealthAccountName"`
 	ConfirmedAt            *time.Time `json:"confirmedAt"`
 	VoidedAt               *time.Time `json:"voidedAt"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +56,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,
 		       t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,
-		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name
+		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at
 		FROM transaction t
 		LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id
 		LEFT JOIN category c ON c.id=t.category_id
@@ -88,7 +89,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	out := make([]transactionView, 0, filters.Limit)
 	for rows.Next() {
 		var v transactionView
-		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName); err != nil {
+		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 			return
 		}
@@ -334,7 +335,7 @@ func (h *Handler) Audit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) load(ctx context.Context, household, id string) (transactionView, error) {
 	var v transactionView
-	err := h.pool.QueryRow(ctx, `SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name FROM transaction t LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id LEFT JOIN category c ON c.id=t.category_id LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN account a ON a.id=t.account_id LEFT JOIN "user" u ON u.id=t.created_by_user_id LEFT JOIN LATERAL (SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1) e ON true WHERE t.id=$1 AND t.household_id=$2`, id, household).Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName)
+	err := h.pool.QueryRow(ctx, `SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at FROM transaction t LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id LEFT JOIN category c ON c.id=t.category_id LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN account a ON a.id=t.account_id LEFT JOIN "user" u ON u.id=t.created_by_user_id LEFT JOIN LATERAL (SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1) e ON true WHERE t.id=$1 AND t.household_id=$2`, id, household).Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt)
 	return v, err
 }
 func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {

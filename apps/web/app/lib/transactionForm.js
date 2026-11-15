@@ -70,3 +70,56 @@ export function trapTarget(items, active, shift, container = null) {
   if (!shift && (active === last || !items.includes(active))) return first;
   return null;
 }
+
+// ---- Edit existing transaction (PATCH /api/v1/transactions/{id}) ----
+
+// Statuses the API accepts for an edit; VOIDED is final.
+export function canEditTransaction(transaction) {
+  return Boolean(transaction?.id) && ["PENDING", "NEEDS_REVIEW", "CONFIRMED"].includes(transaction.status);
+}
+
+// Transfers keep their account and have no category; only text fields move.
+export function editableFields(transaction) {
+  const transfer = transaction?.type === "TRANSFER";
+  return { category: !transfer, account: !transfer, description: true, note: true };
+}
+
+export function editFormErrors(values) {
+  const errors = {};
+  const description = String(values.description || "").trim();
+  if (!description) errors.description = "Deskripsi wajib diisi.";
+  else if (description.length > 500) errors.description = "Deskripsi maksimal 500 karakter.";
+  if (String(values.note || "").trim().length > 2000) errors.note = "Catatan maksimal 2000 karakter.";
+  return errors;
+}
+
+// Body for PATCH: only fields the household may change, "" -> null to clear.
+export function editPayload(transaction, values) {
+  const fields = editableFields(transaction), body = {};
+  if (fields.category) body.categoryId = values.categoryId || null;
+  if (fields.account) body.accountId = values.accountId || null;
+  body.description = String(values.description || "").trim();
+  body.note = String(values.note || "").trim() || null;
+  return body;
+}
+
+// Never show API text: map the stable error code (then the status) to Indonesian.
+export function editErrorMessage(status, body = {}) {
+  switch (body?.code) {
+    case "REVIEW_OPEN": return "Transaksi ini masih menunggu tinjauan. Selesaikan tinjauan dulu.";
+    case "STALE_EDIT": return "Transaksi sudah berubah. Muat ulang detail lalu coba lagi.";
+    case "TRANSACTION_VOIDED": return "Transaksi yang dibatalkan tidak bisa diubah.";
+    case "TRANSFER_FIELD_LOCKED": return "Kategori dan akun transfer tidak bisa diubah.";
+    case "INVALID_CATEGORY": return "Kategori tidak valid atau tidak aktif. Pilih kategori lain.";
+    case "INVALID_ACCOUNT": return "Akun tidak valid atau tidak aktif. Pilih akun lain.";
+    case "NOT_FOUND": return "Transaksi tidak ditemukan.";
+    case "LOCKED_FIELD": case "UNKNOWN_FIELD": case "INVALID_FIELD": case "EMPTY_EDIT": case "INVALID_REQUEST":
+      return "Perubahan belum valid. Periksa isian lalu coba lagi.";
+    default:
+  }
+  if (status === 401 || status === 403) return "Sesi berakhir atau akses ditolak. Masuk kembali.";
+  if (status === 404) return "Transaksi tidak ditemukan.";
+  if (status === 409) return "Transaksi tidak bisa diubah saat ini. Muat ulang lalu coba lagi.";
+  if (status >= 500) return "Perubahan belum dapat disimpan. Coba lagi.";
+  return "Perubahan belum dapat disimpan. Periksa isian lalu coba lagi.";
+}
