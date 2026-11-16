@@ -436,5 +436,5 @@ test("N7/N9: drawer trap reaches <summary> and skips unrendered controls; docume
 test("inbox tabs: touch devices get the 44px target without changing the shared desktop rule", () => {
   const sheet = css();
   assert.match(sheet, /\.inbox-tabs button, \.admin-tabs button, \.range-controls button \{ min-height: 34px;/, "desktop keeps the compact tab height");
-  assert.match(sheet, /@media \(pointer: coarse\) \{\s*\.inbox-tabs button \{ min-height: 44px; \}\s*\}/, "inbox tabs reach 44px on coarse pointers");
+  assert.match(sheet, /@media \(pointer: coarse\) \{\s*\.inbox-tabs button, \.admin-tabs button, \.range-controls button \{ min-height: 44px; \}\s*\}/, "inbox, admin and range tabs reach 44px on coarse pointers");
 });
