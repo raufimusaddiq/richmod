@@ -75,294 +75,316 @@ type productAggregate struct {
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
 	aggregate := productAggregate{WindowDays: 30, CEUBinding: map[string]int{}, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
 
-	// Reviewed events use the same cohort as the processing states, which keeps the human-touch ratio bounded by 1.
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*),
-		 count(*) FILTER (WHERE processing_status='PROCESSED'),
-		 count(*) FILTER (WHERE processing_status='IGNORED'),
-		 count(*) FILTER (WHERE processing_status='NEEDS_REVIEW'),
-		 count(DISTINCT se.id) FILTER (WHERE EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id=se.id))
-		FROM source_event se
-		WHERE se.household_id=$1 AND se.received_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.SourceEvents, &aggregate.Processed, &aggregate.Ignored, &aggregate.NeedsReview, &aggregate.ReviewedEvents); err != nil {
-		return aggregate, err
-	}
+	// Every read below is independent, so they run concurrently: the aggregate
+	// costs one round trip instead of ~19. Derived rates are computed after.
+	var boundedChoicesPerEventSum float64
+	var telemetryHistoryComplete bool
 
-	rows, err := h.pool.Query(ctx, `
-		SELECT source_type, count(*)
-		FROM source_event
-		WHERE household_id=$1 AND received_at >= now() - interval '30 days'
-		GROUP BY source_type`, householdID)
-	if err != nil {
-		return aggregate, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var sourceType string
-		var count int
-		if err := rows.Scan(&sourceType, &count); err != nil {
-			return aggregate, err
-		}
-		aggregate.BySource[sourceType] = count
-	}
-	if err := rows.Err(); err != nil {
-		return aggregate, err
-	}
-
-	// Reviews with no source event (legacy/proposal-scoped) group as "unattributed" rather than being dropped.
-	reviewRows, err := h.pool.Query(ctx, `
-		SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*)
-		FROM review_item ri
-		LEFT JOIN source_event se ON se.id=ri.source_event_id
-		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
-		GROUP BY 1`, householdID)
-	if err != nil {
-		return aggregate, err
-	}
-	defer reviewRows.Close()
-	for reviewRows.Next() {
-		var sourceType string
-		var count int
-		if err := reviewRows.Scan(&sourceType, &count); err != nil {
-			return aggregate, err
-		}
-		aggregate.ReviewBySource[sourceType] = count
-	}
-	if err := reviewRows.Err(); err != nil {
-		return aggregate, err
-	}
-
-	reasonRows, err := h.pool.Query(ctx, `
-		SELECT review_type, count(*)
-		FROM review_item
-		WHERE household_id=$1 AND created_at >= now() - interval '30 days'
-		GROUP BY review_type`, householdID)
-	if err != nil {
-		return aggregate, err
-	}
-	defer reasonRows.Close()
-	for reasonRows.Next() {
-		var reviewType string
-		var count int
-		if err := reasonRows.Scan(&reviewType, &count); err != nil {
-			return aggregate, err
-		}
-		aggregate.ReviewByReason[reviewType] = count
-	}
-	if err := reasonRows.Err(); err != nil {
-		return aggregate, err
-	}
+	err := runProbes(ctx,
+		// Reviewed events use the same cohort as the processing states, which keeps the human-touch ratio bounded by 1.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT count(*),
+				 count(*) FILTER (WHERE processing_status='PROCESSED'),
+				 count(*) FILTER (WHERE processing_status='IGNORED'),
+				 count(*) FILTER (WHERE processing_status='NEEDS_REVIEW'),
+				 count(DISTINCT se.id) FILTER (WHERE EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id=se.id))
+				FROM source_event se
+				WHERE se.household_id=$1 AND se.received_at >= now() - interval '30 days'`, householdID).
+				Scan(&aggregate.SourceEvents, &aggregate.Processed, &aggregate.Ignored, &aggregate.NeedsReview, &aggregate.ReviewedEvents)
+		},
+		func(ctx context.Context) error {
+			rows, err := h.pool.Query(ctx, `
+				SELECT source_type, count(*)
+				FROM source_event
+				WHERE household_id=$1 AND received_at >= now() - interval '30 days'
+				GROUP BY source_type`, householdID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var sourceType string
+				var count int
+				if err := rows.Scan(&sourceType, &count); err != nil {
+					return err
+				}
+				aggregate.BySource[sourceType] = count
+			}
+			return rows.Err()
+		},
+		// Reviews with no source event (legacy/proposal-scoped) group as "unattributed" rather than being dropped.
+		func(ctx context.Context) error {
+			rows, err := h.pool.Query(ctx, `
+				SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*)
+				FROM review_item ri
+				LEFT JOIN source_event se ON se.id=ri.source_event_id
+				WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
+				GROUP BY 1`, householdID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var sourceType string
+				var count int
+				if err := rows.Scan(&sourceType, &count); err != nil {
+					return err
+				}
+				aggregate.ReviewBySource[sourceType] = count
+			}
+			return rows.Err()
+		},
+		func(ctx context.Context) error {
+			rows, err := h.pool.Query(ctx, `
+				SELECT review_type, count(*)
+				FROM review_item
+				WHERE household_id=$1 AND created_at >= now() - interval '30 days'
+				GROUP BY review_type`, householdID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var reviewType string
+				var count int
+				if err := rows.Scan(&reviewType, &count); err != nil {
+					return err
+				}
+				aggregate.ReviewByReason[reviewType] = count
+			}
+			return rows.Err()
+		},
+		// Only populated ReviewDecision contracts support the known-fact re-ask
+		// metric; historical null decisions are excluded from its denominator.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT count(*), count(*) FILTER (WHERE EXISTS (
+					SELECT 1 FROM jsonb_array_elements_text(coalesce(ri.decision->'missingFacts','[]'::jsonb)) AS missing(fact)
+					WHERE ri.decision->'knownFacts' ? missing.fact
+					  AND ri.decision->'knownFacts'->missing.fact <> 'null'::jsonb
+				)) FROM review_item ri
+				WHERE ri.household_id=$1 AND ri.created_at >= now()-interval '30 days'
+				  AND jsonb_typeof(ri.decision->'missingFacts')='array'`, householdID).
+				Scan(&aggregate.ReviewsWithDecision, &aggregate.KnownFactReasks)
+		},
+		// Only bounded validation reviews with explicit entry provenance are eligible; conflicts, canonical ambiguity and human policy are excluded.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				WITH reviews AS (
+				  SELECT decision,
+				    jsonb_typeof(decision#>'{decisionProvenance,accepted_dimensions_at_validation}')='array'
+				      AND jsonb_typeof(decision->'affectedFacts')='array'
+				      AND jsonb_typeof(decision->'missingFacts')='array'
+				      AND decision->>'validationConsequence' IN ('BOUNDED_RESIDUAL','REPRESENTATION_INVALID') AS eligible
+				  FROM review_item WHERE household_id=$1 AND created_at>=now()-interval '30 days'
+				    AND (decision->>'decisionClass'='EVIDENCE_GAP' OR decision IS NULL)
+				)
+				SELECT count(*) FILTER (WHERE eligible),
+				  count(*) FILTER (WHERE eligible AND EXISTS (
+				    SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(decision->'affectedFacts')='array' THEN decision->'affectedFacts' ELSE '[]'::jsonb END) a(fact)
+				    WHERE decision->'missingFacts' ? a.fact
+				      AND decision#>'{decisionProvenance,accepted_dimensions_at_validation}' ? a.fact
+				  )),
+				  count(*) FILTER (WHERE NOT COALESCE(eligible,false))
+				FROM reviews`, householdID).Scan(&aggregate.ValidatorEligibleReviews, &aggregate.ValidatorInducedReviews, &aggregate.ValidatorUnknownReviews)
+		},
+		// A NULL accepted set is historical/unknown; '{}' is explicitly empty.
+		// Evidence-support and same-event identity checks are not semantic re-decisions.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL),
+				  count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL AND accepted_dimensions_at_entry && answered_dimensions),
+				  count(*) FILTER (WHERE accepted_dimensions_at_entry IS NULL)
+				FROM intelligence_phase_telemetry
+				WHERE household_id=$1 AND created_at>=now()-interval '30 days'
+				  AND capability='JEV' AND outcome='SUCCEEDED' AND cardinality(answered_dimensions)>0
+				  AND purpose<>'EVIDENCE_SUPPORT'
+				  AND NOT (purpose='OTHER_BOUNDED' AND semantic_dimensions<@ARRAY['same_real_event']::text[])`, householdID).
+				Scan(&aggregate.SemanticEligiblePhases, &aggregate.SemanticReDecisions, &aggregate.SemanticUnknownPhases)
+		},
+		// Fidelity is a property of the stored contract, not semantic ground truth: only complete ReviewDecision contracts enter the denominator.
+		// Changed fields come from review-turn telemetry, not raw resolution values.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				WITH contracts AS (
+				  SELECT ri.id,ri.review_type,ri.status,ri.resolution_action,ri.decision,
+				    jsonb_typeof(ri.decision->'knownFacts')='object'
+				      AND jsonb_typeof(ri.decision->'missingFacts')='array'
+				      AND COALESCE(ri.decision->>'reasonCode','')<>''
+				      AND COALESCE(ri.decision->>'decisionClass','')<>''
+				      AND COALESCE(ri.decision->>'whyNotAutoConfirm','')<>'' AS eligible
+				  FROM review_item ri WHERE ri.household_id=$1 AND ri.created_at>=now()-interval '30 days'
+				), scored AS (
+				 SELECT eligible,
+				   COALESCE(eligible,false) AND (
+				     EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(decision->'missingFacts')='array' THEN decision->'missingFacts' ELSE '[]'::jsonb END) m(fact)
+				       WHERE decision->'knownFacts' ? m.fact AND decision->'knownFacts'->m.fact <> 'null'::jsonb)
+				     OR (decision->>'validationConsequence'='QUALITY_SIGNAL' AND jsonb_array_length(CASE WHEN jsonb_typeof(decision->'missingFacts')='array' THEN decision->'missingFacts' ELSE '[]'::jsonb END)>0)
+				     OR (resolution_action IN ('SET_PAY_DATE','SET_TRANSACTION_DATE') AND NOT (decision->'missingFacts' ? 'transaction_at'))
+				     OR (resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' AND NOT (decision->'missingFacts' ?| ARRAY['funding_account','wealth_account']))
+				     OR (review_type<>'MANUAL_CORRECTION' AND COALESCE(resolution_action,'') NOT IN ('EDIT','CORRECT')
+				       AND EXISTS (SELECT 1 FROM product_telemetry_event e CROSS JOIN LATERAL unnest(e.changed_fields) f(field)
+				         WHERE e.review_item_id=contracts.id AND e.event_type='REVIEW_TURN'
+				           AND NOT (decision->'missingFacts' ? CASE f.field WHEN 'amount_idr' THEN 'amount' WHEN 'account' THEN 'funding_account' ELSE f.field END)))
+				   ) AS violation FROM contracts
+				)
+				SELECT count(*) FILTER (WHERE eligible),count(*) FILTER (WHERE violation),
+				  count(*) FILTER (WHERE NOT COALESCE(eligible,false)) FROM scored`, householdID).
+				Scan(&aggregate.ResidualEligibleReviews, &aggregate.ResidualViolations, &aggregate.ResidualUnknownReviews)
+		},
+		// Derived from canonical state plus append-only review-turn telemetry. RHICE counts each supplied field or bounded choice;
+		// values merged from known server state and residual allocation (review metadata) are excluded.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				WITH recent_transactions AS (
+				  SELECT id FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'
+				), stale_transactions AS (
+				  SELECT DISTINCT transaction_id FROM review_item
+				  WHERE household_id=$1 AND transaction_id IS NOT NULL AND status='RESOLVED'
+				    AND resolved_at < now() - interval '30 days'
+				), review_events AS (
+				  SELECT DISTINCT ri.id,ri.resolution_action
+				  FROM review_item ri
+			  JOIN recent_transactions t ON ri.transaction_id=t.id
+			    OR (ri.resolution_action='MERGE_REVIEW' AND ri.resolution_values->>'transaction_id'=t.id::text)
+			    OR EXISTS (
+				    SELECT 1 FROM transaction_evidence te
+				    WHERE te.transaction_id=t.id AND (
+				      (ri.financial_email_observation_id IS NOT NULL AND EXISTS (SELECT 1 FROM financial_email_observation feo WHERE feo.id=ri.financial_email_observation_id AND feo.transaction_id=t.id))
+				      OR (ri.wealth_observation_id IS NOT NULL AND te.metadata_json->>'observation_id'=ri.wealth_observation_id::text)
+				      OR (ri.financial_email_observation_id IS NULL AND te.source_event_id=COALESCE(
+				        ri.source_event_id,
+				        (SELECT source_event_id FROM transaction_proposal WHERE id=ri.proposal_id),
+				        (SELECT source_event_id FROM document WHERE id=ri.document_id)))
+				    )
+				  )
+				  WHERE ri.household_id=$1 AND ri.status='RESOLVED' AND ri.resolved_at >= now() - interval '30 days'
+				    AND (ri.transaction_id IS NULL OR ri.transaction_id NOT IN (SELECT transaction_id FROM stale_transactions))
+				), human_turns AS (
+				  SELECT COALESCE(sum(cardinality(e.changed_fields)+e.bounded_choices),0) AS inputs,
+				         COALESCE(sum(cardinality(e.changed_fields)),0) AS typed_fields
+				  FROM product_telemetry_event e
+				  JOIN review_events re ON re.id=e.review_item_id
+				  WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN' AND e.occurred_at >= now() - interval '30 days'
+				    AND e.action NOT IN ('IGNORE','EMAIL_RECEIVED_AT_FALLBACK','RECONCILED_TERMINAL_TRANSACTION','LEGACY_TRANSACTION_RESOLVED','NO_LONGER_APPLICABLE')
+				)
+				SELECT
+				 (SELECT inputs FROM human_turns),
+				 (SELECT typed_fields FROM human_turns),
+				 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
+				 count(*) FILTER (WHERE resolution_action IN (
+				   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
+				FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit)
+		},
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT count(*) FROM transaction
+				WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents)
+		},
+		// Open-to-resolve time reads review_item, not review_request, so every review type counts.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT COALESCE(avg(EXTRACT(EPOCH FROM (ri.resolved_at - ri.created_at)) * 1000)::bigint, 0)
+				FROM review_item ri
+				WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days' AND ri.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs)
+		},
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT count(*) FILTER (WHERE event_type='REVIEW_TURN'),COALESCE(sum(bounded_choices) FILTER (WHERE event_type='REVIEW_TURN'),0)
+				FROM product_telemetry_event WHERE household_id=$1 AND occurred_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ReviewRoundTrips, &aggregate.BoundedChoices)
+		},
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT COALESCE(sum(e.bounded_choices),0)
+				FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
+				WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN'
+				  AND t.status='CONFIRMED' AND t.created_at >= now()-interval '30 days'`, householdID).Scan(&boundedChoicesPerEventSum)
+		},
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `
+				SELECT count(DISTINCT e.transaction_id)
+				FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
+				WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.AutoConfirmCorrections)
+		},
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND auto_confirmed_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.AutoConfirmEvents)
+		},
+		func(ctx context.Context) error {
+			rows, err := h.pool.Query(ctx, `SELECT action,count(*) FROM product_telemetry_event WHERE household_id=$1 AND event_type='CEU_BINDING' AND occurred_at >= now()-interval '30 days' GROUP BY action`, householdID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var key string
+				var count int
+				if err := rows.Scan(&key, &count); err != nil {
+					return err
+				}
+				aggregate.CEUBinding[key] = count
+			}
+			return rows.Err()
+		},
+		func(ctx context.Context) error {
+			rows, err := h.pool.Query(ctx, `SELECT field,count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id CROSS JOIN LATERAL unnest(e.changed_fields) AS changed(field) WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY field`, householdID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var key string
+				var count int
+				if err := rows.Scan(&key, &count); err != nil {
+					return err
+				}
+				aggregate.AutoConfirmCorrectionFields[key] = count
+			}
+			return rows.Err()
+		},
+		func(ctx context.Context) error {
+			rows, err := h.pool.Query(ctx, `SELECT COALESCE(e.source_type,'unknown'),count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY 1`, householdID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var key string
+				var count int
+				if err := rows.Scan(&key, &count); err != nil {
+					return err
+				}
+				aggregate.AutoConfirmCorrectionSource[key] = count
+			}
+			return rows.Err()
+		},
+		// Pre-migration history cannot be reconstructed; keep that gap visible for the first 30 days of telemetry.
+		func(ctx context.Context) error {
+			return h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1`, householdID).Scan(&telemetryHistoryComplete)
+		},
+	)
 
 	if aggregate.SourceEvents > 0 {
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
-	// Only populated ReviewDecision contracts support the known-fact re-ask
-	// metric; historical null decisions are excluded from its denominator.
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*), count(*) FILTER (WHERE EXISTS (
-			SELECT 1 FROM jsonb_array_elements_text(coalesce(ri.decision->'missingFacts','[]'::jsonb)) AS missing(fact)
-			WHERE ri.decision->'knownFacts' ? missing.fact
-			  AND ri.decision->'knownFacts'->missing.fact <> 'null'::jsonb
-		)) FROM review_item ri
-		WHERE ri.household_id=$1 AND ri.created_at >= now()-interval '30 days'
-		  AND jsonb_typeof(ri.decision->'missingFacts')='array'`, householdID).
-		Scan(&aggregate.ReviewsWithDecision, &aggregate.KnownFactReasks); err != nil {
-		return aggregate, err
-	}
 	if aggregate.ReviewsWithDecision > 0 {
 		aggregate.KnownFactReaskRate = float64(aggregate.KnownFactReasks) / float64(aggregate.ReviewsWithDecision)
-	}
-	// Only bounded validation reviews with explicit entry provenance are eligible; conflicts, canonical ambiguity and human policy are excluded.
-	if err := h.pool.QueryRow(ctx, `
-		WITH reviews AS (
-		  SELECT decision,
-		    jsonb_typeof(decision#>'{decisionProvenance,accepted_dimensions_at_validation}')='array'
-		      AND jsonb_typeof(decision->'affectedFacts')='array'
-		      AND jsonb_typeof(decision->'missingFacts')='array'
-		      AND decision->>'validationConsequence' IN ('BOUNDED_RESIDUAL','REPRESENTATION_INVALID') AS eligible
-		  FROM review_item WHERE household_id=$1 AND created_at>=now()-interval '30 days'
-		    AND (decision->>'decisionClass'='EVIDENCE_GAP' OR decision IS NULL)
-		)
-		SELECT count(*) FILTER (WHERE eligible),
-		  count(*) FILTER (WHERE eligible AND EXISTS (
-		    SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(decision->'affectedFacts')='array' THEN decision->'affectedFacts' ELSE '[]'::jsonb END) a(fact)
-		    WHERE decision->'missingFacts' ? a.fact
-		      AND decision#>'{decisionProvenance,accepted_dimensions_at_validation}' ? a.fact
-		  )),
-		  count(*) FILTER (WHERE NOT COALESCE(eligible,false))
-		FROM reviews`, householdID).Scan(&aggregate.ValidatorEligibleReviews, &aggregate.ValidatorInducedReviews, &aggregate.ValidatorUnknownReviews); err != nil {
-		return aggregate, err
 	}
 	if aggregate.ValidatorEligibleReviews > 0 {
 		aggregate.ValidatorInducedRate = float64(aggregate.ValidatorInducedReviews) / float64(aggregate.ValidatorEligibleReviews)
 	}
-	// A NULL accepted set is historical/unknown; '{}' is explicitly empty.
-	// Evidence-support and same-event identity checks are not semantic re-decisions.
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL),
-		  count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL AND accepted_dimensions_at_entry && answered_dimensions),
-		  count(*) FILTER (WHERE accepted_dimensions_at_entry IS NULL)
-		FROM intelligence_phase_telemetry
-		WHERE household_id=$1 AND created_at>=now()-interval '30 days'
-		  AND capability='JEV' AND outcome='SUCCEEDED' AND cardinality(answered_dimensions)>0
-		  AND purpose<>'EVIDENCE_SUPPORT'
-		  AND NOT (purpose='OTHER_BOUNDED' AND semantic_dimensions<@ARRAY['same_real_event']::text[])`, householdID).
-		Scan(&aggregate.SemanticEligiblePhases, &aggregate.SemanticReDecisions, &aggregate.SemanticUnknownPhases); err != nil {
-		return aggregate, err
-	}
 	if aggregate.SemanticEligiblePhases > 0 {
 		aggregate.SemanticReDecisionRate = float64(aggregate.SemanticReDecisions) / float64(aggregate.SemanticEligiblePhases)
-	}
-	// Fidelity is a property of the stored contract, not semantic ground truth: only complete ReviewDecision contracts enter the denominator.
-	// Changed fields come from review-turn telemetry, not raw resolution values.
-	if err := h.pool.QueryRow(ctx, `
-		WITH contracts AS (
-		  SELECT ri.id,ri.review_type,ri.status,ri.resolution_action,ri.decision,
-		    jsonb_typeof(ri.decision->'knownFacts')='object'
-		      AND jsonb_typeof(ri.decision->'missingFacts')='array'
-		      AND COALESCE(ri.decision->>'reasonCode','')<>''
-		      AND COALESCE(ri.decision->>'decisionClass','')<>''
-		      AND COALESCE(ri.decision->>'whyNotAutoConfirm','')<>'' AS eligible
-		  FROM review_item ri WHERE ri.household_id=$1 AND ri.created_at>=now()-interval '30 days'
-		), scored AS (
-		 SELECT eligible,
-		   COALESCE(eligible,false) AND (
-		     EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(decision->'missingFacts')='array' THEN decision->'missingFacts' ELSE '[]'::jsonb END) m(fact)
-		       WHERE decision->'knownFacts' ? m.fact AND decision->'knownFacts'->m.fact <> 'null'::jsonb)
-		     OR (decision->>'validationConsequence'='QUALITY_SIGNAL' AND jsonb_array_length(CASE WHEN jsonb_typeof(decision->'missingFacts')='array' THEN decision->'missingFacts' ELSE '[]'::jsonb END)>0)
-		     OR (resolution_action IN ('SET_PAY_DATE','SET_TRANSACTION_DATE') AND NOT (decision->'missingFacts' ? 'transaction_at'))
-		     OR (resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' AND NOT (decision->'missingFacts' ?| ARRAY['funding_account','wealth_account']))
-		     OR (review_type<>'MANUAL_CORRECTION' AND COALESCE(resolution_action,'') NOT IN ('EDIT','CORRECT')
-		       AND EXISTS (SELECT 1 FROM product_telemetry_event e CROSS JOIN LATERAL unnest(e.changed_fields) f(field)
-		         WHERE e.review_item_id=contracts.id AND e.event_type='REVIEW_TURN'
-		           AND NOT (decision->'missingFacts' ? CASE f.field WHEN 'amount_idr' THEN 'amount' WHEN 'account' THEN 'funding_account' ELSE f.field END)))
-		   ) AS violation FROM contracts
-		)
-		SELECT count(*) FILTER (WHERE eligible),count(*) FILTER (WHERE violation),
-		  count(*) FILTER (WHERE NOT COALESCE(eligible,false)) FROM scored`, householdID).
-		Scan(&aggregate.ResidualEligibleReviews, &aggregate.ResidualViolations, &aggregate.ResidualUnknownReviews); err != nil {
-		return aggregate, err
 	}
 	if aggregate.ResidualEligibleReviews > 0 {
 		aggregate.ResidualFidelityRate = float64(aggregate.ResidualEligibleReviews-aggregate.ResidualViolations) / float64(aggregate.ResidualEligibleReviews)
 	}
-
-	// Derived from canonical state plus append-only review-turn telemetry. RHICE counts each supplied field or bounded choice;
-	// values merged from known server state and residual allocation (review metadata) are excluded.
-	if err := h.pool.QueryRow(ctx, `
-		WITH recent_transactions AS (
-		  SELECT id FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'
-		), stale_transactions AS (
-		  SELECT DISTINCT transaction_id FROM review_item
-		  WHERE household_id=$1 AND transaction_id IS NOT NULL AND status='RESOLVED'
-		    AND resolved_at < now() - interval '30 days'
-		), review_events AS (
-		  SELECT DISTINCT ri.id,ri.resolution_action
-		  FROM review_item ri
-	  JOIN recent_transactions t ON ri.transaction_id=t.id
-	    OR (ri.resolution_action='MERGE_REVIEW' AND ri.resolution_values->>'transaction_id'=t.id::text)
-	    OR EXISTS (
-		    SELECT 1 FROM transaction_evidence te
-		    WHERE te.transaction_id=t.id AND (
-		      (ri.financial_email_observation_id IS NOT NULL AND EXISTS (SELECT 1 FROM financial_email_observation feo WHERE feo.id=ri.financial_email_observation_id AND feo.transaction_id=t.id))
-		      OR (ri.wealth_observation_id IS NOT NULL AND te.metadata_json->>'observation_id'=ri.wealth_observation_id::text)
-		      OR (ri.financial_email_observation_id IS NULL AND te.source_event_id=COALESCE(
-		        ri.source_event_id,
-		        (SELECT source_event_id FROM transaction_proposal WHERE id=ri.proposal_id),
-		        (SELECT source_event_id FROM document WHERE id=ri.document_id)))
-		    )
-		  )
-		  WHERE ri.household_id=$1 AND ri.status='RESOLVED' AND ri.resolved_at >= now() - interval '30 days'
-		    AND (ri.transaction_id IS NULL OR ri.transaction_id NOT IN (SELECT transaction_id FROM stale_transactions))
-		), human_turns AS (
-		  SELECT COALESCE(sum(cardinality(e.changed_fields)+e.bounded_choices),0) AS inputs,
-		         COALESCE(sum(cardinality(e.changed_fields)),0) AS typed_fields
-		  FROM product_telemetry_event e
-		  JOIN review_events re ON re.id=e.review_item_id
-		  WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN' AND e.occurred_at >= now() - interval '30 days'
-		    AND e.action NOT IN ('IGNORE','EMAIL_RECEIVED_AT_FALLBACK','RECONCILED_TERMINAL_TRANSACTION','LEGACY_TRANSACTION_RESOLVED','NO_LONGER_APPLICABLE')
-		)
-		SELECT
-		 (SELECT inputs FROM human_turns),
-		 (SELECT typed_fields FROM human_turns),
-		 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
-		 count(*) FILTER (WHERE resolution_action IN (
-		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
-		FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
-		return aggregate, err
-	}
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*) FROM transaction
-		WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
-		return aggregate, err
-	}
 	if aggregate.CanonicalEvents > 0 {
 		aggregate.RHICE = float64(aggregate.ExplicitInputs) / float64(aggregate.CanonicalEvents)
-	}
-	// Open-to-resolve time reads review_item, not review_request, so every review type counts.
-	if err := h.pool.QueryRow(ctx, `
-		SELECT COALESCE(avg(EXTRACT(EPOCH FROM (ri.resolved_at - ri.created_at)) * 1000)::bigint, 0)
-		FROM review_item ri
-		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days' AND ri.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs); err != nil {
-		return aggregate, err
-	}
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*) FILTER (WHERE event_type='REVIEW_TURN'),COALESCE(sum(bounded_choices) FILTER (WHERE event_type='REVIEW_TURN'),0)
-		FROM product_telemetry_event WHERE household_id=$1 AND occurred_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ReviewRoundTrips, &aggregate.BoundedChoices); err != nil {
-		return aggregate, err
-	}
-	if aggregate.CanonicalEvents > 0 {
-		if err := h.pool.QueryRow(ctx, `
-			SELECT COALESCE(sum(e.bounded_choices),0)
-			FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
-			WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN'
-			  AND t.status='CONFIRMED' AND t.created_at >= now()-interval '30 days'`, householdID).Scan(&aggregate.BoundedChoicesPerEvent); err != nil {
-			return aggregate, err
-		}
-		aggregate.BoundedChoicesPerEvent /= float64(aggregate.CanonicalEvents)
-	}
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(DISTINCT e.transaction_id)
-		FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
-		WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.AutoConfirmCorrections); err != nil {
-		return aggregate, err
-	}
-	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND auto_confirmed_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.AutoConfirmEvents); err != nil {
-		return aggregate, err
+		aggregate.BoundedChoicesPerEvent = boundedChoicesPerEventSum / float64(aggregate.CanonicalEvents)
 	}
 	if aggregate.AutoConfirmEvents > 0 {
 		aggregate.AutoConfirmCorrectionRate = float64(aggregate.AutoConfirmCorrections) / float64(aggregate.AutoConfirmEvents)
-	}
-	for _, query := range []struct {
-		sql string
-		dst map[string]int
-	}{
-		{`SELECT action,count(*) FROM product_telemetry_event WHERE household_id=$1 AND event_type='CEU_BINDING' AND occurred_at >= now()-interval '30 days' GROUP BY action`, aggregate.CEUBinding},
-		{`SELECT field,count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id CROSS JOIN LATERAL unnest(e.changed_fields) AS changed(field) WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY field`, aggregate.AutoConfirmCorrectionFields},
-		{`SELECT COALESCE(e.source_type,'unknown'),count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY 1`, aggregate.AutoConfirmCorrectionSource},
-	} {
-		rows, err := h.pool.Query(ctx, query.sql, householdID)
-		if err != nil {
-			return aggregate, err
-		}
-		for rows.Next() {
-			var key string
-			var count int
-			if err := rows.Scan(&key, &count); err != nil {
-				rows.Close()
-				return aggregate, err
-			}
-			query.dst[key] = count
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return aggregate, err
-		}
-		rows.Close()
-	}
-	// Pre-migration history cannot be reconstructed; keep that gap visible for the first 30 days of telemetry.
-	var telemetryHistoryComplete bool
-	if err := h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1`, householdID).Scan(&telemetryHistoryComplete); err != nil {
-		return aggregate, err
 	}
 	aggregate.Coverage = []string{}
 	if !telemetryHistoryComplete {
@@ -377,5 +399,5 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if aggregate.ResidualUnknownReviews > 0 {
 		aggregate.CoverageIncomplete = append(aggregate.CoverageIncomplete, "residual_contract_history")
 	}
-	return aggregate, nil
+	return aggregate, err
 }
