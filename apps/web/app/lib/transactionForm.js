@@ -46,19 +46,27 @@ export function normalizeAmount(value) {
   return /^[1-9]\d{0,2}(\.\d{3})+$/.test(text) ? text.replace(/\./g, "") : text;
 }
 
+// The list filters the URL can carry. Both the "Hapus filter" affordance and the
+// mobile "Filter (n)" badge read this one list, so an unknown param (?sort=) neither
+// counts nor flips hasFilters; ?open=, ?id= and the pager params are not filters.
+const FILTER_KEYS = ["q", "from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "merchantId", "cycle", "review"];
+
 export function hasActiveFilters(search) {
   const query = new URLSearchParams(search);
-  for (const key of query.keys()) if (!["limit", "cursor", "id", "open", "record"].includes(key)) return true;
-  return false;
+  return FILTER_KEYS.some(key => query.get(key));
 }
 
-// How many filters the URL carries, for the mobile "Filter" toggle. `id` scopes the
-// ledger to one row and is not a filter the user picked.
+// How many filters the URL carries, for the mobile "Filter" toggle.
 export function activeFilterCount(search) {
   const query = new URLSearchParams(search);
-  let count = 0;
-  for (const key of ["q", "from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "merchantId", "cycle", "review"]) if (query.get(key)) count += 1;
-  return count;
+  return FILTER_KEYS.filter(key => query.get(key)).length;
+}
+
+// The page size actually requested: ?limit= wins over the default. Used for the
+// pager's page/range so a small custom page does not read as a page of 50.
+export function pageSize(search, fallback = 50) {
+  const size = Number.parseInt(new URLSearchParams(search).get("limit") ?? "", 10);
+  return size > 0 ? size : fallback;
 }
 
 // The results heading. A range when more matches exist than rows on screen, else the

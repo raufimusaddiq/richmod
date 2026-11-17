@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
-import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget, activeFilterCount, pageLabel, resultCountLabel } from "../app/lib/transactionForm.js";
+import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget, activeFilterCount, pageLabel, pageSize, resultCountLabel } from "../app/lib/transactionForm.js";
 
 const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
@@ -264,7 +264,7 @@ test("T-30: the results heading shows the real total, not the page size", () => 
   assert.equal(resultCountLabel(0, 0, 0), "0 transaksi");
   assert.equal(pageLabel(50, 50, 50), "Halaman 2 · 51–100");
   assert.equal(pageLabel(0, 0, 50), "");
-  assert.match(page, /role="status" aria-live="polite"><h2>\{resultCountLabel\(total, items\.length, cursorHistory\.length \* PAGE_SIZE\)\}/);
+  assert.match(page, /role="status" aria-live="polite"><h2>\{resultCountLabel\(total, items\.length, cursorHistory\.length \* size\)\}/);
   assert.match(page, /X-Total-Count/);
 });
 
@@ -304,4 +304,39 @@ test("T-30: a row drawer is not an evidence-link scope, so pagination and the fu
 
 test("T-30: resetFilters closes the drawer", () => {
   assert.match(page, /function resetFilters\(\) \{[\s\S]*?drawer\.close\(\);[\s\S]*?load\(""\);/);
+});
+
+test("T-37: paging with the drawer open changes page and closes the drawer", () => {
+  // history.back() would pop the drawer's ?open= entry instead of the previous page.
+  assert.doesNotMatch(page, /window\.history\.back\(\);/);
+  assert.match(page, /async function nextPage\(\)[\s\S]*?query\.delete\("open"\); drawer\.close\(\);/);
+  assert.match(page, /async function previousPage\(\)[\s\S]*?const history = cursorHistory\.slice\(0, -1\)[\s\S]*?query\.delete\("open"\);\s+setCursorHistory\(history\); drawer\.close\(\);/);
+  assert.match(page, /window\.history\.replaceState\(\{ \.\.\.window\.history\.state, cursorHistory: history \}, "", `\/transactions\$\{search\}`\)/);
+});
+
+test("T-37: applying filters collapses the mobile panel and the badge shows the new count", () => {
+  assert.match(page, /setRefreshToken\(token => token \+ 1\); setFiltersOpen\(false\);/);
+  assert.match(page, /aria-expanded=\{filtersOpen\}/);
+  assert.equal(activeFilterCount("?q=grab&type=EXPENSE"), 2);
+});
+
+test("T-37: the page label and range use the ?limit= page size", () => {
+  assert.equal(pageSize("?limit=1"), 1);
+  assert.equal(pageSize("?limit=20"), 20);
+  assert.equal(pageSize(""), 50);
+  assert.equal(pageSize("?limit=0"), 50);
+  assert.equal(pageSize("?limit=abc"), 50);
+  assert.equal(pageLabel(50, 1, pageSize("?limit=1")), "Halaman 51 · 51–51", "a one-row page is page 51, not page 2");
+  assert.match(page, /pageLabel\(cursorHistory\.length \* size, items\.length, size\)/);
+  assert.match(page, /resultCountLabel\(total, items\.length, cursorHistory\.length \* size\)/);
+});
+
+test("T-37: one filter-key list drives the count and hasFilters, unknown params ignored", () => {
+  assert.equal(hasActiveFilters("?sort=x"), false);
+  assert.equal(activeFilterCount("?sort=x"), 0);
+  assert.equal(hasActiveFilters("?open=abc&limit=50&sort=x"), false);
+  for (const key of ["q", "from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "merchantId", "cycle", "review"]) {
+    assert.equal(hasActiveFilters(`?${key}=1`), true, key);
+    assert.equal(activeFilterCount(`?${key}=1`), 1, key);
+  }
 });
