@@ -157,6 +157,12 @@ export function paceTicks(length, step) {
   return ticks;
 }
 
+// A marker in the right half of the axis has no room to the right, so its label
+// anchors to the left of the line; the left half keeps the label to the right.
+export function paceMarkerPosition(day, length) {
+  return day > Math.max(length, 2) / 2 ? "insideTopRight" : "insideTopLeft";
+}
+
 // The visual ceiling of the pace plot: the highest served point of any drawn series or
 // reference. Tick positions only; the values themselves stay served.
 export function paceCeiling({ data = [], levels = [], markers = [], last = null } = {}) {

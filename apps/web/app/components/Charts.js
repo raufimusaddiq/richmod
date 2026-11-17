@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows } from "../lib/chartData";
-import { compactMillions, hasPace, mapPace, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceTicks } from "../lib/cycleLedger";
+import { compactMillions, hasPace, mapPace, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerPosition, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { transactionHref } from "../lib/cycleReview";
 
@@ -91,8 +91,19 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   // a round axis keeps the ticks readable. Curve points are served values, read only for
   // the visual ceiling — never written back into a money figure.
   const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
-  // On a phone the label at the last day has no room to the right, so it sits above the line's left side.
-  const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: "insideTopLeft", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
+  // A marker in the right half has no room to the right, so its label anchors to the
+  // left of the line; the left half keeps the label to the right.
+  const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: paceMarkerPosition(last.day, data.length), fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
+  // End-value labels sit on the same x at the last day; when their values are close,
+  // push the comparison label away from the current one so the two never overlap.
+  const span = axis.domain[1] - axis.domain[0];
+  const closeToLast = value => Math.abs(Number(value) - Number(last.exact)) < span * 0.12;
+  const sameDayLabel = sameDay ? endLabel(sameDay.value, Number(sameDay.value) < Number(last.exact) ? "bottom" : "top") : null;
+  if (sameDayLabel && closeToLast(sameDay.value)) sameDayLabel.dy = Number(sameDay.value) < Number(last.exact) ? 14 : -14;
+  // The previous full-cycle tail is the same point as the same-day marker on a full
+  // cycle; one label is enough.
+  const tailLabel = tail && !(sameDay && tail.day === last.day) ? endLabel(tail.previousExact, "right") : null;
+  if (tailLabel && tail.day === last.day && closeToLast(tail.previousTotal)) tailLabel.dy = Number(tail.previousTotal) < Number(last.exact) ? 14 : -14;
   return <div className="cycle-pace">
     <div className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -105,8 +116,8 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
           {curves.previous && <Line type="linear" dataKey="previousTotal" stroke="var(--line-strong)" strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false}/>}
           {curves.median && <Line type="linear" dataKey="medianTotal" stroke="var(--chart-reference)" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} activeDot={false} isAnimationActive={false}/>}
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}
-          {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2} label={reference === sameDay ? endLabel(reference.value, Number(reference.value) < Number(last.exact) ? "bottom" : "top") : undefined}/>)}
-          {tail && <ReferenceDot x={tail.day} y={Number(tail.previousTotal)} r={0} ifOverflow="extendDomain" label={endLabel(tail.previousExact, "right")}/>}
+          {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2} label={reference === sameDay ? sameDayLabel : undefined}/>)}
+          {tail && <ReferenceDot x={tail.day} y={Number(tail.previousTotal)} r={0} ifOverflow="extendDomain" label={tailLabel}/>}
           <Line type="linear" dataKey="runningTotal" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/>
           <ReferenceDot x={last.day} y={Number(last.exact)} r={4} ifOverflow="extendDomain" fill="var(--chart-expense)" stroke="var(--chart-expense)" label={endLabel(last.exact, "right", "var(--chart-expense)")}/>
         </LineChart>

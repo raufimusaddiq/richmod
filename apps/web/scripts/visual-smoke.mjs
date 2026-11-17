@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { cycleFacts, firstCycleFacts, noSpendingFacts, noWealthFacts } from "../tests/fixtures/cycle-review.mjs";
+import { cycleFacts, firstCycleFacts, fullCycleFacts, noSpendingFacts, noWealthFacts } from "../tests/fixtures/cycle-review.mjs";
 
 const port = process.env.RICHMOD_VISUAL_PORT || "3200";
 const baseURL = process.env.RICHMOD_VISUAL_BASE_URL || `http://127.0.0.1:${port}`;
@@ -103,7 +103,7 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
 // The same synthetic cycle facts as the smoke test; `fewCycles` keeps the last two ledger entries so the page shows the card layout.
 // The empty/partial states are the fixtures the unit tests use, so a screenshot and a test never disagree.
 function cycleReviewFixture(start, scenario) {
-  const facts = scenario.firstCycle ? firstCycleFacts(start) : scenario.noWealth ? noWealthFacts() : scenario.noSpending ? noSpendingFacts() : cycleFacts(start);
+  const facts = scenario.firstCycle ? firstCycleFacts(start) : scenario.fullCycle ? fullCycleFacts(start) : scenario.noWealth ? noWealthFacts() : scenario.noSpending ? noSpendingFacts() : cycleFacts(start);
   if (scenario.fewCycles) {
     facts.history = facts.history.slice(-2);
     const rows = facts.categoryHistory;
@@ -310,6 +310,7 @@ async function run() {
         ["analytics-cycle-first-desktop", "/analytics", { firstCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-nowealth-desktop", "/analytics", { noWealth: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-nospending-desktop", "/analytics", { noSpending: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
+        ["analytics-cycle-full-desktop", "/analytics", { fullCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
       ]) {
         const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
         await intercept(statePage, true, [], scenario);
@@ -345,7 +346,7 @@ async function run() {
       await compareScreenshot(regressionMobile, "analytics-calendar-mobile");
       await regressionMobile.close();
       // Empty and partial states at 390: each one is a fixture and a baseline, and none may scroll sideways.
-      for (const [name, scenario] of [["analytics-cycle-first-mobile", { firstCycle: true }], ["analytics-cycle-nowealth-mobile", { noWealth: true }], ["analytics-cycle-nospending-mobile", { noSpending: true }]]) {
+      for (const [name, scenario] of [["analytics-cycle-first-mobile", { firstCycle: true }], ["analytics-cycle-nowealth-mobile", { noWealth: true }], ["analytics-cycle-nospending-mobile", { noSpending: true }], ["analytics-cycle-full-mobile", { fullCycle: true }]]) {
         const statePage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
