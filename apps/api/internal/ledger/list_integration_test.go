@@ -158,6 +158,26 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if pageTwoResponse.Code != http.StatusOK || json.Unmarshal(pageTwoResponse.Body.Bytes(), &pageTwoItems) != nil || len(pageTwoItems) != 1 || pageTwoItems[0].ID == pageOneItems[0].ID {
 		t.Fatalf("second page status=%d body=%s", pageTwoResponse.Code, pageTwoResponse.Body.String())
 	}
+	// The total is the full match count on every page, not the rows after the cursor.
+	firstTotal := pageOneResponse.Header().Get("X-Total-Count")
+	if got := pageTwoResponse.Header().Get("X-Total-Count"); got != firstTotal {
+		t.Fatalf("total changed on page 2: page1=%q page2=%q", firstTotal, got)
+	}
+	for cursor, pages := pageTwoResponse.Header().Get("X-Next-Cursor"), 0; cursor != ""; pages++ {
+		if pages > 1000 {
+			t.Fatal("cursor did not terminate")
+		}
+		next := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?limit=1&cursor="+cursor, nil).WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+		nextResponse := httptest.NewRecorder()
+		NewHandler(pool).ListTransactions(nextResponse, next)
+		if nextResponse.Code != http.StatusOK {
+			t.Fatalf("later page status=%d body=%s", nextResponse.Code, nextResponse.Body.String())
+		}
+		if got := nextResponse.Header().Get("X-Total-Count"); got != firstTotal {
+			t.Fatalf("total changed on a later page: first=%q got=%q", firstTotal, got)
+		}
+		cursor = nextResponse.Header().Get("X-Next-Cursor")
+	}
 
 	auditRequest := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/"+transactionID+"/audit", nil)
 	auditRequest.SetPathValue("id", transactionID)

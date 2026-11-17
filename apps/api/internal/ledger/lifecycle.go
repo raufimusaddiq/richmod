@@ -74,34 +74,37 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,
-		       t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,
-		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at,
-		       count(*) OVER() AS total
-		FROM transaction t
-		LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id
-		LEFT JOIN category c ON c.id=t.category_id
-		LEFT JOIN merchant m ON m.id=t.merchant_id
-		LEFT JOIN account a ON a.id=t.account_id
-		LEFT JOIN "user" u ON u.id=t.created_by_user_id
-		LEFT JOIN LATERAL (
-			SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id
-			WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1
-		) e ON true
-		WHERE t.household_id=$1
-		  AND ($2::timestamptz IS NULL OR t.transaction_at >= $2)
-		  AND ($3::timestamptz IS NULL OR t.transaction_at < $3)
-		  AND ($4='' OR t.type=$4 OR ($4='SPENDING' AND t.type IN ('EXPENSE','REFUND')))
-		  AND ($5='' OR t.category_id::text=$5 OR ($5='uncategorized' AND t.category_id IS NULL))
-		  AND ($6='' OR t.created_by_user_id::text=$6)
-		  AND ($7='' OR t.status=$7)
-		  AND ($8='' OR t.account_id::text=$8)
-		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND COALESCE(te2.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND s2.source_type=$9))
-		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
-		  AND ($14='' OR t.merchant_id::text=$14 OR ($14='none' AND t.merchant_id IS NULL AND NULLIF(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'),'') IS NULL) OR (t.merchant_id IS NULL AND $14=(SELECT min(a.normalized_merchant_id::text) FROM merchant_alias a WHERE a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g')) HAVING count(DISTINCT a.normalized_merchant_id)=1)))
-		  AND ($15='' OR t.id::text=$15)
-		  AND ($12::timestamptz IS NULL OR (t.transaction_at,t.id) < ($12,NULLIF($13,'')::uuid))
-		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID)
+		WITH filtered AS (
+			SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,
+			       t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,
+			       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at,
+			       count(*) OVER() AS total
+			FROM transaction t
+			LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id
+			LEFT JOIN category c ON c.id=t.category_id
+			LEFT JOIN merchant m ON m.id=t.merchant_id
+			LEFT JOIN account a ON a.id=t.account_id
+			LEFT JOIN "user" u ON u.id=t.created_by_user_id
+			LEFT JOIN LATERAL (
+				SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id
+				WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1
+			) e ON true
+			WHERE t.household_id=$1
+			  AND ($2::timestamptz IS NULL OR t.transaction_at >= $2)
+			  AND ($3::timestamptz IS NULL OR t.transaction_at < $3)
+			  AND ($4='' OR t.type=$4 OR ($4='SPENDING' AND t.type IN ('EXPENSE','REFUND')))
+			  AND ($5='' OR t.category_id::text=$5 OR ($5='uncategorized' AND t.category_id IS NULL))
+			  AND ($6='' OR t.created_by_user_id::text=$6)
+			  AND ($7='' OR t.status=$7)
+			  AND ($8='' OR t.account_id::text=$8)
+			  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND COALESCE(te2.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND s2.source_type=$9))
+			  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
+			  AND ($14='' OR t.merchant_id::text=$14 OR ($14='none' AND t.merchant_id IS NULL AND NULLIF(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'),'') IS NULL) OR (t.merchant_id IS NULL AND $14=(SELECT min(a.normalized_merchant_id::text) FROM merchant_alias a WHERE a.household_id=t.household_id AND lower(regexp_replace(btrim(a.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g')) HAVING count(DISTINCT a.normalized_merchant_id)=1)))
+			  AND ($15='' OR t.id::text=$15)
+		)
+		SELECT * FROM filtered
+		WHERE ($12::timestamptz IS NULL OR (transaction_at,id) < ($12,NULLIF($13,'')::uuid))
+		ORDER BY transaction_at DESC,id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return

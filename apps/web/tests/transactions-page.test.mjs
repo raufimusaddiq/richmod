@@ -258,6 +258,7 @@ test("every transaction audit action written by Go has an Indonesian label", () 
 test("T-30: the results heading shows the real total, not the page size", () => {
   assert.equal(resultCountLabel(120, 50, 0), "1–50 dari 120 transaksi");
   assert.equal(resultCountLabel(120, 50, 50), "51–100 dari 120 transaksi");
+  assert.equal(resultCountLabel(120, 20, 100), "101–120 dari 120 transaksi", "the last page keeps the range, not just its row count");
   assert.equal(resultCountLabel(3, 3, 0), "3 transaksi");
   assert.equal(resultCountLabel(null, 3, 0), "3 transaksi", "no API total falls back to the loaded rows");
   assert.equal(resultCountLabel(0, 0, 0), "0 transaksi");
