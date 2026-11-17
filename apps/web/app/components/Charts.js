@@ -1,7 +1,7 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows } from "../lib/chartData";
+import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
 import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerPosition, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { transactionHref } from "../lib/cycleReview";
@@ -157,13 +157,10 @@ export function CategoryRankingChart({ items, height = 320 }) {
 
 export function NetWorthHistoryChart({ items, height = 260 }) {
   const data = netWorthHistoryRows(items);
+  // Defensive: the wealth page only mounts this with two or more snapshots.
   if (!data.length) return null;
   const max = Math.max(...data.map(row => row.value), 0);
-  const first = data[0];
-  const last = data[data.length - 1];
-  // The label is a money figure, so the maximum stays an exact decimal string.
-  const highest = data.reduce((max, row) => { try { return BigInt(row.raw) > BigInt(max) ? row.raw : max; } catch { return max; } }, first.raw);
-  const summary = `Riwayat kekayaan bersih: ${data.length} catatan, ${first.day} sampai ${last.day}, tertinggi ${money(highest)}, terakhir ${money(last.raw)}`;
+  const summary = netWorthHistorySummary(data);
   return <div className="chart-wrap" role="img" aria-label={summary} style={{ height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip formatter={(_, __, item) => money(item.payload.raw)} contentStyle={defaultTooltipStyle}/><Line type="linear" dataKey="value" stroke="var(--chart-category-2)" strokeWidth={3} dot={{ r: 4, fill: "var(--butter)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow, netWorthHistoryRows } from "../app/lib/chartData.js";
+import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -57,6 +57,27 @@ test("net worth history is oldest first and repeats no date label", () => {
   assert.deepEqual(rows.map(row => row.label), ["8 Sep", "9 Sep", ""]);
   assert.deepEqual(rows.map(row => row.day), ["8 Sep", "9 Sep", "9 Sep"]);
   assert.deepEqual(netWorthHistoryRows([]), []);
+});
+
+test("net worth history keeps the same day in different years and shows the year", () => {
+  const rows = netWorthHistoryRows([
+    { observedAt: "2026-09-09T10:00:00+07:00", netWorthIdr: "200" },
+    { observedAt: "2025-09-09T10:00:00+07:00", netWorthIdr: "100" },
+  ]);
+  assert.deepEqual(rows.map(row => row.label), ["9 Sep 2025", "9 Sep 2026"], "both years keep a label");
+  assert.deepEqual(rows.map(row => row.day), ["9 Sep 2025", "9 Sep 2026"]);
+  const summary = netWorthHistorySummary(rows);
+  assert.match(summary, /9 Sep 2025 sampai 9 Sep 2026/, "the aria range carries both years");
+  assert.match(summary, /tertinggi Rp\s200/, "the maximum stays exact");
+});
+
+test("net worth history omits the year when every snapshot is in one year", () => {
+  const rows = netWorthHistoryRows([
+    { observedAt: "2026-09-09T10:00:00+07:00", netWorthIdr: "200" },
+    { observedAt: "2026-08-09T10:00:00+07:00", netWorthIdr: "100" },
+  ]);
+  assert.deepEqual(rows.map(row => row.day), ["9 Agu", "9 Sep"]);
+  assert.doesNotMatch(netWorthHistorySummary(rows), /2026/);
 });
 
 test("months before the first confirmed transaction are not drawn as blank slots", () => {
