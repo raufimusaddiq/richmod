@@ -88,12 +88,13 @@ a local build.
 CI is the final repository-wide authority. Its `backend`, `frontend` and
 `containers` jobs cover Gitleaks, PostgreSQL-backed API/worker tests, Go vet, web
 build/tests, Compose validation and the Compose/backup/deploy shell tests. The
-`frontend` job builds the static export, runs the web unit tests and uploads the
-export as the short-lived `web-export` artifact; the `frontend-smoke` matrix job
-then runs the two Playwright synthetic smokes (transaction-date, analytics-review)
-in parallel, each downloading that artifact rather than rebuilding, and caches
-the chromium/webkit browsers under a key derived from the locked Playwright
-version (`npx playwright install-deps` still runs on a cache hit). Both smoke legs
+`frontend` job builds the static export and runs the web unit tests. The
+`frontend-smoke` matrix job then runs the two Playwright synthetic smokes
+(transaction-date, analytics-review) as parallel jobs, each rebuilding the static
+export it serves (a shared artifact would need `needs: frontend` and serialise the
+smokes behind the build) and caching the chromium/webkit browsers under a key
+derived from the locked Playwright version (`npx playwright install-deps` still
+runs on a cache hit). Both smoke legs
 are gate-only for Hermes Review today, not required checks. The
 `images` job builds the four production Dockerfiles (api, worker, migrate,
 backup) in parallel with `docker/build-push-action`, each with its own

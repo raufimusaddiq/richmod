@@ -109,16 +109,12 @@ jobs:
       - name: Test web
         working-directory: apps/web
         run: npm test
-      # The smoke jobs serve this static export instead of rebuilding it.
-      - name: Upload web export for smoke jobs
-        uses: actions/upload-artifact@v7
-        with:
-          name: web-export
-          path: apps/web/out
-          if-no-files-found: error
-          retention-days: 1
 
+  # Each leg rebuilds the static export it serves: a shared artifact would need
+  # `needs: frontend` and serialise the smokes behind the build, which costs more
+  # than a parallel `next build`.
   frontend-smoke:
+    name: frontend-smoke (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -142,11 +138,11 @@ jobs:
       - name: Install dependencies
         working-directory: apps/web
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Download web export
-        uses: actions/download-artifact@v7
-        with:
-          name: web-export
-          path: apps/web/out
+      - name: Build web
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
       - name: Resolve Playwright version
         working-directory: apps/web
         id: playwright
