@@ -28,6 +28,8 @@ export function createErrorMessage(status, body = {}) {
 // ledger to that one row on purpose; the list request keeps it.
 export function listSearch(search) {
   const query = new URLSearchParams(search);
+  // ?open= is the drawer, not a list filter; ?id= is an evidence-link scope and stays.
+  query.delete("open");
   if (!query.has("limit")) query.set("limit", "50");
   return `?${query}`;
 }
@@ -46,8 +48,30 @@ export function normalizeAmount(value) {
 
 export function hasActiveFilters(search) {
   const query = new URLSearchParams(search);
-  for (const key of query.keys()) if (!["limit", "cursor", "id", "record"].includes(key)) return true;
+  for (const key of query.keys()) if (!["limit", "cursor", "id", "open", "record"].includes(key)) return true;
   return false;
+}
+
+// How many filters the URL carries, for the mobile "Filter" toggle. `id` scopes the
+// ledger to one row and is not a filter the user picked.
+export function activeFilterCount(search) {
+  const query = new URLSearchParams(search);
+  let count = 0;
+  for (const key of ["q", "from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "merchantId", "cycle", "review"]) if (query.get(key)) count += 1;
+  return count;
+}
+
+// The results heading. A range when more matches exist than rows on screen, else the
+// total; the loaded rows are the honest fallback when the API sends no total.
+export function resultCountLabel(total, shown, offset = 0) {
+  if (!Number.isFinite(total) || total < 0) return `${shown} transaksi`;
+  if (total <= shown) return `${total} transaksi`;
+  return `${offset + 1}–${offset + shown} dari ${total} transaksi`;
+}
+
+// The pager's current page and slice, e.g. "Halaman 2 · 51–100".
+export function pageLabel(offset, shown, size) {
+  return shown ? `Halaman ${Math.floor(offset / size) + 1} · ${offset + 1}–${offset + shown}` : "";
 }
 
 // Inline validation for the add form. Returns {field: message}.

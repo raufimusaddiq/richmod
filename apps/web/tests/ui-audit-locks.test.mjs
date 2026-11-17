@@ -278,7 +278,7 @@ test("loading skeletons say they are loading", () => {
 });
 
 test("transaction filters are inert while their data loads", () => {
-  assert.match(text("app/transactions/page.js"), /<form key=\{filterKey\} className="filter-bar surface" onSubmit=\{filter\} inert=\{loading\}>/);
+  assert.match(text("app/transactions/page.js"), /<form id="transaction-filters" key=\{filterKey\} className=\{`filter-bar surface\$\{filtersOpen \? " is-open" : ""\}`\} onSubmit=\{filter\} inert=\{loading\}>/);
 });
 
 test("document thumbnails load lazily and the list shows twelve at a time", () => {
@@ -386,8 +386,8 @@ test("chart ticks follow the 12px type floor", () => {
 
 test("transaction date inputs carry visible labels and the chosen date spelled out", () => {
   const page = text("app/transactions/page.js");
-  assert.match(page, /<label className="filter-date"><span>Dari tanggal<\/span><DateInput name="from" type="date"/);
-  assert.match(page, /<label className="filter-date"><span>Sampai tanggal<\/span><DateInput name="to" type="date"/);
+  assert.match(page, /<label className="filter-field filter-date"><span>Dari tanggal<\/span><DateInput name="from" type="date"/);
+  assert.match(page, /<label className="filter-field filter-date"><span>Sampai tanggal<\/span><DateInput name="to" type="date"/);
   assert.equal((page.match(/<DateInput /g) || []).length, 3);
   const field = text("app/components/DateInput.js");
   assert.match(field, /displayDate\(day\)/);

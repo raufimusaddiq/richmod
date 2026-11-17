@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
-import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
+import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget, activeFilterCount, pageLabel, resultCountLabel } from "../app/lib/transactionForm.js";
 
 const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
@@ -253,4 +253,55 @@ test("every transaction audit action written by Go has an Indonesian label", () 
   for (const code of codes) assert.ok(auditActionLabel[code], code);
   assert.equal(auditActionLabel.CORRECT_TRANSACTION_CLASSIFICATION, undefined);
   assert.equal(auditActionText("Link receipt evidence"), auditActionLabel.LINK_RECEIPT_EVIDENCE);
+});
+
+test("T-30: the results heading shows the real total, not the page size", () => {
+  assert.equal(resultCountLabel(120, 50, 0), "1–50 dari 120 transaksi");
+  assert.equal(resultCountLabel(120, 50, 50), "51–100 dari 120 transaksi");
+  assert.equal(resultCountLabel(120, 20, 100), "101–120 dari 120 transaksi", "the last page keeps the range, not just its row count");
+  assert.equal(resultCountLabel(3, 3, 0), "3 transaksi");
+  assert.equal(resultCountLabel(null, 3, 0), "3 transaksi", "no API total falls back to the loaded rows");
+  assert.equal(resultCountLabel(0, 0, 0), "0 transaksi");
+  assert.equal(pageLabel(50, 50, 50), "Halaman 2 · 51–100");
+  assert.equal(pageLabel(0, 0, 50), "");
+  assert.match(page, /role="status" aria-live="polite"><h2>\{resultCountLabel\(total, items\.length, cursorHistory\.length \* PAGE_SIZE\)\}/);
+  assert.match(page, /X-Total-Count/);
+});
+
+test("T-30: the mobile filter toggle counts active filters", () => {
+  assert.equal(activeFilterCount("?limit=50&cursor=x"), 0);
+  assert.equal(activeFilterCount("?q=grab&type=EXPENSE&limit=50"), 2);
+  assert.equal(activeFilterCount("?id=abc"), 0, "a drawer id is not a filter");
+  assert.match(page, /className="secondary filter-toggle" aria-expanded=\{filtersOpen\}/);
+  assert.match(page, /Filter\{filterCount \? ` \(\$\{filterCount\}\)` : ""\}/);
+});
+
+test("T-30: no-match state offers Hapus filter, the empty ledger keeps the plain message", () => {
+  const list = readFileSync(new URL("../app/components/TransactionList.js", import.meta.url), "utf8");
+  assert.match(list, /hasFilters[\s\S]*Tidak ada transaksi yang cocok dengan filter\./);
+  assert.match(list, /onClearFilters[\s\S]*Hapus filter<\/button>/);
+  assert.match(list, /Belum ada transaksi untuk ditampilkan\./);
+  assert.match(page, /hasFilters=\{hasActiveFilters\(`\?\$\{query\}`\)\} onClearFilters=\{resetFilters\}/);
+});
+
+test("T-30: opening a row writes ?open= and closing removes it, so back closes the drawer", () => {
+  assert.match(page, /const openDetail = item => \{ window\.history\.pushState\(window\.history\.state, "", drawerUrl\(item\.id\)\); drawer\.open\(item\.id\); \}/);
+  assert.match(page, /function drawerUrl\(id\)/);
+  assert.match(page, /next\.set\("open", id\); else next\.delete\("open"\)/);
+  assert.match(page, /const id = params\.get\("open"\) \|\| params\.get\("id"\);\s+if \(id\) drawer\.open\(id\); else drawer\.close\(\);/);
+});
+
+test("T-30: a row drawer is not an evidence-link scope, so pagination and the full page stay", () => {
+  // ?open= is the drawer; ?id= alone scopes the ledger to one evidence-linked row.
+  assert.equal(isScopedToTransaction("?open=abc"), false);
+  assert.equal(isScopedToTransaction("?id=abc"), true);
+  assert.equal(listSearch("?open=abc&limit=50"), "?limit=50", "the drawer id never reaches the list request");
+  assert.equal(listSearch("?id=abc&open=abc"), "?id=abc&limit=50", "an evidence link still scopes");
+  assert.equal(hasActiveFilters("?open=abc&limit=50"), false, "an open drawer is not a filter");
+  assert.match(page, /const scoped = isScopedToTransaction\(/);
+  assert.doesNotMatch(page, /isScopedToTransaction\([^)]*open/);
+});
+
+test("T-30: resetFilters closes the drawer", () => {
+  assert.match(page, /function resetFilters\(\) \{[\s\S]*?drawer\.close\(\);[\s\S]*?load\(""\);/);
 });

@@ -13,7 +13,7 @@ import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { selectionHref } from "../lib/cycleReview";
 import { cycleEntryWindow, withinCycleWindow } from "../lib/missingTransaction";
 import { actorText, auditActionText, evidenceTypeText } from "../lib/labels";
-import { VOID_CONFIRM_MESSAGE, REVERSE_MERGE_SUCCESS_MESSAGE, VOID_SUCCESS_MESSAGE, canEditTransaction, canVoidTransaction, createErrorMessage, createFormErrors, editErrorMessage, editFormErrors, editPayload, editableFields, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, transactionsErrorMessage, trapTarget, voidFailure } from "../lib/transactionForm";
+import { VOID_CONFIRM_MESSAGE, REVERSE_MERGE_SUCCESS_MESSAGE, VOID_SUCCESS_MESSAGE, activeFilterCount, canEditTransaction, canVoidTransaction, createErrorMessage, createFormErrors, editErrorMessage, editFormErrors, editPayload, editableFields, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, mergeSummary, pageLabel, resultCountLabel, reverseMergeConfirmMessage, reverseMergeFailure, transactionsErrorMessage, trapTarget, voidFailure } from "../lib/transactionForm";
 
 const PAGE_SIZE = 50;
 const focusable = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -33,7 +33,11 @@ export default function TransactionsPage() {
     if (!transaction.ok || !evidenceResponse.ok || !auditResponse.ok) throw new LoadError("Detail transaksi belum dapat dimuat. Coba lagi.");
     return { transaction: await transaction.json(), evidence: await evidenceResponse.json(), audit: await auditResponse.json() };
   }, "Detail transaksi belum dapat dimuat. Coba lagi.");
-  const closeDetail = drawer.close;
+  const closeDetail = () => {
+    // Removing ?open= is what closes the drawer, so a shared link and the back button agree.
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("open")) window.history.replaceState(window.history.state, "", drawerUrl(""));
+    drawer.close();
+  };
   const drawerRef = useDrawerA11y(drawer.status !== "closed", closeDetail);
   const selected = drawer.data?.transaction || (drawer.id ? { id: drawer.id } : null);
   const evidence = drawer.data?.evidence || [], audit = drawer.data?.audit || [];
@@ -41,6 +45,10 @@ export default function TransactionsPage() {
   const [creating, setCreating] = useState(false);
   const [nextCursor, setNextCursor] = useState("");
   const [cursorHistory, setCursorHistory] = useState([]);
+  // Full match count from the list response; null when the API did not report one.
+  const [total, setTotal] = useState(null);
+  // The filter bar collapses behind a toggle on narrow screens.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [transactionType, setTransactionType] = useState("EXPENSE");
   const [transferPurpose, setTransferPurpose] = useState("INTERNAL_TRANSFER");
   // Only the row a create returned, and only a filter, may animate; a first load keeps
@@ -149,10 +157,12 @@ export default function TransactionsPage() {
     const [transactions, categoryResponse, accountResponse, wealthAccountResponse, memberResponse] = await Promise.all([fetch(`/api/v1/transactions${requestSearch}`, { signal }), fetch("/api/v1/categories", { signal }), fetch("/api/v1/accounts", { signal }), fetch("/api/v1/wealth/accounts", { signal }), fetch("/api/v1/household/members", { signal })]);
     if (!transactions.ok) { const body = await transactions.json().catch(() => ({})); throw new LoadError(transactionsErrorMessage(transactions.status, body)); }
     const list = await transactions.json(), cursor = transactions.headers.get("X-Next-Cursor") || "";
+    const reportedTotal = Number.parseInt(transactions.headers.get("X-Total-Count") ?? "", 10);
     const optional = async response => (response.ok ? response.json().catch(() => null) : null);
     const [categoryList, accountList, wealthList, memberList] = [await optional(categoryResponse), await optional(accountResponse), await optional(wealthAccountResponse), await optional(memberResponse)];
     if (!current()) return;
     setItems(Array.isArray(list) ? list : []); setNextCursor(cursor);
+    setTotal(Number.isFinite(reportedTotal) ? reportedTotal : null);
     if (Array.isArray(categoryList)) setCategories(categoryList);
     if (Array.isArray(accountList)) setAccounts(accountList);
     if (Array.isArray(wealthList)) setWealthAccounts(wealthList);
@@ -170,16 +180,24 @@ export default function TransactionsPage() {
     setCursorHistory(state.cursorHistory); window.history.replaceState(state, "", window.location.href); load();
   }, [user, load]);
   useEffect(() => {
-    const onPopState = event => { setCursorHistory(event.state?.cursorHistory || []); load(); };
+    const onPopState = event => {
+      setCursorHistory(event.state?.cursorHistory || []);
+      // Back/forward is the drawer's history too: ?open= (a row) or ?id= (an evidence
+      // link) opens it, their absence closes it.
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("open") || params.get("id");
+      if (id) drawer.open(id); else drawer.close();
+      load();
+    };
     window.addEventListener("popstate", onPopState); return () => window.removeEventListener("popstate", onPopState);
-  }, [load]);
+  }, [load, drawer.open, drawer.close]);
   // Consume the marker once the commit that painted data-refreshed is done. Mutating the
   // ref, not state, keeps the attribute on screen for the whole fade; later renders
   // compare equal and stay still. Skip while loading: the first commit is the skeleton.
   useEffect(() => {
     if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
   }, [loading, loader.hasLoaded, refreshPending, refreshToken]);
-  useEffect(() => { if (user) { const id = new URLSearchParams(window.location.search).get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
+  useEffect(() => { if (user) { const params = new URLSearchParams(window.location.search); const id = params.get("open") || params.get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
   useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) { setMissingWindow(window_); setCreateError(""); openCreate(); } }, [user]);
 
   async function filter(event) {
@@ -198,12 +216,13 @@ export default function TransactionsPage() {
 
   function resetFilters() {
     setFilterError(""); setMissingWindow(null); setFilterKey(key => key + 1); setCursorHistory([]); setCreatedId(""); setRefreshToken(token => token + 1);
+    drawer.close();
     window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", "/transactions"); load("");
   }
 
   async function nextPage() {
     if (!nextCursor) return;
-    const query = new URLSearchParams(window.location.search); const history = [...cursorHistory, query.get("cursor") || ""]; setCursorHistory(history); query.set("cursor", nextCursor); query.set("limit", String(PAGE_SIZE));
+    const query = new URLSearchParams(window.location.search); const history = [...cursorHistory, query.get("cursor") || ""]; setCursorHistory(history); query.set("cursor", nextCursor); query.set("limit", String(PAGE_SIZE)); query.delete("open");
     const search = `?${query}`; window.history.pushState({ ...window.history.state, cursorHistory: history }, "", `/transactions${search}`); await load(search);
   }
 
@@ -212,7 +231,7 @@ export default function TransactionsPage() {
     window.history.back();
   }
 
-  const openDetail = item => drawer.open(item.id);
+  const openDetail = item => { window.history.pushState(window.history.state, "", drawerUrl(item.id)); drawer.open(item.id); };
 
   async function createTransaction(event) {
     event.preventDefault(); const formEl = event.currentTarget; setCreating(true); setCreateError("");
@@ -239,19 +258,43 @@ export default function TransactionsPage() {
   if (!user) return null;
   const scoped = isScopedToTransaction(typeof window === "undefined" ? "" : window.location.search);
   const query = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  const filterCount = activeFilterCount(`?${query}`);
   return <AppShell user={user} eyebrow="TRANSAKSI" title="Riwayat Transaksi" actions={<><button onClick={openCreate}>Tambah transaksi</button><span className="header-meta">{PAGE_SIZE} per halaman · Asia/Jakarta</span></>}>
     {query.get("cycle") && <p className="notice"><a href={selectionHref({ view: "cycle", cycle: query.get("cycle"), category: query.get("categoryId") || "", step: query.get("review") || "" })}>Kembali ke tinjauan siklus</a> · {query.get("from")} sampai {query.get("to")}</p>}
     {query.get("merchantId") && <div className="notice feedback"><span>Filter merchant terpilih dari tinjauan siklus.</span><button className="secondary" type="button" onClick={() => { const next = new URLSearchParams(window.location.search); next.delete("merchantId"); next.delete("cursor"); window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", `/transactions?${next}`); setCursorHistory([]); load(`?${next}`); }}>Hapus filter merchant</button></div>}
     <dialog ref={createDialog} className="create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-transaction-title" tabIndex={-1} onClose={onCreateClosed} onKeyDown={trapCreateTab}><button type="button" className="dialog-close" aria-label="Tutup" onClick={closeCreate}>×</button><form className="transaction-form" onSubmit={createTransaction} noValidate><div className="section-title"><h2 id="create-transaction-title">Tambah transaksi</h2></div><div className="dialog-fields"><label>Jenis<select name="type" required value={transactionType} onChange={event => setTransactionType(event.target.value)}><option value="EXPENSE">Pengeluaran</option><option value="INCOME">Pemasukan</option><option value="TRANSFER">Transfer</option></select></label>{transactionType === "TRANSFER" && <><label>Tujuan transfer<select name="purpose" value={transferPurpose} onChange={event => setTransferPurpose(event.target.value)}><option value="INTERNAL_TRANSFER">Transfer internal</option><option value="SAVINGS_TRANSFER">Pindah ke tabungan</option><option value="INVESTMENT_CONTRIBUTION">Kontribusi investasi</option><option value="ASSET_PURCHASE">Pembelian aset</option><option value="DEBT_PRINCIPAL_PAYMENT">Pembayaran pokok utang</option></select></label>{transferPurpose !== "INTERNAL_TRANSFER" && <label>Akun kekayaan terkait<select name="relatedWealthAccountId" required aria-invalid={fieldErrors.relatedWealthAccountId ? "true" : undefined}><option value="">Pilih akun kekayaan</option>{wealthAccounts.filter(item => item.active !== false).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</>}<label><span>Jumlah (IDR) <span className="required-mark" aria-hidden="true">*</span></span><input name="amount" inputMode="numeric" required aria-required="true" aria-invalid={fieldErrors.amount ? "true" : undefined} aria-describedby={fieldErrors.amount ? "create-amount-error" : undefined}/>{fieldErrors.amount && <small id="create-amount-error" className="field-error">{fieldErrors.amount}</small>}</label><label><span>Deskripsi <span className="required-mark" aria-hidden="true">*</span></span><input name="description" maxLength="500" required aria-required="true" aria-invalid={fieldErrors.description ? "true" : undefined} aria-describedby={fieldErrors.description ? "create-description-error" : undefined}/>{fieldErrors.description && <small id="create-description-error" className="field-error">{fieldErrors.description}</small>}</label>{missingWindow && <p className="notice">Catat transaksi yang terlewat di siklus {missingWindow.from} sampai {missingWindow.to}. Waktunya dibatasi ke siklus itu agar sisa siklusnya dihitung ulang.</p>}<label>Waktu<DateInput key={missingWindow ? `cycle-${missingWindow.from}` : "free"} name="transactionAt" type="datetime-local" aria-invalid={fieldErrors.transactionAt ? "true" : undefined} required={Boolean(missingWindow)} min={missingWindow?.min} max={missingWindow?.max} defaultValue={missingWindow?.value}/></label><label>Akun<select name="accountId" required={transactionType === "TRANSFER"} aria-invalid={fieldErrors.accountId ? "true" : undefined}><option value="">{transactionType === "TRANSFER" ? "Pilih akun sumber" : "Tanpa akun"}</option>{accounts.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{transactionType !== "TRANSFER" && <label>Kategori<select name="categoryId"><option value="">Tanpa kategori</option>{categories.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Catatan<textarea name="note"/></label>{createError && <p role="alert" className="error-notice">{createError}</p>}</div><div className="dialog-actions"><button type="button" onClick={closeCreate}>Batal</button><button disabled={creating}>{creating ? "Menyimpan…" : "Simpan"}</button></div></form></dialog>
-    <form key={filterKey} className="filter-bar surface" onSubmit={filter} inert={loading}><input aria-label="Cari transaksi" name="q" placeholder="Cari tempat transaksi atau catatan" defaultValue={query.get("q") || ""}/><label className="filter-date"><span>Dari tanggal</span><DateInput name="from" type="date" defaultValue={query.get("from") || ""}/></label><label className="filter-date"><span>Sampai tanggal</span><DateInput name="to" type="date" defaultValue={query.get("to") || ""}/></label><select aria-label="Tipe transaksi" name="type" defaultValue={query.get("type") || ""}><option value="">Semua tipe</option><option value="SPENDING">Pengeluaran & refund</option>{Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Kategori" name="categoryId" defaultValue={query.get("categoryId") || ""}><option value="">Semua kategori</option><option value="uncategorized">Belum dikategorikan</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Anggota" name="memberId" defaultValue={query.get("memberId") || ""}><option value="">Semua anggota</option>{members.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select><select aria-label="Status" name="status" defaultValue={query.get("status") || ""}><option value="">Semua status</option>{Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Akun" name="accountId" defaultValue={query.get("accountId") || ""}><option value="">Semua akun</option>{accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Sumber" name="source" defaultValue={query.get("source") || ""}><option value="">Semua sumber</option><option value="BANK_EMAIL">Email bank</option><option value="TELEGRAM_TEXT">Pesan Telegram</option><option value="TELEGRAM_IMAGE">Gambar Telegram</option><option value="WEB_MANUAL">Input web</option><option value="WEB_IMAGE">Dokumen web</option></select><input name="merchantId" type="hidden" defaultValue={query.get("merchantId") || ""}/><button>Terapkan filter</button>{hasActiveFilters(`?${query}`) && <button type="button" className="secondary" onClick={resetFilters}>Hapus filter</button>}</form>{filterError && <p role="alert" className="error-notice">{filterError}</p>}
+    <button type="button" className="secondary filter-toggle" aria-expanded={filtersOpen} aria-controls="transaction-filters" onClick={() => setFiltersOpen(open => !open)}>Filter{filterCount ? ` (${filterCount})` : ""}</button>
+    <form id="transaction-filters" key={filterKey} className={`filter-bar surface${filtersOpen ? " is-open" : ""}`} onSubmit={filter} inert={loading}>
+      <label className="filter-field filter-search"><span>Cari</span><input name="q" placeholder="Cari tempat transaksi atau catatan" defaultValue={query.get("q") || ""}/></label>
+      <label className="filter-field filter-date"><span>Dari tanggal</span><DateInput name="from" type="date" defaultValue={query.get("from") || ""}/></label>
+      <label className="filter-field filter-date"><span>Sampai tanggal</span><DateInput name="to" type="date" defaultValue={query.get("to") || ""}/></label>
+      <label className="filter-field"><span>Tipe</span><select name="type" defaultValue={query.get("type") || ""}><option value="">Semua tipe</option><option value="SPENDING">Pengeluaran & refund</option>{Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="filter-field"><span>Kategori</span><select name="categoryId" defaultValue={query.get("categoryId") || ""}><option value="">Semua kategori</option><option value="uncategorized">Belum dikategorikan</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label className="filter-field"><span>Anggota</span><select name="memberId" defaultValue={query.get("memberId") || ""}><option value="">Semua anggota</option>{members.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      <label className="filter-field"><span>Status</span><select name="status" defaultValue={query.get("status") || ""}><option value="">Semua status</option>{Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="filter-field"><span>Akun</span><select name="accountId" defaultValue={query.get("accountId") || ""}><option value="">Semua akun</option>{accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label className="filter-field"><span>Sumber</span><select name="source" defaultValue={query.get("source") || ""}><option value="">Semua sumber</option><option value="BANK_EMAIL">Email bank</option><option value="TELEGRAM_TEXT">Pesan Telegram</option><option value="TELEGRAM_IMAGE">Gambar Telegram</option><option value="WEB_MANUAL">Input web</option><option value="WEB_IMAGE">Dokumen web</option></select></label>
+      <input name="merchantId" type="hidden" defaultValue={query.get("merchantId") || ""}/>
+      <button>Terapkan filter</button>
+      {hasActiveFilters(`?${query}`) && <button type="button" className="secondary" onClick={resetFilters}>Hapus filter</button>}
+    </form>
+    {filterError && <p role="alert" className="error-notice">{filterError}</p>}
     <ErrorNotice message={error} retry={() => load()}/>
-    {!loader.hasLoaded && !loader.failed ? <Skeleton cards={1} rows={6}/> : !loader.hasLoaded ? null : <><section className="surface ledger-panel" aria-busy={loading} data-refreshed={(refreshPending && !loading) || undefined}><div className="section-title"><div><span className="eyebrow">HASIL</span><h2>{items.length} transaksi</h2>{scoped && <p className="notice">Menampilkan hanya transaksi dari tautan bukti. <a href="/transactions" onClick={event => { event.preventDefault(); resetFilters(); }}>Lihat semua transaksi</a></p>}</div></div><TransactionList items={items} onSelect={openDetail} newId={createdId}/></section>{!scoped && <div className="pagination-actions"><button className="secondary" disabled={loading || !cursorHistory.length} onClick={previousPage}>Sebelumnya</button><button className="secondary" disabled={loading || !nextCursor} onClick={nextPage}>Berikutnya</button></div>}</>}
+    {!loader.hasLoaded && !loader.failed ? <Skeleton cards={1} rows={6}/> : !loader.hasLoaded ? null : <><section className="surface ledger-panel" aria-busy={loading} data-refreshed={(refreshPending && !loading) || undefined}><div className="section-title"><div><span className="eyebrow">HASIL</span><div role="status" aria-live="polite"><h2>{resultCountLabel(total, items.length, cursorHistory.length * PAGE_SIZE)}</h2></div>{scoped && <p className="notice">Menampilkan hanya transaksi dari tautan bukti. <a href="/transactions" onClick={event => { event.preventDefault(); resetFilters(); }}>Lihat semua transaksi</a></p>}</div></div><TransactionList items={items} onSelect={openDetail} newId={createdId} hasFilters={hasActiveFilters(`?${query}`)} onClearFilters={resetFilters}/></section>{!scoped && <div className="pagination-actions"><button className="secondary" disabled={loading || !cursorHistory.length} onClick={previousPage}>Sebelumnya</button><span className="pagination-status">{pageLabel(cursorHistory.length * PAGE_SIZE, items.length, PAGE_SIZE)}</span><button className="secondary" disabled={loading || !nextCursor} onClick={nextPage}>Berikutnya</button></div>}</>}
     {drawer.status === "ready" && canEditTransaction(selected) && (() => { const fields = editableFields(selected); return <dialog ref={editDialog} className="create-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-transaction-title" tabIndex={-1} onClose={onEditClosed} onKeyDown={onEditKeyDown}><button type="button" className="dialog-close" aria-label="Tutup" onClick={closeEdit}>×</button><form key={`${selected.id}-${selected.updatedAt}`} className="transaction-form" onSubmit={saveEdit} noValidate><div className="section-title"><h2 id="edit-transaction-title">Ubah transaksi</h2></div><p className="notice">Jumlah, waktu, dan jenis tidak bisa diubah. Batalkan lalu catat ulang jika salah.</p>{fields.category && <label>Kategori<select name="categoryId" defaultValue={selected.categoryId || ""}><option value="">Tanpa kategori</option>{categories.filter(item => item.active || item.id === selected.categoryId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{fields.account && <label>Akun<select name="accountId" defaultValue={selected.accountId || ""}><option value="">Tanpa akun</option>{accounts.filter(item => item.active || item.id === selected.accountId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Deskripsi{selected.description && <span className="required-mark" aria-hidden="true"> *</span>}<input name="description" maxLength="500" required={Boolean(selected.description)} aria-required={selected.description ? "true" : undefined} defaultValue={selected.description || ""} aria-invalid={editFieldErrors.description ? "true" : undefined} aria-describedby={editFieldErrors.description ? "edit-description-error" : undefined}/>{editFieldErrors.description && <small id="edit-description-error" className="field-error">{editFieldErrors.description}</small>}</label><label>Catatan<textarea name="note" maxLength="2000" defaultValue={selected.note || ""} aria-invalid={editFieldErrors.note ? "true" : undefined} aria-describedby={editFieldErrors.note ? "edit-note-error" : undefined}/>{editFieldErrors.note && <small id="edit-note-error" className="field-error">{editFieldErrors.note}</small>}</label>{editError && <p role="alert" className="error-notice">{editError}</p>}<div className="dialog-actions"><button type="button" onClick={closeEdit}>Batal</button><button disabled={editing}>{editing ? "Menyimpan…" : "Simpan"}</button></div></form></dialog>; })()}
     {dialogs}
     {drawer.status !== "closed" && <div className="drawer-backdrop" onClick={closeDetail}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer" role="dialog" aria-modal="true" aria-label="Detail transaksi" aria-busy={drawer.status === "loading"} onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeDetail}>×</button>{drawer.status === "loading" ? <p>Memuat detail…</p> : drawer.status === "error" ? <div><p role="alert">{drawer.error}</p><button onClick={drawer.retry}>Coba lagi</button></div> : <><span className="eyebrow">DETAIL TRANSAKSI</span><h2>{selected.merchantName || selected.description || typeLabel[selected.type]}</h2><strong className="detail-amount">{money(selected.amount)}</strong><dl style={{ border: 0, borderRadius: 0, overflow: "visible" }}><div><dt>Tanggal</dt><dd>{dateTime(selected.transactionAt)}</dd></div><div><dt>Kategori</dt><dd>{selected.categoryName || "Belum dikategorikan"}</dd></div><div><dt>Akun</dt><dd>{selected.accountName || "—"}</dd></div><div><dt>Sumber pencatatan</dt><dd>{sourceLabel(selected.sourceType)}</dd></div><div><dt>Status</dt><dd>{statusLabel[selected.status] || selected.status}</dd></div>{selected.type === "TRANSFER" && <><div><dt>Tujuan transfer</dt><dd>{purposeLabel(selected.purpose)}</dd></div><div><dt>Akun kekayaan</dt><dd>{selected.relatedWealthAccountName || "—"}</dd></div></>}</dl>{actionNotice && <div className={`notice${actionNotice.kind === "success" ? "" : " error"}`} role={actionNotice.kind === "success" ? "status" : "alert"}><span>{actionNotice.message}</span>{(actionNotice.kind === "review" || actionNotice.inbox) && <a className="button secondary" href="/inbox?view=transactions">Buka Tinjauan</a>}</div>}{(canEditTransaction(selected) || canVoidTransaction(selected)) && <div className="drawer-actions">{canEditTransaction(selected) && <button type="button" className="secondary" onClick={openEdit}>Ubah</button>}{canVoidTransaction(selected) && <button type="button" className="danger" disabled={Boolean(busyAction)} aria-busy={busyAction === "void" || undefined} onClick={voidTransaction}>{busyAction === "void" ? "Membatalkan…" : "Batalkan transaksi"}</button>}</div>}{selected.activeMerges?.length > 0 && <section className="merge-links" aria-labelledby="merge-links-title"><h3 id="merge-links-title">Penggabungan</h3>{selected.activeMerges.map(merge => <div key={merge.id} className="merge-link"><p>{mergeSummary(merge, money)}</p><button type="button" className="secondary" disabled={Boolean(busyAction)} aria-busy={busyAction === merge.id || undefined} onClick={() => reverseMerge(merge)}>{busyAction === merge.id ? "Memisahkan…" : "Pisahkan penggabungan"}</button></div>)}</section>}<h3>Bukti pencatatan</h3><div className="timeline">{evidence.map(item => <article key={item.id}><i>✓</i><div><b>{evidenceLabel(item.evidenceType)}</b><small>{sourceLabel(item.sourceType)} · {dateTime(item.receivedAt)}</small></div></article>)}{!evidence.length && <p className="empty compact">Belum ada sumber pencatatan terhubung.</p>}</div><h3>Riwayat Perubahan</h3><div className="timeline">{audit.map(item => <article key={item.id}><i>•</i><div><b>{auditActionText(item.action)}</b><small>{actorText(item.actorType)} · {dateTime(item.createdAt)}</small></div></article>)}{!audit.length && <p className="empty compact">Belum ada perubahan tercatat.</p>}</div></>}</aside></div>}
   </AppShell>;
 }
 
+// The current list URL with (or without) the open drawer's ?open=, so a row is shareable
+// and the back button closes the drawer. ?id= stays the evidence-link scope.
+function drawerUrl(id) {
+  const next = new URLSearchParams(window.location.search);
+  if (id) next.set("open", id); else next.delete("open");
+  const search = next.toString();
+  return `/transactions${search ? `?${search}` : ""}`;
+}
 function purposeLabel(value) { return ({ INTERNAL_TRANSFER: "Transfer internal", SAVINGS_TRANSFER: "Pindah ke tabungan", INVESTMENT_CONTRIBUTION: "Kontribusi investasi", ASSET_PURCHASE: "Pembelian aset", DEBT_PRINCIPAL_PAYMENT: "Pembayaran pokok utang" }[value] || value || "—"); }
 function sourceLabel(value) { return ({ BANK_EMAIL: "Email bank", TELEGRAM_TEXT: "Pesan Telegram", TELEGRAM_IMAGE: "Gambar Telegram", WEB_MANUAL: "Input web", WEB_IMAGE: "Dokumen web" }[value] || (value ? evidenceTypeText(value) : "—")); }
 function evidenceLabel(value) { return evidenceTypeText(value); }
