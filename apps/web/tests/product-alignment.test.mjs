@@ -390,6 +390,6 @@ test("calendar cashflow chart shows y-axis ticks in Rp juta like the cycle chart
   const start = charts.indexOf("export function MonthlyCashflowChart");
   const body = charts.slice(start, charts.indexOf("export function CategoryDonutChart"));
   assert.doesNotMatch(body, /<YAxis hide/);
-  assert.match(body, /<YAxis [^>]*tickFormatter=\{value => compactMillions\(String\(value\)\)\}/);
+  assert.match(body, /<YAxis [^>]*tickFormatter=\{millionTickFormatter\(max\)\}/);
   assert.match(body, /value: "Rp juta"/);
 });

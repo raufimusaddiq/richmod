@@ -27,6 +27,20 @@ export function signedMillions(value) {
   return `+${text}`;
 }
 
+// Axis ticks in Rp juta. The decimals follow the tick step, so a small series
+// (0,025 juta steps) never prints "0,0 0,0 0,1 0,1 0,1".
+export function millionTickFormatter(maxValue) {
+  const max = Number(maxValue);
+  const step = Number.isFinite(max) && max > 0 ? max / 5 : 0;
+  const decimals = step > 0 ? Math.max(1, Math.ceil(-Math.log10(step / 1e6))) : 1;
+  const format = new Intl.NumberFormat("id-ID", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return value => {
+    const number = Number(value) / 1e6;
+    if (!Number.isFinite(number)) return "—";
+    return `${number < 0 ? "−" : ""}${format.format(Math.abs(number))}`;
+  };
+}
+
 // Direction is a neutral marker beside the signed value, never a colour alone.
 export function directionMark(value) {
   if (value == null) return "";
