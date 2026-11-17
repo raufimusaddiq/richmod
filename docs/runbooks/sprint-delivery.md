@@ -88,6 +88,17 @@ a local build.
 CI is the final repository-wide authority. Its `backend`, `frontend` and
 `containers` jobs cover Gitleaks, PostgreSQL-backed API/worker tests, Go vet, web
 build/tests, Compose validation and the Compose/backup/deploy shell tests. The
+`frontend` job builds the static export and runs the web unit tests. The
+`frontend-smoke` matrix job then runs the two Playwright synthetic smokes
+(transaction-date, analytics-review) as parallel jobs, each rebuilding the static
+export it serves (a shared artifact would need `needs: frontend` and serialise the
+smokes behind the build) and caching browsers under a key built from the locked
+Playwright version, the runner OS and the browser set. Each leg installs only its
+own browsers: the chromium-only analytics-review leg runs without
+`playwright install-deps` (the runner image already satisfies chromium), while the
+transaction-date leg needs webkit and so does run `playwright install-deps`, always,
+cache hit or not. Both smoke legs
+are gate-only for Hermes Review today, not required checks. The
 `images` job builds the four production Dockerfiles (api, worker, migrate,
 backup) in parallel with `docker/build-push-action`, each with its own
 `type=gha` layer-cache scope. Do not claim checks that were not run.

@@ -109,28 +109,78 @@ jobs:
       - name: Test web
         working-directory: apps/web
         run: npm test
-      - name: Install browser for synthetic cycle-review checks
+
+  # Each leg rebuilds the static export it serves: a shared artifact would need
+  # `needs: frontend` and serialise the smokes behind the build, which costs more
+  # than a parallel `next build`.
+  frontend-smoke:
+    name: frontend-smoke (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # transaction-date drives webkit too, and webkit needs libraries the
+          # runner image does not carry, so that leg installs the OS deps.
+          - name: transaction-date
+            script: scripts/transaction-date-smoke.mjs
+            artifact: transaction-date-screenshots
+            results: apps/web/test-results/transaction-date
+            browsers: chromium webkit
+            browser-cache-key: chromium-webkit
+            install-deps: "true"
+          # analytics-review is chromium-only; ubuntu-latest already satisfies it.
+          - name: analytics-review
+            script: scripts/analytics-review-smoke.mjs
+            artifact: cycle-review-screenshots
+            results: apps/web/test-results/cycle-review
+            browsers: chromium
+            browser-cache-key: chromium
+            install-deps: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium webkit
-      - name: Verify transaction date inputs with synthetic data
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build web
         working-directory: apps/web
-        run: node scripts/transaction-date-smoke.mjs
-      - name: Upload transaction date screenshots
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+      - name: Resolve Playwright version
+        working-directory: apps/web
+        id: playwright
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          # The browser set is part of the key: the legs cache different browsers.
+          key: playwright-${{ runner.os }}-${{ matrix.browser-cache-key }}-${{ steps.playwright.outputs.version }}
+      - name: Install Playwright browsers
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        working-directory: apps/web
+        run: npx playwright install ${{ matrix.browsers }}
+      # OS libraries are not part of the browser cache, so this still runs on a hit.
+      - name: Install Playwright OS dependencies
+        if: matrix.install-deps == 'true'
+        working-directory: apps/web
+        run: npx playwright install-deps ${{ matrix.browsers }}
+      - name: Run synthetic ${{ matrix.name }} smoke
+        working-directory: apps/web
+        run: node ${{ matrix.script }}
+      - name: Upload ${{ matrix.name }} screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: transaction-date-screenshots
-          path: apps/web/test-results/transaction-date
-          if-no-files-found: ignore
-      - name: Verify cycle-review UI with synthetic data
-        working-directory: apps/web
-        run: node scripts/analytics-review-smoke.mjs
-      - name: Upload synthetic cycle-review screenshots
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: cycle-review-screenshots
-          path: apps/web/test-results/cycle-review
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.results }}
           if-no-files-found: ignore
 
   containers:
