@@ -151,9 +151,22 @@ jobs:
         run: sh infra/deploy/post-deploy_test.sh
       - name: Test backup repository bootstrap
         run: sh infra/backup/backup_test.sh
-      - name: Build production images
-        run: |
-          docker build -f infra/docker/api.Dockerfile -t family-finance-api:ci .
-          docker build -f infra/docker/worker.Dockerfile -t family-finance-worker:ci .
-          docker build -f infra/docker/migrate.Dockerfile -t family-finance-migrate:ci .
-          docker build -f infra/docker/backup.Dockerfile -t family-finance-backup:ci .
+
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, worker, migrate, backup]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # No push/load: the build itself is the check; nothing downstream consumes
+      # these images (release-images.yml publishes the real ones).
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/${{ matrix.image }}.Dockerfile
+          push: false
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max

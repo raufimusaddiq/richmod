@@ -85,9 +85,12 @@ a local build.
 | Docs/assets | inspect rendered asset(s), links, and `git diff --check` |
 | Security/isolation | explicit negative-path and cross-household tests where tenant/auth/input boundaries change |
 
-CI is the final repository-wide authority. Its current matrix includes Gitleaks,
-PostgreSQL-backed API/worker tests, Go vet, web build/tests, Compose validation,
-and production-image builds. Do not claim checks that were not run.
+CI is the final repository-wide authority. Its `backend`, `frontend` and
+`containers` jobs cover Gitleaks, PostgreSQL-backed API/worker tests, Go vet, web
+build/tests, Compose validation and the Compose/backup/deploy shell tests. The
+`images` job builds the four production Dockerfiles (api, worker, migrate,
+backup) in parallel with `docker/build-push-action`, each with its own
+`type=gha` layer-cache scope. Do not claim checks that were not run.
 
 Before committing:
 
