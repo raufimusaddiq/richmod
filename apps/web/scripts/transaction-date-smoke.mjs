@@ -10,8 +10,14 @@ const output = new URL("../test-results/transaction-date/", import.meta.url);
 const server = spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: "3211" } });
 let browser;
 
-async function fits(input) {
-  const box = await input.evaluate(element => {
+// Phones collapse the filter bar behind a "Filter" toggle; open it before reading the
+// controls. On wider screens the toggle is hidden and the bar is already open.
+async function openFilters(page) {
+  const toggle = page.locator(".filter-toggle");
+  if (await toggle.isVisible()) await toggle.click();
+}
+
+async function fits(input) {  const box = await input.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const parent = element.parentElement.getBoundingClientRect();
     const style = getComputedStyle(element);
@@ -41,6 +47,7 @@ try {
       page.on("pageerror", error => errors.push(error.message));
       await page.route("**/api/v1/**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify(new URL(route.request().url()).pathname === "/api/v1/auth/me" ? { id: "synthetic-user", displayName: "Rafi", householdName: "Test household", household: { role: "OWNER" } } : []) }));
       await page.goto(`${base}/transactions`, { waitUntil: "networkidle" });
+      await openFilters(page);
       for (const [label, value] of [["Dari tanggal", "2026-09-25"], ["Sampai tanggal", "2026-10-01"]]) {
         const input = page.getByLabel(label, { exact: true });
         await fits(input);

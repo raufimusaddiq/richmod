@@ -22,6 +22,13 @@ const snapshot = (id, value) => ({ id, netWorthIdr: value, assetTotalIdr: value,
 let latest = snapshot("wealth-1", "1000000");
 let saves = 0;
 
+// Phones collapse the filter bar behind a "Filter" toggle; open it before clicking a
+// filter control. On wider screens the toggle is hidden and the bar is already open.
+async function openFilters(page) {
+  const toggle = page.locator(".filter-toggle");
+  if (await toggle.isVisible()) await toggle.click();
+}
+
 async function api(route) {
   const url = new URL(route.request().url());
   const path = url.pathname;
@@ -92,6 +99,7 @@ try {
     await page.goto(`${base}/transactions`, { waitUntil: "networkidle" });
     const panel = ".ledger-panel:not([data-refreshed])";
     await page.waitForSelector(panel);
+    await openFilters(page);
 
     // The filter re-run is the user's action: it fades once.
     await page.getByRole("button", { name: "Terapkan filter", exact: true }).click();
