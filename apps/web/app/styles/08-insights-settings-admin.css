@@ -21,6 +21,19 @@
 .settings-list b, .settings-list small, .integration-grid b, .integration-grid small { display: block; }
 .settings-list small, .integration-grid small { margin-top: 3px; color: var(--ink-soft); font-size: var(--text-md); }
 .panel, .settings-section { padding: 24px; }
+/* Add-forms keep a persistent visible label above every control; the label boxes end
+   at the same baseline as the submit button. */
+.inline-form > label { flex: 1 1 150px; min-width: 150px; }
+.inline-form > label > span, .member-form > label > span { white-space: nowrap; }
+.known-form > label { flex: 1 1 0; min-width: 120px; }
+.wealth-form > label { flex: 1 1 160px; min-width: 150px; }
+.known-form { gap: 8px; }
+.member-form > label { flex: 1 1 220px; min-width: 150px; }
+.inline-form select, .member-form input { width: 100%; min-width: 0; }
+.inline-form > button { min-width: 0; }
+/* The settings page is ~6000px tall: keep its section index reachable. */
+.settings-index { position: sticky; top: 0; z-index: 6; margin: 0 0 18px; padding: 8px 2px; background: var(--canvas); }
+.settings-section { scroll-margin-top: 62px; }
 .settings-heading { margin-bottom: 18px; }
 .settings-heading p { max-width: 64ch; margin: 6px 0 0; color: var(--muted); font-size: var(--text-xs); }
 .list-count { margin: 0; padding: 8px 0; color: var(--muted); font-size: var(--text-xs); }
