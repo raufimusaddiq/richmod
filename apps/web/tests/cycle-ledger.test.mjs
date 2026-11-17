@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, paceAxis, paceCeiling, paceCurves, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceMarkerPosition, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -236,6 +236,24 @@ test("a reference level that extends the axis gets round ticks, not raw served v
   const small = paceAxis(700_000);
   assert.equal(small.domain[1], 800_000);
   assert.equal(small.ticks.length, 5);
+});
+
+test("the pace marker label flips left once the marker is in the right half", () => {
+  assert.equal(paceMarkerPosition(6, 30), "insideTopLeft", "an early day keeps the label to the right");
+  assert.equal(paceMarkerPosition(15, 30), "insideTopLeft", "the exact middle still fits to the right");
+  assert.equal(paceMarkerPosition(16, 30), "insideTopRight", "the right half anchors the label to the left");
+  assert.equal(paceMarkerPosition(30, 30), "insideTopRight", "the last day never overflows the svg");
+  assert.equal(paceMarkerPosition(6, 6), "insideTopRight", "a short full cycle flips too");
+});
+
+test("Rp-juta tick labels stay distinct when the tick step is small", () => {
+  const small = millionTickFormatter(100_000); // 0,1 juta max, 0,025 juta steps
+  assert.deepEqual([0, 25_000, 50_000, 75_000, 100_000].map(small), ["0,00", "0,03", "0,05", "0,08", "0,10"]);
+  const large = millionTickFormatter(4_000_000);
+  assert.deepEqual([0, 1_000_000, 2_000_000, 3_000_000, 4_000_000].map(large), ["0,0", "1,0", "2,0", "3,0", "4,0"]);
+  const tiny = millionTickFormatter(20_000); // 0,005 juta steps
+  assert.deepEqual([0, 5_000, 10_000, 15_000, 20_000].map(tiny), ["0,000", "0,005", "0,010", "0,015", "0,020"]);
+  assert.equal(millionTickFormatter(0)(0), "0,0", "an empty axis keeps one decimal");
 });
 
 test("chart units are on screen and the whole-value list is not a tooltip", () => {

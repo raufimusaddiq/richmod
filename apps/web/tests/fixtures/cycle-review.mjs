@@ -174,6 +174,32 @@ export function noSpendingFacts() {
   return facts;
 }
 
+// A full 30-day cycle measured to its last day: the pace marker sits at the right
+// edge, and the current and previous end labels are close enough to collide.
+export function fullCycleFacts(start = "2026-09-01") {
+  const facts = cycleFacts(start);
+  const days = 30;
+  const daily = Array.from({ length: days }, (_, index) => {
+    const date = new Date(`${facts.period.start}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + index);
+    return { period: date.toISOString().slice(0, 10), expense: "100000", grossExpense: "100000", refund: "0", income: index === 0 ? "12000000" : "0" };
+  });
+  let running = 0n;
+  for (const row of daily) { running += BigInt(row.expense); row.cumulativeExpense = String(running); }
+  facts.daily = daily;
+  facts.period = { ...facts.period, measuredUntil: daily.at(-1).period, state: "ACTIVE", end: null };
+  facts.cashflow = { ...facts.cashflow, grossExpense: "3000000", expense: "3000000", netCashflow: "9000000" };
+  facts.comparison.expense = { ...facts.comparison.expense, amount: "3000000" };
+  facts.spendingShape = { ...facts.spendingShape, days, averageDailyExpense: "100000.00", averageDailyExpenseRounded: "100000", peakDay: daily[0].period, peakExpense: "100000", peakShareOfExpense: "0.0333", zeroSpendDays: 0 };
+  facts.pace = {
+    previousFullCycle: Array.from({ length: days }, (_, index) => String(Math.round((index + 1) * 2800000 / days))),
+    median3: Array.from({ length: days }, (_, index) => String(Math.round((index + 1) * 3800000 / days))),
+  };
+  const last = facts.history.at(-1);
+  Object.assign(last, { income: "12000000", grossExpense: "3000000", expense: "3000000", netCashflow: "9000000" });
+  return facts;
+}
+
 export function stableCycleFacts() {
   const facts = cycleFacts("2026-08-26");
   const category = { ...facts.categoryChanges[0], amount: "1400000", previous: "1400000", previousFullCycle: "1400000", deltaVsPreviousFullCycle: "0", relativeDeltaVsPreviousFullCycle: "0", median3: "1400000", deltaVsPrevious: "0", deltaVsMedian3: "0", relativeDeltaVsPrevious: "0", relativeDeltaVsMedian3: "0", shareOfExpense: "1", contributionToExpenseChange: null, count: 6, merchants: [], transactions: [] };

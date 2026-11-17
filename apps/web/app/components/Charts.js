@@ -1,8 +1,8 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow } from "../lib/chartData";
-import { compactMillions, hasPace, mapPace, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceTicks } from "../lib/cycleLedger";
+import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
+import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerPosition, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { transactionHref } from "../lib/cycleReview";
 
@@ -31,7 +31,8 @@ function MonthlyTooltip({ active, payload, label }) {
 export function DashboardDailySpendingChart({ items, height = 280 }) {
   const data = mapDailySpending(items);
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran pada periode ini.</p>;
-  return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
+  const max = Math.max(...data.map(item => item.expenseValue), 0);
+  return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
 
 // Day tick: the running day of an active cycle says it is not complete yet.
@@ -44,6 +45,7 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
   const data = mapDailySpending(items);
   const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage); // served figure, plotted as a line only; absent means no line
   if (!data.length || data.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
+  const max = Math.max(...data.map(item => item.expenseValue), Number.isFinite(average) ? average : 0, 0);
   const lastIndex = data.length - 1;
   // Every third day, plus the running day; the tick before it is dropped so "belum penuh" never collides.
   const partialLabel = partialDay ? partialDay.slice(8) : "";
@@ -60,7 +62,7 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
       {rectangle}
     </a>;
   };
-  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="10%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="10%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {
@@ -91,22 +93,34 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   // a round axis keeps the ticks readable. Curve points are served values, read only for
   // the visual ceiling — never written back into a money figure.
   const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
-  // On a phone the label at the last day has no room to the right, so it sits above the line's left side.
-  const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: "insideTopLeft", fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
+  // A marker in the right half has no room to the right, so its label anchors to the
+  // left of the line; the left half keeps the label to the right.
+  const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: paceMarkerPosition(last.day, data.length), fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
+  // End-value labels sit on the same x at the last day; when their values are close,
+  // push the comparison label away from the current one so the two never overlap.
+  const span = axis.domain[1] - axis.domain[0];
+  const closeToLast = value => Math.abs(Number(value) - Number(last.exact)) < span * 0.12;
+  const sameDayLabel = sameDay ? endLabel(sameDay.value, Number(sameDay.value) < Number(last.exact) ? "bottom" : "top") : null;
+  if (sameDayLabel) sameDayLabel.dx = -10; // the marker sits on the today line; keep the value off it
+  if (sameDayLabel && closeToLast(sameDay.value)) sameDayLabel.dy = Number(sameDay.value) < Number(last.exact) ? 14 : -14;
+  // The previous full-cycle tail is the same point as the same-day marker on a full
+  // cycle; one label is enough.
+  const tailLabel = tail && !(sameDay && tail.day === last.day) ? endLabel(tail.previousExact, "right") : null;
+  if (tailLabel && tail.day === last.day && closeToLast(tail.previousTotal)) tailLabel.dy = Number(tail.previousTotal) < Number(last.exact) ? 14 : -14;
   return <div className="cycle-pace">
     <div className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart accessibilityLayer={false} data={data} margin={{ top: 26, right: 44, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false}/>
           <XAxis dataKey="day" type="number" domain={[1, Math.max(data.length, 2)]} ticks={paceTicks(data.length)} tickFormatter={day => paceDateLabel(items, day)} allowDecimals={false} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/>
-          <YAxis width={40} type="number" domain={axis.domain} ticks={axis.ticks} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/>
+          <YAxis width={40} type="number" domain={axis.domain} ticks={axis.ticks} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(axis.domain[1])}/>
           <Tooltip content={<PaceTooltip/>}/>
           <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1} label={markerLabel}/>
           {curves.previous && <Line type="linear" dataKey="previousTotal" stroke="var(--line-strong)" strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false}/>}
           {curves.median && <Line type="linear" dataKey="medianTotal" stroke="var(--chart-reference)" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} activeDot={false} isAnimationActive={false}/>}
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}
-          {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2} label={reference === sameDay ? endLabel(reference.value, Number(reference.value) < Number(last.exact) ? "bottom" : "top") : undefined}/>)}
-          {tail && <ReferenceDot x={tail.day} y={Number(tail.previousTotal)} r={0} ifOverflow="extendDomain" label={endLabel(tail.previousExact, "right")}/>}
+          {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2} label={reference === sameDay ? sameDayLabel : undefined}/>)}
+          {tail && <ReferenceDot x={tail.day} y={Number(tail.previousTotal)} r={0} ifOverflow="extendDomain" label={tailLabel}/>}
           <Line type="linear" dataKey="runningTotal" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/>
           <ReferenceDot x={last.day} y={Number(last.exact)} r={4} ifOverflow="extendDomain" fill="var(--chart-expense)" stroke="var(--chart-expense)" label={endLabel(last.exact, "right", "var(--chart-expense)")}/>
         </LineChart>
@@ -119,15 +133,16 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
 export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }) {
   const data = mapMonthlyCashflow(items, partialPeriod);
   if (!data.length) return <p className="empty compact">Belum ada data bulanan pada periode ini.</p>;
+  const max = Math.max(...data.flatMap(item => [item.incomeValue, item.expenseValue]), 0);
   // Legend in bar order (income, then expense), not Recharts' reversed payload order.
-  const legend = () => <ul className="dash-legend" aria-label="Keterangan grafik"><li data-series="income"><i aria-hidden="true"/>Pemasukan</li><li data-series="expense"><i aria-hidden="true"/>Pengeluaran</li></ul>;
-  return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
+  const legend = () => <ul className="dash-legend" data-shape="bar" aria-label="Keterangan grafik"><li data-series="income"><i aria-hidden="true"/>Pemasukan</li><li data-series="expense"><i aria-hidden="true"/>Pengeluaran</li></ul>;
+  return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }
 
 export function CategoryDonutChart({ items, height = 260 }) {
   const data = compactCategories(items, 5).map(item => ({ ...item, value: Number(item.amount || 0) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;
-  return <div className="category-visual"><div className="chart-wrap" role="img" aria-label="Grafik distribusi kategori" style={{ height }}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} labelLine={false} label={false} isAnimationActive={false}>{data.map((item, index) => <Cell key={item.id || item.name} fill={colors[index % colors.length]} stroke="var(--ink)" strokeWidth={2}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={defaultTooltipStyle}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.map((item, index) => <div key={item.id || item.name}><i style={{ background: colors[index % colors.length] }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
+  return <div className="category-visual"><div className="chart-wrap" role="img" aria-label="Grafik distribusi kategori" style={{ height }}><ResponsiveContainer width="100%" height="100%"><PieChart accessibilityLayer={false}><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} labelLine={false} label={false} isAnimationActive={false}>{data.map((item, index) => <Cell key={item.id || item.name} fill={colors[index % colors.length]} stroke="var(--ink)" strokeWidth={2}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={defaultTooltipStyle}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.map((item, index) => <div key={item.id || item.name}><i style={{ background: colors[index % colors.length] }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
 }
 
 export function CategoryRankingChart({ items, height = 320 }) {
@@ -141,8 +156,12 @@ export function CategoryRankingChart({ items, height = 320 }) {
 }
 
 export function NetWorthHistoryChart({ items, height = 260 }) {
-  const data = [...items].reverse().map(item => ({ label: new Date(item.observedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" }), value: Number(item.netWorthIdr || 0), raw: item.netWorthIdr || "0" }));
-  return <div className="chart-wrap" role="img" aria-label="Riwayat kekayaan bersih" style={{ height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={value => compactMillions(String(value))}/><Tooltip formatter={(_, __, item) => money(item.payload.raw)} contentStyle={defaultTooltipStyle}/><Line type="linear" dataKey="value" stroke="var(--chart-category-2)" strokeWidth={3} dot={{ r: 4, fill: "var(--butter)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
+  const data = netWorthHistoryRows(items);
+  // Defensive: the wealth page only mounts this with two or more snapshots.
+  if (!data.length) return null;
+  const max = Math.max(...data.map(row => row.value), 0);
+  const summary = netWorthHistorySummary(data);
+  return <div className="chart-wrap" role="img" aria-label={summary} style={{ height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip formatter={(_, __, item) => money(item.payload.raw)} contentStyle={defaultTooltipStyle}/><Line type="linear" dataKey="value" stroke="var(--chart-category-2)" strokeWidth={3} dot={{ r: 4, fill: "var(--butter)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
 
 

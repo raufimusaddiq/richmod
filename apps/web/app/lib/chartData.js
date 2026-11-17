@@ -1,4 +1,6 @@
-import { monthLabel } from "./format.js";
+import { money, monthLabel } from "./format.js";
+
+const jakartaDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" });
 
 export function compactCategories(items = [], limit = 5) {
   const sorted = [...items]
@@ -20,6 +22,35 @@ export function elapsedDaily(items = [], daysElapsed) {
 
 export function mapDailySpending(items = []) {
   return items.map(item => ({ ...item, label: item.period?.slice(8) || "", expenseValue: Number(item.expense || 0) }));
+}
+
+// Oldest first. Several snapshots can share a calendar day; only the first keeps
+// the date label so the ordinal axis never repeats "9 Sep 9 Sep 9 Sep". The dedupe
+// key is the full Jakarta date, so 2025-09-09 and 2026-09-09 stay distinct, and the
+// label carries the year once the history spans more than one calendar year.
+export function netWorthHistoryRows(items = []) {
+  const rows = [...items].reverse().map(item => {
+    const at = new Date(item.observedAt);
+    return { at, key: jakartaDate.format(at), value: Number(item.netWorthIdr || 0), raw: item.netWorthIdr || "0" };
+  });
+  const spanning = new Set(rows.map(row => row.key.slice(0, 4))).size > 1;
+  const seen = new Set();
+  return rows.map(row => {
+    const day = row.at.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", ...(spanning ? { year: "numeric" } : {}) });
+    const label = seen.has(row.key) ? "" : day;
+    seen.add(row.key);
+    return { label, day, value: row.value, raw: row.raw };
+  });
+}
+
+// The chart's text alternative. The range carries the year when the rows do.
+export function netWorthHistorySummary(rows = []) {
+  if (!rows.length) return "";
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  // The label is a money figure, so the maximum stays an exact decimal string.
+  const highest = rows.reduce((top, row) => { try { return BigInt(row.raw) > BigInt(top) ? row.raw : top; } catch { return top; } }, first.raw);
+  return `Riwayat kekayaan bersih: ${rows.length} catatan, ${first.day} sampai ${last.day}, tertinggi ${money(highest)}, terakhir ${money(last.raw)}`;
 }
 
 export function dayLabel(value) {
