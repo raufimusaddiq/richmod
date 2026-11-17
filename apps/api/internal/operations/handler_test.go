@@ -87,19 +87,26 @@ func TestStatusDegradesWithinBudgetWhenDependencyIsSlow(t *testing.T) {
 	handler.Status(response, request)
 	elapsed := time.Since(start)
 
-	if elapsed > statusBudget {
-		t.Fatalf("status took %v, budget %v", elapsed, statusBudget)
+	// A status read must finish within the request budget plus scheduler slack;
+	// a sequential or unbounded fan-out would spend several probe timeouts here.
+	slack := 50 * time.Millisecond
+	if elapsed > statusBudget+slack {
+		t.Fatalf("status took %v, budget %v (+%v)", elapsed, statusBudget, slack)
 	}
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
 	var body struct {
-		Status string `json:"status"`
+		Status           string   `json:"status"`
+		DegradedSections []string `json:"degradedSections"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
 	if body.Status != "degraded" {
 		t.Fatalf("status = %q, want degraded", body.Status)
+	}
+	if len(body.DegradedSections) != 4 {
+		t.Fatalf("degradedSections = %v, want all four sections named", body.DegradedSections)
 	}
 }

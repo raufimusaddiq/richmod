@@ -279,10 +279,22 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
 				FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit)
 		},
+		// The per-event numerator only matters with a canonical cohort, so the sum
+		// query is skipped when there is no confirmed transaction (a real zero).
 		func(ctx context.Context) error {
-			return h.pool.QueryRow(ctx, `
+			if err := h.pool.QueryRow(ctx, `
 				SELECT count(*) FROM transaction
-				WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents)
+				WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
+				return err
+			}
+			if aggregate.CanonicalEvents == 0 {
+				return nil
+			}
+			return h.pool.QueryRow(ctx, `
+				SELECT COALESCE(sum(e.bounded_choices),0)
+				FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
+				WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN'
+				  AND t.status='CONFIRMED' AND t.created_at >= now()-interval '30 days'`, householdID).Scan(&boundedChoicesPerEventSum)
 		},
 		// Open-to-resolve time reads review_item, not review_request, so every review type counts.
 		func(ctx context.Context) error {
@@ -295,13 +307,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 			return h.pool.QueryRow(ctx, `
 				SELECT count(*) FILTER (WHERE event_type='REVIEW_TURN'),COALESCE(sum(bounded_choices) FILTER (WHERE event_type='REVIEW_TURN'),0)
 				FROM product_telemetry_event WHERE household_id=$1 AND occurred_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ReviewRoundTrips, &aggregate.BoundedChoices)
-		},
-		func(ctx context.Context) error {
-			return h.pool.QueryRow(ctx, `
-				SELECT COALESCE(sum(e.bounded_choices),0)
-				FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
-				WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN'
-				  AND t.status='CONFIRMED' AND t.created_at >= now()-interval '30 days'`, householdID).Scan(&boundedChoicesPerEventSum)
 		},
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `

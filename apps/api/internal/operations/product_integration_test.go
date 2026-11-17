@@ -3,9 +3,61 @@ package operations
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// recordingQueryer records the SQL it forwards, so a test can assert a probe
+// was skipped without a database stand-in.
+type recordingQueryer struct {
+	pool queryer
+	mu   sync.Mutex
+	sql  []string
+}
+
+func (r *recordingQueryer) record(sql string) {
+	r.mu.Lock()
+	r.sql = append(r.sql, sql)
+	r.mu.Unlock()
+}
+
+func (r *recordingQueryer) QueryRow(ctx context.Context, sql string, args ...any) rowScanner {
+	r.record(sql)
+	return r.pool.QueryRow(ctx, sql, args...)
+}
+
+func (r *recordingQueryer) Query(ctx context.Context, sql string, args ...any) (rowsScanner, error) {
+	r.record(sql)
+	return r.pool.Query(ctx, sql, args...)
+}
+
+// TestProductAggregateSkipsBoundedChoiceSumWithoutCanonicalEvents: with no
+// confirmed transaction the per-event denominator is zero, so the sum probe
+// must not run at all.
+func TestProductAggregateSkipsBoundedChoiceSumWithoutCanonicalEvents(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	var householdID string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Empty product %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingQueryer{pool: poolQueryer{pool: pool}}
+	handler := &Handler{pool: recorder, probeSlots: make(chan struct{}, 8)}
+	aggregate, err := handler.loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.CanonicalEvents != 0 {
+		t.Fatalf("fresh household canonical events = %d, want 0", aggregate.CanonicalEvents)
+	}
+	for _, sql := range recorder.sql {
+		if strings.Contains(sql, "sum(e.bounded_choices)") {
+			t.Fatal("bounded-choice sum probe ran with no canonical events")
+		}
+	}
+}
 
 func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
 	pool := integrationPool(t)
