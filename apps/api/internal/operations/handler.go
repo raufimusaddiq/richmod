@@ -12,13 +12,16 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// probeTimeout bounds every dependency probe. The status endpoint fans out to
-// ~25 independent queries; a slow or unreachable one degrades its section
-// instead of holding the whole response past the budget.
-const probeTimeout = 100 * time.Millisecond
+// probeTimeout bounds every leaf query. The heaviest query measured on a 30-day
+// seed (5k jobs, 3k reviews, 10k telemetry rows) is ~13ms with fresh statistics
+// and ~76ms with stale ones, so this leaves headroom while keeping the endpoint
+// under the 150ms acceptance budget. A slow or unreachable dependency degrades
+// its section instead of holding the response.
+const probeTimeout = 120 * time.Millisecond
 
-// statusBudget is the wall-clock ceiling the handler must stay under even when
-// every dependency is slow. It is the acceptance budget for the endpoint.
+// statusBudget is the acceptance ceiling the handler must stay under even when
+// every dependency is slow. It is the request deadline; a healthy read finishes
+// well inside it, so real numbers are not zeroed.
 const statusBudget = 150 * time.Millisecond
 
 type rowScanner interface{ Scan(dest ...any) error }
@@ -51,10 +54,20 @@ type Handler struct {
 	pool              queryer
 	gatewayConfigured bool
 	protocol          string
+	// probeSlots caps concurrent leaf queries at the pool's capacity minus one,
+	// so the fan-out queues on this semaphore instead of on the pgx pool and
+	// never occupies every connection other requests need.
+	probeSlots chan struct{}
 }
 
 func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
-	handler := &Handler{pool: poolQueryer{pool: pool}}
+	slots := 1
+	if pool != nil {
+		if maxConns := int(pool.Config().MaxConns); maxConns > 1 {
+			slots = maxConns - 1
+		}
+	}
+	handler := &Handler{pool: poolQueryer{pool: pool}, probeSlots: make(chan struct{}, slots)}
 	if len(gatewayOptions) > 0 {
 		handler.gatewayConfigured, _ = gatewayOptions[0].(bool)
 	}
@@ -67,28 +80,50 @@ func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
 	return handler
 }
 
-// probe runs fn under a bounded timeout so one slow dependency cannot hold the
-// response past its budget.
-func probe(ctx context.Context, fn func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
-	return fn(ctx)
+// runGroups runs independent groups concurrently. A group that fans out further
+// must not hold a probe slot, so only leaf queries call probe.
+func runGroups(ctx context.Context, groups ...func(context.Context) error) error {
+	errs := make([]error, len(groups))
+	var wg sync.WaitGroup
+	for i, fn := range groups {
+		wg.Add(1)
+		go func(i int, fn func(context.Context) error) {
+			defer wg.Done()
+			errs[i] = fn(ctx)
+		}(i, fn)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
-// runProbes runs independent probes concurrently and returns their joined
-// errors. Each probe is bounded by probeTimeout.
-func runProbes(ctx context.Context, probes ...func(context.Context) error) error {
+// runProbes runs independent leaf queries concurrently, each holding a probe
+// slot so the fan-out cannot exceed the pool.
+func (h *Handler) runProbes(ctx context.Context, probes ...func(context.Context) error) error {
 	errs := make([]error, len(probes))
 	var wg sync.WaitGroup
 	for i, fn := range probes {
 		wg.Add(1)
 		go func(i int, fn func(context.Context) error) {
 			defer wg.Done()
-			errs[i] = probe(ctx, fn)
+			errs[i] = h.probe(ctx, fn)
 		}(i, fn)
 	}
 	wg.Wait()
 	return errors.Join(errs...)
+}
+
+// probe acquires a pool slot before running fn, so a slow query cannot starve
+// the pool and a queued probe is bounded by the request deadline.
+func (h *Handler) probe(ctx context.Context, fn func(context.Context) error) error {
+	select {
+	case h.probeSlots <- struct{}{}:
+		defer func() { <-h.probeSlots }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	return fn(ctx)
 }
 
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
@@ -114,46 +149,52 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	// The four sections are independent, so they run concurrently. A slow or
 	// failing section degrades to its zero value and marks the status degraded
 	// rather than blocking the response.
-	probeErr := runProbes(r.Context(),
+	ctx, cancel := context.WithTimeout(r.Context(), statusBudget)
+	defer cancel()
+	probeErr := runGroups(ctx,
 		func(ctx context.Context) error {
-			return h.pool.QueryRow(ctx, `
-				SELECT
-				  (SELECT count(*) FROM job WHERE household_id=$1 AND status='PENDING'),
-				  (SELECT count(*) FROM job WHERE household_id=$1 AND status='RUNNING'),
-				  (SELECT count(*) FROM job WHERE household_id=$1 AND status='FAILED' AND updated_at>=now()-interval '24 hours'),
-				  (SELECT count(*) FROM review_request WHERE household_id=$1 AND status IN ('PENDING_SEND','OPEN')),
-				  (SELECT max(last_seen_at) FROM worker_heartbeat)`, householdID).
-				Scan(&pendingJobs, &runningJobs, &failedJobs, &openReviews, &lastHeartbeat)
+			return h.probe(ctx, func(ctx context.Context) error {
+				return h.pool.QueryRow(ctx, `
+					SELECT
+					  (SELECT count(*) FROM job WHERE household_id=$1 AND status='PENDING'),
+					  (SELECT count(*) FROM job WHERE household_id=$1 AND status='RUNNING'),
+					  (SELECT count(*) FROM job WHERE household_id=$1 AND status='FAILED' AND updated_at>=now()-interval '24 hours'),
+					  (SELECT count(*) FROM review_request WHERE household_id=$1 AND status IN ('PENDING_SEND','OPEN')),
+					  (SELECT max(last_seen_at) FROM worker_heartbeat)`, householdID).
+					Scan(&pendingJobs, &runningJobs, &failedJobs, &openReviews, &lastHeartbeat)
+			})
 		},
 		func(ctx context.Context) error {
-			rows, err := h.pool.Query(ctx, `
-				SELECT lane,
-				 count(*) FILTER (WHERE status='PENDING'),
-				 count(*) FILTER (WHERE status='RUNNING'),
-				 min(run_after) FILTER (WHERE status='PENDING' AND run_after<=now()),
-				 coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0),
-				 coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0)
-				FROM job WHERE household_id=$1 GROUP BY lane ORDER BY lane`, householdID)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var lane string
-				var pending, running int
-				var oldest *time.Time
-				var p50, p95 float64
-				if err := rows.Scan(&lane, &pending, &running, &oldest, &p50, &p95); err != nil {
+			return h.probe(ctx, func(ctx context.Context) error {
+				rows, err := h.pool.Query(ctx, `
+					SELECT lane,
+					 count(*) FILTER (WHERE status='PENDING'),
+					 count(*) FILTER (WHERE status='RUNNING'),
+					 min(run_after) FILTER (WHERE status='PENDING' AND run_after<=now()),
+					 coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0),
+					 coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0)
+					FROM job WHERE household_id=$1 GROUP BY lane ORDER BY lane`, householdID)
+				if err != nil {
 					return err
 				}
-				var oldestAge *int64
-				if oldest != nil {
-					age := max(int64(0), time.Since(*oldest).Milliseconds())
-					oldestAge = &age
+				defer rows.Close()
+				for rows.Next() {
+					var lane string
+					var pending, running int
+					var oldest *time.Time
+					var p50, p95 float64
+					if err := rows.Scan(&lane, &pending, &running, &oldest, &p50, &p95); err != nil {
+						return err
+					}
+					var oldestAge *int64
+					if oldest != nil {
+						age := max(int64(0), time.Since(*oldest).Milliseconds())
+						oldestAge = &age
+					}
+					lanes[lane] = map[string]any{"pending": pending, "running": running, "oldestDueAgeMs": oldestAge, "executionP50Ms": p50, "executionP95Ms": p95}
 				}
-				lanes[lane] = map[string]any{"pending": pending, "running": running, "oldestDueAgeMs": oldestAge, "executionP50Ms": p50, "executionP95Ms": p95}
-			}
-			return rows.Err()
+				return rows.Err()
+			})
 		},
 		func(ctx context.Context) error {
 			var err error

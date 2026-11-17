@@ -73,7 +73,7 @@ func (r *slowRows) Close()                 {}
 // answers must not hold the response past its budget; the endpoint degrades to
 // a status value instead of blocking.
 func TestStatusDegradesWithinBudgetWhenDependencyIsSlow(t *testing.T) {
-	handler := &Handler{pool: slowQueryer{delay: time.Second}}
+	handler := &Handler{pool: slowQueryer{delay: time.Second}, probeSlots: make(chan struct{}, 32)}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations/status", nil)
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{
 		UserID:        "00000000-0000-4000-8000-000000000001",

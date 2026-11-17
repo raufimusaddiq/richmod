@@ -23,7 +23,7 @@ func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string)
 
 	// The three reads are independent; run them concurrently so the aggregate
 	// costs one round trip, not three.
-	err := runProbes(ctx,
+	err := h.runProbes(ctx,
 		func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, `
 				SELECT lane, count(*), coalesce(sum(native_tool_calls_avoided), 0)
