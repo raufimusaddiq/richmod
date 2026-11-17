@@ -26,6 +26,7 @@
 .inline-form > label { flex: 1 1 150px; min-width: 150px; }
 .inline-form > label > span, .member-form > label > span { white-space: nowrap; }
 .known-form > label { flex: 1 1 0; min-width: 120px; }
+.wealth-form > label { flex: 1 1 160px; min-width: 150px; }
 .known-form { gap: 8px; }
 .member-form > label { flex: 1 1 220px; min-width: 150px; }
 .inline-form select, .member-form input { width: 100%; min-width: 0; }
