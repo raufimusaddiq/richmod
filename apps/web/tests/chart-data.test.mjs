@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow } from "../app/lib/chartData.js";
+import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow, netWorthHistoryRows } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -45,6 +45,18 @@ test("monthly mapping marks only the running month as partial", () => {
 test("dayLabel includes the complete Indonesian date", () => {
   assert.match(dayLabel("2026-08-29"), /2026/);
   assert.equal(dayLabel(null), "");
+});
+
+test("net worth history is oldest first and repeats no date label", () => {
+  const rows = netWorthHistoryRows([
+    { observedAt: "2026-09-09T15:00:00+07:00", netWorthIdr: "300" },
+    { observedAt: "2026-09-09T09:00:00+07:00", netWorthIdr: "200" },
+    { observedAt: "2026-09-08T10:00:00+07:00", netWorthIdr: "100" },
+  ]);
+  assert.deepEqual(rows.map(row => row.value), [100, 200, 300]);
+  assert.deepEqual(rows.map(row => row.label), ["8 Sep", "9 Sep", ""]);
+  assert.deepEqual(rows.map(row => row.day), ["8 Sep", "9 Sep", "9 Sep"]);
+  assert.deepEqual(netWorthHistoryRows([]), []);
 });
 
 test("months before the first confirmed transaction are not drawn as blank slots", () => {

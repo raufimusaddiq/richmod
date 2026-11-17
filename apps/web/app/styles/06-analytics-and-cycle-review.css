@@ -188,6 +188,9 @@
 .dash-legend [data-series="previous"] i { border-top: 2px dashed var(--line-strong); }
 .dash-legend [data-series="median"] i { border-top: 2px dotted var(--chart-reference); }
 .dash-legend [data-series="income"] i { border-top-color: var(--chart-income); }
+/* A bar series gets a filled square, not a line: the swatch must match the mark. */
+.dash-legend[data-shape="bar"] i { width: 12px; height: 12px; border-top: 0; border-radius: 2px; background: var(--chart-expense); vertical-align: -1px; }
+.dash-legend[data-shape="bar"] [data-series="income"] i { background: var(--chart-income); }
 .recharts-legend-wrapper .dash-legend { justify-content: center; }
 /* A chart's unit is on screen, not only in its aria-label. */
 .chart-unit { margin: 0 0 2px; color: var(--muted); font-size: var(--text-xs); }

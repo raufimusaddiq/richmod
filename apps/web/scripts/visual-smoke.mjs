@@ -12,7 +12,7 @@ const regressionOutput = new URL("../test-results/visual-regression/", import.me
 const baselines = new URL("../tests/visual-baselines/", import.meta.url);
 const updateBaselines = process.env.UPDATE_VISUAL_BASELINES === "1";
 let comparedBaselines = 0;
-const routes = ["/", "/transactions", "/analytics", "/inbox", "/documents", "/household", "/settings", "/admin"];
+const routes = ["/", "/transactions", "/analytics", "/wealth", "/inbox", "/documents", "/household", "/settings", "/admin"];
 const viewports = [
   ["desktop", 1440, 900],
   ["tablet", 1024, 768],
@@ -38,6 +38,22 @@ const daily = Array.from({ length: 12 }, (_, index) => ({ period: `2026-09-${Str
 const review = [{ id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "750000", merchantName: "Transfer ke rekening lain", transactionAt: "2026-09-05T15:00:00+07:00", sourceType: "BANK_EMAIL", proposalStatus: "NEEDS_REVIEW", missingFields: ["merchant"], description: "Tujuan transfer belum jelas" }];
 const members = [{ id: "member-1", displayName: "Rafi", email: "rafi@example.test", role: "OWNER", active: true, telegramConnected: true }, { id: "member-2", displayName: "Dina", email: "dina@example.test", role: "MEMBER", active: true, telegramConnected: false }];
 const document = { id: "doc-1", status: "SUCCEEDED", documentType: "RECEIPT", sourceType: "WEB_IMAGE", createdAt: "2026-09-06T10:00:00+07:00", confidence: 0.93, linkedTransactionIds: ["tx-1"], summary: { merchant: "Pasar Minggu", amount: "185000" }, needsReview: false };
+const wealthAccounts = [
+  { id: "wa-1", name: "Tabungan utama", institution: "Bank Jago", wealthType: "BANK", usageRole: "SPENDING", active: true },
+  { id: "wa-2", name: "Reksa dana pasar uang", institution: "Bibit", wealthType: "MUTUAL_FUND", usageRole: "SAVINGS", active: true },
+  { id: "wa-3", name: "Kartu kredit", institution: "BCA", wealthType: "LOAN", usageRole: "LIABILITY", active: true },
+];
+const wealthItems = [
+  { wealthAccountId: "wa-1", name: "Tabungan utama", side: "ASSET", valueIdr: "30000000" },
+  { wealthAccountId: "wa-2", name: "Reksa dana pasar uang", side: "ASSET", valueIdr: "20000000" },
+  { wealthAccountId: "wa-3", name: "Kartu kredit", side: "LIABILITY", valueIdr: "1750000" },
+];
+// Two snapshots share 9 Sep so the history axis has to dedupe its date labels.
+const wealthSnapshots = [
+  { id: "wealth-3", observedAt: "2026-09-09T15:00:00+07:00", netWorthIdr: "48250000", assetTotalIdr: "50000000", liabilityTotalIdr: "1750000", items: wealthItems },
+  { id: "wealth-2", observedAt: "2026-09-09T09:00:00+07:00", netWorthIdr: "47000000", assetTotalIdr: "48750000", liabilityTotalIdr: "1750000", items: wealthItems },
+  { id: "wealth-1", observedAt: "2026-09-08T10:00:00+07:00", netWorthIdr: "46000000", assetTotalIdr: "47750000", liabilityTotalIdr: "1750000", items: wealthItems },
+];
 
 function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/auth/me") return user;
@@ -45,7 +61,13 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/analytics/cycle-review") return cycleReviewFixture(search.get("cycle_start") || undefined, scenario);
   if (path === "/api/v1/analytics/cycle-decisions") return { items: [], previous: [], previousCycleStart: "2026-08-26" };
   if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
-  if (path === "/api/v1/wealth/snapshots/latest") return { id: "wealth-1", netWorthIdr: "48250000", observedAt: "2026-09-06T10:00:00+07:00" };
+  if (path === "/api/v1/wealth/snapshots/latest") return wealthSnapshots[0];
+  if (path === "/api/v1/wealth/accounts") return wealthAccounts;
+  if (path === "/api/v1/wealth/history") return wealthSnapshots;
+  if (path === "/api/v1/wealth/summary") return { latest: wealthSnapshots[0], previous: wealthSnapshots[1], netWorthChangeIdr: "2250000", confirmedCashflowIdr: "1500000", valuationAndOtherChangeIdr: "750000" };
+  if (path === "/api/v1/wealth/current-cycle-savings") return null;
+  if (path === "/api/v1/wealth/cycle-recaps") return [];
+  if (path === "/api/v1/wealth/observations") return [];
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
   if (path.startsWith("/api/v1/analytics/categories")) return categories;
   if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-07", income: "11800000", expense: "7200000", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", netCashflow: "9910000" }];

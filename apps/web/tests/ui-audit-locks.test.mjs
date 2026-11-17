@@ -267,6 +267,24 @@ test("the category donut does not animate in, so it never captures or shows a ha
   assert.match(donut, /<Pie [^>]*isAnimationActive=\{false\}/);
 });
 
+test("charts are images with a name, never role=application, and the dashboard has a value table", () => {
+  const charts = text("app/components/Charts.js");
+  assert.doesNotMatch(charts, /role="application"/, "no chart switches screen readers out of browse mode");
+  for (const name of ["DashboardDailySpendingChart", "NetWorthHistoryChart", "CategoryDonutChart", "MonthlyCashflowChart", "CategoryRankingChart"]) {
+    const body = charts.match(new RegExp(`export function ${name}[\\s\\S]*?\\n\\}`))?.[0] ?? "";
+    assert.match(body, /role="img" aria-label=/, `${name} is a named image`);
+  }
+  const home = text("app/page.js");
+  assert.match(home, /<summary>Lihat nilai pengeluaran harian<\/summary>/, "the dashboard chart has a value table");
+  assert.match(home, /<caption className="visually-hidden">Pengeluaran bersih harian<\/caption>/);
+});
+
+test("a bar-series legend swatch is a filled square, not a line", () => {
+  const charts = text("app/components/Charts.js");
+  assert.match(charts, /<ul className="dash-legend" data-shape="bar"/, "the cashflow legend marks its series as bars");
+  assert.match(css(), /\.dash-legend\[data-shape="bar"\] i \{[^}]*background: var\(--chart-expense\)/, "the bar swatch is filled");
+});
+
 test("the viewport extends under the notch and safe-area insets keep content clear of it", () => {
   assert.match(text("app/layout.js"), /export const viewport = \{[^}]*viewportFit: "cover"/);
   assert.match(css(), /env\(safe-area-inset-left\)/);

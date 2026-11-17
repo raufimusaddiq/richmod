@@ -22,6 +22,19 @@ export function mapDailySpending(items = []) {
   return items.map(item => ({ ...item, label: item.period?.slice(8) || "", expenseValue: Number(item.expense || 0) }));
 }
 
+// Oldest first. Several snapshots can share a day; only the first keeps the
+// date label so the ordinal axis never repeats "9 Sep 9 Sep 9 Sep".
+export function netWorthHistoryRows(items = []) {
+  const seen = new Set();
+  return [...items].reverse().map(item => {
+    const at = new Date(item.observedAt);
+    const day = at.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short" });
+    const label = seen.has(day) ? "" : day;
+    seen.add(day);
+    return { label, day, value: Number(item.netWorthIdr || 0), raw: item.netWorthIdr || "0" };
+  });
+}
+
 export function dayLabel(value) {
   if (!value) return "";
   return new Date(`${value}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric" });
