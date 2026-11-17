@@ -286,6 +286,9 @@ test("document thumbnails load lazily and the list shows twelve at a time", () =
   assert.match(page, /alt="Pratinjau dokumen keuangan" loading="lazy" decoding="async"/);
   assert.match(page, /visibleItems\.slice\(0, visibleCount\)\.map/);
   assert.match(page, /setVisibleCount\(count => count \+ 12\)/);
+  // The grid asks for the derived thumbnail; the drawer keeps the full original.
+  assert.ok(page.includes("src={`/api/v1/documents/${item.id}/thumbnail`}"));
+  assert.ok(page.includes("src={`/api/v1/documents/${selected.id}/pages/${page}/content`}"));
 });
 
 test("document source and status labels cover the values the API returns", () => {

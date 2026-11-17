@@ -152,6 +152,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/documents", authHandler.RequireSession(http.HandlerFunc(documentHandler.List)))
 	mux.Handle("POST /api/v1/documents", authHandler.RequireSession(http.HandlerFunc(documentHandler.Upload)))
 	mux.Handle("GET /api/v1/documents/{id}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.Content)))
+	mux.Handle("GET /api/v1/documents/{id}/thumbnail", authHandler.RequireSession(http.HandlerFunc(documentHandler.Thumbnail)))
 	mux.Handle("GET /api/v1/documents/{id}/pages", authHandler.RequireSession(http.HandlerFunc(documentHandler.Pages)))
 	mux.Handle("GET /api/v1/documents/{id}/pages/{index}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.PageContent)))
 	mux.Handle("GET /api/v1/documents/{id}/extraction", authHandler.RequireSession(http.HandlerFunc(documentHandler.Extraction)))
