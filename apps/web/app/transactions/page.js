@@ -34,8 +34,8 @@ export default function TransactionsPage() {
     return { transaction: await transaction.json(), evidence: await evidenceResponse.json(), audit: await auditResponse.json() };
   }, "Detail transaksi belum dapat dimuat. Coba lagi.");
   const closeDetail = () => {
-    // Removing ?id= is what closes the drawer, so a shared link and the back button agree.
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("id")) window.history.replaceState(window.history.state, "", drawerUrl(""));
+    // Removing ?open= is what closes the drawer, so a shared link and the back button agree.
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("open")) window.history.replaceState(window.history.state, "", drawerUrl(""));
     drawer.close();
   };
   const drawerRef = useDrawerA11y(drawer.status !== "closed", closeDetail);
@@ -182,8 +182,10 @@ export default function TransactionsPage() {
   useEffect(() => {
     const onPopState = event => {
       setCursorHistory(event.state?.cursorHistory || []);
-      // Back/forward is the drawer's history too: ?id= opens it, its absence closes it.
-      const id = new URLSearchParams(window.location.search).get("id");
+      // Back/forward is the drawer's history too: ?open= (a row) or ?id= (an evidence
+      // link) opens it, their absence closes it.
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("open") || params.get("id");
       if (id) drawer.open(id); else drawer.close();
       load();
     };
@@ -195,7 +197,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
   }, [loading, loader.hasLoaded, refreshPending, refreshToken]);
-  useEffect(() => { if (user) { const id = new URLSearchParams(window.location.search).get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
+  useEffect(() => { if (user) { const params = new URLSearchParams(window.location.search); const id = params.get("open") || params.get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
   useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) { setMissingWindow(window_); setCreateError(""); openCreate(); } }, [user]);
 
   async function filter(event) {
@@ -214,12 +216,13 @@ export default function TransactionsPage() {
 
   function resetFilters() {
     setFilterError(""); setMissingWindow(null); setFilterKey(key => key + 1); setCursorHistory([]); setCreatedId(""); setRefreshToken(token => token + 1);
+    drawer.close();
     window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", "/transactions"); load("");
   }
 
   async function nextPage() {
     if (!nextCursor) return;
-    const query = new URLSearchParams(window.location.search); const history = [...cursorHistory, query.get("cursor") || ""]; setCursorHistory(history); query.set("cursor", nextCursor); query.set("limit", String(PAGE_SIZE));
+    const query = new URLSearchParams(window.location.search); const history = [...cursorHistory, query.get("cursor") || ""]; setCursorHistory(history); query.set("cursor", nextCursor); query.set("limit", String(PAGE_SIZE)); query.delete("open");
     const search = `?${query}`; window.history.pushState({ ...window.history.state, cursorHistory: history }, "", `/transactions${search}`); await load(search);
   }
 
@@ -284,11 +287,11 @@ export default function TransactionsPage() {
   </AppShell>;
 }
 
-// The current list URL with (or without) the open drawer's ?id=, so a row is shareable
-// and the back button closes the drawer.
+// The current list URL with (or without) the open drawer's ?open=, so a row is shareable
+// and the back button closes the drawer. ?id= stays the evidence-link scope.
 function drawerUrl(id) {
   const next = new URLSearchParams(window.location.search);
-  if (id) next.set("id", id); else next.delete("id");
+  if (id) next.set("open", id); else next.delete("open");
   const search = next.toString();
   return `/transactions${search ? `?${search}` : ""}`;
 }

@@ -284,9 +284,24 @@ test("T-30: no-match state offers Hapus filter, the empty ledger keeps the plain
   assert.match(page, /hasFilters=\{hasActiveFilters\(`\?\$\{query\}`\)\} onClearFilters=\{resetFilters\}/);
 });
 
-test("T-30: opening a row writes ?id= and closing removes it, so back closes the drawer", () => {
+test("T-30: opening a row writes ?open= and closing removes it, so back closes the drawer", () => {
   assert.match(page, /const openDetail = item => \{ window\.history\.pushState\(window\.history\.state, "", drawerUrl\(item\.id\)\); drawer\.open\(item\.id\); \}/);
   assert.match(page, /function drawerUrl\(id\)/);
-  assert.match(page, /next\.set\("id", id\); else next\.delete\("id"\)/);
-  assert.match(page, /const id = new URLSearchParams\(window\.location\.search\)\.get\("id"\);\s+if \(id\) drawer\.open\(id\); else drawer\.close\(\);/);
+  assert.match(page, /next\.set\("open", id\); else next\.delete\("open"\)/);
+  assert.match(page, /const id = params\.get\("open"\) \|\| params\.get\("id"\);\s+if \(id\) drawer\.open\(id\); else drawer\.close\(\);/);
+});
+
+test("T-30: a row drawer is not an evidence-link scope, so pagination and the full page stay", () => {
+  // ?open= is the drawer; ?id= alone scopes the ledger to one evidence-linked row.
+  assert.equal(isScopedToTransaction("?open=abc"), false);
+  assert.equal(isScopedToTransaction("?id=abc"), true);
+  assert.equal(listSearch("?open=abc&limit=50"), "?limit=50", "the drawer id never reaches the list request");
+  assert.equal(listSearch("?id=abc&open=abc"), "?id=abc&limit=50", "an evidence link still scopes");
+  assert.equal(hasActiveFilters("?open=abc&limit=50"), false, "an open drawer is not a filter");
+  assert.match(page, /const scoped = isScopedToTransaction\(/);
+  assert.doesNotMatch(page, /isScopedToTransaction\([^)]*open/);
+});
+
+test("T-30: resetFilters closes the drawer", () => {
+  assert.match(page, /function resetFilters\(\) \{[\s\S]*?drawer\.close\(\);[\s\S]*?load\(""\);/);
 });

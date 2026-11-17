@@ -28,6 +28,8 @@ export function createErrorMessage(status, body = {}) {
 // ledger to that one row on purpose; the list request keeps it.
 export function listSearch(search) {
   const query = new URLSearchParams(search);
+  // ?open= is the drawer, not a list filter; ?id= is an evidence-link scope and stays.
+  query.delete("open");
   if (!query.has("limit")) query.set("limit", "50");
   return `?${query}`;
 }
@@ -46,7 +48,7 @@ export function normalizeAmount(value) {
 
 export function hasActiveFilters(search) {
   const query = new URLSearchParams(search);
-  for (const key of query.keys()) if (!["limit", "cursor", "id", "record"].includes(key)) return true;
+  for (const key of query.keys()) if (!["limit", "cursor", "id", "open", "record"].includes(key)) return true;
   return false;
 }
 
