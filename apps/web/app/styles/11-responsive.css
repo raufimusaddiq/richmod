@@ -121,6 +121,12 @@
   .email-checklist li { grid-template-columns: 28px minmax(0, 1fr); }
   .email-checklist li .integration-actions { grid-column: 2; }
   .row-actions { justify-content: flex-start; }
+  /* Ten sections on a phone: keep the sticky index one swipeable row, not four. */
+  .settings-index { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .settings-index::-webkit-scrollbar { display: none; }
+  .settings-index a { flex: 0 0 auto; }
+  .settings-section { scroll-margin-top: 58px; }
+  .inline-form > button, .member-form > button { flex: 1 1 100%; }
   .filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar > * { min-width: 0 !important; width: 100% !important; }
   .filter-bar button { grid-column: 1 / -1; }
