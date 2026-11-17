@@ -51,7 +51,7 @@ button.document-card:hover:not(:disabled) { border-color: var(--line-strong); ba
 button.document-card:active:not(:disabled) { transform: none; }
 .document-card > img { width: 96px; height: 126px; border-radius: 8px; background: var(--surface-muted); object-fit: cover; }
 .document-card > div { min-width: 0; padding: 3px 0; }
-.document-card h2 { margin: 9px 0 3px; overflow: hidden; font-size: var(--text-base); text-overflow: ellipsis; white-space: nowrap; }
+.document-card h2 { margin: 9px 0 3px; font-size: var(--text-base); overflow-wrap: anywhere; }
 .document-card p, .document-card small { display: block; margin: 0; color: var(--muted); font-size: var(--text-xs); }
 .document-summary { margin: 8px 0 !important; color: var(--ink-soft) !important; }
 .document-card .needs-review { margin-top: 8px; }

@@ -291,6 +291,25 @@ test("document thumbnails load lazily and the list shows twelve at a time", () =
   assert.ok(page.includes("src={`/api/v1/documents/${selected.id}/pages/${page}/content`}"));
 });
 
+test("documents: one pager, an honest status filter, and an upload form that waits for a file", () => {
+  const page = text("app/documents/page.js");
+  // One "show me more" control: reveal the loaded page first, then fetch older pages.
+  assert.equal((page.match(/Tampilkan lebih banyak/g) || []).length, 1, "a single pagination label");
+  assert.doesNotMatch(page, /Muat dokumen lebih lama/);
+  assert.match(page, /function showMore\(\)/);
+  // The filter states how many documents it actually looked at and can page further.
+  assert.match(page, /di antara \$\{items\.length\} dokumen termuat/);
+  assert.match(page, /Muat lebih banyak untuk memeriksa dokumen yang lebih lama\./);
+  // No upload without a chosen file, and the limits sit below the picker.
+  assert.match(page, /<button disabled=\{working \|\| !fileInfo\}>/);
+  assert.match(page, /JPG atau PNG · maksimal 10 MB total · maksimal 10 gambar<\/small>/);
+  assert.doesNotMatch(page, /actions=\{<span className="header-meta">/, "the limits left the page header");
+  // The title wraps instead of truncating the merchant.
+  assert.doesNotMatch(text("app/styles/05-inbox-and-documents.css"), /\.document-card h2 \{[^}]*text-overflow: ellipsis/);
+  // Touch keeps a 44px chip and pager target.
+  assert.match(text("app/styles/11-responsive.css"), /@media \(pointer: coarse\)\s*\{[^@]*\.filter-chips \.chip, \.document-more button \{ min-height: 44px; \}/);
+});
+
 test("document source and status labels cover the values the API returns", () => {
   const page = text("app/documents/page.js");
   assert.match(page, /WEB_IMAGE: "Unggahan web"/);
@@ -410,17 +429,18 @@ test("documents: titles read screenshot transactions[] and fall back to date and
   assert.match(body, /summary\?\.transactions/);
   assert.ok(body.includes("/^\\d+(\\.\\d+)?$/.test"), "amount check accepts decimal strings");
   assert.ok(!body.includes("/^d+$/"));
-  assert.match(body, /parts\.length === 1/);
+  assert.match(body, /if \(!parts\.length\)/, "a card with no merchant falls back to source and date");
   assert.match(body, /transaksi/);
   // Execute the real function against screenshot, failed and receipt cards.
   const rawFn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), money, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
   const fn = doc => rawFn(doc).replace(/\s/g, " ");
   const shot = { documentType: "EWALLET_SCREENSHOT", status: "EXTRACTED", summary: { transactions: [{ merchant: "Kopi Kenangan", amount: "45000" }, { merchant: "X", amount: "1" }] } };
-  assert.equal(fn(shot), "Tangkapan layar dompet digital · Kopi Kenangan · Rp 45.000 · 2 transaksi");
-  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Struk · Toko · Rp 50.000");
-  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "45000.00" } }), "Struk · Toko · Rp 45.000");
-  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "abc" } }), "Struk · Toko");
-  assert.equal(fn({ documentType: "EWALLET_SCREENSHOT", status: "FAILED", summary: { transactions: [{ merchant: "Z" }] } }), "Tangkapan layar dompet digital · Gambar Telegram 15 Nov 2026, 12.48");
+  // The merchant leads: the type prefix used to push it out of the truncated title.
+  assert.equal(fn(shot), "Kopi Kenangan · Rp 45.000 · 2 transaksi");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Toko · Rp 50.000");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "45000.00" } }), "Toko · Rp 45.000");
+  assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "abc" } }), "Toko");
+  assert.equal(fn({ documentType: "EWALLET_SCREENSHOT", status: "FAILED", summary: { transactions: [{ merchant: "Z" }] } }), "Gambar Telegram 15 Nov 2026, 12.48");
 });
 
 test("N7/N9: drawer trap reaches <summary> and skips unrendered controls; document cards use shared labels and money()", () => {

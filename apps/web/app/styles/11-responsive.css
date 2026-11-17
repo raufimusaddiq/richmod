@@ -200,6 +200,8 @@
 .settings-index a { min-width: 32px; justify-content: center; }
 @media (pointer: coarse) {
   .cycle-review details > a, .public-legal-links a { min-height: 44px; }
+  /* Document status chips and the single "Tampilkan lebih banyak" control reach 44px on touch. */
+  .filter-chips .chip, .document-more button { min-height: 44px; }
 }
 
 /* Phones stack the row actions full width, so the desktop gap before a destructive button would only indent it. */
