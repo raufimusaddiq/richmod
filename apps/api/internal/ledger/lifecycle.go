@@ -76,7 +76,8 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,
 		       t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,
-		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at
+		       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at,
+		       count(*) OVER() AS total
 		FROM transaction t
 		LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id
 		LEFT JOIN category c ON c.id=t.category_id
@@ -107,9 +108,10 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	out := make([]transactionView, 0, filters.Limit)
+	var total int64
 	for rows.Next() {
 		var v transactionView
-		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt, &total); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 			return
 		}
@@ -119,6 +121,9 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
 	}
+	// The count of every row matching the filters, before the page limit. The window
+	// function rides the same query, so a second COUNT round-trip is not needed.
+	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
 	if len(out) > filters.Limit {
 		last := out[filters.Limit-1]
 		out = out[:filters.Limit]

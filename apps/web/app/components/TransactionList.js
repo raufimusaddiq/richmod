@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/react";
 import { dateTime, money, sourceLabel, statusLabel, typeLabel } from "../lib/format";
 
-export default function TransactionList({ items, compact = false, onSelect, newId = "" }) {
+export default function TransactionList({ items, compact = false, onSelect, newId = "", hasFilters = false, onClearFilters }) {
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     <div className="table-head"><span>Transaksi</span><span>Kategori / sumber</span><span>Status</span><span>Jumlah</span></div>
     {items.map(item => {
@@ -23,6 +23,8 @@ export default function TransactionList({ items, compact = false, onSelect, newI
       const className = `transaction-row${item.id === newId ? " is-new" : ""}`;
       return onSelect ? <button className={className} key={item.id} aria-label={label} onClick={() => onSelect(item)}>{content}</button> : <Link className={className} key={item.id} aria-label={label} href={`/transactions?id=${item.id}`}>{content}</Link>;
     })}
-    {!items.length && <p className="empty">Belum ada transaksi untuk ditampilkan.</p>}
+    {!items.length && (hasFilters
+      ? <div className="empty"><p>Tidak ada transaksi yang cocok dengan filter.</p>{onClearFilters && <button type="button" className="secondary" onClick={onClearFilters}>Hapus filter</button>}</div>
+      : <p className="empty">Belum ada transaksi untuk ditampilkan.</p>)}
   </div>;
 }

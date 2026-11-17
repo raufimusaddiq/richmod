@@ -207,3 +207,10 @@
   .settings-list .danger, .row-actions .danger { margin-inline-start: 0; }
   .inline-form select { grid-column: 1 / -1; }
 }
+
+/* Phones: the transaction filter bar collapses behind a "Filter" toggle (which carries
+   the active-filter count), so the results stay on the first screen. */
+@media (max-width: 640px) {
+  .filter-toggle { display: inline-flex; margin-bottom: 9px; }
+  .filter-bar:not(.is-open) { display: none; }
+}

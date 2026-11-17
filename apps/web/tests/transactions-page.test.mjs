@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
-import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget } from "../app/lib/transactionForm.js";
+import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget, activeFilterCount, pageLabel, resultCountLabel } from "../app/lib/transactionForm.js";
 
 const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
@@ -253,4 +253,39 @@ test("every transaction audit action written by Go has an Indonesian label", () 
   for (const code of codes) assert.ok(auditActionLabel[code], code);
   assert.equal(auditActionLabel.CORRECT_TRANSACTION_CLASSIFICATION, undefined);
   assert.equal(auditActionText("Link receipt evidence"), auditActionLabel.LINK_RECEIPT_EVIDENCE);
+});
+
+test("T-30: the results heading shows the real total, not the page size", () => {
+  assert.equal(resultCountLabel(120, 50, 0), "1–50 dari 120 transaksi");
+  assert.equal(resultCountLabel(120, 50, 50), "51–100 dari 120 transaksi");
+  assert.equal(resultCountLabel(3, 3, 0), "3 transaksi");
+  assert.equal(resultCountLabel(null, 3, 0), "3 transaksi", "no API total falls back to the loaded rows");
+  assert.equal(resultCountLabel(0, 0, 0), "0 transaksi");
+  assert.equal(pageLabel(50, 50, 50), "Halaman 2 · 51–100");
+  assert.equal(pageLabel(0, 0, 50), "");
+  assert.match(page, /role="status" aria-live="polite"><h2>\{resultCountLabel\(total, items\.length, cursorHistory\.length \* PAGE_SIZE\)\}/);
+  assert.match(page, /X-Total-Count/);
+});
+
+test("T-30: the mobile filter toggle counts active filters", () => {
+  assert.equal(activeFilterCount("?limit=50&cursor=x"), 0);
+  assert.equal(activeFilterCount("?q=grab&type=EXPENSE&limit=50"), 2);
+  assert.equal(activeFilterCount("?id=abc"), 0, "a drawer id is not a filter");
+  assert.match(page, /className="secondary filter-toggle" aria-expanded=\{filtersOpen\}/);
+  assert.match(page, /Filter\{filterCount \? ` \(\$\{filterCount\}\)` : ""\}/);
+});
+
+test("T-30: no-match state offers Hapus filter, the empty ledger keeps the plain message", () => {
+  const list = readFileSync(new URL("../app/components/TransactionList.js", import.meta.url), "utf8");
+  assert.match(list, /hasFilters[\s\S]*Tidak ada transaksi yang cocok dengan filter\./);
+  assert.match(list, /onClearFilters[\s\S]*Hapus filter<\/button>/);
+  assert.match(list, /Belum ada transaksi untuk ditampilkan\./);
+  assert.match(page, /hasFilters=\{hasActiveFilters\(`\?\$\{query\}`\)\} onClearFilters=\{resetFilters\}/);
+});
+
+test("T-30: opening a row writes ?id= and closing removes it, so back closes the drawer", () => {
+  assert.match(page, /const openDetail = item => \{ window\.history\.pushState\(window\.history\.state, "", drawerUrl\(item\.id\)\); drawer\.open\(item\.id\); \}/);
+  assert.match(page, /function drawerUrl\(id\)/);
+  assert.match(page, /next\.set\("id", id\); else next\.delete\("id"\)/);
+  assert.match(page, /const id = new URLSearchParams\(window\.location\.search\)\.get\("id"\);\s+if \(id\) drawer\.open\(id\); else drawer\.close\(\);/);
 });

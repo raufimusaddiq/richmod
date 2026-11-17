@@ -50,6 +50,28 @@ export function hasActiveFilters(search) {
   return false;
 }
 
+// How many filters the URL carries, for the mobile "Filter" toggle. `id` scopes the
+// ledger to one row and is not a filter the user picked.
+export function activeFilterCount(search) {
+  const query = new URLSearchParams(search);
+  let count = 0;
+  for (const key of ["q", "from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "merchantId", "cycle", "review"]) if (query.get(key)) count += 1;
+  return count;
+}
+
+// The results heading. A range when more matches exist than rows on screen, else the
+// total; the loaded rows are the honest fallback when the API sends no total.
+export function resultCountLabel(total, shown, offset = 0) {
+  if (!Number.isFinite(total) || total < 0) return `${shown} transaksi`;
+  if (total <= shown) return `${total} transaksi`;
+  return `${offset + 1}–${offset + shown} dari ${total} transaksi`;
+}
+
+// The pager's current page and slice, e.g. "Halaman 2 · 51–100".
+export function pageLabel(offset, shown, size) {
+  return shown ? `Halaman ${Math.floor(offset / size) + 1} · ${offset + 1}–${offset + shown}` : "";
+}
+
 // Inline validation for the add form. Returns {field: message}.
 export function createFormErrors(values, { cycle = false } = {}) {
   const errors = {};

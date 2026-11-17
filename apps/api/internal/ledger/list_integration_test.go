@@ -143,6 +143,10 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if pageOneResponse.Code != http.StatusOK || pageOneResponse.Header().Get("X-Next-Cursor") == "" {
 		t.Fatalf("first page status=%d cursor=%q", pageOneResponse.Code, pageOneResponse.Header().Get("X-Next-Cursor"))
 	}
+	// The heading needs the full match count, not the page size; it rides the same query.
+	if total := pageOneResponse.Header().Get("X-Total-Count"); total == "" || total == "0" {
+		t.Fatalf("first page total=%q", total)
+	}
 	var pageOneItems []transactionView
 	if err := json.Unmarshal(pageOneResponse.Body.Bytes(), &pageOneItems); err != nil || len(pageOneItems) != 1 {
 		t.Fatalf("first page body=%s", pageOneResponse.Body.String())
