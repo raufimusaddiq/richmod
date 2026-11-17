@@ -80,20 +80,36 @@ func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
 	return handler
 }
 
-// runGroups runs independent groups concurrently. A group that fans out further
-// must not hold a probe slot, so only leaf queries call probe.
-func runGroups(ctx context.Context, groups ...func(context.Context) error) error {
-	errs := make([]error, len(groups))
+// namedGroup is one independent status section. Its name is reported when it
+// fails or times out, so a client can tell a failed section from a real zero.
+type namedGroup struct {
+	name string
+	run  func(context.Context) error
+}
+
+// runGroups runs independent groups concurrently and returns the names of the
+// ones that failed or timed out, in declaration order. A group that fans out
+// further must not hold a probe slot, so only leaf queries call probe.
+func runGroups(ctx context.Context, groups ...namedGroup) []string {
+	failed := make([]string, len(groups))
 	var wg sync.WaitGroup
-	for i, fn := range groups {
+	for i, group := range groups {
 		wg.Add(1)
-		go func(i int, fn func(context.Context) error) {
+		go func(i int, group namedGroup) {
 			defer wg.Done()
-			errs[i] = fn(ctx)
-		}(i, fn)
+			if err := group.run(ctx); err != nil {
+				failed[i] = group.name
+			}
+		}(i, group)
 	}
 	wg.Wait()
-	return errors.Join(errs...)
+	degraded := make([]string, 0, len(groups))
+	for _, name := range failed {
+		if name != "" {
+			degraded = append(degraded, name)
+		}
+	}
+	return degraded
 }
 
 // runProbes runs independent leaf queries concurrently, each holding a probe
@@ -147,12 +163,12 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	var product productAggregate
 
 	// The four sections are independent, so they run concurrently. A slow or
-	// failing section degrades to its zero value and marks the status degraded
+	// failing section degrades to its zero value and is named in degradedSections
 	// rather than blocking the response.
 	ctx, cancel := context.WithTimeout(r.Context(), statusBudget)
 	defer cancel()
-	probeErr := runGroups(ctx,
-		func(ctx context.Context) error {
+	degradedSections := runGroups(ctx,
+		namedGroup{"jobs", func(ctx context.Context) error {
 			return h.probe(ctx, func(ctx context.Context) error {
 				return h.pool.QueryRow(ctx, `
 					SELECT
@@ -163,8 +179,8 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 					  (SELECT max(last_seen_at) FROM worker_heartbeat)`, householdID).
 					Scan(&pendingJobs, &runningJobs, &failedJobs, &openReviews, &lastHeartbeat)
 			})
-		},
-		func(ctx context.Context) error {
+		}},
+		namedGroup{"lanes", func(ctx context.Context) error {
 			return h.probe(ctx, func(ctx context.Context) error {
 				rows, err := h.pool.Query(ctx, `
 					SELECT lane,
@@ -195,33 +211,34 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 				}
 				return rows.Err()
 			})
-		},
-		func(ctx context.Context) error {
+		}},
+		namedGroup{"judgment", func(ctx context.Context) error {
 			var err error
 			judgment, err = h.loadJudgmentAggregate(ctx, householdID)
 			return err
-		},
-		func(ctx context.Context) error {
+		}},
+		namedGroup{"product", func(ctx context.Context) error {
 			var err error
 			product, err = h.loadProductAggregate(ctx, householdID)
 			return err
-		},
+		}},
 	)
 
 	workerHealthy := lastHeartbeat != nil && time.Since(*lastHeartbeat) < time.Minute
 	status := "healthy"
-	if !workerHealthy || failedJobs > 0 || probeErr != nil {
+	if !workerHealthy || failedJobs > 0 || len(degradedSections) > 0 {
 		status = "degraded"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":        status,
-		"worker":        map[string]any{"healthy": workerHealthy, "lastHeartbeatAt": lastHeartbeat},
-		"jobs":          map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
-		"reviewBacklog": openReviews,
-		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
-		"judgment":      judgment,
-		"product":       product,
-		"checkedAt":     time.Now(),
+		"status":           status,
+		"degradedSections": degradedSections,
+		"worker":           map[string]any{"healthy": workerHealthy, "lastHeartbeatAt": lastHeartbeat},
+		"jobs":             map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
+		"reviewBacklog":    openReviews,
+		"llmGateway":       map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
+		"judgment":         judgment,
+		"product":          product,
+		"checkedAt":        time.Now(),
 	})
 }
 
