@@ -23,7 +23,7 @@
 .wealth-change-equation span, .wealth-change-equation small { color: var(--muted); font-size: var(--text-xs); }
 .wealth-change-equation strong { font-size: var(--text-lg); font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
 .wealth-change-equation i { display: grid; place-items: center; color: var(--muted); font-size: 17px; font-style: normal; }
-.wealth-analysis-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(400px, .88fr); gap: 20px; align-items: start; }
+.wealth-analysis-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(400px, .88fr); gap: 20px; align-items: stretch; }
 .wealth-composition, .wealth-trend, .wealth-cycle, .wealth-snapshot, .wealth-records { padding: 24px 27px; }
 .wealth-composition .section-title, .wealth-trend .section-title, .wealth-records .section-title { margin-bottom: 20px; }
 .wealth-composition-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px; }
@@ -40,10 +40,12 @@
 .wealth-account-row b { overflow-wrap: anywhere; font-size: 12px; }
 .wealth-account-row small { margin-top: 2px; color: var(--muted); font-size: var(--text-xs); }
 .wealth-account-row > strong { font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-.wealth-trend .chart-wrap { margin-top: 7px; }
+.wealth-trend { display: flex; flex-direction: column; }
+.wealth-trend .chart-wrap { flex: 1 1 auto; margin-top: 7px; }
 .wealth-cycle { display: grid; grid-template-columns: minmax(260px, .68fr) minmax(0, 1.32fr); gap: 28px; align-items: stretch; }
 .wealth-cycle-summary { padding-right: 28px; border-right: 1px solid var(--line); }
-.wealth-cycle-summary h2 { margin: 8px 0 5px; font-size: clamp(25px, 2.6vw, 35px); font-variant-numeric: tabular-nums; letter-spacing: -.05em; }
+.wealth-cycle-summary h2 { margin: 7px 0 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); letter-spacing: -.025em; }
+.wealth-cycle-amount { display: block; margin: 8px 0 5px; font-size: clamp(25px, 2.6vw, 35px); font-variant-numeric: tabular-nums; letter-spacing: -.05em; }
 .wealth-cycle-summary p { margin: 0; color: var(--muted); font-size: var(--text-xs); }
 .wealth-cycle-destinations .section-title { align-items: baseline; margin-bottom: 9px; }
 .wealth-cycle-destinations .section-title h3 { margin: 0; font-size: 13px; letter-spacing: -.015em; }
@@ -52,7 +54,6 @@
 .wealth-allocation-row strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wealth-snapshot .section-title { margin-bottom: 20px; }
 .wealth-snapshot-heading-meta { display: grid; justify-items: end; gap: 10px; }
-.wealth-snapshot-heading-meta button { min-height: 34px; padding-inline: 11px; font-size: var(--text-xs); }
 .section-copy { max-width: 54ch; margin: 7px 0 0; color: var(--muted); font-size: var(--text-xs); }
 .wealth-observation-note { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 20px; margin: 0 0 18px; padding: 13px 15px; border: 1px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); }
 .wealth-observation-note strong, .wealth-observation-note span { display: block; }
@@ -89,11 +90,11 @@
 .wealth-cycle-row dl div { min-width: 0; }
 .wealth-cycle-row dt { color: var(--muted); font-size: var(--text-xs); }
 .wealth-cycle-row dd { margin: 3px 0 0; font-size: var(--text-xs); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-button.wealth-history-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(130px, .5fr); align-items: center; gap: 16px; width: 100%; min-height: 0; padding: 14px 0; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; }
+button.wealth-history-row { display: grid; grid-template-columns: minmax(180px, 1fr) 180px minmax(130px, .5fr); align-items: center; gap: 16px; width: 100%; min-height: 0; padding: 14px 0; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; }
 button.wealth-history-row:hover:not(:disabled) { border: 0; background: var(--surface-muted); color: var(--ink); }
 button.wealth-history-row:active:not(:disabled) { transform: none; }
 button.wealth-history-row span { font-size: 12px; }
-button.wealth-history-row strong { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+button.wealth-history-row strong { font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 button.wealth-history-row small { color: var(--accent); font-size: var(--text-xs); font-weight: 700; text-align: right; }
 .wealth-drawer > h2 { margin-bottom: 5px; }
 .wealth-drawer-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 21px 0; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }

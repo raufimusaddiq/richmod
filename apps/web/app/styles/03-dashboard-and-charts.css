@@ -41,12 +41,12 @@
 .overview-categories { background: var(--pastel-mint); }
 .overview-lower { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(250px, .45fr); gap: 18px; }
 .overview-activity { min-width: 0; overflow: hidden; }
-.overview-wealth { display: flex; min-width: 0; flex-direction: column; justify-content: space-between; padding: 22px; background: var(--accent-soft); color: var(--ink); text-decoration: none; }
+.overview-wealth { display: flex; min-width: 0; flex-direction: column; justify-content: flex-start; padding: 22px; background: var(--accent-soft); color: var(--ink); text-decoration: none; }
 .overview-wealth:hover { border-color: var(--accent-border); background: var(--surface-muted); color: var(--ink); }
-.overview-wealth h2 { margin: 4px 0 24px; font-size: 17px; letter-spacing: -.025em; }
-.overview-wealth > strong { font-size: clamp(22px, 2vw, 30px); font-weight: 590; line-height: 1; letter-spacing: -.05em; white-space: nowrap; }
+.overview-wealth h2 { margin: 4px 0 0; font-size: 17px; letter-spacing: -.025em; }
+.overview-wealth > strong { margin-top: 10px; font-size: clamp(22px, 2vw, 30px); font-weight: 590; line-height: 1; letter-spacing: -.05em; white-space: nowrap; }
 .overview-wealth > small { margin-top: 8px; color: var(--muted); font-size: var(--text-xs); }
-.overview-wealth-link { display: inline-flex; align-items: center; gap: 5px; margin-top: 30px; color: var(--accent); font-size: var(--text-xs); font-weight: 700; }
+.overview-wealth-link { display: inline-flex; align-items: center; gap: 5px; margin-top: auto; padding-top: 18px; color: var(--accent); font-size: var(--text-xs); font-weight: 700; }
 .chart-wrap { width: 100%; min-width: 0; }
 .category-visual { display: grid; }
 .legend-list { display: grid; gap: 0; }

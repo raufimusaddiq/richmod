@@ -7,6 +7,17 @@ export function money(value) {
   try { return minusSign(rupiah.format(BigInt(String(value ?? "0").trim().split(".")[0] || "0"))); } catch { return "Rp0"; }
 }
 
+// Zero is neutral, never a warning: only a real signed amount gets a tone.
+// A liability is shown negative when it is above zero, because owing money is
+// the negative side even though the stored figure is positive.
+export function amountTone(value, liability = false) {
+  try {
+    const amount = BigInt(String(value ?? "0").trim().split(".")[0] || "0");
+    if (amount === 0n) return "";
+    return liability || amount < 0n ? "negative" : "positive";
+  } catch { return ""; }
+}
+
 export function dateTime(value) {
   if (!value) return "—";
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
