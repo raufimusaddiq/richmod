@@ -6,7 +6,7 @@ import useAuth from "../components/useAuth";
 import useDrawerA11y from "../components/useDrawerA11y";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import { LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
-import { money, dateTime, displayDate as shortDate } from "../lib/format";
+import { money, dateTime, displayDate as shortDate, amountTone } from "../lib/format";
 import { cycleRangeLabel } from "../lib/cycleDates";
 import { NetWorthHistoryChart } from "../components/Charts";
 import { usageRoleLabel, wealthTypeLabel, snapshotSourceLabel } from "../lib/labels";
@@ -24,10 +24,6 @@ export function jakartaLocalToRFC3339(value) {
   return `${value}:00+07:00`;
 }
 
-function amountTone(value) {
-  try { return BigInt(value || "0") > 0n ? "positive" : BigInt(value || "0") < 0n ? "negative" : ""; } catch { return ""; }
-}
-
 function signedMoney(value) {
   try { return BigInt(value || "0") > 0n ? `+${money(value)}` : money(value); } catch { return money(value); }
 }
@@ -39,7 +35,7 @@ function accountMeta(item, accountMap) {
 
 function WealthAccountList({ title, total, items, accountMap, liability = false }) {
   return <section className={`wealth-account-group ${liability ? "is-liability" : ""}`}>
-    <header><div><span>{title}</span><small>{items.length} akun</small></div><strong className={liability ? "negative" : "positive"}>{money(total)}</strong></header>
+    <header><div><span>{title}</span><small>{items.length} akun</small></div><strong className={amountTone(total, liability)}>{money(total)}</strong></header>
     <div className="wealth-account-list">{items.map(item => <div className="wealth-account-row" key={item.wealthAccountId}>
       <div><b>{item.name}</b><small>{accountMeta(item, accountMap) || "Akun kekayaan"}</small></div><strong>{money(item.valueIdr)}</strong>
     </div>)}{!items.length && <p className="empty compact">Belum ada {liability ? "kewajiban" : "aset"} pada catatan ini.</p>}</div>
@@ -156,8 +152,8 @@ export default function WealthPage() {
           <section className="surface wealth-position">
             <div className="wealth-position-primary"><span className="eyebrow">POSISI TERKINI</span><h2>Kekayaan bersih</h2><strong data-updated={moved(latest.netWorthIdr, 0) || undefined}>{money(latest.netWorthIdr)}</strong><p>Diamati {dateTime(latest.observedAt)}</p></div>
             <div className="wealth-balance-summary">
-              <article><span>Total aset</span><strong className="positive" data-updated={moved(latest.assetTotalIdr, 1) || undefined}>{money(latest.assetTotalIdr)}</strong><small>{assets.length} akun pada catatan posisi</small></article>
-              <article><span>Total kewajiban</span><strong className="negative" data-updated={moved(latest.liabilityTotalIdr, 2) || undefined}>{money(latest.liabilityTotalIdr)}</strong><small>{liabilities.length} akun pada catatan posisi</small></article>
+              <article><span>Total aset</span><strong className={amountTone(latest.assetTotalIdr)} data-updated={moved(latest.assetTotalIdr, 1) || undefined}>{money(latest.assetTotalIdr)}</strong><small>{assets.length} akun pada catatan posisi</small></article>
+              <article><span>Total kewajiban</span><strong className={amountTone(latest.liabilityTotalIdr, true)} data-updated={moved(latest.liabilityTotalIdr, 2) || undefined}>{money(latest.liabilityTotalIdr)}</strong><small>{liabilities.length} akun pada catatan posisi</small></article>
             </div>
           </section>
 
@@ -181,7 +177,7 @@ export default function WealthPage() {
         </>}
 
         {data.currentCycle && <section className="surface wealth-cycle">
-          <div className="wealth-cycle-summary"><span className="eyebrow">{data.currentCycle.periodKind === "CURRENT_CYCLE" ? "TABUNGAN SIKLUS BERJALAN" : "TABUNGAN BULAN INI"}</span><h2>{money(data.currentCycle.savingsAllocated)}</h2><p>{cycleRangeLabel({ start: data.currentCycle.periodStart, end: data.currentCycle.periodEnd, active: data.currentCycle.periodKind === "CURRENT_CYCLE" })}</p></div>
+          <div className="wealth-cycle-summary"><span className="eyebrow">{data.currentCycle.periodKind === "CURRENT_CYCLE" ? "SIKLUS GAJI" : "BULAN INI"}</span><h2>{data.currentCycle.periodKind === "CURRENT_CYCLE" ? "Tabungan siklus berjalan" : "Tabungan bulan ini"}</h2><strong className="wealth-cycle-amount">{money(data.currentCycle.savingsAllocated)}</strong><p>{cycleRangeLabel({ start: data.currentCycle.periodStart, end: data.currentCycle.periodEnd, active: data.currentCycle.periodKind === "CURRENT_CYCLE" })}</p></div>
           <div className="wealth-cycle-destinations"><div className="section-title"><h3>Dialokasikan ke</h3><small>Transfer tabungan terkonfirmasi</small></div>{(data.currentCycle.savingsByDestination || []).map(item => <div className="wealth-allocation-row" key={item.wealthAccountId || item.name}><span>{item.name}</span><strong>{money(item.amountIdr)}</strong></div>)}{!data.currentCycle.savingsByDestination?.length && <p className="empty compact">Belum ada tujuan tabungan pada periode ini.</p>}</div>
         </section>}
 
@@ -203,7 +199,7 @@ export default function WealthPage() {
     </div>
 
     {drawer.status !== "closed" && <div className="drawer-backdrop" onClick={closeSnapshot}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer wealth-drawer" role="dialog" aria-modal="true" aria-labelledby="wealth-snapshot-title" onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeSnapshot}>×</button><span className="eyebrow">DETAIL CATATAN POSISI</span><h2 id="wealth-snapshot-title">{selected ? dateTime(selected.observedAt) : "Memuat catatan"}</h2><p className="muted">Waktu observasi tidak dapat diubah setelah catatan dibuat.</p>
-      {drawer.status === "loading" ? <p role="status">Memuat detail…</p> : drawer.status === "error" ? <div role="alert"><p>{drawer.error}</p><button type="button" onClick={drawer.retry}>Coba lagi</button></div> : !correcting ? <><div className="wealth-drawer-summary"><div><span>Kekayaan bersih</span><strong>{money(selected.netWorthIdr)}</strong></div><div><span>Aset</span><strong className="positive">{money(selected.assetTotalIdr)}</strong></div><div><span>Kewajiban</span><strong className="negative">{money(selected.liabilityTotalIdr)}</strong></div></div><div className="wealth-drawer-items">{(selected.items || []).map(item => <div className="wealth-detail-row" key={item.id || item.wealthAccountId}><div><span>{item.name || item.accountName}</span><small>{[wealthTypeLabel[item.wealthType], usageRoleLabel[item.usageRole], snapshotSourceLabel[item.source] || item.source].filter(Boolean).join(" · ")}</small>{item.note && <small>{item.note}</small>}</div><strong>{money(item.valueIdr)}</strong></div>)}</div><button className="button secondary" onClick={() => setCorrecting(true)}>Koreksi catatan</button></> : <form className="wealth-correction-form" onSubmit={correctSnapshot}>{(selected.items || []).map(item => <fieldset className="wealth-correction-account" key={item.id || item.wealthAccountId}><legend>{item.name || item.accountName}</legend><label><span>Nilai</span><input name={`value-${item.wealthAccountId}`} inputMode="numeric" pattern="[0-9]+" required defaultValue={item.valueIdr}/></label><div className="wealth-correction-grid"><label><span>Jumlah unit</span><input name={`quantity-${item.wealthAccountId}`} inputMode="decimal" defaultValue={item.quantity || ""}/></label><label><span>Satuan</span><input name={`unit-${item.wealthAccountId}`} defaultValue={item.unit || ""}/></label><label><span>Harga per unit</span><input name={`unitPrice-${item.wealthAccountId}`} inputMode="numeric" defaultValue={item.unitPriceIdr || ""}/></label><label><span>Sumber</span><input name={`source-${item.wealthAccountId}`} defaultValue={item.source || "MANUAL"}/></label></div><label><span>Catatan</span><input name={`note-${item.wealthAccountId}`} defaultValue={item.note || ""}/></label></fieldset>)}<div className="wealth-drawer-actions"><button type="button" className="secondary" onClick={() => setCorrecting(false)}>Batal</button><button disabled={working}>{working ? "Menyimpan…" : "Simpan koreksi"}</button></div></form>}
+      {drawer.status === "loading" ? <p role="status">Memuat detail…</p> : drawer.status === "error" ? <div role="alert"><p>{drawer.error}</p><button type="button" onClick={drawer.retry}>Coba lagi</button></div> : !correcting ? <><div className="wealth-drawer-summary"><div><span>Kekayaan bersih</span><strong>{money(selected.netWorthIdr)}</strong></div><div><span>Aset</span><strong className={amountTone(selected.assetTotalIdr)}>{money(selected.assetTotalIdr)}</strong></div><div><span>Kewajiban</span><strong className={amountTone(selected.liabilityTotalIdr, true)}>{money(selected.liabilityTotalIdr)}</strong></div></div><div className="wealth-drawer-items">{(selected.items || []).map(item => <div className="wealth-detail-row" key={item.id || item.wealthAccountId}><div><span>{item.name || item.accountName}</span><small>{[wealthTypeLabel[item.wealthType], usageRoleLabel[item.usageRole], snapshotSourceLabel[item.source] || item.source].filter(Boolean).join(" · ")}</small>{item.note && <small>{item.note}</small>}</div><strong>{money(item.valueIdr)}</strong></div>)}</div><button className="button secondary" onClick={() => setCorrecting(true)}>Koreksi catatan</button></> : <form className="wealth-correction-form" onSubmit={correctSnapshot}>{(selected.items || []).map(item => <fieldset className="wealth-correction-account" key={item.id || item.wealthAccountId}><legend>{item.name || item.accountName}</legend><label><span>Nilai</span><input name={`value-${item.wealthAccountId}`} inputMode="numeric" pattern="[0-9]+" required defaultValue={item.valueIdr}/></label><div className="wealth-correction-grid"><label><span>Jumlah unit</span><input name={`quantity-${item.wealthAccountId}`} inputMode="decimal" defaultValue={item.quantity || ""}/></label><label><span>Satuan</span><input name={`unit-${item.wealthAccountId}`} defaultValue={item.unit || ""}/></label><label><span>Harga per unit</span><input name={`unitPrice-${item.wealthAccountId}`} inputMode="numeric" defaultValue={item.unitPriceIdr || ""}/></label><label><span>Sumber</span><input name={`source-${item.wealthAccountId}`} defaultValue={item.source || "MANUAL"}/></label></div><label><span>Catatan</span><input name={`note-${item.wealthAccountId}`} defaultValue={item.note || ""}/></label></fieldset>)}<div className="wealth-drawer-actions"><button type="button" className="secondary" onClick={() => setCorrecting(false)}>Batal</button><button disabled={working}>{working ? "Menyimpan…" : "Simpan koreksi"}</button></div></form>}
     </aside></div>}
   </AppShell>;
 }
