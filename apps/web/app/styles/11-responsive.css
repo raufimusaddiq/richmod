@@ -140,9 +140,13 @@
   .email-checklist li { grid-template-columns: 28px minmax(0, 1fr); }
   .email-checklist li .integration-actions { grid-column: 2; }
   .row-actions { justify-content: flex-start; }
-  /* The tab bar stays one swipeable row on a phone. */
-  .settings-tabs button { min-height: 44px; }
-  .settings-section { scroll-margin-top: 64px; }
+  /* Four tabs fit as a 2x2 grid of equal pills on a phone, so none hides offscreen. */
+  .settings-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; overflow: visible; }
+  .settings-tabs button { min-height: 44px; padding: 0 8px; white-space: nowrap; }
+  .settings-section { scroll-margin-top: 112px; }
+  /* Every field takes the full row on a phone, so no select clips its option. */
+  .inline-form > label, .member-form > label { flex: 1 1 100%; min-width: 0; }
+  .settings-list .row-actions select { width: 100%; min-width: 0; }
   .inline-form > button, .member-form > button { flex: 1 1 100%; margin-top: 0; }
   .filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar > * { min-width: 0 !important; width: 100% !important; }
