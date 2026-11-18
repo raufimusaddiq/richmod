@@ -38,6 +38,17 @@ test("a completed change shows a specific toast and flashes the row", () => {
   assert.match(settings, /formEl\.reset\(\); formEl\.querySelector\("input"\)\?\.focus\(\);/);
   // ...and to the row action after a toggle.
   assert.match(settings, /if \(done && button\?\.isConnected\) button\.focus\(\);/);
+  // Every toast names the item it changed, including the email ingress.
+  assert.match(settings, /setToast\(`Email \$\{data\.emailIngress\?\.address \|\| "bank"\} diaktifkan\.`\)/);
+});
+
+test("the toast clears the mobile tab bar", () => {
+  const css = globalCss();
+  // 66px tab bar + 12px gap, plus the safe area; the toast stays inside the viewport.
+  const mobile = css.slice(css.indexOf("@media (max-width: 1100px)"));
+  assert.match(mobile, /\.toast \{[^}]*left: 16px;[^}]*right: 16px;[^}]*bottom: calc\(78px \+ env\(safe-area-inset-bottom\)\);[^}]*max-width: none;/);
+  // Desktop keeps its 24px corner.
+  assert.match(css, /\.toast \{ position: fixed; right: 24px; bottom: 24px;/);
 });
 
 test("a failed change is announced in its own form or row, not at the page top", () => {

@@ -128,7 +128,7 @@ export default function SettingsPage() {
         return false;
       }
       await load();
-      setToast("Email diaktifkan.");
+      setToast(`Email ${data.emailIngress?.address || "bank"} diaktifkan.`);
       return true;
     } catch {
       setError({ key: "email-ingress", message: "Koneksi terputus. Email belum diaktifkan." });
