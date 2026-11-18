@@ -30,7 +30,7 @@
 .cycle-period strong { font-size: var(--text-xl); font-weight: var(--weight-semibold); letter-spacing: -.02em; }
 .cycle-period span, .cycle-period small { color: var(--muted); font-size: var(--text-xs); }
 .cycle-period p { flex-basis: 100%; margin: 2px 0 0; color: var(--warning); font-size: 12px; }
-.cycle-review .review-section { display: block; padding: 24px 0; border-top: 1px solid var(--line-strong); scroll-margin-top: 20px; }
+.cycle-review .review-section:not(.card) { display: block; padding: 24px 0; border-top: 1px solid var(--line-strong); scroll-margin-top: 20px; }
 .cycle-review .review-section > .section-title { flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
 .review-explainer { color: var(--muted); font-size: var(--text-xs); }
 .cycle-review .section-title > .review-explainer { max-width: 78ch; margin-top: 6px; }
@@ -86,10 +86,10 @@
 /* Cycle report: scan facts first; native disclosures retain the full report. */
 .cycle-review:not([data-meeting-step]) { display: grid; grid-template-columns: minmax(0, 1fr); }
 .cycle-review > * { min-width: 0; }
-.cycle-review .review-section { padding-block: var(--space-4); }
-/* A collapsible that is a card keeps the card's own padding and outline, not the
-   section divider it used to draw. */
-.cycle-review .review-section.card { padding: var(--card-padding); border-top: 0; }
+.cycle-review .review-section:not(.card) { padding-block: var(--space-4); }
+/* A collapsible that is a card keeps the card's own padding and full outline; the
+   section divider belongs only to the non-card sections. */
+.cycle-review .review-section.card { padding: var(--card-padding); }
 .cycle-review .review-section > .section-title { margin-bottom: var(--space-3); }
 .cycle-review .section-title > .review-explainer { margin-top: 0; }
 .cycle-review .cycle-outcome { grid-template-columns: repeat(4, minmax(0, 1fr)); }

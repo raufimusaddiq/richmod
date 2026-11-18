@@ -2,7 +2,7 @@
   .landing-hero { grid-template-columns: 1fr; min-height: auto; padding-top: 90px; }
   .landing-hero-copy { max-width: 700px; }
   .landing-evidence-flow { width: min(700px, 100%); justify-self: start; }
-  .trust-section, .household-section, .review-section { grid-template-columns: 1fr; gap: 42px; }
+  .public-shell .trust-section, .public-shell .household-section, .public-shell .review-section { grid-template-columns: 1fr; gap: 42px; }
   .trust-copy, .review-copy { max-width: 680px; }
   .evidence-stack, .review-example { width: min(600px, 100%); }
   .review-example { justify-self: start; }
@@ -22,7 +22,7 @@
   .landing-evidence-flow { width: 100%; }
   .landing-intro { padding: 45px 0 72px; }
   .landing-intro p, .trust-copy p, .review-copy p { font-size: var(--text-base); }
-  .workflow-section, .trust-section, .household-section, .review-section { padding: 72px 0; }
+  .public-shell .workflow-section, .public-shell .trust-section, .public-shell .household-section, .public-shell .review-section { padding: 72px 0; }
   .section-heading { display: block; }
   .section-heading h2 { margin-top: 13px; }
   .workflow-rail { display: block; margin-top: 33px; }
@@ -55,7 +55,7 @@
 
 /* Cycle review follows the household document hierarchy, not the public
    landing page's two-column .review-section composition. */
-.cycle-review .review-section { display: block; min-width: 0; padding: var(--space-4) 0; border-top: 1px solid var(--line-strong); scroll-margin-top: var(--space-6); }
+.cycle-review .review-section:not(.card) { display: block; min-width: 0; padding: var(--space-4) 0; border-top: 1px solid var(--line-strong); scroll-margin-top: var(--space-6); }
 .cycle-review .range-controls { display: flex; width: 100%; margin: 0 0 var(--space-4); padding: 0; border: 0; background: transparent; gap: var(--space-4); overflow: visible; }
 .cycle-review .range-controls button, .cycle-review select, .cycle-review summary, .cycle-review .review-quality a, .cycle-review .change-button { min-height: 44px; }
 .cycle-review .range-control-group { flex-wrap: wrap; }
@@ -115,7 +115,7 @@
   .cycle-review .cycle-outcome > div:nth-child(even) { border-left: 0; }
 }
 @media (max-width: 680px) {
-  .cycle-review .review-section { padding: var(--space-6) 0; }
+  .cycle-review .review-section:not(.card) { padding: var(--space-6) 0; }
   .cycle-review .review-split { gap: var(--space-6); }
   .cycle-review .cycle-outcome > div:not(.cycle-net) { border-left: 0; }
   .cycle-review select, .cycle-review input { font-size: var(--text-lg); }
