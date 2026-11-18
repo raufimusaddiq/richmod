@@ -8,7 +8,7 @@ export const metadata = {
 export default function TermsPage() {
   return <main className="public-legal"><article className="surface public-legal-card">
     <Link className="public-legal-brand" href="/">Richmod</Link>
-    <span className="eyebrow">KETENTUAN LAYANAN</span>
+    <span className="eyebrow">Ketentuan layanan</span>
     <h1>Ketentuan Layanan</h1>
     <p className="public-legal-updated">Terakhir diperbarui: 2 September 2026</p>
     <p>Dengan menggunakan Richmod, Anda menyetujui ketentuan ini. Richmod adalah alat bantu pencatatan keuangan keluarga, bukan penasihat keuangan, layanan pembayaran, atau pengganti pemeriksaan rekening Anda.</p>

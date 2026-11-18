@@ -377,7 +377,7 @@ test("unfinished sources link to the Tindakan tab, which can show and close them
   assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
   assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
   const inbox = text("app/inbox/page.js");
-  assert.match(inbox, /SOURCE_PROCESSING: "SUMBER"/);
+  assert.match(inbox, /SOURCE_PROCESSING: "Sumber"/);
   assert.match(inbox, /actionKind\(item\.integrationType\)/);
   assert.doesNotMatch(inbox, /item\.integrationType === "EMAIL_FORWARDING"/);
   // The Tindakan tab is a real view, so the link target exists.
@@ -476,6 +476,32 @@ test("N7/N9: drawer trap reaches <summary> and skips unrendered controls; docume
 
 test("inbox tabs: touch devices get the 44px target without changing the shared desktop rule", () => {
   const sheet = css();
-  assert.match(sheet, /\.inbox-tabs button, \.admin-tabs button, \.range-controls button \{ min-height: 34px;/, "desktop keeps the compact tab height");
-  assert.match(sheet, /@media \(pointer: coarse\) \{\s*\.inbox-tabs button, \.admin-tabs button, \.range-controls button \{ min-height: 44px; \}\s*\}/, "inbox, admin and range tabs reach 44px on coarse pointers");
+  assert.match(sheet, /\.inbox-tabs button, \.admin-tabs button, \.range-controls button \{ min-height: var\(--control-height-compact\);/, "desktop keeps the compact tab height");
+  assert.match(sheet, /@media \(pointer: coarse\) \{\s*\.inbox-tabs button, \.admin-tabs button, \.range-controls button \{ min-height: var\(--control-height\); \}\s*\}/, "inbox, admin and range tabs reach 44px on coarse pointers");
+});
+
+test("one card, one card title, one control scale", () => {
+  const source = css();
+  for (const token of ["card-padding", "card-padding-dense", "card-title-size", "card-title-weight", "control-height", "control-height-compact", "control-font", "control-font-compact"]) {
+    assert.match(source, new RegExp(`--${token}: `), `--${token} is missing from the component scale`);
+  }
+  assert.match(source, /\.surface, \.panel, \.card \{ border: 2px solid var\(--ink\); border-radius: var\(--radius-md\);/, "the card outline is shared");
+  assert.match(source, /\.card \{ padding: var\(--card-padding\); \}/, "a standard card uses the card padding token");
+  assert.match(source, /\.card--dense \{ padding: var\(--card-padding-dense\); \}/, "a dense card is a named modifier");
+  assert.match(source, /\.eyebrow \{[^}]*text-transform: uppercase/, "the eyebrow caps are a style, not typed text");
+  assert.match(source, /\.section-title h2[^{]*\{[^}]*font-size: var\(--card-title-size\)/, "card titles share one size");
+  assert.match(source, /\.file-picker-button \{[^}]*font-size: var\(--control-font\)/, "the file picker matches the primary button text");
+  assert.match(source, /\.merchant-rank th a \{[^}]*min-height: 24px/, "analytics merchant links keep a 24px target");
+});
+
+test("eyebrow source strings are sentence case; the caps come from CSS", () => {
+  for (const file of appSources("app")) {
+    const source = text(file);
+    for (const match of source.matchAll(/className="eyebrow">([^<{]+)</g)) {
+      assert.doesNotMatch(match[1], /^[A-Z0-9 ·]*[A-Z][A-Z0-9 ·]*$/, `${file}: eyebrow "${match[1]}" is typed in caps`);
+    }
+    for (const match of source.matchAll(/eyebrow="([^"]+)"/g)) {
+      assert.doesNotMatch(match[1], /^[A-Z0-9 ·]*[A-Z][A-Z0-9 ·]*$/, `${file}: eyebrow "${match[1]}" is typed in caps`);
+    }
+  }
 });

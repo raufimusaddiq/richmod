@@ -1,7 +1,11 @@
-.surface, .panel { border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
+/* One card: 2px ink outline, 18px radius, offset shadow. .surface is the outline-only
+   base (split cards pad their own cells); .card adds the standard padding. */
+.surface, .panel, .card { border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
+.card { padding: var(--card-padding); }
+.card--dense { padding: var(--card-padding-dense); }
 .section-title, .panel-title, .admin-section-head, .settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .section-title { margin-bottom: 18px; }
-.section-title h2, .panel-title h2, .settings-heading h2, .admin-section-head h2 { margin: 4px 0 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); letter-spacing: -.025em; }
+.section-title h2, .panel-title h2, .settings-heading h2, .admin-section-head h2 { margin: 4px 0 0; font-size: var(--card-title-size); font-weight: var(--card-title-weight); letter-spacing: -.025em; }
 .section-title a { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; font-weight: var(--weight-semibold); text-decoration: none; }
 .section-title a:hover { color: var(--accent-hover); }
 
@@ -37,13 +41,13 @@
 .review-alert strong { display: inline-flex; align-items: center; gap: 5px; color: var(--warning); font-size: var(--text-xs); }
 
 .overview-insights { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr); gap: 18px; margin-bottom: 18px; }
-.overview-trend, .overview-categories, .overview-activity, .analytics-chart, .ledger-panel { padding: 22px; }
+.overview-trend, .overview-categories, .overview-activity, .analytics-chart, .ledger-panel { padding: var(--card-padding); }
 .overview-categories { background: var(--pastel-mint); }
 .overview-lower { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(250px, .45fr); gap: 18px; }
 .overview-activity { min-width: 0; overflow: hidden; }
-.overview-wealth { display: flex; min-width: 0; flex-direction: column; justify-content: flex-start; padding: 22px; background: var(--accent-soft); color: var(--ink); text-decoration: none; }
+.overview-wealth { display: flex; min-width: 0; flex-direction: column; justify-content: flex-start; padding: var(--card-padding); background: var(--accent-soft); color: var(--ink); text-decoration: none; }
 .overview-wealth:hover { border-color: var(--accent-border); background: var(--surface-muted); color: var(--ink); }
-.overview-wealth h2 { margin: 4px 0 0; font-size: 17px; letter-spacing: -.025em; }
+.overview-wealth h2 { margin: 4px 0 0; font-size: var(--card-title-size); font-weight: var(--card-title-weight); letter-spacing: -.025em; }
 .overview-wealth > strong { margin-top: 10px; font-size: clamp(22px, 2vw, 30px); font-weight: 590; line-height: 1; letter-spacing: -.05em; white-space: nowrap; }
 .overview-wealth > small { margin-top: 8px; color: var(--muted); font-size: var(--text-xs); }
 .overview-wealth-link { display: inline-flex; align-items: center; gap: 5px; margin-top: auto; padding-top: 18px; color: var(--accent); font-size: var(--text-xs); font-weight: 700; }

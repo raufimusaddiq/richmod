@@ -238,7 +238,7 @@ async function run() {
             const lane = page.locator(".admin-lane").first();
             assert.equal(await lane.count(), 1);
             assert.equal(await lane.evaluate(element => getComputedStyle(element).display), "grid");
-            await page.getByRole("button", { name: "Tugas", exact: true }).click();
+            await page.getByRole("tab", { name: "Tugas", exact: true }).click();
             await page.locator("button.admin-link").first().waitFor();
             const link = await page.locator("button.admin-link").first().evaluate(element => { const style = getComputedStyle(element); return { display: style.display, background: style.backgroundColor, minHeight: style.minHeight }; });
             assert.notEqual(link.display, "flex", `${name} admin ID inherited button flex layout`);

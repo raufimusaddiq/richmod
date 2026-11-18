@@ -49,7 +49,7 @@ function InviteLink({ invite, title, onDismiss }) {
   return (
     <section className="panel" aria-live="polite">
       <div>
-        <span className="eyebrow">UNDANGAN PEMILIK</span>
+        <span className="eyebrow">Undangan pemilik</span>
         <h2>{title}</h2>
         <p>Kirim tautan ini langsung kepada pemilik. Sekali pakai, berlaku sampai {time(invite.expiresAt)}, dan hanya ditampilkan sekarang.</p>
       </div>
@@ -116,7 +116,7 @@ export default function Households({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">RUMAH TANGGA</span>
+          <span className="eyebrow">Rumah tangga</span>
           <h2>Rumah tangga</h2>
         </div>
         <div className="admin-actions">

@@ -55,7 +55,7 @@ export function CalendarReview({ selection, navigate }) {
     {allFailed && <ErrorNotice message={cashflow.error} retry={() => sections.forEach(section => section.retry())}/>}
     {refreshing && <p className="ledger-loading" role="status">Memuat rentang…</p>}
     {!allFailed && <div className="calendar-body">
-      <CalendarSection state={cashflow} className="review-section analytics-chart" title="Pemasukan vs pengeluaran" about="arus kas bulanan" description="Bagaimana arus kas berubah antar bulan? Semua nilai berasal dari transaksi terkonfirmasi." rows={4}>{items => <><MonthlyCashflowChart items={items} height={280} partialPeriod={running}/>{items.some(item => item.period === running) && <p className="ledger-legend">Bulan berjalan ({monthLabel(running)}) belum penuh.</p>}</>}</CalendarSection>
+      <CalendarSection state={cashflow} className="surface card analytics-chart" title="Pemasukan vs pengeluaran" about="arus kas bulanan" description="Bagaimana arus kas berubah antar bulan? Semua nilai berasal dari transaksi terkonfirmasi." rows={4}>{items => <><MonthlyCashflowChart items={items} height={280} partialPeriod={running}/>{items.some(item => item.period === running) && <p className="ledger-legend">Bulan berjalan ({monthLabel(running)}) belum penuh.</p>}</>}</CalendarSection>
       <CalendarSection state={cashflow} hideError title="Arus kas per bulan" about="tabel bulanan" description="Pengeluaran sudah dikurangi refund. Bulan sebelum transaksi pertama diringkas menjadi satu baris; bulan kosong di antaranya ditandai, bukan ditulis sebagai Rp0. Kolom refund hanya ada bila rentang ini punya refund." rows={3}>{items => <MonthlyTable items={items} now={now} cycle={selection.cycle}/>}</CalendarSection>
       <CalendarSection state={categories} title="Distribusi kategori" about="distribusi kategori" description="Kategori mana yang menyusun pengeluaran rentang ini? Diurutkan oleh server berdasarkan jumlah, bukan oleh browser. Grafik menampilkan sepuluh kategori terbesar dan Kategori lain; daftar lengkapnya ada di Lihat nilai kategori." rows={3}>{items => <><CategoryRankingChart items={chartCategories(items)} height={160}/><details className="review-daily"><summary>Lihat nilai kategori</summary><ValueList items={items}/></details></>}</CalendarSection>
       <CalendarSection state={merchants} title="Merchant" about="merchant" description="Pengeluaran bersih setelah refund dalam rentang kalender." rows={2}>{items => <ValueList items={items}/>}</CalendarSection>
@@ -88,7 +88,7 @@ function useCalendarSection(name, queryString) {
   return { ...state, retry: () => setAttempt(value => value + 1) };
 }
 
-function CalendarSection({ state, title, description, about, rows, className = "review-section", hideError = false, children }) {
+function CalendarSection({ state, title, description, about, rows, className = "surface card", hideError = false, children }) {
   return <section className={`${className} calendar-section`} data-stale={state.loading && state.data ? "true" : undefined} aria-busy={state.loading || undefined}>
     <SectionTitle title={title} description={description} about={about}/>
     {state.error ? (hideError ? null : <ErrorNotice message={state.error} retry={state.retry}/>) : state.data ? children(state.data) : <Skeleton cards={1} rows={rows} label={`Memuat ${title.toLowerCase()}`}/>}

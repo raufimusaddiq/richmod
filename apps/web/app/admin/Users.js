@@ -42,7 +42,7 @@ export default function Users({ setError }) {
       {dialogs}
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">IDENTITAS</span>
+          <span className="eyebrow">Identitas</span>
           <h2>Pengguna</h2>
         </div>
         <button className="secondary" onClick={refresh}>

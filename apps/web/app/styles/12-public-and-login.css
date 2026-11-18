@@ -72,7 +72,7 @@
 .household-points p { margin: 0; padding: 20px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.65; }
 .household-points p:last-child { border-bottom: 1px solid var(--line); }
 .household-points strong { display: block; margin-bottom: 4px; color: var(--ink); font-size: 13px; }
-.review-section { display: grid; grid-template-columns: minmax(0, .8fr) minmax(390px, 1fr); gap: clamp(44px, 8vw, 130px); align-items: center; padding: 112px 0; border-top: 1px solid var(--line-strong); }
+.public-shell .review-section { display: grid; grid-template-columns: minmax(0, .8fr) minmax(390px, 1fr); gap: clamp(44px, 8vw, 130px); align-items: center; padding: 112px 0; border-top: 1px solid var(--line-strong); }
 .review-copy h2 { max-width: 530px; }
 .review-copy p { max-width: 39ch; }
 .review-example { padding: 25px; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--warning-soft); box-shadow: var(--shadow); }

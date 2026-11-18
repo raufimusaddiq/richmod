@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { get } from "./shared";
 import { useRouter, useSearchParams } from "next/navigation";
+import { nextTabIndex } from "../lib/focusTrap";
 import AppShell from "../components/AppShell";
 import Overview from "./Overview";
 import Reviews from "./Reviews";
@@ -52,32 +53,50 @@ function AdminConsole() {
   useEffect(() => { setError(""); }, [tab]);
   // A banner belongs to the tab that raised it.
   const select = (key) => { setError(""); router.replace(`/admin?tab=${key}`); };
+  // Roving tablist: arrows/Home/End move the selection and the focus together.
+  const tabKeys = (event, index) => {
+    const next = nextTabIndex(event.key, index, tabs.length);
+    if (next === null) return;
+    event.preventDefault();
+    const buttons = event.currentTarget.parentElement?.querySelectorAll('[role="tab"]');
+    select(tabs[next][0]);
+    buttons?.[next]?.focus();
+  };
   if (!me) return meError
     ? <main className="loading" role="alert">{meError} <button className="secondary" onClick={loadMe}>Coba lagi</button></main>
     : <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return (
     <AppShell
       user={me}
-      eyebrow="ADMINISTRASI PLATFORM"
+      eyebrow="Administrasi platform"
       title="Konsol platform"
     >
       <p className="page-intro">
         Operasi platform. Data sensitif dan isi finansial tidak ditampilkan.
       </p>
-      <nav className="admin-tabs" aria-label="Navigasi admin">
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            className={tab === key ? "active" : "secondary"}
-            aria-pressed={tab === key}
-            onClick={() => select(key)}
-          >
-            {label}
-          </button>
-        ))}
+      <nav aria-label="Navigasi admin">
+        <div className="admin-tabs" role="tablist" aria-label="Navigasi admin">
+          {tabs.map(([key, label], index) => (
+            <button
+              key={key}
+              role="tab"
+              id={`admin-tab-${key}`}
+              aria-controls="admin-panel"
+              aria-selected={tab === key}
+              tabIndex={tab === key ? 0 : -1}
+              className={tab === key ? "active" : "secondary"}
+              onKeyDown={(event) => tabKeys(event, index)}
+              onClick={() => select(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </nav>
       {error && <p className="notice error" role="alert">{error}</p>}
-      <AdminTab tab={tab} setError={setError} />
+      <div role="tabpanel" id="admin-panel" aria-labelledby={`admin-tab-${tab}`}>
+        <AdminTab tab={tab} setError={setError} />
+      </div>
     </AppShell>
   );
 }

@@ -65,7 +65,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
   }
 
   const count = decisionCount(body);
-  return <section id="decisions" className="review-section" aria-labelledby="decisions-title">
+  return <section id="decisions" className="review-section surface card" aria-labelledby="decisions-title">
     {dialogs}
     <details className="report-disclosure" open={expanded || Boolean(body)}>
     <summary><h2 id="decisions-title" tabIndex={-1}>Keputusan rumah tangga</h2><span>{body ? "Draf belum disimpan" : data ? `${data.items.length} catatan · ${data.previous.length} sebelumnya` : error ? "Belum tersedia" : "Memuat…"}</span></summary>

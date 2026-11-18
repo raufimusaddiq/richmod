@@ -13,7 +13,7 @@
 }
 
 @media (max-width: 680px) {
-  .cycle-review .review-section { padding: 24px 0; }
+  .cycle-review .review-section:not(.card) { padding: 24px 0; }
   .cycle-review .range-controls { width: 100%; }
   .cycle-selector { min-width: 0; flex: 1 1 100%; }
   .cycle-outcome, .cycle-review .cycle-outcome { grid-template-columns: repeat(2, minmax(0, 1fr)); }
