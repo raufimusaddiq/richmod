@@ -94,7 +94,7 @@ try {
         status = aiAvailable ? generationStatus : 503;
         body = { id: cycleCommentary.id };
       } else if (url.pathname === "/api/v1/analytics/cashflow") {
-        body = [{ period: "2026-07", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-08", income: "12000000", expense: "2800000", netCashflow: "9200000" }, { period: "2026-09", income: "12000000", expense: "4200000", netCashflow: "7800000" }];
+        body = [{ period: "2026-07", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-08", income: "12000000", expense: "2800000", netCashflow: "9200000" }, { period: "2026-09", income: "12000000", expense: "4200000", netCashflow: "7800000" }, { period: "2026-10", income: "0", expense: "0", refund: "0", netCashflow: "0" }];
       } else if (url.pathname === "/api/v1/analytics/categories") {
         body = cycleFacts().categoryChanges;
       } else if (url.pathname === "/api/v1/analytics/merchants") { if (merchantsFail) status = 500; body = cycleFacts().merchantDrivers; }
@@ -415,8 +415,15 @@ try {
     const monthTable = page.getByRole("region", { name: "Arus kas per bulan, geser untuk semua kolom", exact: true });
     const monthLink = monthTable.getByRole("link", { name: "Lihat pengeluaran Agu 26", exact: true });
     assert.equal(await monthLink.getAttribute("href"), "/transactions?from=2026-08-01&to=2026-08-31&status=CONFIRMED&type=SPENDING&cycle=2026-08-26");
-    assert.equal(await monthTable.getByRole("row").filter({ hasText: "belum ada transaksi" }).count(), 1, "empty month remains visible");
-    assert.equal(await monthTable.getByRole("row").filter({ hasText: "belum ada transaksi" }).getByRole("link").count(), 0, "empty month stays non-interactive");
+    // Months before the household's first transaction are one line, not a row each.
+    const startRow = monthTable.getByRole("row").filter({ hasText: "Data mulai Agu 26" });
+    assert.equal(await startRow.count(), 1, "leading empty months collapse into one line");
+    assert.equal(await startRow.getByRole("link").count(), 0, "the collapsed line is not interactive");
+    assert.equal(await monthTable.getByRole("rowheader", { name: /Jul 26/ }).count(), 0, "the collapsed month is not a row of its own");
+    // A month after the first transaction still says so, and stays non-interactive.
+    const emptyRow = monthTable.getByRole("row").filter({ hasText: "belum ada transaksi" });
+    assert.equal(await emptyRow.count(), 1, "an empty month after the first transaction remains visible");
+    assert.equal(await emptyRow.getByRole("link").count(), 0, "empty month stays non-interactive");
     await monthLink.focus();
     await page.keyboard.press("Enter");
     await page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true }).waitFor();
@@ -425,15 +432,18 @@ try {
     await monthTable.waitFor();
     await page.getByLabel("Bulan mulai").fill("2025-03");
     await page.getByLabel("Bulan selesai").fill("2025-01");
-    await page.getByRole("button", { name: "Kustom", exact: true }).click();
+    await page.getByRole("button", { name: "Terapkan", exact: true }).click();
     await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).waitFor();
     assert.equal(new URL(page.url()).searchParams.has("from"), false, "an invalid range never reaches the URL");
     await page.getByLabel("Bulan mulai").fill("2025-01");
     await page.getByLabel("Bulan selesai").fill("2025-03");
-    await page.getByRole("button", { name: "Kustom", exact: true }).click();
+    await page.getByRole("button", { name: "Terapkan", exact: true }).click();
     await page.getByText("Rentang bulan Jan 25 sampai Mar 25").waitFor();
     assert.equal(new URL(page.url()).searchParams.get("from"), "2025-01");
-    assert.equal(await page.getByRole("button", { name: "Kustom", exact: true }).getAttribute("aria-pressed"), "true");
+    // The apply button is an action, not a preset toggle: once the fields match the shown
+    // range there is nothing left to apply, so it disables instead of offering a dead click.
+    await page.waitForFunction(() => document.querySelector(".custom-range button")?.disabled === true);
+    assert.equal(await page.getByRole("button", { name: "Terapkan", exact: true }).isDisabled(), true, "nothing left to apply once the fields match the shown range");
     assert.equal(await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).count(), 0, "a valid range clears the field error");
     await page.goBack({ waitUntil: "networkidle" });
     // The fields open on the range already shown, so Back never leaves them blank.
