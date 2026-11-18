@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-export function ErrorNotice({ message, retry }) {
+export function ErrorNotice({ message, retry, id }) {
   if (!message) return null;
-  return <div className="notice error feedback" role="alert"><span>{message}</span>{retry && <button className="secondary" onClick={retry}>Coba lagi</button>}</div>;
+  return <div id={id} className="notice error feedback" role="alert"><span>{message}</span>{retry && <button className="secondary" onClick={retry}>Coba lagi</button>}</div>;
 }
 
 export function Toast({ message, onClose }) {
