@@ -145,7 +145,7 @@
   .settings-index::-webkit-scrollbar { display: none; }
   .settings-index a { flex: 0 0 auto; }
   .settings-section { scroll-margin-top: 58px; }
-  .inline-form > button, .member-form > button { flex: 1 1 100%; }
+  .inline-form > button, .member-form > button { flex: 1 1 100%; margin-top: 0; }
   .filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar > * { min-width: 0 !important; width: 100% !important; }
   .filter-bar button { grid-column: 1 / -1; }

@@ -21,9 +21,12 @@
 .settings-list b, .settings-list small, .integration-grid b, .integration-grid small { display: block; }
 .settings-list small, .integration-grid small { margin-top: 3px; color: var(--ink-soft); font-size: var(--text-md); }
 .panel, .settings-section { padding: var(--card-padding); }
-/* Add-forms keep a persistent visible label above every control; the label boxes end
-   at the same baseline as the submit button. */
+/* Add-forms keep a persistent visible label above every control. The row aligns at
+   the top so a helper line under one control never lifts its neighbours; the submit
+   button is offset past the label line to sit on the control row. */
+.inline-form { align-items: start; }
 .inline-form > label { flex: 1 1 150px; min-width: 150px; }
+.inline-form > button { align-self: start; margin-top: 24px; }
 .inline-form > label > span, .member-form > label > span { white-space: nowrap; }
 .known-form > label { flex: 1 1 0; min-width: 120px; }
 .wealth-form > label { flex: 1 1 160px; min-width: 150px; }

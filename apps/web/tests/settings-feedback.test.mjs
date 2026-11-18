@@ -105,16 +105,31 @@ test("settings explains its jargon and derives the category slug", () => {
   // The slug is no longer a field the family has to fill in.
   assert.doesNotMatch(settings, /Slug kategori/);
   assert.match(settings, /uniqueCategorySlug\(name,/);
-  assert.match(settings, /Slug dibuat otomatis dari nama kategori\./);
+  // It is derived and never shown: no helper line, no slug under a category.
+  assert.doesNotMatch(settings, /Slug dibuat otomatis/);
+  assert.doesNotMatch(settings, /\{item\.slug\}/);
   // Internal names are gone from the page.
   for (const term of ["gateway", "Petunjuk tersamar", "Kebijakan pencatatan", "Tambah draf"]) {
     assert.doesNotMatch(settings, new RegExp(term), term);
   }
+  // The provider edit action is Indonesian and named like the other row actions.
+  assert.doesNotMatch(settings, />Edit</);
+  assert.match(settings, /aria-label=\{`Ubah \$\{item\.providerName\}`\}[\s\S]*?>Ubah</);
   // Every helper line is linked from the field it explains.
-  for (const id of ["account-tracking-hint", "wealth-role-hint", "wealth-source-hint", "known-hint", "provider-wealth-hint", "provider-edit-wealth-hint", "category-slug-hint"]) {
+  for (const id of ["account-tracking-hint", "wealth-role-hint", "wealth-source-hint", "known-hint", "provider-wealth-hint", "provider-edit-wealth-hint"]) {
     assert.match(settings, new RegExp(`aria-describedby="${id}"`), id);
     assert.match(settings, new RegExp(`<FieldHint id="${id}">`), id);
   }
+});
+
+test("a helper line under one control never lifts its neighbours", () => {
+  const css = globalCss();
+  // The row aligns at the top, so a taller label (with a hint) does not move its siblings.
+  assert.match(css, /\.inline-form \{ align-items: start; \}/);
+  // The submit button is offset past the label line to sit on the control row.
+  assert.match(css, /\.inline-form > button \{ align-self: start; margin-top: 24px; \}/);
+  // On a phone the button takes its own full-width row, so the offset is dropped.
+  assert.match(css, /\.inline-form > button, \.member-form > button \{ flex: 1 1 100%; margin-top: 0; \}/);
 });
 
 // Every <button> element, from its opening tag to its closing tag.
