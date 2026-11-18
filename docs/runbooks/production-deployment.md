@@ -483,9 +483,13 @@ The worker writes `<storage_ref>.thumb.jpg` while it processes a document, so a
 document card never waits on a resize. Documents ingested before that change
 get theirs from the one-shot command, which is idempotent and household-scoped:
 
-```text
-docker compose exec worker /app/worker thumbnails            # every household
-docker compose exec worker /app/worker thumbnails <household-id>
+```bash
+# every household
+docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml \
+  exec -T worker /finance-worker thumbnails
+# one household
+docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml \
+  exec -T worker /finance-worker thumbnails <household-id>
 ```
 
 It only writes missing thumbnails, logs and skips anything it cannot decode, and
