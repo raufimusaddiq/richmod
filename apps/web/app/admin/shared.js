@@ -36,7 +36,7 @@ const badgeLabel = { ACTIVE: "Aktif", INACTIVE: "Nonaktif", DISABLED: "Dinonakti
 
 export function Metric({ label, value, note }) {
   return (
-    <article className="admin-metric">
+    <article className="card card--dense admin-metric">
       <span>{label}</span>
       <b>{value}</b>
       {note && <small>{note}</small>}

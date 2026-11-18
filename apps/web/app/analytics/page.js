@@ -202,13 +202,13 @@ function AnalyticsReview() {
             <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
             <HistoryCard facts={facts} onSelect={start => navigate({ cycle: start, category: "", step: "" })}/>
           </div>
-          {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
+          {facts.history?.length > 0 && <section id="matrix" className="review-section surface card" aria-labelledby="matrix-title">
             <details className="report-disclosure" open={step === "position" || step === "changes"}>
             <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>{facts.history.length} siklus · {facts.categoryHistory?.rows?.length || 0} kategori + kategori lain</span></summary>
             <CategoryHeatmap key={facts.period.start} facts={facts} selectedCategory={selection.category} onSelectCategory={chooseCategory}/>
             </details>
           </section>}
-          <section id="merchants" className="review-section" aria-labelledby="merchants-title">
+          <section id="merchants" className="review-section surface card" aria-labelledby="merchants-title">
             <details className="report-disclosure">
             <summary><h2 id="merchants-title">Merchant pendukung</h2><span>{facts.merchantRanking?.rows?.length || 0} teratas · satu baris per penerima</span></summary>
             <p className="review-description">Pengeluaran bersih setelah refund, terbesar dulu. Pembanding mengikuti siklus: hari yang sama saat berjalan, siklus penuh saat ditutup.</p>
@@ -217,7 +217,7 @@ function AnalyticsReview() {
           </section>
           <HouseholdSection members={facts.memberAttribution}/>
           <QualityFooter facts={facts} step={step}/>
-          <section id="discussion" className="review-section" aria-labelledby="discussion-title">
+          <section id="discussion" className="review-section surface card" aria-labelledby="discussion-title">
             <details className="report-disclosure" open={step === "discussion"}>
             <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional · bukan saran keuangan"}</span></summary>
             <InsightCard insight={insight} cycle={facts.period} days={facts.spendingShape.days} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
