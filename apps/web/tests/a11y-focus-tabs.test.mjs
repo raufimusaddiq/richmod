@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { trapTarget, nextTabIndex } from "../app/lib/focusTrap.js";
+import { SETTINGS_SECTIONS } from "../app/lib/settingsTabs.js";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -33,7 +34,7 @@ test("mobile sheet uses the focus trap and returns focus to the trigger", () => 
 
 test("settings jump links point at ids that exist", () => {
   const src = read("app/settings/page.js");
-  const links = [...src.matchAll(/\["([a-z-]+)", "[^"]+"\]/g)].map(m => m[1]);
+  const links = SETTINGS_SECTIONS.map(([id]) => id);
   assert.ok(links.includes("akun-kekayaan") && links.includes("status-pemrosesan"));
   assert.ok(!links.includes("akun-wealth"));
   assert.match(src, /title="Akun kekayaan"/);

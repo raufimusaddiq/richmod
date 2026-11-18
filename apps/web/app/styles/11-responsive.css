@@ -140,11 +140,13 @@
   .email-checklist li { grid-template-columns: 28px minmax(0, 1fr); }
   .email-checklist li .integration-actions { grid-column: 2; }
   .row-actions { justify-content: flex-start; }
-  /* Ten sections on a phone: keep the sticky index one swipeable row, not four. */
-  .settings-index { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .settings-index::-webkit-scrollbar { display: none; }
-  .settings-index a { flex: 0 0 auto; }
-  .settings-section { scroll-margin-top: 58px; }
+  /* Four tabs fit as a 2x2 grid of equal pills on a phone, so none hides offscreen. */
+  .settings-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; overflow: visible; }
+  .settings-tabs button { min-height: 44px; padding: 0 8px; white-space: nowrap; }
+  .settings-section { scroll-margin-top: 112px; }
+  /* Every field takes the full row on a phone, so no select clips its option. */
+  .inline-form > label, .member-form > label { flex: 1 1 100%; min-width: 0; }
+  .settings-list .row-actions select { width: 100%; min-width: 0; }
   .inline-form > button, .member-form > button { flex: 1 1 100%; margin-top: 0; }
   .filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar > * { min-width: 0 !important; width: 100% !important; }
@@ -203,9 +205,9 @@
 }
 
 /* Tap targets: keep the visual size of small links, extend the hit area. */
-.settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { display: inline-flex; align-items: center; min-height: 32px; }
+.settings-tabs button, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { display: inline-flex; align-items: center; min-height: 32px; }
 @media (pointer: coarse) {
-  .settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { min-height: 44px; }
+  .settings-tabs button, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { min-height: 44px; }
 }
 
 /* tablet gutter: a little more air than a phone once the sidebar is gone */
@@ -220,7 +222,7 @@
 
 /* Small links outside the earlier tap-target list keep a 32px hit area (44px on touch). */
 .cycle-review details > a, .public-legal-links a { display: inline-flex; align-items: center; min-height: 32px; }
-.settings-index a { min-width: 32px; justify-content: center; }
+.settings-tabs button { justify-content: center; }
 @media (pointer: coarse) {
   .cycle-review details > a, .public-legal-links a { min-height: 44px; }
   /* Document status chips and the single "Tampilkan lebih banyak" control reach 44px on touch. */
