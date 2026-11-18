@@ -34,6 +34,12 @@ const categories = [
   { id: "cat-3", name: "Makan", amount: "420000", active: true, slug: "makan" },
   { id: "cat-4", name: "Tagihan", amount: "280000", active: true, slug: "tagihan" },
 ];
+// A real household has 25+ categories. The calendar chart is expected to show the top ten
+// plus "Kategori lain" rather than one bar per category.
+const calendarCategories = [
+  "Belanja rumah", "Transportasi", "Makan", "Tagihan", "Kesehatan", "Pendidikan", "Hiburan", "Hadiah",
+  "Perawatan diri", "Perlengkapan", "Donasi", "Biaya admin", "Lain-lain",
+].map((name, index) => ({ id: `cal-cat-${index + 1}`, name, amount: String((13 - index) * 180000) }));
 const daily = Array.from({ length: 12 }, (_, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, grossExpense: String((index % 4) * 80000 + 120000), refund: "0", expense: String((index % 4) * 80000 + 120000), income: index === 0 ? "12500000" : "0" }));
 const review = [{ id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "750000", merchantName: "Transfer ke rekening lain", transactionAt: "2026-09-05T15:00:00+07:00", sourceType: "BANK_EMAIL", proposalStatus: "NEEDS_REVIEW", missingFields: ["merchant"], description: "Tujuan transfer belum jelas" }];
 const members = [{ id: "member-1", displayName: "Rafi", email: "rafi@example.test", role: "OWNER", active: true, telegramConnected: true }, { id: "member-2", displayName: "Dina", email: "dina@example.test", role: "MEMBER", active: true, telegramConnected: false }];
@@ -69,8 +75,10 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/wealth/cycle-recaps") return [];
   if (path === "/api/v1/wealth/observations") return [];
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
-  if (path.startsWith("/api/v1/analytics/categories")) return categories;
-  if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-07", income: "11800000", expense: "7200000", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", netCashflow: "9910000" }];
+  // The calendar view is served zero-filled months (the API generates the range), so the
+  // fixture does too: Jun is before the household's first transaction and Oct–Nov have none.
+  if (path.startsWith("/api/v1/analytics/categories")) return calendarCategories;
+  if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-06", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-07", income: "11800000", expense: "7200000", refund: "0", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", refund: "0", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", refund: "0", netCashflow: "9910000" }, { period: "2026-10", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-11", income: "0", expense: "0", refund: "0", netCashflow: "0" }];
   if (path.startsWith("/api/v1/analytics/merchants")) return [{ name: "Pasar Minggu", amount: "1250000" }, { name: "Grab", amount: "640000" }];
   if (path.startsWith("/api/v1/analytics/members")) return [{ name: "Rafi", amount: "2590000" }];
   if (path === "/api/v1/insights") return [];

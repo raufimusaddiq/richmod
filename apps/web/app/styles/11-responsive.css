@@ -98,6 +98,21 @@
   .custom-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); margin: 0; }
   .custom-range input { width: 100%; }
   .custom-range button { grid-column: 1 / -1; }
+  /* The monthly cashflow table stacks instead of clipping: every value keeps its own
+     label, so a phone shows the whole row without a sideways scroll. */
+  .cycle-review .review-table-wrap:has(.monthly-table) { border: 0; border-radius: 0; background: none; }
+  .review-table-wrap .monthly-table { min-width: 0; }
+  .monthly-table, .monthly-table tbody, .monthly-table tr, .monthly-table th, .monthly-table td { display: block; }
+  .monthly-table thead { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .review-table-wrap .monthly-table tr { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .review-table-wrap .monthly-table tr:last-child { border-bottom: 0; }
+  .review-table-wrap .monthly-table th[scope="row"] { padding: 0 0 5px; border: 0; font-size: var(--text-sm); }
+  .review-table-wrap .monthly-table th[scope="row"] small { display: inline; margin: 0 0 0 6px; }
+  .review-table-wrap .monthly-table td { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; }
+  .review-table-wrap .monthly-table td::before { content: attr(data-label); color: var(--muted); font-size: var(--text-xs); text-align: left; }
+  .review-table-wrap .monthly-table td[colspan] { display: block; padding: 0; color: var(--muted); text-align: left; }
+  .review-table-wrap .monthly-table td[colspan]::before { content: none; }
+  .review-table-wrap .monthly-table .month-start td { padding: 0 0 8px; border: 0; }
   .insight-card-compact { padding: 17px; }
   .insight-state { align-items: stretch; flex-direction: column; }
   .insight-state button { align-self: flex-start; }
