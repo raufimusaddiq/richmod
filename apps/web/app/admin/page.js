@@ -74,22 +74,24 @@ function AdminConsole() {
       <p className="page-intro">
         Operasi platform. Data sensitif dan isi finansial tidak ditampilkan.
       </p>
-      <nav className="admin-tabs" role="tablist" aria-label="Navigasi admin">
-        {tabs.map(([key, label], index) => (
-          <button
-            key={key}
-            role="tab"
-            id={`admin-tab-${key}`}
-            aria-controls="admin-panel"
-            aria-selected={tab === key}
-            tabIndex={tab === key ? 0 : -1}
-            className={tab === key ? "active" : "secondary"}
-            onKeyDown={(event) => tabKeys(event, index)}
-            onClick={() => select(key)}
-          >
-            {label}
-          </button>
-        ))}
+      <nav aria-label="Navigasi admin">
+        <div className="admin-tabs" role="tablist" aria-label="Navigasi admin">
+          {tabs.map(([key, label], index) => (
+            <button
+              key={key}
+              role="tab"
+              id={`admin-tab-${key}`}
+              aria-controls="admin-panel"
+              aria-selected={tab === key}
+              tabIndex={tab === key ? 0 : -1}
+              className={tab === key ? "active" : "secondary"}
+              onKeyDown={(event) => tabKeys(event, index)}
+              onClick={() => select(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </nav>
       {error && <p className="notice error" role="alert">{error}</p>}
       <div role="tabpanel" id="admin-panel" aria-labelledby={`admin-tab-${tab}`}>
