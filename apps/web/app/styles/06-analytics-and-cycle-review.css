@@ -20,7 +20,14 @@
    holds the cycle picker too, so it carries no chrome of its own. */
 .cycle-review .range-control-group { gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
 .cycle-review .cycle-step-button { border-color: var(--line-strong); background: var(--surface); color: var(--ink); }
-.cycle-review .custom-range button { border-color: var(--line-strong); background: var(--surface); color: var(--ink); }
+/* The apply button is an action, not a tab: it sits on the month fields' own baseline and
+   is the same height as the inputs it applies. Its outline stays visible while it is
+   disabled, so the row never looks like it is missing a control. */
+.cycle-review .custom-range { align-items: flex-end; }
+.cycle-review .custom-range button { min-height: 44px; padding: 0 16px; border-color: var(--ink); font-size: var(--text-sm); }
+/* A disabled apply button still has to be readable: the shared 52% opacity drops the label
+   under 3:1, so it keeps full-opacity ink on the muted surface instead. */
+.cycle-review .custom-range button:disabled { opacity: 1; border-color: var(--line-strong); background: transparent; color: var(--muted); }
 .cycle-selector { min-width: min(320px, 100%); }
 .cycle-selector select { min-height: 40px; }
 .cycle-period { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 20px 4px 18px; border-top: 1px solid var(--line-strong); }
@@ -137,6 +144,8 @@
 /* Calendar view: a section keeps its previous range, dimmed, while a new one loads. */
 .calendar-section[data-stale] { opacity: .5; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-standard); }
 .calendar-body th small { display: block; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+/* Months before the household's first transaction are one line, not a row each. */
+.calendar-body .month-start td { color: var(--muted); font-size: var(--text-xs); text-align: left; }
 
 .ledger-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
 .ledger-selection button, .ledger-selection a { display: inline-flex; align-items: center; min-height: 44px; }

@@ -62,6 +62,39 @@ export function hasActivity(item) {
   return ["income", "expense", "refund"].some(key => item?.[key] != null && Number(item[key]) !== 0);
 }
 
+// A range can start months before the household's first confirmed transaction. Those
+// leading months are one line ("Data mulai ..."), not a "belum ada transaksi" row each.
+// Returns the index of the first month with activity, or -1 when the range is empty.
+export function firstActiveMonth(items = []) {
+  return items.findIndex(hasActivity);
+}
+
+// The refund column is all Rp0 for most households, so it appears only when a month in
+// the range actually had a refund.
+export function hasRefunds(items = []) {
+  return items.some(item => item?.refund != null && Number(item.refund) !== 0);
+}
+
+// The category chart shows the ten largest categories plus one "Kategori lain" bar, so
+// it stays a chart. The order is the server's (the browser never re-ranks money); the
+// full list stays in "Lihat nilai kategori".
+export const CHART_CATEGORY_LIMIT = 10;
+
+function rupiah(value) {
+  try { return BigInt(String(value ?? "0").trim().split(".")[0] || "0"); } catch { return 0n; }
+}
+
+export function chartCategories(items = [], limit = CHART_CATEGORY_LIMIT) {
+  if (items.length <= limit) return items;
+  const rest = items.slice(limit).reduce((sum, item) => sum + rupiah(item.amount), 0n);
+  return [...items.slice(0, limit), { id: "other", name: "Kategori lain", amount: rest.toString(), remainder: true }];
+}
+
+// "Sep 26" for a single month, "Agu 26 sampai Sep 26" for a span.
+export function rangeSummary(from, to) {
+  return from === to ? monthLabel(from) : `${monthLabel(from)} sampai ${monthLabel(to)}`;
+}
+
 // The month fields start on the range already shown, so a phone never renders two
 // empty native month inputs. Display only: the API still decides which months exist.
 export function defaultRange({ from, to, range }, now = new Date()) {
