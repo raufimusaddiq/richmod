@@ -71,6 +71,17 @@
   --text-xl: 19px;
   --weight-semibold: 650;
   --sidebar: 244px;
+  /* Component scale. One card, one card title, one control height; a page that needs
+     something else names a modifier instead of writing a literal. */
+  --card-padding: var(--space-6); /* 24px: every standard card */
+  --card-padding-dense: var(--space-5); /* 20px: dashboard and admin metric cards */
+  --card-title-size: var(--text-xl); /* 19px: every section h2 inside a card */
+  --card-title-weight: var(--weight-semibold);
+  --hero-title-size: 25px; /* page-level exception: empty/hero cards only */
+  --control-height: 44px; /* primary/secondary button, input, select */
+  --control-height-compact: 36px; /* chips, pagination, tabs, segmented controls */
+  --control-font: var(--text-base); /* 14px */
+  --control-font-compact: var(--text-base);
   /* Motion scale: every duration and easing is one of these; the reduced-motion guard is
      in 15-motion.css. */
   --motion-fast: 120ms; /* press, hover and a dismissal on its way out */
