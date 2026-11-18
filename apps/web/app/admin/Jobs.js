@@ -11,7 +11,7 @@ export default function Jobs({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">ANTREAN TUGAS POSTGRESQL</span>
+          <span className="eyebrow">Antrean tugas PostgreSQL</span>
           <h2>Tugas</h2>
         </div>
         <button className="secondary" onClick={refresh}>

@@ -13,7 +13,7 @@ export default function LLM({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">GERBANG LLM CLOUD</span>
+          <span className="eyebrow">Gerbang LLM cloud</span>
           <h2>LLM</h2>
         </div>
         <button className="secondary" onClick={refresh}>

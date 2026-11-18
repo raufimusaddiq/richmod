@@ -11,7 +11,7 @@ export default function Logs({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">KEJADIAN TERSTRUKTUR</span>
+          <span className="eyebrow">Kejadian terstruktur</span>
           <h2>Log</h2>
         </div>
         <button className="secondary" onClick={refresh}>

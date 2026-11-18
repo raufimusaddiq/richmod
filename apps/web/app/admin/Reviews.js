@@ -36,7 +36,7 @@ export default function Reviews({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">KESEHATAN REVIEW UNIVERSAL</span>
+          <span className="eyebrow">Kesehatan review universal</span>
           <h2>Tinjauan</h2>
         </div>
         <button className="secondary" onClick={refresh}>

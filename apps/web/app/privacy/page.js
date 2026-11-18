@@ -8,7 +8,7 @@ export const metadata = {
 export default function PrivacyPage() {
   return <main className="public-legal"><article className="surface public-legal-card">
     <Link className="public-legal-brand" href="/">Richmod</Link>
-    <span className="eyebrow">KEBIJAKAN PRIVASI</span>
+    <span className="eyebrow">Kebijakan privasi</span>
     <h1>Kebijakan Privasi</h1>
     <p className="public-legal-updated">Terakhir diperbarui: 4 September 2026</p>
     <p>Richmod membantu household mencatat dan memahami pemasukan serta pengeluaran. Halaman ini menjelaskan data yang kami proses dan cara kami menjaganya.</p>

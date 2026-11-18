@@ -13,7 +13,7 @@ export default function Overview({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">STATUS PLATFORM</span>
+          <span className="eyebrow">Status platform</span>
           <h2>Ringkasan</h2>
         </div>
         <button className="secondary" onClick={refresh}>

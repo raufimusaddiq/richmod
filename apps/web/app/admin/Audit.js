@@ -14,7 +14,7 @@ export default function Audit({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">KEJADIAN AUDIT PERMANEN</span>
+          <span className="eyebrow">Kejadian audit permanen</span>
           <h2>Audit</h2>
         </div>
         <button className="secondary" onClick={refresh}>
