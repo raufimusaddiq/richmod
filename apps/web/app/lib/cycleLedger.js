@@ -171,10 +171,11 @@ export function paceTicks(length, step) {
   return ticks;
 }
 
-// A marker in the right half of the axis has no room to the right, so its label
-// anchors to the left of the line; the left half keeps the label to the right.
-export function paceMarkerPosition(day, length) {
-  return day > Math.max(length, 2) / 2 ? "insideTopRight" : "insideTopLeft";
+// The today marker's label is drawn above the plot area, never inside it: the end-value
+// labels share the last day's x, so an in-plot label would sit on top of one of them at
+// some day of the cycle. Outside the plot it cannot overlap at any day or width.
+export function paceMarkerNote(period, last) {
+  return `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`;
 }
 
 // The visual ceiling of the pace plot: the highest served point of any drawn series or

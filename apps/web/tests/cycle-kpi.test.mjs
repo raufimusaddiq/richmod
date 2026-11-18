@@ -113,8 +113,10 @@ test("delta direction is also text for screen readers, beside the aria-hidden gl
 });
 
 test("the pace marker says today only while the cycle runs", () => {
+  const ledger = readFileSync(new URL("../app/lib/cycleLedger.js", import.meta.url), "utf8");
+  assert.ok(ledger.includes('period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"'));
   const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.ok(charts.includes('period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"'));
+  assert.ok(charts.includes('className="pace-marker-note"'));
   assert.ok(readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8").includes("period={period}"));
 });
 

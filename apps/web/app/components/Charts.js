@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
-import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerPosition, paceTicks } from "../lib/cycleLedger";
+import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerNote, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { transactionHref } from "../lib/cycleReview";
 
@@ -93,9 +93,6 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   // a round axis keeps the ticks readable. Curve points are served values, read only for
   // the visual ceiling — never written back into a money figure.
   const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
-  // A marker in the right half has no room to the right, so its label anchors to the
-  // left of the line; the left half keeps the label to the right.
-  const markerLabel = { value: `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`, position: paceMarkerPosition(last.day, data.length), fill: "var(--ink)", fontFamily: "var(--font-body)", fontSize: 12 };
   // End-value labels sit on the same x at the last day; when their values are close,
   // push the comparison label away from the current one so the two never overlap.
   const span = axis.domain[1] - axis.domain[0];
@@ -108,6 +105,7 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   const tailLabel = tail && !(sameDay && tail.day === last.day) ? endLabel(tail.previousExact, "right") : null;
   if (tailLabel && tail.day === last.day && closeToLast(tail.previousTotal)) tailLabel.dy = Number(tail.previousTotal) < Number(last.exact) ? 14 : -14;
   return <div className="cycle-pace">
+    <p className="pace-marker-note">{paceMarkerNote(period, last)}</p>
     <div className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart accessibilityLayer={false} data={data} margin={{ top: 26, right: 44, left: 0, bottom: 0 }}>
@@ -115,7 +113,7 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
           <XAxis dataKey="day" type="number" domain={[1, Math.max(data.length, 2)]} ticks={paceTicks(data.length)} tickFormatter={day => paceDateLabel(items, day)} allowDecimals={false} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/>
           <YAxis width={40} type="number" domain={axis.domain} ticks={axis.ticks} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(axis.domain[1])}/>
           <Tooltip content={<PaceTooltip/>}/>
-          <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1} label={markerLabel}/>
+          <ReferenceLine x={last.day} stroke="var(--ink)" strokeWidth={1}/>
           {curves.previous && <Line type="linear" dataKey="previousTotal" stroke="var(--line-strong)" strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false}/>}
           {curves.median && <Line type="linear" dataKey="medianTotal" stroke="var(--chart-reference)" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} activeDot={false} isAnimationActive={false}/>}
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}

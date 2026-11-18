@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceMarkerPosition, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceMarkerNote, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -238,12 +238,18 @@ test("a reference level that extends the axis gets round ticks, not raw served v
   assert.equal(small.ticks.length, 5);
 });
 
-test("the pace marker label flips left once the marker is in the right half", () => {
-  assert.equal(paceMarkerPosition(6, 30), "insideTopLeft", "an early day keeps the label to the right");
-  assert.equal(paceMarkerPosition(15, 30), "insideTopLeft", "the exact middle still fits to the right");
-  assert.equal(paceMarkerPosition(16, 30), "insideTopRight", "the right half anchors the label to the left");
-  assert.equal(paceMarkerPosition(30, 30), "insideTopRight", "the last day never overflows the svg");
-  assert.equal(paceMarkerPosition(6, 6), "insideTopRight", "a short full cycle flips too");
+test("the pace marker label is drawn above the plot, so it never overlaps an end-value label", () => {
+  // The end-value labels share the last day's x. A label inside the plot would sit on one
+  // of them at some day of the cycle, so the rule is: the marker label is outside the plot.
+  for (const day of [1, 15, 28, 30, 31]) {
+    assert.equal(paceMarkerNote({ state: "ACTIVE" }, { day }), `Hari ini · hari ke-${day}`);
+  }
+  assert.equal(paceMarkerNote({ state: "CLOSED" }, { day: 31 }), "Data terakhir · hari ke-31");
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.doesNotMatch(charts, /<ReferenceLine x=\{last\.day\}[^>]*label=/, "the marker line carries no in-plot label");
+  const note = charts.indexOf('className="pace-marker-note"');
+  const plot = charts.indexOf('className="chart-wrap cycle-pace-chart"');
+  assert.ok(note > 0 && note < plot, "the note renders above the plot area");
 });
 
 test("Rp-juta tick labels stay distinct when the tick step is small", () => {
