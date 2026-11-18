@@ -87,7 +87,12 @@ function rupiah(value) {
 export function chartCategories(items = [], limit = CHART_CATEGORY_LIMIT) {
   if (items.length <= limit) return items;
   const rest = items.slice(limit).reduce((sum, item) => sum + rupiah(item.amount), 0n);
-  return [...items.slice(0, limit), { id: "other", name: "Kategori lain", amount: rest.toString() }];
+  return [...items.slice(0, limit), { id: "other", name: "Kategori lain", amount: rest.toString(), remainder: true }];
+}
+
+// "Sep 26" for a single month, "Agu 26 sampai Sep 26" for a span.
+export function rangeSummary(from, to) {
+  return from === to ? monthLabel(from) : `${monthLabel(from)} sampai ${monthLabel(to)}`;
 }
 
 // The month fields start on the range already shown, so a phone never renders two

@@ -25,6 +25,9 @@
    disabled, so the row never looks like it is missing a control. */
 .cycle-review .custom-range { align-items: flex-end; }
 .cycle-review .custom-range button { min-height: 44px; padding: 0 16px; border-color: var(--ink); font-size: var(--text-sm); }
+/* A disabled apply button still has to be readable: the shared 52% opacity drops the label
+   under 3:1, so it keeps full-opacity ink on the muted surface instead. */
+.cycle-review .custom-range button:disabled { opacity: 1; border-color: var(--line-strong); background: transparent; color: var(--muted); }
 .cycle-selector { min-width: min(320px, 100%); }
 .cycle-selector select { min-height: 40px; }
 .cycle-period { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 20px 4px 18px; border-top: 1px solid var(--line-strong); }

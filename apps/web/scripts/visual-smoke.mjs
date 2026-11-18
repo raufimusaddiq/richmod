@@ -77,7 +77,7 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
   // The calendar view is served zero-filled months (the API generates the range), so the
   // fixture does too: Jun is before the household's first transaction and Oct–Nov have none.
-  if (path.startsWith("/api/v1/analytics/categories")) return calendarCategories;
+  if (path.startsWith("/api/v1/analytics/categories")) return search.get("period") === "last_3_cycles" ? categories : calendarCategories;
   if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-06", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-07", income: "11800000", expense: "7200000", refund: "0", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", refund: "0", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", refund: "0", netCashflow: "9910000" }, { period: "2026-10", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-11", income: "0", expense: "0", refund: "0", netCashflow: "0" }];
   if (path.startsWith("/api/v1/analytics/merchants")) return [{ name: "Pasar Minggu", amount: "1250000" }, { name: "Grab", amount: "640000" }];
   if (path.startsWith("/api/v1/analytics/members")) return [{ name: "Rafi", amount: "2590000" }];

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { CategoryRankingChart, MonthlyCashflowChart } from "../components/Charts";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
-import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, defaultRange, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, nextMonthKey, validateCustomRange } from "../lib/calendarReview";
+import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, defaultRange, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, nextMonthKey, rangeSummary, validateCustomRange } from "../lib/calendarReview";
 import { transactionHref } from "../lib/cycleReview";
 import { money, monthLabel } from "../lib/format";
 import { SectionTitle, Metric } from "./shared";
@@ -51,7 +51,7 @@ export function CalendarReview({ selection, navigate }) {
       <form className="custom-range" aria-label="Rentang bulan kustom" onSubmit={submitRange} noValidate><label>Bulan mulai<input name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}/></label><label>Bulan selesai<input name="to" {...rangeProps(to)} onChange={event => setTo(event.target.value)}/></label><button type="submit" disabled={!draft}>Terapkan</button></form>
     </div>
     {rangeError && <div id="range-error" className="notice error feedback" role="alert"><span>{rangeError}</span></div>}
-    <p>{custom ? `Rentang bulan ${monthLabel(selection.from)} sampai ${monthLabel(selection.to)}` : `${selection.range} bulan terakhir`} · Asia/Jakarta{draft ? " · perubahan belum diterapkan" : ""}</p>
+    <p>{custom ? `Rentang bulan ${rangeSummary(selection.from, selection.to)}` : `${selection.range} bulan terakhir`} · Asia/Jakarta{draft ? " · perubahan belum diterapkan" : ""}</p>
     {allFailed && <ErrorNotice message={cashflow.error} retry={() => sections.forEach(section => section.retry())}/>}
     {refreshing && <p className="ledger-loading" role="status">Memuat rentang…</p>}
     {!allFailed && <div className="calendar-body">

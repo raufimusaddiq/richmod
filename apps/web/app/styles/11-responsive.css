@@ -112,6 +112,7 @@
   .review-table-wrap .monthly-table td::before { content: attr(data-label); color: var(--muted); font-size: var(--text-xs); text-align: left; }
   .review-table-wrap .monthly-table td[colspan] { display: block; padding: 0; color: var(--muted); text-align: left; }
   .review-table-wrap .monthly-table td[colspan]::before { content: none; }
+  .review-table-wrap .monthly-table tr:not(.month-start) td[colspan] { display: none; }
   .review-table-wrap .monthly-table .month-start td { padding: 0 0 8px; border: 0; }
   .insight-card-compact { padding: 17px; }
   .insight-state { align-items: stretch; flex-direction: column; }

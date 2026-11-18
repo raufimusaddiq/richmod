@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, monthSpan, nextMonthKey, validateCustomRange } from "../app/lib/calendarReview.js";
-import { tree } from "./source.mjs";
+import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
+import { globalCss, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const october = new Date("2026-10-02T05:00:00Z"); // 12:00 in Jakarta
@@ -69,9 +69,15 @@ test("the category chart keeps the top ten and folds the rest into Kategori lain
   assert.equal(chart.length, 11, "ten bars plus one");
   assert.deepEqual(chart.slice(0, 10).map(item => item.name), items.slice(0, 10).map(item => item.name), "the server's order is kept");
   assert.equal(chart[10].name, "Kategori lain");
+  assert.equal(chart[10].remainder, true, "the remainder bar is marked so it can read as a remainder");
   assert.equal(chart[10].amount, String(items.slice(10).reduce((sum, item) => sum + Number(item.amount), 0)), "the tail is summed, not dropped");
   assert.equal(chartCategories(items.slice(0, 10)).length, 10, "a short list is untouched");
   assert.equal(chartCategories([]).length, 0);
+});
+
+test("a one-month range is named once, not twice", () => {
+  assert.equal(rangeSummary("2026-09", "2026-09"), "Sep 26");
+  assert.equal(rangeSummary("2026-08", "2026-09"), "Agu 26 sampai Sep 26");
 });
 
 test("calendar source: independent sections, controlled range, visible reason, formatted months", () => {
@@ -102,6 +108,7 @@ test("calendar charts follow the cycle rules: bar-order legend, server ranking, 
   assert.doesNotMatch(charts, /Math\.round\(item\.value/, "the tooltip never rounds a served amount");
   assert.match(charts, /money\(item\?\.income\)/, "the tooltip prints the served string");
   const page = tree("app/analytics");
+  const css = globalCss();
   assert.match(page, /<CategoryRankingChart items=\{chartCategories\(items\)\} height=\{160\}/, "the calendar category chart keeps the server's amount order and folds the tail");
   assert.doesNotMatch(page, /serverOwned/, "the web never re-sorts a money ranking");
   assert.match(page, /Lihat nilai kategori/, "category values are readable without a tooltip");
@@ -109,6 +116,9 @@ test("calendar charts follow the cycle rules: bar-order legend, server ranking, 
   assert.match(page, /<MonthlyTable items=\{items\} now=\{now\} cycle=\{selection\.cycle\}\/>/, "the monthly table is one component");
   assert.match(page, /Data mulai \{monthLabel\(items\[start\]\.period\)\}/, "leading empty months are one line");
   assert.match(page, /data-label=\{labels\[/, "stacked rows keep their column names");
+  assert.match(page, /Rentang bulan \$\{rangeSummary\(selection\.from, selection\.to\)\}/, "a one-month range is named once");
+  assert.match(charts, /item\.remainder \? "var\(--line-strong\)" : "var\(--chart-category-2\)"/, "the remainder bar uses a muted fill");
+  assert.match(css, /\.cycle-review \.custom-range button:disabled \{ opacity: 1;/, "a disabled apply button keeps readable contrast");
 });
 
 test("the phone table stacks with its labels and the apply button shares the field baseline", () => {
