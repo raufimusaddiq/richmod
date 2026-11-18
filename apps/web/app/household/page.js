@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
-import { ErrorNotice } from "../components/Feedback";
+import { ErrorNotice, Toast } from "../components/Feedback";
 import useDialogs from "../components/useDialogs";
 import { LoadError, responseError, useBusyMap, useGuardedLoad } from "../lib/useLoadState";
 
@@ -21,6 +21,10 @@ export default function HouseholdPage() {
   const [invite, setInvite] = useState(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState(""), [highlight, setHighlight] = useState("");
+  const closeToast = useCallback(() => setToast(""), []);
+  // A row flash is a short confirmation, not state: it clears itself.
+  useEffect(() => { if (!highlight) return undefined; const timer = window.setTimeout(() => setHighlight(""), 2000); return () => window.clearTimeout(timer); }, [highlight]);
   const { busy, run: runBusy } = useBusyMap();
   const linkInput = useRef(null);
   // Expiry is time, not state: tick so an invite that lapses while the page is
@@ -47,18 +51,25 @@ export default function HouseholdPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setCopied(false); }, [invite?.link]);
+  // A new link is the next thing to copy, so it takes focus.
+  useEffect(() => { if (invite?.link) linkInput.current?.focus(); }, [invite?.link]);
   const owner = me?.household?.role === "OWNER";
 
   // Every handler clears the previous error, holds a per-key busy flag, and releases it
   // in finally, so a dropped request can neither stick a button nor leave an old message.
   function addMember(event) {
     event.preventDefault(); const formEl = event.currentTarget; const form = new FormData(formEl);
+    const displayName = String(form.get("displayName") || "");
     return runBusy("add-member", async () => {
       setError("");
       try {
-        const response = await fetch("/api/v1/household/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: form.get("displayName"), email: form.get("email") }) });
+        const response = await fetch("/api/v1/household/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName, email: form.get("email") }) });
         if (!response.ok) { setError(await responseError(response, "Anggota belum dapat ditambahkan.")); return; }
-        formEl.reset(); await load();
+        const created = await response.json().catch(() => ({}));
+        formEl.reset(); formEl.querySelector("input")?.focus();
+        setToast(`Anggota ${displayName} ditambahkan.`);
+        if (created?.id) setHighlight(created.id);
+        await load();
       } catch { setError("Koneksi terputus. Anggota belum ditambahkan."); }
     });
   }
@@ -70,7 +81,11 @@ export default function HouseholdPage() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) { setError(body.error || failure); return false; }
       if (kind === "telegram" && !body.link) { setError("Bot Telegram belum dikonfigurasi, tautan undangan belum bisa dibuat."); return false; }
-      setInvite(build(body)); await load(); return true;
+      const name = members.find(item => item.id === memberId)?.displayName || "anggota";
+      setInvite(build(body));
+      setToast(kind === "telegram" ? `Undangan Telegram untuk ${name} dibuat.` : body.purpose === "RESET" ? `Tautan atur ulang untuk ${name} dibuat.` : `Undangan masuk untuk ${name} dibuat.`);
+      setHighlight(memberId);
+      await load(); return true;
     } catch { setError("Koneksi terputus. Undangan belum dibuat."); return false; }
   }
 
@@ -83,7 +98,10 @@ export default function HouseholdPage() {
     try {
       const response = await fetch(`/api/v1/household/members/${memberId}/${INVITE_PATH[kind]}`, { method: "DELETE" });
       if (!response.ok && response.status !== 404) { setError("Undangan belum dapat dibatalkan."); return false; }
-      setInvite(current => (current && current.memberId === memberId && current.kind === kind ? null : current)); await load(); return true;
+      setInvite(current => (current && current.memberId === memberId && current.kind === kind ? null : current));
+      setToast(`Undangan ${members.find(item => item.id === memberId)?.displayName || "anggota"} dibatalkan.`);
+      setHighlight(memberId);
+      await load(); return true;
     } catch { setError("Koneksi terputus. Undangan belum dibatalkan."); return false; }
   }
   const revokeInvite = (kind, memberId) => runBusy(`member:${memberId}`, () => cancelInvite(kind, memberId));
@@ -139,7 +157,11 @@ export default function HouseholdPage() {
         if (!response.ok) { setError(await responseError(response, "Anggota belum dapat dinonaktifkan.")); return; }
         // The deactivated member's one-time link is dead: take its panel down.
         setInvite(current => (current?.memberId === memberId ? null : current));
+        setToast(`Anggota ${members.find(item => item.id === memberId)?.displayName || "anggota"} dinonaktifkan.`);
+        setHighlight(memberId);
         await load();
+        // The row's action is gone, so focus the row itself.
+        document.getElementById(`member-${memberId}`)?.focus();
       } catch { setError("Koneksi terputus. Anggota belum dinonaktifkan."); }
     });
   }
@@ -149,13 +171,14 @@ export default function HouseholdPage() {
     : <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return <AppShell user={me} eyebrow="Keluarga" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{membersState ? `${members.filter(member => member.active).length} anggota aktif` : "Anggota belum termuat"}</span>}>
     {dialogs}
+    <Toast message={toast} onClose={closeToast}/>
     <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
     <p className="form-legend"><span className="req" aria-hidden="true">*</span> wajib diisi</p>
     <ErrorNotice message={error || loader.error} retry={error ? undefined : () => load()}/>
     <div className="admin-stack">
       {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2></div><form className="member-form" onSubmit={addMember}><label><span>Nama anggota <span className="req" aria-hidden="true">*</span></span><input aria-label="Nama anggota" name="displayName" maxLength="120" required /></label><label><span>Email anggota <span className="req" aria-hidden="true">*</span></span><input aria-label="Email anggota" name="email" type="email" required /></label><button disabled={Boolean(busy["add-member"])}>Tambahkan</button></form></section>}
       {invite && <section className="panel" aria-live="polite"><div><span className="eyebrow">{invite.kind === "telegram" ? "Undangan Telegram" : invite.reset ? "Atur ulang kata sandi" : "Undangan masuk Richmod"}</span><h2>{stillValid(invite.expiresAt) ? `Berlaku sampai ${untilLabel(invite.expiresAt)} · sekali pakai` : "Tautan ini sudah kedaluwarsa · buat tautan baru"}</h2><p>{invite.kind === "dashboard" ? invite.reset ? "Kirim tautan ini langsung kepada anggota. Setelah dipakai, kata sandi lama berhenti berlaku dan semua sesi login anggota keluar. Sebelum itu, kata sandi lama masih bisa dipakai." : "Kirim tautan ini langsung kepada anggota yang dituju. Dia membuat kata sandinya sendiri." : members.find(item => item.id === invite.memberId)?.role === "OWNER" ? "Buka tautan ini dari akun Telegram kamu sendiri." : "Kirim tautan ini langsung kepada anggota yang dituju."}</p></div><input ref={linkInput} className="invite-link" readOnly aria-label="Tautan undangan" value={invite.link} onFocus={event => event.currentTarget.select()} /><div className="invite-actions"><button onClick={copyLink}>{copied ? "Tersalin ✓" : "Salin tautan"}</button><a href={invite.link} target="_blank" rel="noreferrer">Buka tautan</a><button className="danger" disabled={Boolean(busy[`member:${invite.memberId}`])} onClick={() => revokeInvite(invite.kind, invite.memberId)}>Batalkan undangan</button></div><small>Tautan hanya tampil sekarang. Kalau hilang, batalkan lalu buat tautan baru.</small></section>}
-      <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{membersState ? `${members.length} akun` : "—"}</span></div>{!membersState && <p className="muted">Daftar anggota belum termuat.</p>}<div className="settings-list">{members.map(member => <article key={member.id}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}{member.active && inviteState(member) && <small className="invite-state">{inviteState(member)}</small>}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions">{loginInviteControls(member)}{!member.telegramConnected && telegramInviteControls(member)}<button className="danger" aria-label={`Nonaktifkan ${member.displayName}`} disabled={Boolean(busy[`member:${member.id}`])} onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}{owner && member.role === "OWNER" && member.active && !member.telegramConnected && <div className="row-actions">{telegramInviteControls(member)}</div>}</article>)}</div></section>
+      <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{membersState ? `${members.length} akun` : "—"}</span></div>{!membersState && <p className="muted">Daftar anggota belum termuat.</p>}<div className="settings-list">{members.map(member => <article key={member.id} id={`member-${member.id}`} tabIndex={-1} className={highlight === member.id ? "is-new" : undefined}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}{member.active && inviteState(member) && <small className="invite-state">{inviteState(member)}</small>}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions">{loginInviteControls(member)}{!member.telegramConnected && telegramInviteControls(member)}<button className="danger" aria-label={`Nonaktifkan ${member.displayName}`} disabled={Boolean(busy[`member:${member.id}`])} onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}{owner && member.role === "OWNER" && member.active && !member.telegramConnected && <div className="row-actions">{telegramInviteControls(member)}</div>}</article>)}</div></section>
     </div>
   </AppShell>;
 }
