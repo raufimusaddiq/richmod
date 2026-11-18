@@ -304,13 +304,13 @@ test("transactions: retry reloads with current filters, the drawer is aborted st
 test("settings: request is try/catch/finally with per-key busy, load failures surface, toggles lock while busy", () => {
   const view = pageView("settings");
   const request = view.slice(view.indexOf("function request("), view.indexOf("async function createAccount"));
-  assert.match(request, /setError\(""\)[\s\S]*try \{[\s\S]*catch/);
+  assert.match(request, /setError\(null\)[\s\S]*try \{[\s\S]*catch/);
   assert.match(view, /useBusyMap\(\)/);
   assert.doesNotMatch(view, /setWorking|working ===/);
   assert.doesNotMatch(view, /response\.ok \? response\.json\(\) : null/, "a failed endpoint is not silently null");
   assert.match(view, /if \(!loader\.hasLoaded\) return/, "no empty-looking settings before a successful load");
-  const toggles = [...view.matchAll(/onClick=\{\(\) => patch\(item\.id,/g)];
-  const locked = [...view.matchAll(/disabled=\{isBusy\(item\.id\)\} onClick=\{\(\) => patch\(item\.id,/g)];
+  const toggles = [...view.matchAll(/onClick=\{event => toggle\(item\.id,/g)];
+  const locked = [...view.matchAll(/disabled=\{isBusy\(item\.id\)\} onClick=\{event => toggle\(item\.id,/g)];
   assert.ok(toggles.length >= 6 && locked.length === toggles.length, "every toggle is disabled while busy");
   const test_ = view.slice(view.indexOf("async function testFinancialSource"), view.indexOf("const emailIngressAction"));
   assert.match(test_, /try \{[\s\S]*catch/);

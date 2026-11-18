@@ -36,6 +36,15 @@
 .settings-section { scroll-margin-top: 62px; }
 .settings-heading { margin-bottom: 18px; }
 .settings-heading p { max-width: 64ch; margin: 6px 0 0; color: var(--muted); font-size: var(--text-xs); }
+/* Required fields carry one visible marker, explained once per page. */
+.req { color: var(--danger); }
+.form-legend { margin: 0 0 10px; color: var(--muted); font-size: var(--text-xs); }
+/* A failed change is announced in the form or row that failed, not at the page top. */
+.field-error { margin: 8px 0 0; color: var(--danger); font-size: var(--text-xs); }
+.settings-list article > .field-error { grid-column: 1 / -1; }
+/* The row a change just touched flashes once, so the eye finds it after a reload. */
+@keyframes row-highlight { from { background-color: var(--accent-soft); } }
+.settings-list article.is-new { animation: row-highlight var(--motion-slow) var(--ease-out); }
 .list-count { margin: 0; padding: 8px 0; color: var(--muted); font-size: var(--text-xs); }
 .notification-state { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 15px 0; border-top: 1px solid var(--line); }
 .notification-copy { display: grid; min-width: 0; gap: 3px; }
