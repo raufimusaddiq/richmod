@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -49,6 +50,7 @@ type Processor struct {
 	// receiptAutoConfirmOff is the receipt kill-switch, same convention; when set, a clear receipt parks a
 	// review, independent of the bank and screenshot switches.
 	receiptAutoConfirmOff bool
+	logger                *slog.Logger
 }
 
 type Payload struct {
@@ -81,6 +83,8 @@ func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Stor
 func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !enabled }
 
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
+
+func (p *Processor) SetLogger(logger *slog.Logger) { p.logger = logger }
 
 // SetReceiptAutoConfirm is the receipt kill-switch; false disables auto-confirm for this source.
 func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
@@ -121,6 +125,8 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err != nil {
 			return err
 		}
+		// Before any gateway call, so a thumbnail exists even when the gateway is down.
+		p.ensureThumbnail(ctx, storageRef, raw)
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount++
 	}
@@ -136,6 +142,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err != nil {
 			return err
 		}
+		p.ensureThumbnail(ctx, storageRef, raw)
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount = 1
 	}

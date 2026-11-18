@@ -29,6 +29,13 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if len(os.Args) > 1 && os.Args[1] == "thumbnails" {
+		if err := backfillThumbnails(logger, os.Args[2:]); err != nil {
+			logger.Error("worker stopped", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(logger); err != nil {
 		logger.Error("worker stopped", "error", err)
 		os.Exit(1)
@@ -127,6 +134,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure document storage: %w", err)
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
+	documentProcessor.SetLogger(logger)
 	// Operator kill-switch to park screenshot rows in review without a deploy; unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
