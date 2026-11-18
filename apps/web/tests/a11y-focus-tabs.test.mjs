@@ -47,6 +47,12 @@ test("inbox tabs, admin tabs and document chips expose state", () => {
   assert.match(inbox, /role="tabpanel" id="inbox-panel"/);
   assert.match(inbox, /event.key === "ArrowRight"/);
   assert.match(inbox, /event.key === "Home"/);
-  assert.match(read("app/admin/page.js"), /aria-pressed=\{tab === key\}/);
+  const admin = read("app/admin/page.js");
+  assert.match(admin, /role="tablist"/);
+  assert.match(admin, /role="tab"/);
+  assert.match(admin, /aria-selected=\{tab === key\}/);
+  assert.match(admin, /aria-controls="admin-panel"/);
+  assert.match(admin, /role="tabpanel" id="admin-panel"/);
+  assert.match(admin, /nextTabIndex\(event\.key, index, tabs\.length\)/);
   assert.match(read("app/documents/page.js"), /aria-pressed=\{filter === key\}/);
 });
