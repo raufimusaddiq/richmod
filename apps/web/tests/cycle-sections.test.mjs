@@ -89,6 +89,25 @@ test("sections source: no money arithmetic, plain model text, fixed order", () =
   assert.match(styles, /\.decision-columns \{ display: grid/);
 });
 
+test("the five report sections share one card of compact disclosure rows", () => {
+  const page = text("app/analytics/page.js");
+  assert.match(page, /<div className="review-stack surface card">/, "one card wraps the detail sections");
+  for (const id of ["matrix", "merchants", "discussion"]) {
+    assert.match(page, new RegExp(`<section id="${id}" className="review-section"`), `${id} is a row, not its own card`);
+  }
+  assert.doesNotMatch(page, /review-section surface card/, "no detail section keeps its own outline");
+  assert.match(text("app/analytics/CycleSections.js"), /<section id="household" className="review-section"/);
+  assert.match(text("app/components/CycleDecisions.js"), /<section id="decisions" className="review-section"/);
+  const styles = globalCss();
+  assert.match(styles, /\.cycle-review \.review-stack > \.review-section \{[^}]*border-top: 1px solid var\(--line\);[^}]*\}/, "rows are separated by a hairline");
+  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary \{[^}]*min-height: 60px;[^}]*\}/, "a collapsed row is 60px tall");
+});
+
+test("the pace row sizes its cards to content instead of stretching the shorter one", () => {
+  assert.match(text("app/analytics/page.js"), /className="dash-row dash-row-pace"/);
+  assert.match(globalCss(), /\.dash-row-pace \{ align-items: start; \}/);
+});
+
 test("an empty merchant ranking is not drawn as a zero total", () => {
   const empty = { mode: "FULL_CYCLE", rows: [], other: { amount: "0", count: 0, merchantCount: 0, previous: null, deltaVsPrevious: null }, total: { amount: "0", count: 0, previous: null, deltaVsPrevious: null } };
   assert.deepEqual(merchantBars(empty).rows, []);

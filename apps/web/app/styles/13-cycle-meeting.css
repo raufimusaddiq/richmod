@@ -56,6 +56,13 @@
 /* Cycle review follows the household document hierarchy, not the public
    landing page's two-column .review-section composition. */
 .cycle-review .review-section:not(.card) { display: block; min-width: 0; padding: var(--space-4) 0; border-top: 1px solid var(--line-strong); scroll-margin-top: var(--space-6); }
+/* The report's detail sections share one card: compact disclosure rows separated by
+   hairlines, not five stacked outlined cards with their own padding. */
+.cycle-review .review-stack { padding: 0; }
+.cycle-review .review-stack > .review-section { padding: 0 var(--card-padding); border-top: 1px solid var(--line); }
+.cycle-review .review-stack > .review-section:first-child { border-top: 0; }
+.cycle-review .review-stack .report-disclosure > summary { min-height: 60px; padding-block: 0; }
+.cycle-review .review-stack .report-disclosure[open] { padding-bottom: var(--space-4); }
 .cycle-review .range-controls { display: flex; width: 100%; margin: 0 0 var(--space-4); padding: 0; border: 0; background: transparent; gap: var(--space-4); overflow: visible; }
 .cycle-review .range-controls button, .cycle-review select, .cycle-review summary, .cycle-review .review-quality a, .cycle-review .change-button { min-height: 44px; }
 .cycle-review .range-control-group { flex-wrap: wrap; }
@@ -116,6 +123,7 @@
 }
 @media (max-width: 680px) {
   .cycle-review .review-section:not(.card) { padding: var(--space-6) 0; }
+  .cycle-review .review-stack > .review-section { padding: 0 var(--space-4); }
   .cycle-review .review-split { gap: var(--space-6); }
   .cycle-review .cycle-outcome > div:not(.cycle-net) { border-left: 0; }
   .cycle-review select, .cycle-review input { font-size: var(--text-lg); }

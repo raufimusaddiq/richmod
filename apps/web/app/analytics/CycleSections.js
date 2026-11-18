@@ -165,7 +165,7 @@ export function MerchantRanking({ ranking, period }) {
 // so it cannot read as a ranking; the hues are identity, not data.
 export function HouseholdSection({ members = [] }) {
   const rows = householdRows(members);
-  return <section id="household" className="review-section surface card" aria-labelledby="household-title">
+  return <section id="household" className="review-section" aria-labelledby="household-title">
     <details className="report-disclosure">
       <summary><h2 id="household-title">Catatan rumah tangga</h2><span>{rows.length ? `${rows.length} pencatat` : "Belum ada atribusi"}</span></summary>
       <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
