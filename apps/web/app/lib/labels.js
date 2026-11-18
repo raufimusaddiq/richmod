@@ -8,7 +8,7 @@ export const usageRoleLabel = { TRANSACTIONAL: "Transaksional", SAVINGS: "Tabung
 export const sideLabel = { ASSET: "Aset", LIABILITY: "Kewajiban" };
 export const relationshipLabel = { OWN_ACCOUNT: "Rekening sendiri", HOUSEHOLD_ACCOUNT: "Rekening keluarga", INVESTMENT_ACCOUNT: "Investasi / RDN", OTHER: "Lainnya" };
 export const capabilityLabel = { CASH_MOVEMENT: "Pergerakan dana", WEALTH_VALUE: "Nilai aset / portfolio" };
-export const financialSourceStatusLabel = { ACTIVE: "Aktif", DISABLED: "Dinonaktifkan", PROVISIONED: "Menunggu aktivasi" };
+export const financialSourceStatusLabel = { ACTIVE: "Aktif", DISABLED: "Dinonaktifkan", DRAFT: "Belum aktif", PROVISIONED: "Menunggu aktivasi" };
 export const emailDeliveryStatusLabel = { INGESTED: "Diproses", IGNORED_AUTH: "Diabaikan", IGNORED_UNMATCHED: "Diabaikan", DUPLICATE: "Duplikat", PROVISIONED_RECEIVED: "Diterima sebelum aktivasi" };
 export const emailDeliveryReasonLabel = { UNTRUSTED_AUTHENTICATION: "Pengirim tidak lolos verifikasi autentikasi email.", TRUSTED_AUTHSERV_UNCONFIGURED: "Verifikasi autentikasi belum dikonfigurasi di server.", UNMATCHED_SENDER: "Pengirim tidak cocok dengan daftar pengirim tepercaya.", DUPLICATE_PAYLOAD: "Email yang sama sudah pernah diterima." };
 

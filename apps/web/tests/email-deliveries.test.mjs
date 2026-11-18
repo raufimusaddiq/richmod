@@ -67,7 +67,7 @@ test("Settings no longer renders or fetches the delivery list", () => {
   assert.doesNotMatch(settings, /email-ingress\/deliveries/);
   assert.doesNotMatch(settings, /emailDelivery(Status|Reason)Label/);
   assert.match(settings, /<EmailOnboardingChecklist /);
-  assert.match(settings, /Worker & LLM gateway/);
+  assert.match(settings, /Status pemrosesan otomatis/);
 });
 
 test("the delivery list is height-bounded", () => {

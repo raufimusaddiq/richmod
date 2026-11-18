@@ -101,6 +101,22 @@ test("required fields carry one visible marker across settings and household", (
   assert.match(household, /<span>Email anggota <span className="req" aria-hidden="true">\*<\/span><\/span>/);
 });
 
+test("settings explains its jargon and derives the category slug", () => {
+  // The slug is no longer a field the family has to fill in.
+  assert.doesNotMatch(settings, /Slug kategori/);
+  assert.match(settings, /uniqueCategorySlug\(name,/);
+  assert.match(settings, /Slug dibuat otomatis dari nama kategori\./);
+  // Internal names are gone from the page.
+  for (const term of ["gateway", "Petunjuk tersamar", "Kebijakan pencatatan", "Tambah draf"]) {
+    assert.doesNotMatch(settings, new RegExp(term), term);
+  }
+  // Every helper line is linked from the field it explains.
+  for (const id of ["account-tracking-hint", "wealth-role-hint", "wealth-source-hint", "known-hint", "provider-wealth-hint", "provider-edit-wealth-hint", "category-slug-hint"]) {
+    assert.match(settings, new RegExp(`aria-describedby="${id}"`), id);
+    assert.match(settings, new RegExp(`<FieldHint id="${id}">`), id);
+  }
+});
+
 // Every <button> element, from its opening tag to its closing tag.
 const buttons = source => source.split("<button").slice(1).map(chunk => chunk.split("</button>")[0]);
 

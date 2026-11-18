@@ -41,6 +41,7 @@
 .form-legend { margin: 0 0 10px; color: var(--muted); font-size: var(--text-xs); }
 /* A failed change is announced in the form or row that failed, not at the page top. */
 .field-error { margin: 8px 0 0; color: var(--danger); font-size: var(--text-xs); }
+.field-hint { display: block; margin-top: 4px; color: var(--muted); font-size: var(--text-xs); }
 .settings-list article > .field-error { grid-column: 1 / -1; }
 /* The row a change just touched flashes once, so the eye finds it after a reload. */
 @keyframes row-highlight { from { background-color: var(--accent-soft); } }
