@@ -11,6 +11,14 @@ const output = new URL("../test-results/visual-smoke/", import.meta.url);
 const regressionOutput = new URL("../test-results/visual-regression/", import.meta.url);
 const baselines = new URL("../tests/visual-baselines/", import.meta.url);
 const updateBaselines = process.env.UPDATE_VISUAL_BASELINES === "1";
+// Baselines are canonical to the pinned Playwright image (scripts/visual-smoke-docker.sh).
+// The self-hosted woff2 fonts are identical everywhere, but a host Chromium rasterises
+// their glyph edges differently, so an update outside the image rewrites every baseline
+// and breaks the suite for everyone else.
+if (updateBaselines && process.env.RICHMOD_VISUAL_IMAGE !== "1") {
+  console.error("Refusing to rewrite visual baselines outside the pinned image. Run: npm run test:visual:update");
+  process.exit(2);
+}
 let comparedBaselines = 0;
 const routes = ["/", "/transactions", "/analytics", "/wealth", "/inbox", "/documents", "/household", "/settings", "/admin"];
 const viewports = [

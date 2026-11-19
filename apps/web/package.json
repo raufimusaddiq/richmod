@@ -12,8 +12,9 @@
     "pretest": "node scripts/build-id.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:motion": "node scripts/motion-one-shot-smoke.mjs",
-    "test:visual": "node scripts/visual-smoke.mjs",
-    "test:visual:update": "UPDATE_VISUAL_BASELINES=1 node scripts/visual-smoke.mjs",
+    "test:visual": "sh scripts/visual-smoke-docker.sh",
+    "test:visual:local": "node scripts/visual-smoke.mjs",
+    "test:visual:update": "UPDATE_VISUAL_BASELINES=1 sh scripts/visual-smoke-docker.sh",
     "capture:readme": "node scripts/capture-readme.mjs"
   },
   "dependencies": {
