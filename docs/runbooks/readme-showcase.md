@@ -44,10 +44,17 @@ names, raw evidence, verification URLs, or secrets in the fixture or image.
 - Docker available locally.
 - A current `main` checkout in a dedicated feature worktree.
 - The Playwright image matching `apps/web/package.json`'s pinned version. The
-  commands below use `mcr.microsoft.com/playwright:v1.63.0-noble`.
+  commands below use `mcr.microsoft.com/playwright:v1.65.0-noble`.
 
 The Playwright package remains a web dev dependency. The browser comes from
 the disposable Docker image; no browser installation is needed on the host.
+
+The same image is the canonical renderer for the visual regression baselines
+(`apps/web/tests/visual-baselines/`). `npm run test:visual` and
+`npm run test:visual:update` run inside it via
+`apps/web/scripts/visual-smoke-docker.sh`; a host Chromium rasterises the
+self-hosted woff2 glyphs differently and fails every baseline. Bump the image
+tag in the same change as the `playwright` dev dependency.
 
 ## Capture
 
@@ -58,7 +65,7 @@ port. Port `3002` avoids colliding with a normal local stack on `3000`.
 docker run --rm -d --name richmod-readme-web \
   -p 127.0.0.1:3002:3000 \
   -v "$PWD/apps/web:/app" -w /app \
-  mcr.microsoft.com/playwright:v1.63.0-noble \
+  mcr.microsoft.com/playwright:v1.65.0-noble \
   sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run dev -- --hostname 0.0.0.0'
 ```
 
@@ -76,7 +83,7 @@ RICHMOD_SCREENSHOT_URL=http://localhost:3002 \
 docker run --rm --network host \
   -e RICHMOD_SCREENSHOT_URL \
   -v "$PWD:/src" -w /src/apps/web \
-  mcr.microsoft.com/playwright:v1.63.0-noble \
+  mcr.microsoft.com/playwright:v1.65.0-noble \
   npm run capture:readme
 ```
 
@@ -175,8 +182,8 @@ git worktree prune
 If no other task uses the downloaded Playwright image, reclaim it explicitly:
 
 ```bash
-docker ps -a --filter ancestor=mcr.microsoft.com/playwright:v1.63.0-noble
-docker image rm mcr.microsoft.com/playwright:v1.63.0-noble
+docker ps -a --filter ancestor=mcr.microsoft.com/playwright:v1.65.0-noble
+docker image rm mcr.microsoft.com/playwright:v1.65.0-noble
 ```
 
 Do not use broad cleanup commands such as `docker system prune`. Do not remove
