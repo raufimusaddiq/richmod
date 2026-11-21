@@ -18,7 +18,7 @@ import (
 // or salary event depends on. Anything else is voided, unmerged or corrected through its own path.
 const ConfirmedReviewReopenable = `(ri.status='RESOLVED' AND ri.resolution_action='CONFIRM_REVIEW' AND t.status='CONFIRMED'
 	AND t.type IN ('EXPENSE','INCOME','REFUND')
-	AND NOT EXISTS (SELECT 1 FROM review_item n WHERE n.transaction_id=ri.transaction_id AND n.id<>ri.id AND n.created_at>=ri.created_at)
+	AND NOT EXISTS (SELECT 1 FROM review_item n WHERE n.transaction_id=ri.transaction_id AND (n.created_at>ri.created_at OR (n.created_at=ri.created_at AND n.id>ri.id)))
 	AND NOT EXISTS (SELECT 1 FROM reconciliation_merge m WHERE m.household_id=t.household_id AND m.status='ACTIVE' AND t.id IN (m.source_transaction_id,m.target_transaction_id))
 	AND NOT EXISTS (SELECT 1 FROM salary_event se WHERE se.transaction_id=t.id))`
 

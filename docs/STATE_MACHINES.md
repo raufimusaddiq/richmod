@@ -100,11 +100,11 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
   `auto_apply` is kept) pointing at that merchant, so the next transaction carrying the
   same raw name resolves to the clean household name. `counterparty_name` is never
   rewritten: `GET /api/v1/transactions/{id}` returns both `merchantName` and the raw
-  `counterpartyName`. Renaming to the merchant the row already has is a no-op.
+  `counterpartyName`. Renaming to the identical merchant name is a no-op; a case-only rename (`GRAB` → `Grab`) updates the merchant name and is audited.
 - **Audit:** a change writes exactly one `audit_log` row, action
   `UPDATE_DETAILS`, whose `before_json`/`after_json` hold only the changed
   fields. A rename adds a second row, action `UPDATE_MERCHANT_ALIAS` (entity `merchant_alias`,
-  entity_id = the transaction), recording the raw name and the alias target before/after. A no-op edit writes nothing and leaves `updated_at` untouched.
+  entity_id = the `merchant_alias` id), recording the raw name and the alias target before/after. A no-op edit writes nothing and leaves `updated_at` untouched.
 - **Derived data:** analytics read the ledger live (no materialised category
   aggregates) and the cycle basis sums confirmed transactions household-wide,
   so a detail edit has no residual side effect: it never reopens a cycle review

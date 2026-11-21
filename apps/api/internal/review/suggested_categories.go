@@ -2,6 +2,8 @@ package review
 
 import (
 	"context"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"strings"
 )
 
@@ -51,14 +53,16 @@ func normalizedMerchantKey(values ...*string) string {
 // then recency, then by the household's recent confirmed categories of the same type.
 func (h *Handler) suggestCategories(ctx context.Context, household string, items []item) (map[string][]suggestedCategory, error) {
 	result := map[string][]suggestedCategory{}
-	var ids, merchantIDs, keys, kinds []string
+	var ids, keys, kinds []string
+	var txIDs, merchantIDs []pgtype.UUID
 	kindSet := map[string]bool{}
 	for _, value := range items {
 		if !needsCategorySuggestions(value) {
 			continue
 		}
 		ids = append(ids, value.ID)
-		merchantIDs = append(merchantIDs, stringValue(value.MerchantID))
+		txIDs = append(txIDs, toUUID(value.ID))
+		merchantIDs = append(merchantIDs, toUUID(stringValue(value.MerchantID)))
 		keys = append(keys, normalizedMerchantKey(value.MerchantName, value.Counterparty, value.Description))
 		kinds = append(kinds, value.Type)
 		kindSet[value.Type] = true
@@ -68,13 +72,13 @@ func (h *Handler) suggestCategories(ctx context.Context, household string, items
 	}
 	rows, err := h.pool.Query(ctx, `
 		WITH q AS (
-			SELECT * FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[]) AS q(tx_id, merchant_id, key, kind)
+			SELECT * FROM unnest($2::uuid[], $3::uuid[], $4::text[], $5::text[]) AS q(tx_id, merchant_id, key, kind)
 		), history AS (
 			SELECT q.tx_id, t.category_id, c.name, count(*)::int AS uses, max(t.transaction_at) AS last_at
 			FROM q
 			JOIN transaction t ON t.household_id=$1 AND t.status='CONFIRMED' AND t.type=q.kind AND t.category_id IS NOT NULL AND t.id<>q.tx_id
 			JOIN category c ON c.id=t.category_id AND c.household_id=$1 AND c.active
-			WHERE (NULLIF(q.merchant_id,'') IS NOT NULL AND t.merchant_id=NULLIF(q.merchant_id,'')::uuid)
+			WHERE (q.merchant_id IS NOT NULL AND t.merchant_id=q.merchant_id)
 			   OR (q.key<>'' AND lower(btrim(regexp_replace(COALESCE(t.counterparty_name,''),'[[:space:]]+',' ','g')))=q.key)
 			   OR (q.key<>'' AND lower(btrim(regexp_replace(COALESCE(t.description,''),'[[:space:]]+',' ','g')))=q.key)
 			GROUP BY q.tx_id, t.category_id, c.name
@@ -82,7 +86,7 @@ func (h *Handler) suggestCategories(ctx context.Context, household string, items
 		SELECT tx_id::text, category_id::text, name, uses
 		FROM (
 			SELECT h.*, row_number() OVER (PARTITION BY tx_id ORDER BY uses DESC, last_at DESC, name, category_id) AS rank FROM history h
-		) ranked WHERE rank<=$6 ORDER BY tx_id, rank`, household, ids, merchantIDs, keys, kinds, maxSuggestedCategories)
+		) ranked WHERE rank<=$6 ORDER BY tx_id, rank`, household, txIDs, merchantIDs, keys, kinds, maxSuggestedCategories)
 	if err != nil {
 		return nil, err
 	}
@@ -141,4 +145,13 @@ func (h *Handler) suggestCategories(ctx context.Context, household string, items
 		result[id] = picked
 	}
 	return result, nil
+}
+
+// toUUID is the typed pgx value for a UUID string; an empty or invalid string is a SQL NULL.
+func toUUID(value string) pgtype.UUID {
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: parsed, Valid: true}
 }
