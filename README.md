@@ -13,9 +13,13 @@ Self-hosted household finance: email, Telegram and documents go into one ledger,
 
 </div>
 
-| Dashboard | Review Inbox | Phone |
+| Beranda | Perlu dicek | Phone |
 | --- | --- | --- |
-| ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) | ![Richmod dashboard on a phone](docs/assets/dashboard-mobile.png) |
+| ![Beranda: salary-cycle balance, cycle comparison and daily spending](docs/assets/dashboard.png) | ![Perlu dicek: one-tap, history-ranked category answers](docs/assets/review-inbox.png) | ![Beranda on a phone with the floating add button](docs/assets/dashboard-mobile.png) |
+
+| Laporan · Arus kas | Laporan · Kekayaan | Transaksi (tablet) |
+| --- | --- | --- |
+| ![Laporan Arus kas: cycle KPIs, takeaways and category breakdown](docs/assets/analytics.png) | ![Laporan Kekayaan: net worth, what changed and composition](docs/assets/wealth.png) | ![Transaksi: day-grouped ledger on a tablet](docs/assets/transactions-tablet.png) |
 
 The screenshots use synthetic data. To regenerate them, see the [README showcase runbook](docs/runbooks/readme-showcase.md).
 
@@ -50,8 +54,10 @@ Email arrives through Cloudflare Email Routing; see the [Cloudflare email ingres
 - Takes forwarded bank and provider notification emails through a household-scoped address, without bank credentials.
 - Records transactions, answers questions and resolves reviews over Telegram.
 - Reads receipts, payslips, invoices, screenshots and transfer proofs through one document pipeline.
-- Sends ambiguous facts to the Review Inbox instead of guessing.
-- Shows salary-cycle analytics and Wealth snapshots of assets, liabilities and net worth over time.
+- Sends ambiguous facts to **Perlu dicek** instead of guessing. Each card asks one question with history-ranked one-tap answers, an inline **Urungkan** to reopen a decision, and opt-in merchant learning ("Ingat untuk ...").
+- Gives four permanent places (**Beranda**, **Transaksi**, **Laporan** with *Arus kas* and *Kekayaan* tabs, and **Keluarga**), plus **Perlu dicek** when something waits and a global **+ Catat** sheet for fast entry and multi-image upload.
+- Shows a day-grouped ledger with inline merchant alias rename and an audited source timeline.
+- Computes salary-cycle analytics, takeaway sentences and a direction-safe category palette in Go, and records Wealth snapshots of assets, liabilities and net worth over time.
 - Keeps source evidence attached to each decision so the ledger stays auditable.
 
 ## Safety rules
@@ -91,6 +97,7 @@ Further households are added by a Super Admin or with `/bootstrap --new-househol
 ## Develop
 
 ```bash
+node scripts/check-comments.mjs
 cd apps/web && npm ci && npm test && npm run build
 cd apps/api && go test ./... && go vet ./...
 cd apps/worker && go test ./... && go vet ./...
