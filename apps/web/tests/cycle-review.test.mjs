@@ -145,7 +145,6 @@ test("scan-first report keeps every comparison and evidence behind native drill-
   assert.match(page, /Perbandingan lengkap · median/);
   for (const field of ["previous", "median3", "deltaVsPrevious", "deltaVsMedian3", "relativeDeltaVsPrevious", "relativeDeltaVsMedian3", "contributionToExpenseChange"]) assert.ok(page.includes(`item.${field}`), field);
   assert.match(page, /selectedCategory && \(!meeting \|\| step === "drivers"\)/);
-  assert.match(page, /open={step === "discussion"}/);
-  assert.match(text("app/components/CycleDecisions.js"), /open={expanded \|\| Boolean\(body\)}/);
+  assert.match(page, /open=\{step === "discussion" \|\| step === "decisions" \|\| Boolean\(drafts\[cycleStart\]\) \|\| undefined\}/);
   assert.match(page, /aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"/);
 });

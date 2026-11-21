@@ -79,3 +79,9 @@ test("the sticky bar is the tab bar and a section title clears it", () => {
   assert.match(css, /\.settings-list article > button \{ justify-self: start; \}/);
   assert.doesNotMatch(settings, /className=\{item\.active \? "danger" : "secondary"\}/);
 });
+
+test("Keluarga Anggota places the member list above the add-member form", () => {
+  const listIndex = hub.indexOf("<h2>Anggota</h2>");
+  const formIndex = hub.indexOf('id="tambah-anggota"');
+  assert.ok(listIndex > 0 && formIndex > 0 && listIndex < formIndex, "member list renders above Tambah anggota");
+});

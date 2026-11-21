@@ -28,7 +28,7 @@ export function QualityFooter({ facts, step }) {
   if (facts.dataQuality.length || facts.period.kind !== "SALARY_CYCLE") return null;
   return <section id="quality" className="review-section" aria-labelledby="quality-title">
     <details className="report-disclosure" open={step === "quality"}><summary><h2 id="quality-title" tabIndex={-1}>Kelengkapan data</h2><span>Tidak ada kendala</span></summary>
-      <p>Tidak ada kendala yang tercatat untuk periode ini. Hal yang belum lengkap tetap terlihat di bagian atas; tidak ada skor kepercayaan dari model.</p>
+      <div className="report-disclosure-body"><p>Tidak ada kendala yang tercatat untuk periode ini. Hal yang belum lengkap tetap terlihat di bagian atas; tidak ada skor kepercayaan dari model.</p></div>
     </details>
   </section>;
 }
@@ -54,7 +54,6 @@ export function KpiStrip({ facts, updated = 0 }) {
         {cell.footnote && <p className="kpi-sub">{cell.footnote}</p>}
       </div>)}
     </dl>
-    <div className="kpi-note"><span>Refund <strong>{money(facts.cashflow.refund)}</strong></span><details className="review-explainer"><summary>Tentang posisi siklus</summary><p>Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran.{facts.period.state === "ACTIVE" && " Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah."} Belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p></details></div>
   </section>;
 }
 

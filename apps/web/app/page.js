@@ -111,7 +111,7 @@ export default function Home() {
       {state === "expenses-only"
         ? <div className="home-hero-main">
           <h2 id="overview-cashflow-title" className="visually-hidden">Pengeluaran {periodLabel}</h2>
-          <strong className="home-hero-amount expense">{money(overview?.expense)}</strong>
+          <strong className="home-hero-amount">{money(overview?.expense)}</strong>
           {comparison && <p className="home-share-label">{compare}</p>}
           <p className="home-hero-prompt">Belum ada pemasukan tercatat {periodLabel}. Catat gaji atau pemasukan lain supaya sisa uang terlihat.</p>
           <div className="home-hero-actions"><button type="button" onClick={() => openQuickRecord()}><Plus aria-hidden="true"/> Catat pemasukan</button></div>
@@ -119,11 +119,11 @@ export default function Home() {
         : <>
           <div className="home-hero-main">
             <h2 id="overview-cashflow-title" className="visually-hidden">Sisa {periodLabel}</h2>
-            <strong className={`home-hero-amount ${amountTone(overview?.netCashflow)}`}>{money(overview?.netCashflow)}</strong>
+            <strong className="home-hero-amount">{money(overview?.netCashflow)}</strong>
             <div className="home-share" role="img" aria-label={`Pengeluaran ${share}% dari pemasukan`}><span style={{ width: `${share}%` }}/></div>
             <p className="home-share-label">Keluar {share}% dari pemasukan{comparison && <> · {compare}</>}</p>
           </div>
-          <dl className="home-figures"><div><dt>Masuk</dt><dd className="income">{money(overview?.income)}</dd></div><div><dt>Keluar</dt><dd className="expense">{money(overview?.expense)}</dd></div><div><dt>Sudah ditabung</dt><dd>{money(overview?.savingsAllocated)}</dd></div><div><dt>Belum dialokasikan</dt><dd>{money(overview?.unallocatedSurplus)}</dd></div></dl>
+          <dl className="home-figures"><div><dt>Masuk</dt><dd>{money(overview?.income)}</dd></div><div><dt>Keluar</dt><dd>{money(overview?.expense)}</dd></div><div><dt>Sudah ditabung</dt><dd>{money(overview?.savingsAllocated)}</dd></div><div><dt>Belum dialokasikan</dt><dd>{money(overview?.unallocatedSurplus)}</dd></div></dl>
         </>}
     </section>
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka tinjauan <ArrowRight aria-hidden="true"/></strong></Link>}

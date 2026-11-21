@@ -80,7 +80,7 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
   const ticks = data.filter((_, index) => (index % 3 === 0 && !(partialLabel && lastIndex - index < 3 && index !== lastIndex)) || (partialLabel && index === lastIndex)).map(item => item.label);
   const dayBar = ({ x, y, width, height, payload, fill, radius }) => {
     const partial = partialDay && payload.period === partialDay;
-    const rectangle = <Rectangle {...{ x, y, width, height, radius }} fill={partial ? "var(--chart-expense-soft)" : fill}/>;
+    const rectangle = <Rectangle {...{ x, y, width, height, radius }} fill={partial ? "var(--line-strong)" : fill}/>;
     if (!period || payload.expenseValue === 0) return rectangle;
     const band = width / 0.9;
     return <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>
@@ -88,7 +88,7 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
       {rectangle}
     </a>;
   };
-  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="10%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialLabel ? 16 : 0 }} barCategoryGap="10%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialLabel ? <DayTick partialLabel={partialLabel} last={partialLabel === data[lastIndex].label}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialLabel ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--ink-soft)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {
@@ -135,8 +135,8 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}
           {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2} label={reference === sameDay ? sameDayLabel : undefined}/>)}
           {tail && <ReferenceDot x={tail.day} y={Number(tail.previousTotal)} r={0} ifOverflow="extendDomain" label={tailLabel}/>}
-          <Line type="linear" dataKey="runningTotal" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/>
-          <ReferenceDot x={last.day} y={Number(last.exact)} r={4} ifOverflow="extendDomain" fill="var(--chart-expense)" stroke="var(--chart-expense)" label={endLabel(last.exact, "right", "var(--chart-expense)")}/>
+          <Line type="linear" dataKey="runningTotal" stroke="var(--ink)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/>
+          <ReferenceDot x={last.day} y={Number(last.exact)} r={4.5} ifOverflow="extendDomain" fill="var(--butter)" stroke="var(--ink)" strokeWidth={2} label={endLabel(last.exact, "right", "var(--ink)")}/>
         </LineChart>
       </ResponsiveContainer>
     </div>

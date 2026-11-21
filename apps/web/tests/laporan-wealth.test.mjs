@@ -20,14 +20,20 @@ function hue(hex) {
   return (raw * 60 + 360) % 360;
 }
 
-test("category colours contain no red or green and clear 4.5:1 on the strong surface", () => {
+test("category colours contain no red, green, or accent teal and clear 4.5:1 on the strong surface", () => {
+  const accent = token("accent");
   for (let index = 1; index <= 6; index++) {
     const value = token(`chart-category-${index}`);
+    assert.notEqual(value, accent, `chart-category-${index} must not reuse --accent`);
     assert.ok(contrast(value, token("surface-strong")) >= 4.5, `chart-category-${index} contrast`);
     const h = hue(value);
     assert.ok(!(h < 30 || h > 330), `chart-category-${index} is not red (${h.toFixed(0)}°)`);
-    assert.ok(!(h > 70 && h < 160), `chart-category-${index} is not green (${h.toFixed(0)}°)`);
+    assert.ok(!(h > 70 && h < 180), `chart-category-${index} is not green or teal (${h.toFixed(0)}°)`);
   }
+  assert.ok(token("chart-category-other"), "Kategori lain has a neutral sand token");
+  const guide = text("../../docs/brand-guidelines.md");
+  assert.match(guide, /Category colours[\s\S]*contain no red, no green/);
+  assert.match(guide, /spent more \/ spent less than last cycle/);
 });
 
 test("spending direction colours are the muted income and expense tokens", () => {
@@ -87,8 +93,19 @@ test("each cycle card shows its Go takeaway above one Detail disclosure, with no
   assert.doesNotMatch(kpi, /key: "worth"|key: "unallocated"/);
 });
 
-test("supporting cards are calm; the KPI strip keeps the ink border and shadow", () => {
+test("supporting cards are calm; the KPI strip keeps the ink border and shadow without a refund footer", () => {
   const styles = globalCss();
   assert.match(styles, /\.dash-card, \.cycle-review \.review-stack \{ border: 1\.5px solid var\(--line-strong\); background: var\(--surface\); box-shadow: none; \}/);
   assert.match(styles, /\.kpi-strip dl \{ border: 2px solid var\(--ink\); box-shadow: var\(--shadow\); \}/);
+  const dashboard = text("app/analytics/CycleDashboard.js");
+  assert.doesNotMatch(dashboard, /kpi-note|Tentang posisi siklus/);
+});
+
+test("Ke mana uangnya shows amount and share only, with no delta column", () => {
+  const where = text("app/analytics/CycleWhere.js");
+  const rankRow = where.slice(where.indexOf("function RankRow"), where.indexOf("export function ChangesCard"));
+  assert.match(rankRow, /className="where-swatch"/);
+  assert.match(rankRow, /className="where-amount"/);
+  assert.match(rankRow, /className="where-share">\{ratioLabel\(row\.shareOfExpense\)\}/);
+  assert.doesNotMatch(rankRow, /where-delta|<Delta/);
 });

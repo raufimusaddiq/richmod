@@ -122,7 +122,7 @@ try {
     assert.equal(await explanation.locator("table").isVisible(), false);
     assert.equal(await page.locator(".kpi-cell").count(), 4, "the KPI strip has four calm tiles");
     for (const id of ["where", "history", "changes", "spending-shape"]) assert.ok((await page.locator("#" + id + " .takeaway").textContent()).length > 10, id + " shows a takeaway sentence");
-    assert.equal(await page.locator(".kpi-note").isVisible(), true, "refund amount stays visible");
+    assert.equal(await page.locator(".kpi-note").count(), 0, "refund/explainer line is removed");
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.evaluate(() => document.fonts.check('500 16px "Fraunces"') && document.fonts.check('400 14px "Inter"')), true, "brand fonts loaded");
     assert.equal((await page.locator(".kpi-cell[data-lead] dt").textContent()).startsWith("Pengeluaran bersih"), true, "a running cycle leads with spending, not a net cashflow that looks large on day 1");
@@ -134,9 +134,11 @@ try {
     assert.equal(salaryCalls, 1, "explicit cycle uses one facts request");
     assert.equal(await page.getByText("Historical advice should never display.").count(), 0);
     assert.equal(await page.getByText("Stale cutoff must never display.").count(), 0);
-    for (const id of ["daily", "household", "discussion", "decisions"]) {
+    for (const id of ["daily", "family-talk"]) {
       assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, `${id} is available on demand, not a wall of text`);
     }
+    assert.equal(await page.locator("#where .where-delta").count(), 0, "Ke mana uangnya omits delta column");
+    assert.equal(await page.locator("#where .where-share").count(), 3, "Ke mana uangnya shows share percentages");
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).isVisible(), true, "blockers stay actionable without expansion");
     assert.equal(await page.locator(".comparison-bars > div").count(), 4);
     assert.equal(await page.locator(".diverge > li").count(), 3, "Yang berubah draws the served changes (at most five)");
@@ -157,9 +159,9 @@ try {
     if (name === "desktop") await page.screenshot({ path: fileURLToPath(new URL("readme-analytics.png", output)), fullPage: false, animations: "disabled" });
     assert.equal(await page.locator("#changes tbody tr").count(), 3);
     assert.equal(await page.locator("#changes tbody tr").nth(1).locator("td").nth(2).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1350000n), "previous outlier does not hide recent median");
-    await page.locator("#discussion > details > summary").click();
+    await page.locator("#family-talk > details > summary").click();
     await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
-    await page.locator("#discussion > details > summary").click();
+    await page.locator("#family-talk > details > summary").click();
     const groceries = page.locator("#where").getByRole("button", { name: /^Belanja rumah/ });
     const drawer = page.getByRole("dialog", { name: "Belanja rumah", exact: true });
     await page.keyboard.press("Tab");
@@ -219,7 +221,7 @@ try {
 
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await openDisclosure(page, "#history details", ".heat-table");
-    await page.getByRole("heading", { name: "Kategori × siklus", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Angka per kategori", exact: true }).waitFor();
     const heat = page.locator(".heat-table");
     assert.equal(await heat.locator("thead th:not(:first-child):not(.heat-delta-head)").count(), 6, "one column per served cycle");
     assert.equal(await heat.locator('thead th[aria-current="true"]').count(), 1, "the selected cycle is marked");
@@ -269,7 +271,11 @@ try {
 
     const historyColumn = page.locator("#history .history-cols > li").first();
     assert.match(await historyColumn.locator("em").textContent(), /[1-9]/, "a history column shows a served amount");
-    assert.ok(await historyColumn.locator(".history-plot i").evaluate(element => element.getBoundingClientRect().height) > 0, "the history bar has a real height");
+    assert.ok(await historyColumn.locator(".history-bar").evaluate(element => element.getBoundingClientRect().height) > 0, "the history bar has a real height");
+    assert.ok(await historyColumn.locator(".history-seg").count() >= 1, "the history bar splits into category segments");
+    const firstWhereColor = await page.locator("#where .where-swatch").first().evaluate(el => getComputedStyle(el).backgroundColor);
+    const firstHistoryColor = await page.locator("#history .history-cols > li").last().locator(".history-seg").first().evaluate(el => getComputedStyle(el).backgroundColor);
+    assert.equal(firstHistoryColor, firstWhereColor, "Siklus ke siklus uses the same category colours as Ke mana uangnya");
 
     await openDisclosure(page, "#where details", "#merchants table.merchant-rank");
     const merchants = page.locator("#merchants table.merchant-rank");
@@ -279,7 +285,7 @@ try {
     assert.match(await merchants.locator("tfoot").textContent(), /Rp\s?4\.200\.000/, "the total equals the cycle's net expense");
     assert.equal(new URL(await merchants.getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), base).searchParams.get("merchantId"), "22222222-2222-4222-8222-222222222222");
 
-    await openDisclosure(page, "#household details", "#household .household-list");
+    await openDisclosure(page, "#family-talk > details", "#household .household-list");
     const household = page.locator("#household .household-list > li");
     assert.equal(await household.count(), 2);
     assert.match(await household.first().textContent(), /otomatis/, "the automatic bucket comes first");
@@ -299,11 +305,11 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
     await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
     assert.match(await page.locator(".kpi-cell[data-lead]").textContent(), /vs siklus lalu .penuh./);
-    await openDisclosure(page, "#decisions > details", "#decisions form.decision-form");
+    await openDisclosure(page, "#family-talk > details", "#decisions form.decision-form");
     await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat dimuat" }).waitFor();
     assert.equal(await page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }).count(), 1, "a failed list still allows recording a decision");
     decisionsFail = false;
-    await openDisclosure(page, "#decisions > details", "#decisions form.decision-form");
+    await openDisclosure(page, "#family-talk > details", "#decisions form.decision-form");
     await page.locator("#decisions").getByRole("button", { name: "Coba lagi", exact: true }).click();
     await page.locator("#decisions .decision-list, #decisions .empty").first().waitFor();
     assert.equal(await page.getByRole("button", { name: "Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
@@ -340,7 +346,7 @@ try {
 
     olderCommentary = true;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
-    await page.locator("#discussion > details > summary").click();
+    await page.locator("#family-talk > details > summary").click();
     await page.getByText("Older daily snapshot is visible.", { exact: true }).waitFor();
     assert.match(await page.locator("#discussion .insight-muted").first().textContent(), /Data pembahasan: .*5 Sep 2026.*bukan data terkini/);
     generationStatus = 429;
@@ -353,8 +359,8 @@ try {
     requests.length = 0;
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
     await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
-    await page.locator("#discussion > details > summary").getByText("Belum tersedia", { exact: true }).waitFor();
-    for (const id of ["position", "spending-shape", "where", "changes", "daily", "history", "household", "quality"]) assert.equal(await page.locator(`#${id}`).count(), 1);
+    await page.locator("#family-talk > details > summary").getByText(/bahan pembahasan belum tersedia/).waitFor();
+    for (const id of ["position", "spending-shape", "where", "changes", "daily", "history", "family-talk", "household", "quality"]) assert.equal(await page.locator(`#${id}`).count(), 1);
     assert.equal(requests.filter(request => request.method === "POST").length, 0);
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).count(), 1);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-closed-ai-unavailable.png`, output)), fullPage: true });
@@ -474,7 +480,7 @@ try {
     assert.equal(requests.filter(request => request.path.startsWith("/api/v1/insights")).length, 0);
     noSalary = false; aiAvailable = true; stable = true;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-08-26`, { waitUntil: "networkidle" });
-    await page.locator("#discussion > details > summary").click();
+    await page.locator("#family-talk > details > summary").click();
     await page.getByText("Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", { exact: true }).waitFor();
     assert.equal(await page.locator(".kpi-cell:nth-child(3) dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(0n));
     assert.equal(await page.locator(".insight-text p").count(), 1, "stable commentary is not expanded into filler");
@@ -491,7 +497,7 @@ try {
     assert.equal(await page.locator("#discussion .insight-card").isVisible(), false);
     await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
     assert.equal(await page.locator("#changes table").isVisible(), true);
-    for (const id of ["household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
+    assert.equal(await page.locator("#family-talk > details").evaluate(element => element.open), true);
     await page.locator("#daily .review-daily").waitFor({ state: "attached" });
     await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
     assert.equal(await page.locator("#daily .review-daily table").locator("tbody tr").count(), 7, "all exact daily rows retained");

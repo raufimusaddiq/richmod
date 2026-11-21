@@ -60,14 +60,20 @@ that source; it does not introduce a parallel token file.
 - Accent budget per above-the-fold viewport: primary action, one key metric, and
   active navigation.
 - Data marks (bars, lines, matrix cells) never use the accent: they use `--ink`,
-  `--ink-soft` or the chart tokens. Muted `--expense` and `--income` are reserved
-  strictly for spending-change direction, always paired with ▲/▼ and the neutral
-  wording `lebih rendah` / `lebih tinggi` (never `lebih hemat` or `lebih boros`),
-  and appear nowhere else. A selected cycle, row or list item is `--butter`.
-- Chart colour is drawn from `--chart-*`; the categorical ramp (teal, slate,
-  ochre, plum, dusk indigo, warm umber) contains no red and no green, so a
-  category never reads as a spending direction. Every `--chart-category-1..6`
-  token clears WCAG AA 4.5:1 against `--surface-strong`.
+  `--ink-soft` or the chart tokens. Red (`--expense`, `#8b4437`) and green
+  (`--income`, `#315b3f`) are reserved strictly for spending-change direction
+  ("spent more / spent less than last cycle": `Yang berubah` bars and deltas,
+  the `Keluar` KPI delta, and Beranda's cycle comparison line), always paired
+  with ▲/▼ and the neutral wording `lebih rendah` / `lebih tinggi` (never
+  `lebih hemat` or `lebih boros`), and appear nowhere else in category or hero
+  figures. A selected cycle, row or list item is `--butter`.
+- Category colours (`--chart-category-1..6`: slate `#3a5867`, ochre `#73561e`,
+  violet `#705268`, light slate `#536e80`, dusk indigo `#544d73`, warm sand
+  `#6b5842`; plus pale sand `--chart-category-other` `#cfc9b6` for `Kategori
+  lain`) contain no red, no green, and no accent teal, so a category never reads
+  as a spending direction. The same category colour mapping is shared between
+  "Ke mana uangnya" and the stacked bars in "Siklus ke siklus". Every
+  `--chart-category-1..6` token clears WCAG AA 4.5:1 against `--surface-strong`.
 - Text tokens must keep WCAG AA 4.5:1 against every surface token. This is
   enforced by `apps/web/tests/ui-audit-locks.test.mjs`; run it before shipping a
   palette change.
@@ -195,7 +201,8 @@ and PRDs; they never appear in user-facing copy.
   shadow. Saving closes it, shows "Tercatat · Urungkan" (void) and fires
   `richmod:transaction-created` so open pages refresh.
 - **Keluarga** is one workspace with five deep-linkable tabs
-  (`?tab=anggota|akun|kategori|sumber|notifikasi`): Anggota, Akun & kekayaan,
+  (`?tab=anggota|akun|kategori|sumber|notifikasi`): Anggota (member list above
+  the add-member form), Akun & kekayaan,
   Kategori & aturan, Sumber otomatis (with the owner's pending "Tindakan" and the
   "Email masuk terakhir" log) and Notifikasi. A member sees Anggota (read-only)
   and Notifikasi only. Below the desktop sidebar breakpoint (`<= 1100px`), super
@@ -208,7 +215,12 @@ and PRDs; they never appear in user-facing copy.
   states: empty (welcome + "Catat transaksi pertama" / "Foto bukti"), expenses-only
   ("Pengeluaran siklus ini" + "Catat pemasukan", no misleading negative balance) and
   normal ("Sisa siklus ini" with spending share, the comparison against the previous
-  cycle/month from `GET /api/v1/analytics/overview`, and four figures). All cards read
+  cycle/month from `GET /api/v1/analytics/overview`, and four figures). Hero
+  Sisa/Keluar and the four summary figures render in `--ink`, not green or red;
+  only the cycle comparison delta uses `--income` / `--expense`. On phones
+  (`<= 680px`), Beranda hides the daily chart and Kekayaan card because both live
+  in Laporan; on desktop, the Kekayaan card aligns to its content height with no
+  empty space underneath. All cards read
   the current period (`categories?period=current_cycle`); category rows and non-zero
   day bars open `/transactions` filtered to that category/day. Daily bars use
   neutral ink (`--ink-soft`), reserving red for "spent more than last cycle", and
@@ -217,6 +229,16 @@ and PRDs; they never appear in user-facing copy.
   y-axis uses round ticks labelled in `rb` below 1 jt (`0`, `250rb`, `500rb`) and
   clipped bar labels stagger on nearby spikes (or show only the largest on narrow
   widths). Owners see a one-line butter notice when `actionCount > 0`.
+- **Laporan** leads with a 4-tile ink-outlined KPI strip (no Refund/explainer
+  footer line). "Ke mana uangnya" shows category colour, amount, and share (%)
+  only (changes belong to "Yang berubah"). "Siklus ke siklus" draws stacked bars
+  split by category using the same category colours as "Ke mana uangnya", and
+  `Angka per kategori ›` opens the exact per-category table. Below the charts,
+  one calm card holds uniform collapsed disclosure rows (`14px 16px` padding,
+  17px Fraunces title in `--ink`, 13px muted summary on its own line below, `+`
+  aligned with the title): `Pengeluaran harian` and `Obrolan keluarga` (grouping
+  Catatan rumah tangga, Bahan pembahasan, and Keputusan rumah tangga as sections
+  inside), plus `Kelengkapan data` when there are no blockers.
 - **Transaksi** is a quiet ledger grouped by Asia/Jakarta day with each day's net spend
   in the header. Rows show a display name preferring merchant name → counterparty
   name → description (and `Transfer ke <name>` for transfers with a counterparty,

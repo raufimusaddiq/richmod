@@ -55,6 +55,7 @@ function AnalyticsReview() {
   const [insightError, setInsightError] = useState("");
   const insightAbort = useRef(null);
   const [drafts, setDrafts] = useState({});
+  const [decisionMeta, setDecisionMeta] = useState({ status: "loading", count: 0 });
   const trigger = useRef(null);
   const drawerPushed = useRef(false);
   const valueNav = useRef(false);
@@ -159,7 +160,7 @@ function AnalyticsReview() {
   const meeting = selection.view === "cycle" && facts?.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && Boolean(selection.step);
   const step = meeting ? selection.step : "";
   useEffect(() => {
-    if (step) document.getElementById(step)?.querySelector("h2")?.focus();
+    if (step) document.getElementById(step)?.querySelector("h2, h3")?.focus();
   }, [step, facts]);
 
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
@@ -223,15 +224,27 @@ function AnalyticsReview() {
             <PaceCard facts={facts}/></div>
           <div className="review-stack surface card">
           <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td data-label="Pengeluaran">{money(item.expense)}</td><td data-label="Refund">{money(item.refund)}</td><td data-label="Total sampai hari ini">{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
-          <HouseholdSection members={facts.memberAttribution}/>
-          <QualityFooter facts={facts} step={step}/>
-          <section id="discussion" className="review-section" aria-labelledby="discussion-title">
-            <details className="report-disclosure" open={step === "discussion"}>
-            <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional · bukan saran keuangan"}</span></summary>
-            <InsightCard insight={insight} cycle={facts.period} days={facts.spendingShape.days} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
+          <section id="family-talk" className="review-section" aria-labelledby="family-talk-title">
+            <details className="report-disclosure" open={step === "discussion" || step === "decisions" || Boolean(drafts[cycleStart]) || undefined}>
+              <summary>
+                <h2 id="family-talk-title" tabIndex={-1}>Obrolan keluarga</h2>
+                <span>{[
+                  facts.memberAttribution.length ? `catatan ${facts.memberAttribution.length} pencatat` : "belum ada pencatat",
+                  insightError ? "bahan pembahasan belum tersedia" : insightLoading || insight?.status === "PENDING" ? "bahan pembahasan diproses" : insight?.status === "SUCCEEDED" ? "bahan pembahasan tersedia" : "bahan pembahasan",
+                  drafts[cycleStart] ? "draf keputusan belum disimpan" : !cycleStart ? "keputusan" : decisionMeta.status === "ready" ? `${decisionMeta.count} keputusan` : decisionMeta.status === "error" ? "keputusan belum tersedia" : "keputusan",
+                ].join(" · ")}</span>
+              </summary>
+              <div className="report-disclosure-body family-talk-sections">
+                <HouseholdSection members={facts.memberAttribution}/>
+                <section id="discussion" className="family-talk-part" aria-labelledby="discussion-title">
+                  <h3 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h3>
+                  <InsightCard insight={insight} cycle={facts.period} days={facts.spendingShape.days} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
+                </section>
+                {cycleStart && <CycleDecisions key={cycleStart} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} range={cycleLabel(facts.period)} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))} onSummary={setDecisionMeta}/>}
+              </div>
             </details>
           </section>
-          {cycleStart && <CycleDecisions key={cycleStart} expanded={step === "decisions"} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} range={cycleLabel(facts.period)} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))}/>}
+          <QualityFooter facts={facts} step={step}/>
           </div>
           {selectedCategory && (!meeting || step === "drivers") && <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger}/>}
         </>}

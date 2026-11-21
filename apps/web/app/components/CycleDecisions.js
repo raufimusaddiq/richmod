@@ -9,7 +9,7 @@ import useDialogs from "./useDialogs";
 
 const LIMIT = 2000;
 
-export default function CycleDecisions({ cycleStart, closed, body, onBodyChange, expanded = false, range = "" }) {
+export default function CycleDecisions({ cycleStart, closed, body, onBodyChange, range = "", onSummary }) {
   const { confirm, dialogs } = useDialogs();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -20,17 +20,20 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
   const field = useRef(null);
   const pending = useRef(false);
   const mounted = useRef(true);
+  const summaryRef = useRef(onSummary);
+  summaryRef.current = onSummary;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     const controller = new AbortController();
     setData(null); setError("");
+    summaryRef.current?.({ status: "loading", count: 0 });
     fetch(`/api/v1/analytics/cycle-decisions?${new URLSearchParams({ cycle_start: cycleStart })}`, { signal: controller.signal, cache: "no-store" })
       .then(async response => {
         if (!response.ok) throw new Error();
         const result = await response.json();
         if (!Array.isArray(result?.items) || !Array.isArray(result?.previous)) throw new Error();
-        if (!controller.signal.aborted) setData(result);
-      }).catch(err => { if (err.name !== "AbortError") setError("Keputusan belum dapat dimuat. Data keuangan tetap tersedia."); });
+        if (!controller.signal.aborted) { setData(result); summaryRef.current?.({ status: "ready", count: result.items.length }); }
+      }).catch(err => { if (err.name !== "AbortError") { setError("Keputusan belum dapat dimuat. Data keuangan tetap tersedia."); summaryRef.current?.({ status: "error", count: 0 }); } });
     return () => controller.abort();
   }, [cycleStart, reload]);
 
@@ -65,20 +68,19 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
   }
 
   const count = decisionCount(body);
-  return <section id="decisions" className="review-section" aria-labelledby="decisions-title">
+  return <section id="decisions" className="family-talk-part" aria-labelledby="decisions-title">
     {dialogs}
-    <details className="report-disclosure" open={expanded || Boolean(body)}>
-    <summary><h2 id="decisions-title" tabIndex={-1}>Keputusan rumah tangga</h2><span>{body ? "Draf belum disimpan" : data ? `${data.items.length} catatan · ${data.previous.length} sebelumnya` : error ? "Belum tersedia" : "Memuat…"}</span></summary>
+    <h3 id="decisions-title" tabIndex={-1}>Keputusan rumah tangga</h3>
     <p className="review-description">Ditulis dan disimpan anggota rumah tangga. Bukan transaksi, perubahan saldo, atau kesimpulan model.</p>
     <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
     {!data && !error && <p role="status">Memuat keputusan…</p>}
     {data && <div className="decision-columns">
       <div className="decision-column">
-        <h3>Siklus ini{range ? ` · ${range}` : ""}</h3>
+        <h4>Siklus ini{range ? ` · ${range}` : ""}</h4>
         <DecisionList items={data.items} revoke={revoke} busy={busy}/>
       </div>
       <div className="decision-column decision-previous">
-        <h3>Siklus sebelumnya{data.previousCycleStart ? ` · ${dayLabel(data.previousCycleStart)}` : ""}</h3>
+        <h4>Siklus sebelumnya{data.previousCycleStart ? ` · ${dayLabel(data.previousCycleStart)}` : ""}</h4>
         <DecisionList items={data.previous}/>
         <p className="review-description">Konteks yang dicatat keluarga, bukan bukti bahwa keputusan menyebabkan perubahan keuangan.</p>
       </div>
@@ -91,7 +93,6 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
     </form> : <p className="decision-closed">Keputusan dapat disimpan setelah siklus ditutup. Catatan siklus sebelumnya tetap dapat dibaca.</p>}
     {saveError && <p id="decision-error" className="notice error" role="alert">{saveError}</p>}
     <p role="status" aria-live="polite">{status || (body ? "Draf belum disimpan." : "")}</p>
-    </details>
   </section>;
 }
 
