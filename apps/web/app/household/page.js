@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import { ErrorNotice, Toast } from "../components/Feedback";
 import useDialogs from "../components/useDialogs";
+import SettingsPanels from "../components/SettingsPanels";
+import { useInboxCounts } from "../components/InboxCountProvider";
+import { nextTabIndex } from "../lib/focusTrap";
+import { tabFromLocation, tabsForRole } from "../lib/settingsTabs";
 import { LoadError, responseError, useBusyMap, useGuardedLoad } from "../lib/useLoadState";
 
 const roleLabel = (role) => ({ OWNER: "Administrator", MEMBER: "Anggota" })[role] || role;
@@ -11,6 +15,8 @@ const untilLabel = iso => new Date(iso).toLocaleString("id-ID", { timeZone: "Asi
 const TICK_MS = 15000;
 const INVITE_PATH = { telegram: "telegram-invite", dashboard: "dashboard-invite" };
 
+// Keluarga: members, accounts & wealth, categories & rules, automatic sources and notifications
+// in one workspace. /settings renders this same page, so old links keep working.
 export default function HouseholdPage() {
   const { confirm, dialogs } = useDialogs();
   const [household, setHousehold] = useState(null);
@@ -54,6 +60,37 @@ export default function HouseholdPage() {
   // A new link is the next thing to copy, so it takes focus.
   useEffect(() => { if (invite?.link) linkInput.current?.focus(); }, [invite?.link]);
   const owner = me?.household?.role === "OWNER";
+  const { actionCount } = useInboxCounts();
+  const tabs = tabsForRole(owner);
+  const tabKeyList = tabs.map(([key]) => key).join(",");
+  const [tab, setTab] = useState("anggota"), [anchor, setAnchor] = useState("");
+  // ?tab= deep-links a tab and an old #anchor opens the tab that holds it; the anchor is
+  // scrolled to once that tab has rendered. A tab the role cannot see falls back to Anggota.
+  useEffect(() => {
+    if (me === null) return undefined;
+    const allowed = tabKeyList.split(",");
+    const apply = () => { const next = tabFromLocation(window.location.search, window.location.hash, allowed); setTab(next.tab); setAnchor(next.anchor); };
+    apply();
+    window.addEventListener("popstate", apply);
+    window.addEventListener("hashchange", apply);
+    return () => { window.removeEventListener("popstate", apply); window.removeEventListener("hashchange", apply); };
+  }, [me, tabKeyList]);
+  const clearAnchor = useCallback(() => setAnchor(""), []);
+  function selectTab(key) { setTab(key); setAnchor(""); window.history.pushState({}, "", `/household?tab=${key}`); }
+  function tabKeys(event, index) {
+    const next = nextTabIndex(event.key, index, tabs.length);
+    if (next === null) return;
+    event.preventDefault();
+    selectTab(tabs[next][0]);
+    event.currentTarget.parentElement?.querySelectorAll("[role=tab]")[next]?.focus();
+  }
+  useEffect(() => { document.getElementById(`settings-tab-${tab}`)?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [tab]);
+  // Anggota scrolls to its own anchor once rendered; the settings tabs scroll themselves.
+  useEffect(() => {
+    if (tab !== "anggota" || !anchor) return;
+    const target = document.getElementById(anchor);
+    if (target) { target.scrollIntoView({ block: "start" }); setAnchor(""); }
+  }, [tab, anchor, me]);
 
   // Every handler clears the previous error, holds a per-key busy flag, and releases it
   // in finally, so a dropped request can neither stick a button nor leave an old message.
@@ -172,13 +209,23 @@ export default function HouseholdPage() {
   return <AppShell user={me} eyebrow="Keluarga" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{membersState ? `${members.filter(member => member.active).length} anggota aktif` : "Anggota belum termuat"}</span>}>
     {dialogs}
     <Toast message={toast} onClose={closeToast}/>
+    <nav className="settings-tabs-wrap" aria-label="Bagian keluarga">
+      <div className="settings-tabs" role="tablist" aria-label="Bagian keluarga">
+        {tabs.map(([key, label], index) => <button key={key} role="tab" id={`settings-tab-${key}`} aria-controls="settings-panel" aria-selected={tab === key} aria-current={tab === key ? "true" : undefined} tabIndex={tab === key ? 0 : -1} className={tab === key ? "active" : "secondary"} onKeyDown={event => tabKeys(event, index)} onClick={() => selectTab(key)}>{label}{key === "sumber" && owner && actionCount > 0 && <b className="nav-badge" aria-label={`${actionCount} tindakan menunggu`}>{actionCount}</b>}</button>)}
+      </div>
+    </nav>
+    <div role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${tab}`}>
+    {tab !== "anggota" && <SettingsPanels user={me} tab={tab} anchor={anchor} onAnchorHandled={clearAnchor}/>}
+    {tab === "anggota" && <>
     <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
-    <p className="form-legend"><span className="req" aria-hidden="true">*</span> wajib diisi</p>
+    {owner && <p className="form-legend"><span className="req" aria-hidden="true">*</span> wajib diisi</p>}
     <ErrorNotice message={error || loader.error} retry={error ? undefined : () => load()}/>
     <div className="admin-stack">
-      {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2></div><form className="member-form" onSubmit={addMember}><label><span>Nama anggota <span className="req" aria-hidden="true">*</span></span><input aria-label="Nama anggota" name="displayName" maxLength="120" required /></label><label><span>Email anggota <span className="req" aria-hidden="true">*</span></span><input aria-label="Email anggota" name="email" type="email" required /></label><button disabled={Boolean(busy["add-member"])}>Tambahkan</button></form></section>}
+      {owner && <section id="tambah-anggota" className="panel"><div className="panel-title"><h2>Tambah anggota</h2></div><form className="member-form" onSubmit={addMember}><label><span>Nama anggota <span className="req" aria-hidden="true">*</span></span><input aria-label="Nama anggota" name="displayName" maxLength="120" required /></label><label><span>Email anggota <span className="req" aria-hidden="true">*</span></span><input aria-label="Email anggota" name="email" type="email" required /></label><button disabled={Boolean(busy["add-member"])}>Tambahkan</button></form></section>}
       {invite && <section className="panel" aria-live="polite"><div><span className="eyebrow">{invite.kind === "telegram" ? "Undangan Telegram" : invite.reset ? "Atur ulang kata sandi" : "Undangan masuk Richmod"}</span><h2>{stillValid(invite.expiresAt) ? `Berlaku sampai ${untilLabel(invite.expiresAt)} · sekali pakai` : "Tautan ini sudah kedaluwarsa · buat tautan baru"}</h2><p>{invite.kind === "dashboard" ? invite.reset ? "Kirim tautan ini langsung kepada anggota. Setelah dipakai, kata sandi lama berhenti berlaku dan semua sesi login anggota keluar. Sebelum itu, kata sandi lama masih bisa dipakai." : "Kirim tautan ini langsung kepada anggota yang dituju. Dia membuat kata sandinya sendiri." : members.find(item => item.id === invite.memberId)?.role === "OWNER" ? "Buka tautan ini dari akun Telegram kamu sendiri." : "Kirim tautan ini langsung kepada anggota yang dituju."}</p></div><input ref={linkInput} className="invite-link" readOnly aria-label="Tautan undangan" value={invite.link} onFocus={event => event.currentTarget.select()} /><div className="invite-actions"><button onClick={copyLink}>{copied ? "Tersalin ✓" : "Salin tautan"}</button><a href={invite.link} target="_blank" rel="noreferrer">Buka tautan</a><button className="danger" disabled={Boolean(busy[`member:${invite.memberId}`])} onClick={() => revokeInvite(invite.kind, invite.memberId)}>Batalkan undangan</button></div><small>Tautan hanya tampil sekarang. Kalau hilang, batalkan lalu buat tautan baru.</small></section>}
       <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{membersState ? `${members.length} akun` : "—"}</span></div>{!membersState && <p className="muted">Daftar anggota belum termuat.</p>}<div className="settings-list">{members.map(member => <article key={member.id} id={`member-${member.id}`} tabIndex={-1} className={highlight === member.id ? "is-new" : undefined}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}{member.active && inviteState(member) && <small className="invite-state">{inviteState(member)}</small>}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions">{loginInviteControls(member)}{!member.telegramConnected && telegramInviteControls(member)}<button className="danger" aria-label={`Nonaktifkan ${member.displayName}`} disabled={Boolean(busy[`member:${member.id}`])} onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}{owner && member.role === "OWNER" && member.active && !member.telegramConnected && <div className="row-actions">{telegramInviteControls(member)}</div>}</article>)}</div></section>
+    </div>
+    </>}
     </div>
   </AppShell>;
 }

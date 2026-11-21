@@ -11,9 +11,10 @@ import useDrawerA11y from "../components/useDrawerA11y";
 import { LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { selectionHref } from "../lib/cycleReview";
-import { cycleEntryWindow, withinCycleWindow } from "../lib/missingTransaction";
+import { cycleEntryWindow } from "../lib/missingTransaction";
+import { openQuickRecord } from "../components/QuickRecordProvider";
 import { actorText, auditActionText, evidenceTypeText } from "../lib/labels";
-import { VOID_CONFIRM_MESSAGE, REVERSE_MERGE_SUCCESS_MESSAGE, VOID_SUCCESS_MESSAGE, activeFilterCount, canEditTransaction, canVoidTransaction, createErrorMessage, createFormErrors, editErrorMessage, editFormErrors, editPayload, editableFields, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, mergeSummary, pageLabel, pageSize, resultCountLabel, reverseMergeConfirmMessage, reverseMergeFailure, transactionsErrorMessage, trapTarget, voidFailure } from "../lib/transactionForm";
+import { VOID_CONFIRM_MESSAGE, REVERSE_MERGE_SUCCESS_MESSAGE, VOID_SUCCESS_MESSAGE, activeFilterCount, canEditTransaction, canVoidTransaction,  editErrorMessage, editFormErrors, editPayload, editableFields, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, mergeSummary, pageLabel, pageSize, resultCountLabel, reverseMergeConfirmMessage, reverseMergeFailure, transactionsErrorMessage, trapTarget, voidFailure } from "../lib/transactionForm";
 
 const PAGE_SIZE = 50;
 const focusable = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -41,16 +42,12 @@ export default function TransactionsPage() {
   const drawerRef = useDrawerA11y(drawer.status !== "closed", closeDetail);
   const selected = drawer.data?.transaction || (drawer.id ? { id: drawer.id } : null);
   const evidence = drawer.data?.evidence || [], audit = drawer.data?.audit || [];
-  const [createError, setCreateError] = useState("");
-  const [creating, setCreating] = useState(false);
   const [nextCursor, setNextCursor] = useState("");
   const [cursorHistory, setCursorHistory] = useState([]);
   // Full match count from the list response; null when the API did not report one.
   const [total, setTotal] = useState(null);
   // The filter bar collapses behind a toggle on narrow screens.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [transactionType, setTransactionType] = useState("EXPENSE");
-  const [transferPurpose, setTransferPurpose] = useState("INTERNAL_TRANSFER");
   // Only the row a create returned, and only a filter, may animate; a first load keeps
   // both empty.
   const [createdId, setCreatedId] = useState(""), [refreshToken, setRefreshToken] = useState(0);
@@ -58,28 +55,10 @@ export default function TransactionsPage() {
   // render whose values differ is the one fade.
   const consumedRefresh = useRef(0);
   const refreshPending = refreshToken !== consumedRefresh.current;
-  const createDialog = useRef(null), createOpener = useRef(null);
-  const [fieldErrors, setFieldErrors] = useState({}), [filterError, setFilterError] = useState(""), [filterKey, setFilterKey] = useState(0);
-  // The add form is a native modal <dialog> (top layer, background inert) with the
-  // drawer pattern: focus moves in on open, Tab cycles inside, Escape closes, focus
-  // returns to the opener.
-  function openCreate() {
-    setCreateError(""); setFieldErrors({}); createOpener.current = document.activeElement;
-    const dialog = createDialog.current; if (!dialog || dialog.open) return;
-    dialog.showModal(); (dialog.querySelector("select, input") || dialog).focus();
-  }
-  function closeCreate() { createDialog.current?.close(); }
-  function onCreateClosed() {
-    setCreateError(""); setFieldErrors({});
-    const opener = createOpener.current; createOpener.current = null;
-    if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-  }
-  function trapCreateTab(event) {
-    if (event.key !== "Tab") return;
-    const dialog = createDialog.current, items = [...dialog.querySelectorAll(focusable)];
-    const target = trapTarget(items, document.activeElement, event.shiftKey, dialog);
-    if (target) { event.preventDefault(); target.focus(); }
-  }
+  const [filterError, setFilterError] = useState(""), [filterKey, setFilterKey] = useState(0);
+  // Adding a transaction is the global "+ Catat" sheet; a missing-transaction handoff opens it
+  // with the date limited to that salary cycle.
+  const openCreate = (cycleWindow = null) => openQuickRecord({ missingWindow: cycleWindow });
   // Edit form: same native modal <dialog> pattern as the add form. The drawer's
   // own Escape/Tab handler is on document, so the dialog stops key events here.
   const editDialog = useRef(null), editOpener = useRef(null), editStale = useRef(false);
@@ -119,9 +98,6 @@ export default function TransactionsPage() {
     } catch (err) { setEditError(err.name === "TypeError" ? "Koneksi terputus. Coba lagi." : err.message || "Koneksi terputus. Coba lagi."); }
     finally { setEditing(false); }
   }
-  // Set when the residual review handed off a missing transaction: the form opens with
-  // the date limited to that salary cycle.
-  const [missingWindow, setMissingWindow] = useState(null);
 
   // Drawer mutations (void, reverse a merge): the confirm dialog, then POST, then re-read the record
   // and the list. The ref refuses a second start in the same tick; `busyAction` only disables the
@@ -198,7 +174,14 @@ export default function TransactionsPage() {
     if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
   }, [loading, loader.hasLoaded, refreshPending, refreshToken]);
   useEffect(() => { if (user) { const params = new URLSearchParams(window.location.search); const id = params.get("open") || params.get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
-  useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) { setMissingWindow(window_); setCreateError(""); openCreate(); } }, [user]);
+  useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) openCreate(window_); }, [user]);
+  // A transaction recorded (or undone) from the sheet refreshes this list in place.
+  useEffect(() => {
+    if (!user) return undefined;
+    const refresh = event => { setCreatedId(event.detail?.voided ? "" : event.detail?.id || ""); load(); };
+    window.addEventListener("richmod:transaction-created", refresh);
+    return () => window.removeEventListener("richmod:transaction-created", refresh);
+  }, [user, load]);
 
   async function filter(event) {
     event.preventDefault(); const form = new FormData(event.currentTarget); const query = new URLSearchParams();
@@ -215,7 +198,7 @@ export default function TransactionsPage() {
   }
 
   function resetFilters() {
-    setFilterError(""); setMissingWindow(null); setFilterKey(key => key + 1); setCursorHistory([]); setCreatedId(""); setRefreshToken(token => token + 1);
+    setFilterError(""); setFilterKey(key => key + 1); setCursorHistory([]); setCreatedId(""); setRefreshToken(token => token + 1);
     drawer.close();
     window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", "/transactions"); load("");
   }
@@ -240,27 +223,6 @@ export default function TransactionsPage() {
 
   const openDetail = item => { window.history.pushState(window.history.state, "", drawerUrl(item.id)); drawer.open(item.id); };
 
-  async function createTransaction(event) {
-    event.preventDefault(); const formEl = event.currentTarget; setCreating(true); setCreateError("");
-    const values = Object.fromEntries(new FormData(event.currentTarget));
-    const errors = createFormErrors(values, { cycle: Boolean(missingWindow) });
-    setFieldErrors(errors);
-    values.amount = normalizeAmount(values.amount);
-    if (Object.keys(errors).length) { setCreating(false); setCreateError("Lengkapi isian yang ditandai."); formEl.querySelector("[aria-invalid=true]")?.focus(); return; }
-    if (missingWindow && !withinCycleWindow(values.transactionAt, missingWindow)) { setCreateError(`Pilih waktu di dalam siklus ${missingWindow.from} sampai ${missingWindow.to}.`); setCreating(false); return; }
-    if (values.transactionAt) values.transactionAt = new Date(values.transactionAt).toISOString(); else delete values.transactionAt;
-    if (!values.accountId) delete values.accountId; if (!values.note) delete values.note;
-    if (values.type === "TRANSFER") delete values.categoryId; else { delete values.purpose; delete values.relatedWealthAccountId; }
-    if (values.purpose === "INTERNAL_TRANSFER" || !values.relatedWealthAccountId) delete values.relatedWealthAccountId;
-    try {
-      const response = await fetch("/api/v1/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(createErrorMessage(response.status, body));
-      closeCreate(); formEl.reset(); if (missingWindow) { setMissingWindow(null); const next = new URLSearchParams(window.location.search); next.delete("record"); window.history.replaceState(window.history.state, "", `/transactions?${next}`); } setTransactionType("EXPENSE"); setTransferPurpose("INTERNAL_TRANSFER"); setCreatedId(body?.id || ""); await load();
-    } catch (err) { setCreateError(err.name === "TypeError" ? "Koneksi terputus. Coba lagi." : err.message || "Koneksi terputus. Coba lagi."); }
-    finally { setCreating(false); }
-  }
-
   if (user === null) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   if (!user) return null;
   const scoped = isScopedToTransaction(typeof window === "undefined" ? "" : window.location.search);
@@ -268,10 +230,9 @@ export default function TransactionsPage() {
   const filterCount = activeFilterCount(`?${query}`);
   // The pager reads the page size the URL asked for, not the default constant.
   const size = pageSize(typeof window === "undefined" ? "" : window.location.search, PAGE_SIZE);
-  return <AppShell user={user} eyebrow="Transaksi" title="Riwayat Transaksi" actions={<><button onClick={openCreate}>Tambah transaksi</button><span className="header-meta">{PAGE_SIZE} per halaman · Asia/Jakarta</span></>}>
+  return <AppShell user={user} eyebrow="Transaksi" title="Riwayat Transaksi" actions={<><button onClick={() => openCreate()}>Tambah transaksi</button><span className="header-meta">{PAGE_SIZE} per halaman · Asia/Jakarta</span></>}>
     {query.get("cycle") && <p className="notice"><a href={selectionHref({ view: "cycle", cycle: query.get("cycle"), category: query.get("categoryId") || "", step: query.get("review") || "" })}>Kembali ke tinjauan siklus</a> · {query.get("from")} sampai {query.get("to")}</p>}
     {query.get("merchantId") && <div className="notice feedback"><span>Filter merchant terpilih dari tinjauan siklus.</span><button className="secondary" type="button" onClick={() => { const next = new URLSearchParams(window.location.search); next.delete("merchantId"); next.delete("cursor"); window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", `/transactions?${next}`); setCursorHistory([]); load(`?${next}`); }}>Hapus filter merchant</button></div>}
-    <dialog ref={createDialog} className="create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-transaction-title" tabIndex={-1} onClose={onCreateClosed} onKeyDown={trapCreateTab}><button type="button" className="dialog-close" aria-label="Tutup" onClick={closeCreate}>×</button><form className="transaction-form" onSubmit={createTransaction} noValidate><div className="section-title"><h2 id="create-transaction-title">Tambah transaksi</h2></div><div className="dialog-fields"><label>Jenis<select name="type" required value={transactionType} onChange={event => setTransactionType(event.target.value)}><option value="EXPENSE">Pengeluaran</option><option value="INCOME">Pemasukan</option><option value="TRANSFER">Transfer</option></select></label>{transactionType === "TRANSFER" && <><label>Tujuan transfer<select name="purpose" value={transferPurpose} onChange={event => setTransferPurpose(event.target.value)}><option value="INTERNAL_TRANSFER">Transfer internal</option><option value="SAVINGS_TRANSFER">Pindah ke tabungan</option><option value="INVESTMENT_CONTRIBUTION">Kontribusi investasi</option><option value="ASSET_PURCHASE">Pembelian aset</option><option value="DEBT_PRINCIPAL_PAYMENT">Pembayaran pokok utang</option></select></label>{transferPurpose !== "INTERNAL_TRANSFER" && <label>Akun kekayaan terkait<select name="relatedWealthAccountId" required aria-invalid={fieldErrors.relatedWealthAccountId ? "true" : undefined}><option value="">Pilih akun kekayaan</option>{wealthAccounts.filter(item => item.active !== false).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</>}<label><span>Jumlah (IDR) <span className="required-mark" aria-hidden="true">*</span></span><input name="amount" inputMode="numeric" required aria-required="true" aria-invalid={fieldErrors.amount ? "true" : undefined} aria-describedby={fieldErrors.amount ? "create-amount-error" : undefined}/>{fieldErrors.amount && <small id="create-amount-error" className="field-error">{fieldErrors.amount}</small>}</label><label><span>Deskripsi <span className="required-mark" aria-hidden="true">*</span></span><input name="description" maxLength="500" required aria-required="true" aria-invalid={fieldErrors.description ? "true" : undefined} aria-describedby={fieldErrors.description ? "create-description-error" : undefined}/>{fieldErrors.description && <small id="create-description-error" className="field-error">{fieldErrors.description}</small>}</label>{missingWindow && <p className="notice">Catat transaksi yang terlewat di siklus {missingWindow.from} sampai {missingWindow.to}. Waktunya dibatasi ke siklus itu agar sisa siklusnya dihitung ulang.</p>}<label>Waktu<DateInput key={missingWindow ? `cycle-${missingWindow.from}` : "free"} name="transactionAt" type="datetime-local" aria-invalid={fieldErrors.transactionAt ? "true" : undefined} required={Boolean(missingWindow)} min={missingWindow?.min} max={missingWindow?.max} defaultValue={missingWindow?.value}/></label><label>Akun<select name="accountId" required={transactionType === "TRANSFER"} aria-invalid={fieldErrors.accountId ? "true" : undefined}><option value="">{transactionType === "TRANSFER" ? "Pilih akun sumber" : "Tanpa akun"}</option>{accounts.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{transactionType !== "TRANSFER" && <label>Kategori<select name="categoryId"><option value="">Tanpa kategori</option>{categories.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<label>Catatan<textarea name="note"/></label>{createError && <p role="alert" className="error-notice">{createError}</p>}</div><div className="dialog-actions"><button type="button" onClick={closeCreate}>Batal</button><button disabled={creating}>{creating ? "Menyimpan…" : "Simpan"}</button></div></form></dialog>
     <button type="button" className="secondary filter-toggle" aria-expanded={filtersOpen} aria-controls="transaction-filters" onClick={() => setFiltersOpen(open => !open)}>Filter{filterCount ? ` (${filterCount})` : ""}</button>
     <form id="transaction-filters" key={filterKey} className={`filter-bar surface${filtersOpen ? " is-open" : ""}`} onSubmit={filter} inert={loading}>
       <label className="filter-field filter-search"><span>Cari</span><input name="q" placeholder="Cari tempat transaksi atau catatan" defaultValue={query.get("q") || ""}/></label>

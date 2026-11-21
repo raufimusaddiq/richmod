@@ -8,14 +8,14 @@ const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8"
 // The component half of a page. The settings page also hosts the pure push-state model, which starts at its
 // first exported helper; every other page is one component and is scanned whole.
 const pageView = page => {
-  const source = text(`app/${page}/page.js`);
+  const source = text(page === "settings" ? "app/components/SettingsPanels.js" : `app/${page}/page.js`);
   const model = page === "settings" ? source.indexOf("export function notificationState(") : -1;
   assert.ok(page !== "settings" || model > 0, "settings keeps notificationState below the page component");
   return model > 0 ? source.slice(0, model) : source;
 };
 
 test("all product routes exist", () => {
-  for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
+  for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "components/SettingsPanels.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
 });
@@ -83,11 +83,14 @@ test("ledger request failures are recoverable instead of leaving the page loadin
 });
 
 test("manual transactions use an accessible dialog and refresh the ledger", () => {
-  const source = text("app/transactions/page.js");
-  assert.match(source, /<dialog/);
-  assert.match(source, /aria-labelledby="create-transaction-title"/);
-  assert.match(source, /fetch\("\/api\/v1\/transactions", \{ method: "POST"/);
-  assert.match(source, /await load\(\)/);
+  const dialog = text("app/components/QuickRecordDialog.js");
+  assert.match(dialog, /<dialog/);
+  assert.match(dialog, /aria-labelledby="quick-record-title"/);
+  assert.match(dialog, /fetch\("\/api\/v1\/transactions", \{ method: "POST"/);
+  const page = text("app/transactions/page.js");
+  assert.match(page, /openQuickRecord/);
+  assert.match(page, /addEventListener\("richmod:transaction-created", refresh\)/);
+  assert.match(text("app/page.js"), /addEventListener\("richmod:transaction-created", load\)/);
 });
 
 test("authenticated app shells are not cached across deployments", () => {
@@ -101,9 +104,9 @@ test("authenticated app shells are not cached across deployments", () => {
 
 test("mobile shell keeps navigation usable and dismissable", () => {
   const shell = text("app/components/AppShell.js");
-  assert.match(shell, /aria-modal="true"/);
-  assert.match(shell, /event\.key === "Escape"/);
-  assert.match(shell, /aria-controls="mobile-more-panel"/);
+  assert.match(shell, /aria-label="Navigasi utama seluler"/);
+  assert.match(shell, /className="mobile-add" aria-label="Catat transaksi"/);
+  assert.doesNotMatch(shell, /Lainnya|mobile-more/, "the overflow panel is gone");
   assert.match(shell, /<Icon aria-hidden="true"/);
 });
 
@@ -166,7 +169,7 @@ test("admin user changes require confirmation", () => {
 });
 
 test("settings lists are bounded with pagination", () => {
-  const settings = text("app/settings/page.js");
+  const settings = text("app/components/SettingsPanels.js");
   for (const dataset of ["accounts", "wealthAccounts", "salarySources", "known", "listeners", "financialSources", "categories", "aliases"]) {
     assert.match(settings, new RegExp(`<BoundedList items=\\{data\\.${dataset}\\}`), dataset);
   }
@@ -174,16 +177,16 @@ test("settings lists are bounded with pagination", () => {
 });
 
 test("settings sections are labelled landmarks", () => {
-  const settings = text("app/settings/page.js");
+  const settings = text("app/components/SettingsPanels.js");
   assert.match(settings, /aria-labelledby=\{`\$\{id\}-title`\}/);
   assert.match(settings, /<h2 id=\{`\$\{id\}-title`\}>\{title\}<\/h2>/);
-  assert.match(settings, /aria-label="Bagian pengaturan"/);
+  assert.match(text("app/household/page.js"), /aria-label="Bagian keluarga"/);
 });
 
 test("forms are reset through a captured element, never event.currentTarget after an await", () => {
   // React clears event.currentTarget once the handler yields, so a reset after
   // await throws and skips the refresh that follows it.
-  for (const route of ["household/page.js", "settings/page.js", "documents/page.js", "transactions/page.js"]) {
+  for (const route of ["household/page.js", "components/SettingsPanels.js", "documents/page.js", "transactions/page.js"]) {
     assert.doesNotMatch(text(`app/${route}`), /event\.currentTarget\.reset\(\)/, route);
   }
 });
@@ -319,7 +322,7 @@ test("settings: request is try/catch/finally with per-key busy, load failures su
 });
 
 test("settings: Gmail forwarding verification is shown inline for owners and resolved via the action endpoint", () => {
-  const view = text("app/settings/page.js");
+  const view = text("app/components/SettingsPanels.js");
   assert.match(view, /const action = owner \? ingress\.forwardingAction : null/, "only owners see the code and link");
   assert.match(view, /action\.actionCode/);
   assert.match(view, /href=\{action\.actionUrl\}[^>]*rel="noopener noreferrer"/);

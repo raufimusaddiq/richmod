@@ -62,6 +62,8 @@ try {
       await page.screenshot({ path: fileURLToPath(new URL(`${engine.name()}-${width}-filters.png`, output)), fullPage: true });
       await page.getByRole("button", { name: "Tambah transaksi", exact: true }).click();
       const dialog = page.locator("dialog[open]");
+      // Waktu, akun and notes sit behind one disclosure so the sheet stays a two-field entry.
+      await dialog.getByText("Waktu, akun, dan catatan", { exact: true }).click();
       const time = dialog.getByLabel("Waktu", { exact: true });
       await fits(time);
       await time.fill("2026-09-25T12:30");

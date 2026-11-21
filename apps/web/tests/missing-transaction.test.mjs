@@ -31,6 +31,8 @@ test("the inbox and the transaction form use the cycle handoff", () => {
   assert.match(text("app/inbox/page.js"), /CANONICAL_TRANSACTION_FLOW"\) \{ window\.location\.assign\(missingTransactionHref\(result\)\)/);
   const page = text("app/transactions/page.js");
   assert.match(page, /cycleEntryWindow\(window\.location\.search\)/);
-  assert.match(page, /required=\{Boolean\(missingWindow\)\} min=\{missingWindow\?\.min\} max=\{missingWindow\?\.max\} defaultValue=\{missingWindow\?\.value\}/);
-  assert.match(page, /withinCycleWindow\(values\.transactionAt, missingWindow\)/);
+  assert.match(page, /openQuickRecord\(\{ missingWindow: cycleWindow \}\)/, "the handoff opens the global sheet limited to the cycle");
+  const dialog = text("app/components/QuickRecordDialog.js");
+  assert.match(dialog, /required min=\{missingWindow\.min\} max=\{missingWindow\.max\} defaultValue=\{missingWindow\.value\}/);
+  assert.match(dialog, /withinCycleWindow\(time, missingWindow\)/);
 });

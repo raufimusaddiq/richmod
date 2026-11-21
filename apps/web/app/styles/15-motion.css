@@ -42,7 +42,6 @@
 @keyframes sheet-in { from { opacity: 0; transform: translateY(10px); } }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(6px); } }
 .detail-drawer, .admin-drawer { animation: drawer-in var(--motion-base) var(--ease-out); }
-.mobile-more-panel { animation: sheet-in var(--motion-base) var(--ease-out); }
 dialog[open] { animation: dialog-in var(--motion-base) var(--ease-out); }
 
 /* 4. Page entry. app/template.js remounts on navigation, so this plays once per route.

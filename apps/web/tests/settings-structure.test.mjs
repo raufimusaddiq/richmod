@@ -1,39 +1,69 @@
-// Settings structure locks: the page is split into deep-linkable tabs, an old
-// #anchor opens the tab that holds it, and a long list filters in place.
+// Keluarga hub structure locks: /household and /settings are one workspace with five
+// deep-linkable tabs, an old #anchor opens the tab that holds it, a member sees only
+// Anggota and Notifikasi, and a long list filters in place.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { SETTINGS_SECTIONS, SETTINGS_TABS, filterItems, tabFromLocation } from "../app/lib/settingsTabs.js";
+import { MEMBER_TAB_KEYS, SETTINGS_SECTIONS, SETTINGS_TABS, filterItems, tabFromLocation, tabsForRole } from "../app/lib/settingsTabs.js";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const settings = read("app/settings/page.js");
+const hub = read("app/household/page.js");
+const settings = read("app/components/SettingsPanels.js");
 
-test("settings is split into a small set of deep-linkable tabs", () => {
-  assert.ok(SETTINGS_TABS.length >= 3 && SETTINGS_TABS.length <= 5, `expected a few tabs, found ${SETTINGS_TABS.length}`);
-  assert.match(settings, /role="tablist"/);
-  assert.match(settings, /role="tab"/);
-  assert.match(settings, /aria-selected=\{tab === key\}/);
-  assert.match(settings, /aria-current=\{tab === key \? "true" : undefined\}/);
-  assert.match(settings, /role="tabpanel" id="settings-panel"/);
-  assert.match(settings, /aria-labelledby=\{`settings-tab-\$\{tab\}`\}/);
+test("Keluarga has exactly the five deep-linkable tabs", () => {
+  assert.deepEqual(SETTINGS_TABS.map(([key]) => key), ["anggota", "akun", "kategori", "sumber", "notifikasi"]);
+  assert.deepEqual(SETTINGS_TABS.map(([, label]) => label), ["Anggota", "Akun & kekayaan", "Kategori & aturan", "Sumber otomatis", "Notifikasi"]);
+  assert.match(hub, /role="tablist"/);
+  assert.match(hub, /role="tab"/);
+  assert.match(hub, /aria-selected=\{tab === key\}/);
+  assert.match(hub, /aria-current=\{tab === key \? "true" : undefined\}/);
+  assert.match(hub, /role="tabpanel" id="settings-panel"/);
+  assert.match(hub, /aria-labelledby=\{`settings-tab-\$\{tab\}`\}/);
   // The real roving tablist: arrows/Home/End move selection and focus together.
-  assert.match(settings, /nextTabIndex\(event\.key, index, SETTINGS_TABS\.length\)/);
-  assert.match(settings, /window\.history\.pushState\(\{\}, "", `\/settings\?tab=\$\{key\}`\)/);
+  assert.match(hub, /nextTabIndex\(event\.key, index, tabs\.length\)/);
+  assert.match(hub, /window\.history\.pushState\(\{\}, "", `\/household\?tab=\$\{key\}`\)/);
+});
+
+test("/settings renders the same hub, so old links and bookmarks keep working", () => {
+  const page = read("app/settings/page.js");
+  assert.match(page, /export \{ default \} from "\.\.\/household\/page"/);
+  assert.match(hub, /window\.addEventListener\("hashchange", apply\)/);
+  assert.match(hub, /window\.addEventListener\("popstate", apply\)/);
+  assert.match(settings, /scrollIntoView\(\{ block: "start" \}\)/);
 });
 
 test("an existing anchor opens the tab that holds it", () => {
   assert.deepEqual(tabFromLocation("", "#akun-kekayaan"), { tab: "akun", anchor: "akun-kekayaan" });
   assert.deepEqual(tabFromLocation("", "#status-pemrosesan"), { tab: "sumber", anchor: "status-pemrosesan" });
+  assert.deepEqual(tabFromLocation("", "#tindakan"), { tab: "sumber", anchor: "tindakan" });
   assert.deepEqual(tabFromLocation("?tab=kategori", ""), { tab: "kategori", anchor: "" });
-  assert.deepEqual(tabFromLocation("?tab=nope", ""), { tab: SETTINGS_TABS[0][0], anchor: "" });
+  assert.deepEqual(tabFromLocation("?tab=anggota", ""), { tab: "anggota", anchor: "" });
+  assert.deepEqual(tabFromLocation("?tab=nope", ""), { tab: "anggota", anchor: "" });
+  assert.deepEqual(tabFromLocation("", ""), { tab: "anggota", anchor: "" });
   // An anchor wins over a conflicting ?tab=.
   assert.equal(tabFromLocation("?tab=notifikasi", "#kategori-keluarga").tab, "kategori");
-  // Every id the page has ever exposed still maps to a tab.
+  // Every id the settings page has ever exposed still maps to a tab.
   for (const id of ["rekening-manual", "akun-kekayaan", "wealth-accounts", "sumber-slip-gaji-utama", "tujuan-transfer-yang-dikenal", "notifikasi-bank", "provider-finansial", "kategori-keluarga", "aturan-kategori-otomatis", "email-telegram-dan-pemrosesan-otomatis", "status-pemrosesan", "notifikasi"]) {
     assert.ok(SETTINGS_SECTIONS.some(([section]) => section === id), id);
   }
-  assert.match(settings, /window\.addEventListener\("hashchange", apply\)/);
-  assert.match(settings, /scrollIntoView\(\{ block: "start" \}\)/);
+});
+
+test("a member sees only Anggota and Notifikasi, and cannot deep-link past that", () => {
+  assert.deepEqual(MEMBER_TAB_KEYS, ["anggota", "notifikasi"]);
+  assert.deepEqual(tabsForRole(false).map(([key]) => key), ["anggota", "notifikasi"]);
+  assert.equal(tabsForRole(true).length, 5);
+  const allowed = tabsForRole(false).map(([key]) => key);
+  assert.deepEqual(tabFromLocation("?tab=sumber", "", allowed), { tab: "anggota", anchor: "" });
+  assert.deepEqual(tabFromLocation("", "#notifikasi-bank", allowed), { tab: "anggota", anchor: "" });
+  assert.deepEqual(tabFromLocation("?tab=notifikasi", "", allowed), { tab: "notifikasi", anchor: "" });
+  // The settings panels load nothing for a member.
+  assert.match(settings, /if \(user && owner\) load\(\)/);
+  assert.match(settings, /if \(!owner\) return <NotificationsSection/);
+});
+
+test("Sumber otomatis carries a pending-setup indicator for the owner", () => {
+  assert.match(hub, /key === "sumber" && owner && actionCount > 0/);
+  assert.match(hub, /useInboxCounts\(\)/);
 });
 
 test("long lists filter with a result count and an empty state", () => {

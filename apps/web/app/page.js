@@ -68,6 +68,8 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
+  // A transaction recorded (or undone) from the global "+ Catat" sheet refreshes the figures in place.
+  useEffect(() => { window.addEventListener("richmod:transaction-created", load); return () => window.removeEventListener("richmod:transaction-created", load); }, [load]);
 
   if (user === null) return <Loading />;
   if (user === false) return <LandingPage />;

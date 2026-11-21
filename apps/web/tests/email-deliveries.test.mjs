@@ -61,13 +61,20 @@ test("the Inbox has an owner-only Email masuk tab fed by the existing endpoint",
   assert.match(inbox, /owner \? \["transactions", "actions", "history", "email"\]/, "arrow keys skip the tab for non-owners");
 });
 
-test("Settings no longer renders or fetches the delivery list", () => {
-  const settings = read("app/settings/page.js");
+test("Keluarga > Sumber otomatis hosts the owner delivery log and pending actions", () => {
+  const settings = read("app/components/SettingsPanels.js");
   assert.doesNotMatch(settings, /Pengiriman terakhir/);
-  assert.doesNotMatch(settings, /email-ingress\/deliveries/);
   assert.doesNotMatch(settings, /emailDelivery(Status|Reason)Label/);
   assert.match(settings, /<EmailOnboardingChecklist /);
   assert.match(settings, /Status pemrosesan otomatis/);
+  assert.match(settings, /<DeliveryLogSection tab="sumber" active=\{tab\}\/>/);
+  assert.match(settings, /<IntegrationActionsSection tab="sumber"/);
+  assert.match(settings, /title="Email masuk terakhir"/);
+  assert.match(settings, /title="Tindakan"/);
+  assert.match(settings, /\/api\/v1\/integrations\/email-ingress\/deliveries/);
+  assert.match(settings, /\/api\/v1\/integration-actions\/\$\{id\}\/resolve/);
+  // A member only ever gets the notifications section, so the log and the actions stay owner-only.
+  assert.match(settings, /if \(!owner\) return <NotificationsSection/);
 });
 
 test("the delivery list is height-bounded", () => {

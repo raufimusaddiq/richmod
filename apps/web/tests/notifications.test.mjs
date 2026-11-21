@@ -32,7 +32,7 @@ function component(filename) {
   return module.exports;
 }
 
-const settings = component("app/settings/page.js");
+const settings = component("app/components/SettingsPanels.js");
 const { notificationState, reconcileSubscription, loadPushView, NotificationsView, registerSubscription, disableNotifications } = settings;
 const { applyBadge } = component("app/components/InboxCountProvider.js");
 const render = props => renderToStaticMarkup(React.createElement(NotificationsView, props));

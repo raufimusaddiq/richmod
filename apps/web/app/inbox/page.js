@@ -68,7 +68,7 @@ export default function InboxPage() {
   useEffect(() => { if (user) load(); }, [user, load]);
   const decisions = decisionCount ?? reviews.filter(item => item.presentation !== "NOTICE").length;
   // Keyed on the load itself, not on the banner: a stale action error must not freeze the nav badge.
-  useEffect(() => { if (loader.status === LOAD.READY && complete) publishInboxCount(decisions + actions.length); }, [loader.status, complete, decisions, actions]);
+  useEffect(() => { if (loader.status === LOAD.READY && complete) publishInboxCount({ reviewCount: decisions, actionCount: actions.length }); }, [loader.status, complete, decisions, actions]);
   const historyOpen = view === "history";
   useEffect(() => {
     if (!historyOpen) return undefined;
