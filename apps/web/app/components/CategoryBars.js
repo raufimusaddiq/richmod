@@ -4,8 +4,6 @@ import { money } from "../lib/format";
 import { categoryVisual } from "../lib/categoryIcons";
 import { categoryLedgerHref, rankedCategories } from "../lib/home";
 
-// "Ke mana uangnya": ranked horizontal bars over the same window as the hero. Each named category
-// opens the ledger filtered to that category and window; the "Kategori lain" bucket is a plain row.
 export default function CategoryBars({ items, window }) {
   const rows = rankedCategories(items, 6);
   if (!rows.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;

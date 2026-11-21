@@ -6,10 +6,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// FinalizeTransferReviewLifecycle refreshes the proposal/source-event state and
-// completes every open transaction review for one household. Web transfer
-// reconciliation and Telegram both call it (ADR-046), so the terminal review
-// transition has one implementation instead of a copy per surface.
 func FinalizeTransferReviewLifecycle(ctx context.Context, tx pgx.Tx, household, actorUserID, transactionID, proposedType, proposalStatus string, categoryID *string, classification, action string) error {
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')`, transactionID, proposedType, proposalStatus, categoryID, classification); err != nil {
 		return err

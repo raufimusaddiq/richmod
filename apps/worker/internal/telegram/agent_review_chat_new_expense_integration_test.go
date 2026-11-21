@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Regression: an open review swallowed a later new expense because the catalog was narrowed from stale chat
-// state and the turn died with zero model phases.
 func TestOpenReviewChatRecordsNewExpenseWithGeneralCatalog(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "review-chat-new-expense")

@@ -87,7 +87,6 @@ func (f *staleDocFixture) migrate(section, household string) {
 	tx, err := f.pool.Begin(ctx)
 	f.must(err)
 	defer tx.Rollback(ctx)
-	// The test database is shared with other tests, so every run is household-scoped.
 	_, err = tx.Exec(ctx, `SELECT set_config('richmod.repair_household',$1,true)`, household)
 	f.must(err)
 	_, err = tx.Exec(ctx, part[start+len("-- +goose StatementBegin"):end])
@@ -147,7 +146,6 @@ func TestSettleStaleNeedsReviewDocuments(t *testing.T) {
 	_, d = newDoc(hh, "NEEDS_REVIEW")
 	f.exec(`INSERT INTO wealth_observation(household_id,document_id,institution,account_hint,observed_value_idr,status) VALUES($1,$2,'Fixture','x',1000,'PENDING')`, hh, d)
 	pending["PENDING wealth observation"] = d
-	// Album: the open review is bound to a secondary page source, not the document's own.
 	s = f.source(hh)
 	d, attachment := f.document(hh, s, "NEEDS_REVIEW")
 	secondary := f.source(hh)

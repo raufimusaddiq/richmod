@@ -1,4 +1,3 @@
-// The category slug is derived from the name, so the family never types one.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { categorySlug, uniqueCategorySlug } from "../app/lib/slug.js";

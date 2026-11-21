@@ -1,8 +1,4 @@
-// Pure helpers for "Perlu dicek": legacy deep links, 1-tap category answers and the inline
-// "Urungkan" confirmation line. Kept free of React so tests can run them directly.
 
-// Tindakan and Email masuk live in Keluarga › Sumber otomatis; the old inbox deep links
-// keep working by moving there.
 export function legacyViewTarget(view) {
   if (view === "actions") return "/household?tab=sumber#tindakan";
   if (view === "email") return "/household?tab=sumber#email-masuk-terakhir";
@@ -14,8 +10,6 @@ export function inboxView(search) {
   return view === "history" ? "history" : "transactions";
 }
 
-// Up to three ranked answers from the server; the "sering dipakai" hint belongs only to a
-// genuine merchant-history first rank, never to a household-wide fill.
 export function categoryAnswers(item, categories = []) {
   const active = new Map(categories.filter(category => category.active !== false).map(category => [category.id, category]));
   const answers = (item?.suggestedCategories || []).filter(value => active.size === 0 || active.has(value.id)).slice(0, 3)
@@ -32,7 +26,6 @@ export function rememberLabel(item) {
 const transferLabels = { OWN_ACCOUNT: "rekening sendiri", HOUSEHOLD_ACCOUNT: "rekening rumah tangga", INVESTMENT_ACCOUNT: "investasi", ASSET_PURCHASE: "beli aset", EXPENSE: "pengeluaran", IGNORE: "diabaikan" };
 const resolveLabels = { IGNORE: "diabaikan", MERGE_EXISTING: "disatukan", CONFIRM_NEW_TRANSFER: "transfer baru dicatat", SET_WEALTH_ACCOUNT: "akun dipilih", SET_FINANCIAL_EMAIL_ENTITIES: "rekening dipilih", ALLOCATE_RETAINED_BALANCE: "sisa dialokasikan", LEAVE_UNALLOCATED: "dibiarkan", COMPLETE_BANK_FACTS: "dilengkapi", SET_PAY_DATE: "tanggal diisi", PRIMARY_SALARY: "gaji utama", ORDINARY_INCOME: "pemasukan biasa", ACKNOWLEDGE: "dimengerti" };
 
-// "→ Makanan" / "diabaikan": how a decision ended, for the one-line confirmation.
 export function resolutionSummary(name, body, categories = []) {
   if (name === "confirm") {
     const category = categories.find(value => value.id === body?.categoryId);
@@ -44,8 +37,6 @@ export function resolutionSummary(name, body, categories = []) {
   return resolveLabels[body?.action] || "selesai";
 }
 
-// Only what POST /reviews/{id}/reopen can actually reverse is offered as "Urungkan"; a button
-// that is guaranteed to 409 is never rendered. Mirrors reviewdomain.ReopenReview.
 const UNDOABLE_RESOLVE = new Set(["IGNORE", "LEAVE_UNALLOCATED", "SET_WEALTH_ACCOUNT", "SET_FINANCIAL_EMAIL_ENTITIES"]);
 const UNDOABLE_TYPES = new Set(["EXPENSE", "INCOME", "REFUND"]);
 
@@ -58,7 +49,6 @@ export function canUndoResolution(item, name, body) {
 export function resolvedLine(item, name, body, categories = []) {
   return {
     id: item.id,
-    // Reopen addresses the review item; a transaction-bound card's own id is the transaction's.
     reopenId: item.reviewItemId || item.id,
     transactionId: item.subjectType ? null : item.id,
     canUndo: canUndoResolution(item, name, body),

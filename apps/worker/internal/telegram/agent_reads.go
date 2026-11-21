@@ -108,14 +108,10 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			return result, err
 		}
 		if outcome != ceuResolved {
-			// A stale, expired or foreign ref is a recoverable answer, not a failure: the model is told to
-			// use the evidence bound this turn.
 			result.Status = string(outcome)
 			result.Facts = map[string]any{"outcome": string(outcome), "hint": "use bound_evidence or recent_evidence from this turn, or ask which document"}
 			return result, nil
 		}
-		// Reading changes no financial or review state; it only refreshes the evidence ref in this turn's
-		// reference table (idempotent upsert) so the model's ref stays valid.
 		contexts, err := p.loadEvidenceContexts(ctx, state.HouseholdID, state.SourceEventID, state.Update, []canonicalDocumentID{document})
 		if err != nil {
 			return result, fmt.Errorf("read evidence context: %w", err)
@@ -211,7 +207,6 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		ref, _ := args["target_ref"].(string)
 		id, err := p.resolveTransactionReference(ctx, state.HouseholdID, state.Update, ref)
 		if errors.Is(err, pgx.ErrNoRows) {
-			// An expired or foreign ref is the model's to fix, not a failed turn.
 			result.Status = "TARGET_UNAVAILABLE"
 			result.Facts = map[string]any{"target_ref": ref, "next_step": "that ref is expired or unknown; search the transaction again with search_transactions and use a ref from this turn"}
 			return result, nil
@@ -297,8 +292,6 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 	return result, nil
 }
 
-// agentCategoryBreakdown is confirmed net expense per household category for a period, largest first, capped
-// at 20 rows with the full count.
 func (p *Processor) agentCategoryBreakdown(ctx context.Context, householdID string, r assistantRange) ([]map[string]any, int, error) {
 	rows, err := p.pool.Query(ctx, `
 		WITH categories AS (SELECT COALESCE(c.slug,'') AS slug,COALESCE(c.name,'Tanpa kategori') AS name,
@@ -346,8 +339,6 @@ func agentPeriodFact(r assistantRange) map[string]any {
 	}
 }
 
-// recoverableRangeRead turns a period Go cannot serve (no salary cycle, no previous cycle, malformed or over-
-// a-year range) into a tool result the model can act on.
 func recoverableRangeRead(result agentToolResult, err error) (agentToolResult, bool) {
 	recoverable, ok := recoverableRange(err)
 	if !ok {

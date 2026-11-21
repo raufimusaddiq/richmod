@@ -46,8 +46,6 @@ func (p *Processor) ignoreBankReview(ctx context.Context, sourceEventID, househo
 	return true, tx.Commit(ctx)
 }
 
-// completeBankFactsReply resolves an UNKNOWN_BANK_TEMPLATE review from a reply; a missing required fact re-
-// asks instead of guessing.
 func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
 	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
 	if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil {
@@ -90,8 +88,6 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 
 const bankFactsQueuedMessage = "⏳ Detail bank sudah diterima untuk diproses. Transaksi belum dicatat. Tinjauan akan diperbarui setelah pemrosesan berhasil."
 
-// enqueueBankFactsCompletion queues the shared COMPLETE_BANK_REVIEW job after fast validation; resolution
-// stays in the job, as in the Web lane.
 func enqueueBankFactsCompletion(ctx context.Context, tx pgx.Tx, command reviewdomain.BankFactCommand, chatID int64) error {
 	if err := reviewdomain.ValidateBankSourceAccount(ctx, tx, command); err != nil {
 		return err
@@ -113,7 +109,6 @@ func (p *Processor) offerBankAccountChooser(ctx context.Context, sourceEventID, 
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{bank_pending}',jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::text),true),updated_at=now() WHERE review_request_id=$1`, requestID, amount, at); err != nil {
 		return err
 	}
-	// First 10 accounts only; paginate when households exceed ten.
 	buttons := make([][]InlineKeyboardButton, 0, len(accounts))
 	for _, account := range accounts {
 		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(account.Name, 28), CallbackData: "review:bank:" + account.ID}})
@@ -169,8 +164,6 @@ func (p *Processor) processBankAccountCallback(ctx context.Context, sourceEventI
 	return p.completeBankFactsReply(ctx, sourceEventID, householdID, reviewID, userID, bankSourceID, update)
 }
 
-// parseBankFactsReply reads "<amount> <rfc3339 timestamp>" in either order; amounts with `.` or `,` are
-// rejected, never reshaped.
 func parseBankFactsReply(text string) (string, string) {
 	fields := strings.Fields(text)
 	amount, at := "", ""

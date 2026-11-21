@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// Reason codes for a suggested category. The UI shows its "sering dipakai" hint only for a
-// genuine MERCHANT_HISTORY first rank; HOUSEHOLD_RECENT is a plain household-wide fill.
 const (
 	suggestionMerchantHistory = "MERCHANT_HISTORY"
 	suggestionHouseholdRecent = "HOUSEHOLD_RECENT"
@@ -16,9 +14,6 @@ const (
 	householdRecentWindowDays = 90
 )
 
-// suggestedCategory is one ready 1-tap answer for a review that asks for a category.
-// It is derived only from the household's confirmed, non-voided history (zero AI) and
-// names only active household categories.
 type suggestedCategory struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -26,7 +21,6 @@ type suggestedCategory struct {
 	Reason string `json:"reason"`
 }
 
-// needsCategorySuggestions reports whether an open transaction review asks for a category.
 func needsCategorySuggestions(value item) bool {
 	if value.Type != "EXPENSE" && value.Type != "INCOME" && value.Type != "REFUND" {
 		return false
@@ -34,8 +28,6 @@ func needsCategorySuggestions(value item) bool {
 	return value.CategoryID == nil || containsString(value.MissingFacts, "category")
 }
 
-// normalizedMerchantKey is the Go side of the SQL key
-// lower(regexp_replace(btrim(x),'[[:space:]]+',' ','g')).
 func normalizedMerchantKey(values ...*string) string {
 	for _, value := range values {
 		if value != nil {
@@ -47,10 +39,6 @@ func normalizedMerchantKey(values ...*string) string {
 	return ""
 }
 
-// suggestCategories ranks up to three active household categories per review item in one
-// batched read (never per card): first by the confirmed history of the same merchant (or the
-// same normalized counterparty/description when there is no merchant), ordered by frequency
-// then recency, then by the household's recent confirmed categories of the same type.
 func (h *Handler) suggestCategories(ctx context.Context, household string, items []item) (map[string][]suggestedCategory, error) {
 	result := map[string][]suggestedCategory{}
 	var ids, keys, kinds []string
@@ -103,7 +91,6 @@ func (h *Handler) suggestCategories(ctx context.Context, household string, items
 		return nil, err
 	}
 	rows.Close()
-	// Fill the remaining slots from the household's most-used recent categories of the same type.
 	recent := map[string][]suggestedCategory{}
 	for kind := range kindSet {
 		fill, err := h.pool.Query(ctx, `
@@ -147,7 +134,6 @@ func (h *Handler) suggestCategories(ctx context.Context, household string, items
 	return result, nil
 }
 
-// toUUID is the typed pgx value for a UUID string; an empty or invalid string is a SQL NULL.
 func toUUID(value string) pgtype.UUID {
 	parsed, err := uuid.Parse(value)
 	if err != nil {

@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Ignoring a document review must satisfy document_status_check (which has no
-// IGNORED value): the source event ends IGNORED and the document settles.
 func TestResolveDocumentReviewIgnoreSettlesDocumentAndSource(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,8 +25,6 @@ func TestResolveDocumentReviewIgnoreSettlesDocumentAndSource(t *testing.T) {
 		}
 	}
 	f := seedMergedScreenshot(t, ctx, pool, "ignore-document")
-	// A low-confidence document has produced no accepted work; the seed's merged
-	// proposal and evidence would (correctly) settle the source as PROCESSED.
 	_, err = pool.Exec(ctx, `DELETE FROM transaction_evidence WHERE id=$1`, f.evidence)
 	must(err)
 	_, err = pool.Exec(ctx, `DELETE FROM transaction_proposal WHERE id=$1`, f.proposal)

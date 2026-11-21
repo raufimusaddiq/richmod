@@ -1,9 +1,5 @@
 -- +goose Up
--- Multi-household tenancy hardening (ADR-058).
 
--- Job ownership. A job's household is derived once, when it is enqueued, from
--- the payload's anchor row; the payload stays the dispatch contract. Platform
--- jobs with no household anchor keep NULL.
 ALTER TABLE job ADD COLUMN household_id UUID REFERENCES household(id);
 
 -- +goose StatementBegin
@@ -25,7 +21,6 @@ CREATE FUNCTION job_household(p_payload JSONB) RETURNS UUID LANGUAGE sql STABLE 
         (SELECT ri.household_id FROM review_item ri WHERE ri.id = job_payload_uuid(p_payload, 'review_id')),
         (SELECT p.household_id FROM financial_email_preview p WHERE p.id = job_payload_uuid(p_payload, 'preview_id')),
         (SELECT i.household_id FROM insight i WHERE i.id = job_payload_uuid(p_payload, 'insight_id')),
-        -- Telegram sends go to private chats only, whose ID is the user's ID.
         (SELECT ti.household_id FROM telegram_identity ti
           WHERE p_payload->>'chat_id' ~ '^[0-9]{1,18}$' AND ti.telegram_user_id = (p_payload->>'chat_id')::bigint)
     )
@@ -47,13 +42,9 @@ CREATE TRIGGER job_assign_household BEFORE INSERT ON job
 
 UPDATE job SET household_id = job_household(payload_json) WHERE household_id IS NULL;
 
--- Household-scoped operational status and fair claiming read these.
 CREATE INDEX job_household_status_idx ON job (household_id, status) WHERE household_id IS NOT NULL;
 CREATE INDEX job_lane_household_started_idx ON job (lane, household_id, started_at DESC) WHERE started_at IS NOT NULL;
 
--- Parent keys for household-composite foreign keys. A child row can only
--- reference a parent row of the same household once these exist. document
--- already has (id, household_id) unique from migration 00077 and reuses it.
 CREATE UNIQUE INDEX account_household_id_id_key ON account (household_id, id);
 CREATE UNIQUE INDEX attachment_household_id_id_key ON attachment (household_id, id);
 CREATE UNIQUE INDEX bank_email_listener_household_id_id_key ON bank_email_listener (household_id, id);
@@ -74,9 +65,6 @@ CREATE UNIQUE INDEX transaction_proposal_household_id_id_key ON transaction_prop
 CREATE UNIQUE INDEX wealth_account_household_id_id_key ON wealth_account (household_id, id);
 CREATE UNIQUE INDEX wealth_observation_household_id_id_key ON wealth_observation (household_id, id);
 
--- Same-household references. NOT VALID + VALIDATE checks every existing row;
--- a cross-household reference already in the data fails this migration
--- explicitly instead of being repaired silently.
 ALTER TABLE category ADD CONSTRAINT category_parent_id_hh_fkey FOREIGN KEY (household_id, parent_id) REFERENCES category (household_id, id) NOT VALID;
 ALTER TABLE merchant_alias ADD CONSTRAINT merchant_alias_default_category_id_hh_fkey FOREIGN KEY (household_id, default_category_id) REFERENCES category (household_id, id) NOT VALID;
 ALTER TABLE merchant_alias ADD CONSTRAINT merchant_alias_normalized_merchant_id_hh_fkey FOREIGN KEY (household_id, normalized_merchant_id) REFERENCES merchant (household_id, id) NOT VALID;

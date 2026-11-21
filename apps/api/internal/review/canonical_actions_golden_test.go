@@ -12,8 +12,6 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
-// TestCanonicalActionsGolden pins the actions the Review Inbox offers for each
-// canonical review kind, so moving where they are declared cannot change them.
 func TestCanonicalActionsGolden(t *testing.T) {
 	kinds := []string{
 		"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE", "MISSING_AMOUNT",

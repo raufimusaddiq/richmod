@@ -11,20 +11,12 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// ConfirmedReviewReopenable is the SQL predicate (alias ri = the resolved review_item, t = its
-// transaction) shared by Resolved and ReopenReview for undoing a plain category/date confirmation.
-// It is deliberately narrow (ADR-054): the item is the transaction's latest, it was resolved by
-// CONFIRM_REVIEW, and the transaction is an ordinary confirmed expense/income/refund that no merge
-// or salary event depends on. Anything else is voided, unmerged or corrected through its own path.
 const ConfirmedReviewReopenable = `(ri.status='RESOLVED' AND ri.resolution_action='CONFIRM_REVIEW' AND t.status='CONFIRMED'
 	AND t.type IN ('EXPENSE','INCOME','REFUND')
 	AND NOT EXISTS (SELECT 1 FROM review_item n WHERE n.transaction_id=ri.transaction_id AND (n.created_at>ri.created_at OR (n.created_at=ri.created_at AND n.id>ri.id)))
 	AND NOT EXISTS (SELECT 1 FROM reconciliation_merge m WHERE m.household_id=t.household_id AND m.status='ACTIVE' AND t.id IN (m.source_transaction_id,m.target_transaction_id))
 	AND NOT EXISTS (SELECT 1 FROM salary_event se WHERE se.transaction_id=t.id))`
 
-// reopenTransactionResolution reopens a resolved transaction review. A transaction already back in
-// NEEDS_REVIEW (reversed merge) takes the existing path; a bounded CONFIRMED one is moved back to
-// NEEDS_REVIEW with a fresh OPEN item (the resolved item stays as history).
 func reopenTransactionResolution(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, transactionID, kind string, decision []byte) (string, error) {
 	var status string
 	if err := tx.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, transactionID, cmd.HouseholdID).Scan(&status); err != nil {
@@ -55,14 +47,10 @@ func reopenTransactionResolution(ctx context.Context, tx pgx.Tx, cmd ReopenComma
 		MissingFacts []string `json:"missingFacts"`
 	}
 	_ = json.Unmarshal(decision, &stored)
-	// Confirmation rewrites missingFacts to what remained, so the review kind is the durable signal
-	// that a category was the question.
 	clearCategory := kind == "AMBIGUOUS_CATEGORY" || kind == "UNKNOWN_MERCHANT" || kind == "TRANSACTION_FACTS_MISSING"
 	for _, fact := range stored.MissingFacts {
 		clearCategory = clearCategory || fact == "category"
 	}
-	// The review asked for the category, so the answer leaves with the confirmation and the new
-	// item asks again cleanly; any other field keeps the household's value.
 	moved, err := tx.Exec(ctx, `UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,category_id=CASE WHEN $3 THEN NULL ELSE category_id END,updated_at=now() WHERE id=$1 AND household_id=$2 AND status='CONFIRMED'`, transactionID, cmd.HouseholdID, clearCategory)
 	if err != nil {
 		return "", err
@@ -71,8 +59,6 @@ func reopenTransactionResolution(ctx context.Context, tx pgx.Tx, cmd ReopenComma
 		return "", ErrReopenNotReversible
 	}
 	if clearCategory {
-		// Confirm emptied missingFacts and recorded the chosen category as known; the reopened item
-		// must ask for the category again, with no stale answer.
 		var rebuilt reviewdec.Decision
 		if json.Unmarshal(decision, &rebuilt) != nil || rebuilt.ReasonCode == "" {
 			preset, ok := reviewdec.Preset(kind, "transaction", transactionID)
@@ -93,7 +79,6 @@ func reopenTransactionResolution(ctx context.Context, tx pgx.Tx, cmd ReopenComma
 	if err != nil {
 		return "", err
 	}
-	// The transaction left the totals: an open cycle review built on them is recomputed.
 	if err := RefreshOpenCycleResidualsFor(ctx, tx, cmd.HouseholdID, transactionAt, cmd.ActorUserID, CycleReopenTransactionVoided); err != nil {
 		return "", err
 	}

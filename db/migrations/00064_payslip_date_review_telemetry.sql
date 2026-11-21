@@ -1,6 +1,4 @@
 -- +goose Up
--- Canonical payslip forms call the date field payDate; RHICE uses the
--- transaction_at domain name used by other review forms.
 -- +goose StatementBegin
 CREATE FUNCTION normalize_payslip_review_telemetry() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

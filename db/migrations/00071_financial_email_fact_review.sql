@@ -1,5 +1,4 @@
 -- +goose Up
--- SAVR-06: a provider email's unsupported facts are not a transfer-purpose choice.
 ALTER TABLE review_item DROP CONSTRAINT review_item_review_type_check;
 ALTER TABLE review_item ADD CONSTRAINT review_item_review_type_check CHECK (review_type IN (
     'UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE',

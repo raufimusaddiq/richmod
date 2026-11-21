@@ -1,8 +1,5 @@
 package telegram
 
-// Executes card buttons with no earlier Telegram lane (unbound IGNORE, income Benar/Ubah, LEAVE_UNALLOCATED).
-// Each binds the card by its stored message; callback data carries no canonical id.
-
 import (
 	"context"
 	"encoding/json"
@@ -60,8 +57,6 @@ func markCallbackProcessed(ctx context.Context, tx pgx.Tx, sourceEventID string)
 	return err
 }
 
-// Abaikan for reviews not bound to a transaction; reviewdomain.IgnoreReview owns the transition and refuses
-// kinds whose stored contract lacks IGNORE.
 func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -99,8 +94,6 @@ func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, ho
 	return tx.Commit(ctx)
 }
 
-// Benar confirms the incoming transaction as income via the canonical confirm; Ubah keeps the review open and
-// offers income/transfer classification.
 func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, confirm bool) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -122,7 +115,6 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 		return err
 	}
 	if confirm {
-		// Benar's shared income confirm takes its own lock and revalidates; this read only bound the card.
 		if err := tx.Rollback(ctx); err != nil {
 			return err
 		}
@@ -148,8 +140,6 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 	return tx.Commit(ctx)
 }
 
-// The shared cycle operation revalidates the basis first, so a stale card refreshes instead of closing on an
-// old residual.
 func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -199,8 +189,6 @@ func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID
 	return tx.Commit(ctx)
 }
 
-// Merges into the n-th candidate stored with the card, or records a new transfer; the shared reconciliation
-// revalidates the candidate.
 func (p *Processor) processTransferReconciliationCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -247,8 +235,6 @@ func (p *Processor) processTransferReconciliationCallback(ctx context.Context, s
 	return tx.Commit(ctx)
 }
 
-// A PROJECT_TELEGRAM_REVIEW job: a surface without a Telegram renderer (e.g. an API reopen) asks the worker
-// to project the item.
 type ProjectReviewPayload struct {
 	HouseholdID  string `json:"household_id"`
 	ReviewItemID string `json:"review_item_id"`
@@ -265,7 +251,6 @@ func DecodeProjectReviewPayload(raw json.RawMessage) (ProjectReviewPayload, erro
 	return payload, nil
 }
 
-// ProjectReviewJob is idempotent: a closed item or an already rendered projection sends nothing.
 func (p *Processor) ProjectReviewJob(ctx context.Context, payload ProjectReviewPayload) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {

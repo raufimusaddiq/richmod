@@ -108,7 +108,6 @@ CREATE TABLE cycle_residual_allocation (
 CREATE INDEX cycle_residual_allocation_case_idx ON cycle_residual_allocation(cycle_residual_case_id);
 CREATE UNIQUE INDEX cycle_residual_allocation_case_account_unique ON cycle_residual_allocation(cycle_residual_case_id,wealth_account_id);
 
--- Idempotency key for salary-triggered residual generation jobs.
 CREATE UNIQUE INDEX job_cycle_residual_event_unique ON job ((payload_json->>'end_salary_event_id')) WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND status IN ('PENDING','RUNNING','SUCCEEDED');
 
 ALTER TABLE review_item ADD COLUMN cycle_residual_case_id UUID REFERENCES cycle_residual_case(id);

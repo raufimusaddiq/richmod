@@ -5,8 +5,6 @@ import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-// The component half of a page. The settings page also hosts the pure push-state model, which starts at its
-// first exported helper; every other page is one component and is scanned whole.
 const pageView = page => {
   const source = text(page === "settings" ? "app/components/SettingsPanels.js" : `app/${page}/page.js`);
   const model = page === "settings" ? source.indexOf("export function notificationState(") : -1;
@@ -93,8 +91,6 @@ test("manual transactions use an accessible dialog and refresh the ledger", () =
 });
 
 test("authenticated app shells are not cached across deployments", () => {
-  // The shell is a static export embedded in the Go binary; the handler owns the
-  // cache classes that next.config headers used to set.
   const handler = readFileSync(new URL("../../api/internal/webui/webui.go", import.meta.url), "utf8");
   assert.match(handler, /no-store, max-age=0/);
   assert.match(handler, /"\/transactions": \{\}/);
@@ -120,7 +116,6 @@ test("household route exposes Telegram connection state", () => {
   const source = text("app/household/page.js");
   assert.match(source, /telegramConnected/);
   assert.match(source, /telegram-invite/);
-  // An owner created without a Telegram ID links from their own row.
   assert.match(source, /member\.role === "OWNER" && member\.active && !member\.telegramConnected/);
 });
 
@@ -183,8 +178,6 @@ test("settings sections are labelled landmarks", () => {
 });
 
 test("forms are reset through a captured element, never event.currentTarget after an await", () => {
-  // React clears event.currentTarget once the handler yields, so a reset after
-  // await throws and skips the refresh that follows it.
   for (const route of ["household/page.js", "components/SettingsPanels.js", "documents/page.js", "transactions/page.js"]) {
     assert.doesNotMatch(text(`app/${route}`), /event\.currentTarget\.reset\(\)/, route);
   }
@@ -192,15 +185,11 @@ test("forms are reset through a captured element, never event.currentTarget afte
 
 test("household invites are copyable, cancellable and show expiry", () => {
   const source = text("app/household/page.js");
-  // The link is visible and copyable, not only openable.
   assert.match(source, /Salin tautan/);
   assert.match(source, /navigator\.clipboard\.writeText\(invite\.link\)/);
-  // Cancel goes to the endpoint that matches the invite kind (it used to always hit the Telegram one).
   assert.match(source, /INVITE_PATH\s*=\s*\{\s*telegram: "telegram-invite", dashboard: "dashboard-invite"/);
   assert.match(source, /revokeInvite\(invite\.kind, invite\.memberId\)/);
-  // Members who already set a password get a reset action, not a first-login invite.
   assert.match(source, /resetting \? "Atur ulang kata sandi" : "Undang masuk ke Richmod"/);
-  // Owners can see whether an invite is still valid, expired, or absent.
   assert.match(source, /sudah kedaluwarsa/);
   assert.match(source, /telegramInviteExpiresAt/);
   assert.match(source, /dashboardInviteExpiresAt/);
@@ -210,15 +199,12 @@ test("forgotten passwords are reset by an invite link, for members and owners", 
   const household = text("app/household/page.js");
   assert.match(household, /Atur ulang kata sandi/);
   assert.match(household, /body\.purpose === "RESET"/);
-  // An enrolled member gets the reset action instead of the first-login invite.
   assert.doesNotMatch(household, /if \(member\.passwordInitialized\) return null/);
   const admin = text("app/admin/Households.js");
   assert.match(admin, /reset: true/);
   assert.match(admin, /Atur ulang kata sandi pemilik/);
   assert.match(admin, /confirm\(/);
 });
-
-// ---- Implicit state machines: every async surface has explicit states ----
 
 const pages = ["inbox", "transactions", "settings", "household", "documents", "wealth"];
 

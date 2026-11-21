@@ -1,6 +1,3 @@
-// Package uitelemetry records privacy-safe screen/action events. Only fixed
-// allow-listed names are accepted; no amount, text, identifier or free-form
-// value can be stored.
 package uitelemetry
 
 import (
@@ -12,7 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// RateLimitPerMinute is the per-client cap: ample for navigation plus bursts.
 const RateLimitPerMinute = 120
 
 const maxBody = 512
@@ -21,8 +17,7 @@ var screens = map[string]bool{"home": true, "transactions": true, "analytics": t
 var actions = map[string]bool{"SCREEN_VIEW": true}
 
 type Handler struct {
-	pool *pgxpool.Pool
-	// record is replaceable in tests; production writes product_telemetry_event.
+	pool   *pgxpool.Pool
 	record func(ctx context.Context, household, screen, action string) error
 }
 
@@ -37,7 +32,6 @@ type request struct {
 	Action string `json:"action"`
 }
 
-// Valid reports whether the pair is on the allow-list.
 func Valid(screen, action string) bool { return screens[screen] && actions[action] }
 
 func (h *Handler) insert(ctx context.Context, household, screen, action string) error {
@@ -45,7 +39,6 @@ func (h *Handler) insert(ctx context.Context, household, screen, action string) 
 	return err
 }
 
-// Create handles POST /api/v1/telemetry/events.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !p.HasHousehold {

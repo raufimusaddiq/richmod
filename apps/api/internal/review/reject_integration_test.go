@@ -13,9 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// The shared reject operation must void the transaction, reject its proposal,
-// cancel the Telegram projection, and resolve the canonical item in one step,
-// while refusing a cross-household request.
 func TestRejectReviewUsesSharedCanonicalTransition(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -66,7 +63,6 @@ func TestRejectReviewUsesSharedCanonicalTransition(t *testing.T) {
 		t.Fatalf("transaction=%s proposal=%s request=%s item=%s", transactionStatus, proposalStatus, requestStatus, itemStatus)
 	}
 
-	// A second household must not be able to reject this transaction.
 	foreignHousehold, foreignUser, _ := seedTransferReviewOwner(t, pool, stamp+1)
 	_ = foreignHousehold
 	foreign := auth.Principal{UserID: foreignUser, Memberships: []auth.Membership{{HouseholdID: foreignHousehold, Role: "OWNER"}}}

@@ -35,12 +35,9 @@ function AnalyticsReview() {
   const [insightError, setInsightError] = useState("");
   const insightAbort = useRef(null);
   const [drafts, setDrafts] = useState({});
-  // The drawer returns focus to what opened it; a drawer opened by this page is closed with Back, one opened by a shared URL is replaced.
   const trigger = useRef(null);
   const drawerPushed = useRef(false);
   const comparison = useRef(null);
-  // A cycle the reader picked is the only thing allowed to mark an updated
-  // figure; the first load and the insight poll are not.
   const valueNav = useRef(false);
   const [valueUpdated, setValueUpdated] = useState(0);
   useEffect(() => {
@@ -73,7 +70,6 @@ function AnalyticsReview() {
   const loadedKey = useRef("");
   useEffect(() => {
     if (!user || selection.view !== "cycle") return;
-    // The default load rewrites the URL to the cycle it resolved; that is the same payload, so don't refetch it.
     if (selection.cycle && loadedKey.current === `${selection.cycle}|${reload}`) return;
     const controller = new AbortController();
     setLoading(true); setError("");
@@ -150,7 +146,6 @@ function AnalyticsReview() {
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const selectedCategory = selection.category ? facts?.categoryChanges.find(item => categoryKey(item) === selection.category) : null;
   const adjacent = adjacentCycles(facts?.cycles, facts?.period?.start);
-  // Choosing a category opens its drawer (the category stays in the URL); in a meeting it moves on to the evidence step.
   const chooseCategory = (category, element) => {
     trigger.current = element || null;
     drawerPushed.current = true;
@@ -202,7 +197,6 @@ function AnalyticsReview() {
             <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
             <HistoryCard facts={facts} onSelect={start => navigate({ cycle: start, category: "", step: "" })}/>
           </div>
-          {/* One card, five compact disclosure rows: the report's detail sections are not five stacked cards. */}
           <div className="review-stack surface card">
           {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
             <details className="report-disclosure" open={step === "position" || step === "changes"}>

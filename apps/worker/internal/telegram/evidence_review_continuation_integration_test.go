@@ -12,8 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Serves both entry points a reply can reach and counts agent calls, to prove the deterministic lane answered
-// without the model.
 type contGateway struct{ agentCalls int }
 
 func (*contGateway) NativeToolCall(ctx context.Context, a, b string, c any, d []gateway.ToolDefinition, o ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -33,7 +31,6 @@ type payslipReviewWorld struct {
 	gw                                             *contGateway
 }
 
-// Payslip with a missing pay date: upload is message 55, review card is message 61.
 func seedPayslipReview(t *testing.T, ctx context.Context) payslipReviewWorld {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -263,7 +260,6 @@ func TestOnlyExactRepliesToProposalReviewsTakeTheDeterministicLane(t *testing.T)
 	}
 }
 
-// A transaction-keyed review stays with the agent even when the reply is exact.
 func TestTransactionKeyedReviewRepliesStayWithTheAgent(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cont-tx-review")

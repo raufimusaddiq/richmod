@@ -1,4 +1,3 @@
-// Package clock preserves the API timezone interface over the shared clock.
 package clock
 
 import (

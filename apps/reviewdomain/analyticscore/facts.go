@@ -14,13 +14,12 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/financialmath"
 )
 
-// ErrCycleNotFound reports a requested cycle start with no confirmed salary anchor.
 var ErrCycleNotFound = errors.New("confirmed salary cycle not found")
 
 type reviewPeriod struct {
 	Kind          string  `json:"kind"`
 	Start         string  `json:"start"`
-	End           *string `json:"end"` // exclusive; unknown for an active salary cycle
+	End           *string `json:"end"`
 	MeasuredUntil string  `json:"measuredUntil"`
 	State         string  `json:"state"`
 	Configured    bool    `json:"configured"`
@@ -97,8 +96,6 @@ type reviewWealth struct {
 	Other    *string         `json:"valuationAndOtherChange"`
 }
 
-// historyCycle is one ledger column: whole-cycle totals for the cycle-to-cycle view.
-// Closed cycles are measured to their exclusive end, the active cycle to measuredUntil.
 type historyCycle struct {
 	Start            string  `json:"start"`
 	End              *string `json:"end"`
@@ -110,18 +107,14 @@ type historyCycle struct {
 	Expense          string  `json:"expense"`
 	Net              string  `json:"netCashflow"`
 	SavingsAllocated string  `json:"savingsAllocated"`
-	// ExpenseDelta is expense minus the preceding history entry's expense; null
-	// for the first entry. It is server arithmetic for the ledger's change row.
-	ExpenseDelta *string `json:"expenseDelta"`
+	ExpenseDelta     *string `json:"expenseDelta"`
 }
 
 type historyCategory struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Amounts []string `json:"amounts"`
-	// DeltaVsPrevious is the selected cycle's amount minus the cycle before it in
-	// this matrix; null when the selected cycle has no earlier column.
-	DeltaVsPrevious *string `json:"deltaVsPrevious"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Amounts         []string `json:"amounts"`
+	DeltaVsPrevious *string  `json:"deltaVsPrevious"`
 }
 
 type historyOther struct {
@@ -129,12 +122,8 @@ type historyOther struct {
 	DeltaVsPrevious *string  `json:"deltaVsPrevious"`
 }
 
-// categoryMatrix is one category x cycle matrix. Rows are the top categories by
-// net expense over the window; Other holds the rest, and Totals is each cycle's
-// net expense, so rows + Other = Totals in every column.
 type categoryMatrix struct {
-	CycleStarts []string `json:"cycleStarts"`
-	// SelectedIndex is the selected cycle's column; null when it is not in the window.
+	CycleStarts          []string          `json:"cycleStarts"`
 	SelectedIndex        *int              `json:"selectedIndex"`
 	Rows                 []historyCategory `json:"rows"`
 	Other                historyOther      `json:"other"`
@@ -142,19 +131,12 @@ type categoryMatrix struct {
 	TotalDeltaVsPrevious *string           `json:"totalDeltaVsPrevious"`
 }
 
-// sameDayMatrix cuts every cycle at the same elapsed day-of-cycle as the active
-// selected cycle (a shorter cycle is cut at its own end), so no partial cycle is
-// compared with a full one. It uses the same rows as the full matrix.
 type sameDayMatrix struct {
-	ElapsedDays int `json:"elapsedDays"`
-	// MeasuredDays is how many days each column actually covers: ElapsedDays, or
-	// fewer for a cycle that ended sooner (kept whole, so the UI can say "hari 1-N").
+	ElapsedDays  int   `json:"elapsedDays"`
 	MeasuredDays []int `json:"measuredDays"`
 	categoryMatrix
 }
 
-// categoryHistory is the full-cycle matrix plus, while the selected cycle is
-// ACTIVE, the same-day view (null otherwise).
 type categoryHistory struct {
 	categoryMatrix
 	SameDay *sameDayMatrix `json:"sameDay"`
@@ -168,9 +150,6 @@ func emptyCategoryHistory() categoryHistory {
 	return categoryHistory{categoryMatrix: emptyMatrix()}
 }
 
-// merchantRankRow is one payee in the amount-ranked merchant list. Kind is
-// MERCHANT (resolved merchant, ID set), COUNTERPARTY (unresolved named payee) or
-// NONE (no merchant and no counterparty, shown as "Tanpa merchant").
 type merchantRankRow struct {
 	reviewValue
 	Kind     string  `json:"kind"`
@@ -194,9 +173,6 @@ type merchantRankTotal struct {
 	Delta    *string `json:"deltaVsPrevious"`
 }
 
-// merchantRanking lists payees by net amount, largest first. Previous follows
-// the comparison mode: the previous eligible cycle at the same elapsed day while
-// ACTIVE, the previous full cycle once CLOSED. Rows + Other = Total = cashflow.expense.
 type merchantRanking struct {
 	Mode  string            `json:"mode"`
 	Rows  []merchantRankRow `json:"rows"`
@@ -206,27 +182,21 @@ type merchantRanking struct {
 
 const merchantRankingRows = 10
 
-// reviewMember is one recorder in the household attribution. It is descriptive,
-// not a ranking: the automatic bucket comes first, then members by name.
 type reviewMember struct {
 	reviewValue
-	Kind  string  `json:"kind"` // AUTOMATIC | MEMBER
+	Kind  string  `json:"kind"`
 	Share *string `json:"shareOfExpense"`
 }
 
 type Facts struct {
-	Version     string         `json:"version"`
-	GeneratedAt time.Time      `json:"generatedAt"`
-	Period      reviewPeriod   `json:"period"`
-	Cycles      []reviewPeriod `json:"cycles"`
-	// History and CategoryHistory are additive ledger series; they are never
-	// forwarded to analytical tools (tools use explicit projections).
+	Version         string          `json:"version"`
+	GeneratedAt     time.Time       `json:"generatedAt"`
+	Period          reviewPeriod    `json:"period"`
+	Cycles          []reviewPeriod  `json:"cycles"`
 	History         []historyCycle  `json:"history"`
 	CategoryHistory categoryHistory `json:"categoryHistory"`
-	// Pace carries the previous cycle's and the 3-cycle median's cumulative curves
-	// for the pace chart. Like History, it is never forwarded to analytical tools.
-	Pace       paceBaselines `json:"pace"`
-	Comparison struct {
+	Pace            paceBaselines   `json:"pace"`
+	Comparison      struct {
 		Mode              string        `json:"mode"`
 		Previous          *reviewPeriod `json:"previous"`
 		PreviousFullCycle *reviewPeriod `json:"previousFullCycle"`
@@ -239,9 +209,8 @@ type Facts struct {
 	Cashflow      reviewCashflow      `json:"cashflow"`
 	Daily         []map[string]string `json:"daily"`
 	SpendingShape struct {
-		Days    int    `json:"days"`
-		Average string `json:"averageDailyExpense"`
-		// AverageRounded is the average in whole rupiah, half away from zero, so the web never rounds money.
+		Days           int     `json:"days"`
+		Average        string  `json:"averageDailyExpense"`
 		AverageRounded string  `json:"averageDailyExpenseRounded"`
 		PeakDay        *string `json:"peakDay"`
 		PeakExpense    string  `json:"peakExpense"`
@@ -251,17 +220,13 @@ type Facts struct {
 	CategoryRanking categoryRanking  `json:"categoryRanking"`
 	Categories      []reviewCategory `json:"categoryChanges"`
 	Merchants       []reviewChange   `json:"merchantDrivers"`
-	// MerchantRanking is the amount-ranked payee list for the cycle view.
-	MerchantRanking merchantRanking `json:"merchantRanking"`
-	Members         []reviewMember  `json:"memberAttribution"`
-	Destinations    []reviewValue   `json:"savingsDestinations"`
-	Wealth          reviewWealth    `json:"wealth"`
-	Quality         []reviewBlocker `json:"dataQuality"`
+	MerchantRanking merchantRanking  `json:"merchantRanking"`
+	Members         []reviewMember   `json:"memberAttribution"`
+	Destinations    []reviewValue    `json:"savingsDestinations"`
+	Wealth          reviewWealth     `json:"wealth"`
+	Quality         []reviewBlocker  `json:"dataQuality"`
 }
 
-// Completeness retains ADR-015's coverage gate on gross confirmed expense so refunds
-// cannot inflate category coverage. Open reviews apply the 0.90 coverage factor; this
-// measures data quality, never noteworthiness.
 func (f Facts) Completeness() string {
 	gross, _ := new(big.Int).SetString(f.Cashflow.GrossExpense, 10)
 	if gross == nil {
@@ -302,7 +267,7 @@ type cycleMeasure struct {
 	cash                  reviewCashflow
 	categories, merchants map[string]reviewValue
 	categoryMerchants     map[string]map[string]reviewValue
-	dailyNet              map[string]string // YYYY-MM-DD (Jakarta) -> net expense that day
+	dailyNet              map[string]string
 }
 
 func newCycleMeasure(period reviewPeriod) cycleMeasure {
@@ -310,25 +275,18 @@ func newCycleMeasure(period reviewPeriod) cycleMeasure {
 }
 
 const (
-	// DefaultHistory and MaxHistory bound the ledger window (cycles).
 	DefaultHistory = 6
 	MaxHistory     = 12
 )
 
-// Load computes one household's authoritative cycle facts in a read-only
-// repeatable-read snapshot, without the multi-cycle history series. Callers own
-// household authorization.
 func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time) (Facts, error) {
 	return LoadWithHistory(ctx, pool, household, selected, now, 0)
 }
 
-// LoadWithHistory is Load plus the cycle-to-cycle history series for up to
-// `history` cycles (0 disables it, at most MaxHistory).
 func LoadWithHistory(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time, history int) (Facts, error) {
 	return load(ctx, pool, household, selected, now, history, "")
 }
 
-// load excludes only the current server-owned source from unfinished processing.
 func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time, history int, currentSourceEventID string) (Facts, error) {
 	if history < 0 || history > MaxHistory {
 		return Facts{}, errors.New("history must be 0 to 12")
@@ -388,9 +346,6 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 			continue
 		}
 		if facts.Period.State == "ACTIVE" {
-			// A closed cycle shorter than the elapsed days is kept whole (measured
-			// to its own end) instead of skipped; skipping it made an older, longer
-			// cycle masquerade as "previous" and disagreed with the history matrix.
 			p = sameDayPeriod(p, daysBetween(facts.Period.Start, facts.Period.MeasuredUntil))
 			facts.Cycles[index+1+offset].MeasuredUntil = p.MeasuredUntil
 		}
@@ -405,7 +360,6 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		p := measures[1].period
 		facts.Comparison.Previous = &p
 	}
-	// Full-cycle context is separate from eligible equal-day history and median.
 	historyCount, fullIndex := len(measures), -1
 	if index+1 < len(periods) && periods[index+1].State == "CLOSED" {
 		p := periods[index+1]
@@ -488,17 +442,11 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	return facts, tx.Commit(ctx)
 }
 
-// paceBaselines are per-day cumulative net-expense curves; index i is day i+1 of
-// the cycle. PreviousFullCycle is the previous closed cycle in full. Median3 is the
-// per-day median of the three eligible cycles over the days all three share (the
-// elapsed days while the selected cycle runs). Each is null when it does not exist.
 type paceBaselines struct {
 	PreviousFullCycle []string `json:"previousFullCycle"`
 	Median3           []string `json:"median3"`
 }
 
-// cumulativeSeries is the running net expense for each day from the cycle start up
-// to its measured cutoff.
 func cumulativeSeries(m cycleMeasure) []string {
 	start, startErr := time.ParseInLocation("2006-01-02", m.period.Start, clock.HouseholdLocation())
 	end, endErr := time.ParseInLocation("2006-01-02", m.period.MeasuredUntil, clock.HouseholdLocation())
@@ -531,9 +479,6 @@ func buildPace(previousFull *cycleMeasure, eligible []cycleMeasure, medianAvaila
 	return pace
 }
 
-// historyWindow selects the ledger cycles from periods (newest first): the n most
-// recent, or n ending at the selected cycle when it is older, returned oldest first.
-// Closed cycles are measured to their full exclusive end.
 func historyWindow(periods []reviewPeriod, index, n int) []reviewPeriod {
 	if n <= 0 || index < 0 || index >= len(periods) {
 		return nil
@@ -557,8 +502,6 @@ func historyWindow(periods []reviewPeriod, index, n int) []reviewPeriod {
 	return window
 }
 
-// historyMeasures reuses already-loaded measures with the same start and
-// cutoff, and appends the rest. It returns the window as measure indices.
 func historyMeasures(measures []cycleMeasure, window []reviewPeriod) ([]cycleMeasure, []int) {
 	seen := map[string]int{}
 	for i, m := range measures {
@@ -578,9 +521,6 @@ func historyMeasures(measures []cycleMeasure, window []reviewPeriod) ([]cycleMea
 	return measures, indices
 }
 
-// sameDayWindow cuts each window cycle at the selected active cycle's elapsed
-// day count (a cycle shorter than that is measured to its own end). The active
-// cycle itself keeps its measured cutoff.
 func sameDayWindow(window []reviewPeriod, elapsed int) []reviewPeriod {
 	out := make([]reviewPeriod, 0, len(window))
 	for _, p := range window {
@@ -589,9 +529,6 @@ func sameDayWindow(window []reviewPeriod, elapsed int) []reviewPeriod {
 	return out
 }
 
-// sameDayPeriod cuts a closed cycle at the first `elapsed` calendar days
-// (start-inclusive, exclusive end on the Asia/Jakarta date grid). A cycle no
-// longer than that is measured to its own end; open cycles are untouched.
 func sameDayPeriod(p reviewPeriod, elapsed int) reviewPeriod {
 	if p.State != "CLOSED" || p.End == nil {
 		return p
@@ -608,12 +545,6 @@ func sameDayPeriod(p reviewPeriod, elapsed int) reviewPeriod {
 	return p
 }
 
-// buildHistory turns loaded window measures (oldest first) into the ledger
-// series. Amounts are Go-computed whole-IDR strings; "Other" is net expense minus
-// the listed rows, so each cycle reconciles exactly. sameDay holds the indices of
-// the same cycles cut at one elapsed day (nil unless the selected cycle is
-// ACTIVE); its rows are the full matrix's rows. selectedStart picks the column
-// that deltaVsPrevious is measured for.
 func buildHistory(measures []cycleMeasure, window, sameDay []int, selectedStart string) ([]historyCycle, categoryHistory) {
 	history := make([]historyCycle, 0, len(window))
 	totals, names := map[string]string{}, map[string]string{}
@@ -665,10 +596,6 @@ func buildHistory(measures []cycleMeasure, window, sameDay []int, selectedStart 
 	return history, matrix
 }
 
-// buildMatrix lays out the listed category ids by cycle. Other = net expense minus
-// the listed rows and Totals = net expense, so rows + Other = Totals per column.
-// With a selected column after the first, every row, Other and the total carry
-// selected minus the column before it.
 func buildMatrix(measures []cycleMeasure, idxs []int, ids []string, names map[string]string, selected int) categoryMatrix {
 	matrix := emptyMatrix()
 	for _, id := range ids {
@@ -707,7 +634,6 @@ func emptyMerchantRanking() merchantRanking {
 	return merchantRanking{Rows: []merchantRankRow{}, Other: merchantRankOther{Amount: "0"}, Total: merchantRankTotal{Amount: "0"}}
 }
 
-// noMerchantName labels expense rows with neither a merchant nor a counterparty.
 const noMerchantName = "Tanpa merchant"
 
 func merchantKind(v reviewValue) string {
@@ -720,11 +646,6 @@ func merchantKind(v reviewValue) string {
 	return "COUNTERPARTY"
 }
 
-// buildMerchantRanking ranks the selected cycle's payees by net amount (largest
-// first, numerically) and compares them with measures[1], the comparison cycle.
-// Payees with a zero or negative net, and everything after the top rows, fall
-// into Other, which is computed as total minus listed so rows + Other = Total =
-// the cycle's net expense to the rupiah.
 func buildMerchantRanking(measures []cycleMeasure, mode string) merchantRanking {
 	ranking := emptyMerchantRanking()
 	ranking.Mode = mode
@@ -948,7 +869,6 @@ func orderedValues(values map[string]reviewValue) []reviewValue {
 	for _, v := range values {
 		out = append(out, v)
 	}
-	// Attribution is descriptive, not a ranking of household members.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name
@@ -958,10 +878,6 @@ func orderedValues(values map[string]reviewValue) []reviewValue {
 	return out
 }
 
-// orderedMembers keeps attribution descriptive, never a ranking: the automatic
-// bucket first, then members by name. shareOfExpense is Go-computed in
-// basis points with largest-remainder rounding, so the shares sum to exactly
-// 1.0000; it is null when net expense is not positive or a member is negative.
 func orderedMembers(values map[string]reviewValue) []reviewMember {
 	out := make([]reviewMember, 0, len(values))
 	total := big.NewInt(0)
@@ -1021,11 +937,6 @@ func memberValues(members []reviewMember) []reviewValue {
 	return out
 }
 
-// medianCohort reports whether measures (selected cycle first) hold three prior
-// cycles that may share one median. While the selected cycle is ACTIVE every
-// prior cycle must cover the same number of days as the selected cycle's
-// elapsed days; a shorter cycle measured whole stays the previous-cycle baseline
-// but is never mixed into a median of unequal windows.
 func medianCohort(measures []cycleMeasure) bool {
 	if len(measures) != 4 {
 		return false

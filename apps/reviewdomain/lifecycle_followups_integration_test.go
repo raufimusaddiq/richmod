@@ -72,18 +72,14 @@ func (f *lifecycleFixture) inTx(run func(tx pgx.Tx) error) {
 	f.must(tx.Commit(f.ctx))
 }
 
-// A dismissed wealth observation is rejected evidence whatever its origin: a
-// provider-email one settles its source exactly like a document one does.
 func TestDismissedWealthObservationSettlesBothOrigins(t *testing.T) {
 	f := newLifecycleFixture(t)
 	decision := `{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","knownFacts":{},"missingFacts":["wealth_snapshot_confirmation"],"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`
-	// Document origin.
 	documentSource := f.source("TELEGRAM_IMAGE")
 	attachment := f.id(`INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, f.household, []byte(documentSource), f.household+"/"+documentSource+".png")
 	document := f.id(`INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION','NEEDS_REVIEW') RETURNING id`, f.household, documentSource, attachment)
 	documentObservation := f.id(`INSERT INTO wealth_observation(household_id,document_id,institution,account_hint,observed_value_idr) VALUES($1,$2,'Bibit','Reksadana',1000) RETURNING id`, f.household, document)
 	documentItem := f.id(`INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) RETURNING id`, f.household, documentObservation, decision)
-	// Provider-email origin: the review binds both observations (migration 00052).
 	emailSource := f.source("FINANCIAL_EMAIL")
 	emailObservation := f.id(`INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'WEALTH_VALUE','{}'::jsonb,'REVIEW') RETURNING id`, f.household, emailSource)
 	emailWealth := f.id(`INSERT INTO wealth_observation(household_id,financial_email_observation_id,institution,account_hint,observed_value_idr) VALUES($1,$2,'Bibit','Reksadana',1000) RETURNING id`, f.household, emailObservation)
@@ -96,7 +92,6 @@ func TestDismissedWealthObservationSettlesBothOrigins(t *testing.T) {
 	if got, want := f.status(emailSource), f.status(documentSource); got != "IGNORED" || want != "IGNORED" {
 		t.Fatalf("a dismissed wealth observation must settle both origins alike: email=%s document=%s", got, want)
 	}
-	// An accepted sibling still wins over the dismissal on a provider email.
 	f.must(f.pool.QueryRow(f.ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,1,'CASH_MOVEMENT','{}'::jsonb,'APPLIED') RETURNING id`, f.household, emailSource).Scan(new(string)))
 	f.inTx(func(tx pgx.Tx) error { return RefreshSourceLifecycle(f.ctx, tx, f.household, emailSource) })
 	if got := f.status(emailSource); got != "PROCESSED" {
@@ -104,8 +99,6 @@ func TestDismissedWealthObservationSettlesBothOrigins(t *testing.T) {
 	}
 }
 
-// Reopening a dismissed source- or document-bound review leaves the status to
-// the shared refresh: the new open item is what puts the source back in review.
 func TestReopenedSourceReviewIsSettledByTheSharedRefresh(t *testing.T) {
 	f := newLifecycleFixture(t)
 	for _, bound := range []string{"source_event", "document"} {
@@ -133,7 +126,6 @@ func TestReopenedSourceReviewIsSettledByTheSharedRefresh(t *testing.T) {
 			if reopened == "" || f.status(source) != "NEEDS_REVIEW" {
 				t.Fatalf("reopened=%q source=%s", reopened, f.status(source))
 			}
-			// Settling the reopened item again goes through the same rule.
 			f.inTx(func(tx pgx.Tx) error {
 				return IgnoreReviewItem(f.ctx, tx, IgnoreCommand{HouseholdID: f.household, ActorUserID: f.user, ReviewItemID: reopened})
 			})

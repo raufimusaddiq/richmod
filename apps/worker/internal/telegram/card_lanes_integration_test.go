@@ -100,8 +100,6 @@ func (f *cardFixture) lastEdit(messageID int64) (string, string) {
 	return text, markup
 }
 
-// One expense review is one card: the category tap turns it into its result with the remember choice inline;
-// no extra message or leftover button.
 func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -138,8 +136,6 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 	}
 }
 
-// A multi-purpose merchant gets its own past categories first, most used first, starring the one every
-// earlier purchase at this amount used.
 func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 	f := newCardFixture(t)
 	galon := f.id(`INSERT INTO category(household_id,name,slug,sort_order) VALUES($1,'Galon Isi Ulang','galon',9) RETURNING id`, f.household)
@@ -156,7 +152,6 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 	confirmed(galon, 34500, 11)
 	confirmed(galon, 23000, 12)
 	confirmed(gas, 23000, 20)
-	// Another household's history must not leak in.
 	foreign := f.id(`INSERT INTO household(name) VALUES('foreign') RETURNING id`)
 	foreignCategory := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Asing','asing') RETURNING id`, foreign)
 	foreignMerchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, foreign)
@@ -190,7 +185,6 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 		t.Fatalf("generic rows repeat history or leak another household: %s", encoded)
 	}
 
-	// The history is split at this amount, so nothing is starred.
 	f.exec(`UPDATE transaction SET amount=23000 WHERE id=$1`, transaction)
 	markup = categoryChooserMarkup(f.ctx, tx, request, 0)
 	encoded, _ = json.Marshal(markup.InlineKeyboard[0])
@@ -199,7 +193,6 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 	}
 }
 
-// Abaikan executes for every kind whose contract allows IGNORE; other kinds never show it.
 func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 	f := newCardFixture(t)
 	t.Run("missing amount", func(t *testing.T) {
@@ -261,7 +254,6 @@ func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 	})
 }
 
-// A transfer review bound to a source event and reconciliation case renders its chooser from the case.
 func TestSourceBoundTransferCardHasExecutableButtons(t *testing.T) {
 	f := newCardFixture(t)
 	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
@@ -326,7 +318,6 @@ func TestIncomeCardConfirmAndChangeExecute(t *testing.T) {
 	}
 }
 
-// A card re-rendered after a partial answer keeps its remaining actions rather than an empty keyboard.
 func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',18502,now()) RETURNING id`, f.household)
@@ -350,8 +341,6 @@ func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
 	}
 }
 
-// A stale tap on a card no longer tied to a live review loses its buttons; a stale choice on a still-open
-// card keeps them.
 func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',1000,now(),now()) RETURNING id`, f.household)
@@ -369,7 +358,6 @@ func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, f.household)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,category_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',42000,now(),$2,$3) RETURNING id`, f.household, f.user, category)
-	// Date and category answered before the merge must not be asked again after reversal.
 	f.exec(`INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,decision) VALUES($1,$2,'TRANSACTION_FACTS_MISSING','RESOLVED',now(),'{"version":1,"reasonCode":"TRANSACTION_FACTS_MISSING","knownFacts":{"amount_idr":"1"},"missingFacts":["category","transaction_at"],"allowedActions":["CONFIRM_REVIEW","SET_PAY_DATE","IGNORE"]}'::jsonb)`, f.household, transaction)
 	tx, err := f.pool.Begin(f.ctx)
 	if err != nil {
@@ -407,7 +395,6 @@ func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 	}
 }
 
-// A merchant already confirmed with another category is not offered a single remembered default.
 func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 	f := newCardFixture(t)
 	galon := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -429,7 +416,6 @@ func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 	}
 }
 
-// A delayed or retried question edit running after the final answer is dropped, so the remember buttons never return.
 func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -472,8 +458,6 @@ func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 	}
 }
 
-// A repeated tap on the remember question does not retire it, and a retirement queued before the first
-// outcome is dropped once the outcome exists.
 func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
@@ -590,8 +574,6 @@ func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
 	}
 }
 
-// The transfer chooser offers merge only for candidates the shared merge rule accepts, and no record-as-new
-// button without a proposed purpose.
 func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
 	f := newCardFixture(t)
 	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
@@ -627,7 +609,6 @@ func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
 	if status != "RESOLVED" || acceptedStatus != "CONFIRMED" || elsewhereStatus != "NEEDS_REVIEW" {
 		t.Fatalf("merge: item=%s accepted=%s elsewhere=%s", status, acceptedStatus, elsewhereStatus)
 	}
-	// Without a proposed purpose only dismiss remains.
 	_, _, markup, _ = project("", elsewhere)
 	if strings.Contains(markup, "review:xfer:merge:") || strings.Contains(markup, "review:xfer:new") || !strings.Contains(markup, "review:ignore") {
 		t.Fatalf("a purpose-less case with no mergeable candidate offers only dismiss: %s", markup)

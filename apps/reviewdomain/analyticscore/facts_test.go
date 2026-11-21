@@ -110,9 +110,8 @@ func TestCompletenessUsesGrossExpenseAndReviewCoverage(t *testing.T) {
 
 func historyPeriods() []reviewPeriod {
 	end := func(date string) *string { return &date }
-	return []reviewPeriod{ // newest first, as reviewPeriods returns them
+	return []reviewPeriod{
 		{Kind: "SALARY_CYCLE", Start: "2026-09-01", MeasuredUntil: "2026-09-11", State: "ACTIVE"},
-		// An active review rewrites this cycle's cutoff to the equal-day prefix.
 		{Kind: "SALARY_CYCLE", Start: "2026-08-01", End: end("2026-09-01"), MeasuredUntil: "2026-08-11", State: "CLOSED"},
 		{Kind: "SALARY_CYCLE", Start: "2026-07-01", End: end("2026-08-01"), MeasuredUntil: "2026-08-01", State: "CLOSED"},
 		{Kind: "SALARY_CYCLE", Start: "2026-06-01", End: end("2026-07-01"), MeasuredUntil: "2026-07-01", State: "CLOSED"},
@@ -163,7 +162,6 @@ func TestHistoryMeasuresReuseLoadedCyclesWithTheSameCutoff(t *testing.T) {
 	periods := historyPeriods()
 	measures := []cycleMeasure{newCycleMeasure(periods[0]), newCycleMeasure(reviewPeriod{Start: "2026-08-01", MeasuredUntil: "2026-08-11"})}
 	out, indices := historyMeasures(measures, historyWindow(periods, 0, 3))
-	// 07-01 and the full 08-01 cycle are new; the active cycle is reused.
 	if len(out) != 4 || len(indices) != 3 || indices[0] != 2 || indices[1] != 3 || indices[2] != 0 {
 		t.Fatalf("out=%d indices=%v", len(out), indices)
 	}
@@ -188,9 +186,9 @@ func TestBuildHistoryReconcilesEveryCycleExactly(t *testing.T) {
 	for i, id := range []string{"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"} {
 		first[id], second[id] = []string{"100", "200", "300", "400", "500", "600", "700", "800"}[i], "10"
 	}
-	first["p9"], second["p9"] = "50", "5"    // eighth/ninth by total, so p1 and p9 fall into Other
-	first["r1"], second["r1"] = "-30", "-20" // refund-only category
-	first["z"], second["z"] = "0", "0"       // never listed: zero over the window
+	first["p9"], second["p9"] = "50", "5"
+	first["r1"], second["r1"] = "-30", "-20"
+	first["z"], second["z"] = "0", "0"
 	measures := []cycleMeasure{historyMeasure("2026-06-01", first), historyMeasure("2026-07-01", second)}
 	history, matrix := buildHistory(measures, []int{0, 1}, nil, "")
 	if len(history) != 2 || len(matrix.Rows) != 7 || matrix.Rows[0].ID != "p8" || matrix.Rows[6].ID != "p2" {
@@ -270,9 +268,9 @@ func TestCumulativeSeriesRunsToTheCutoffAndAllowsRefunds(t *testing.T) {
 }
 
 func TestBuildPaceUsesTheFullPreviousCycleAndTheDaysAllThreeShare(t *testing.T) {
-	a := paceMeasure("2026-05-01", "2026-05-06", map[string]string{"2026-05-02": "100", "2026-05-04": "200"}) // 0,100,100,300,300
-	b := paceMeasure("2026-06-01", "2026-06-05", map[string]string{"2026-06-01": "500", "2026-06-03": "100"}) // 500,500,600,600
-	c := paceMeasure("2026-07-01", "2026-07-08", map[string]string{"2026-07-01": "300", "2026-07-03": "400"}) // 300,300,700,700,700,700,700
+	a := paceMeasure("2026-05-01", "2026-05-06", map[string]string{"2026-05-02": "100", "2026-05-04": "200"})
+	b := paceMeasure("2026-06-01", "2026-06-05", map[string]string{"2026-06-01": "500", "2026-06-03": "100"})
+	c := paceMeasure("2026-07-01", "2026-07-08", map[string]string{"2026-07-01": "300", "2026-07-03": "400"})
 	pace := buildPace(&a, []cycleMeasure{a, b, c}, true)
 	if got := strings.Join(pace.PreviousFullCycle, ","); got != "0,100,100,300,300" {
 		t.Fatalf("previous=%s", got)

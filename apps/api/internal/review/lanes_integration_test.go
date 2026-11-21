@@ -121,8 +121,6 @@ func (f *laneFixture) status(source string) string {
 	return status
 }
 
-// A bank-email source review offers bank fact completion (never document
-// reprocessing, which needs a document), and every offered action executes.
 func TestBankEmailLowConfidenceOffersOnlyExecutableActions(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -152,9 +150,6 @@ func TestBankEmailLowConfidenceOffersOnlyExecutableActions(t *testing.T) {
 	}
 }
 
-// A provider email whose facts are unsupported is a notice: it is not counted
-// as a decision, and acknowledging it settles the source through the shared
-// lifecycle.
 func TestFinancialEmailFactsIsANoticeOutsideTheDecisionCount(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -182,7 +177,6 @@ func TestFinancialEmailFactsIsANoticeOutsideTheDecisionCount(t *testing.T) {
 	if got := f.status(source); got != "IGNORED" {
 		t.Fatalf("source=%s", got)
 	}
-	// Reopening twice (or racing) never gives one observation two open reviews.
 	if w := f.reopen(notice); w.Code != http.StatusOK {
 		t.Fatalf("reopen=%d %s", w.Code, w.Body.String())
 	}
@@ -196,9 +190,6 @@ func TestFinancialEmailFactsIsANoticeOutsideTheDecisionCount(t *testing.T) {
 	}
 }
 
-// Choosing the wealth account is one action that resolves the review; the
-// observation is accepted for the next snapshot, the document and source are
-// settled, and the decision can be reopened.
 func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -246,7 +237,6 @@ func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
 	if w := f.reopen(item); w.Code != http.StatusConflict {
 		t.Fatalf("an already reopened decision cannot be reopened twice: %d", w.Code)
 	}
-	// IGNORE settles the document instead of leaving it NEEDS_REVIEW.
 	source, document, _, item = seed()
 	if w := f.resolve(item, `{"action":"IGNORE"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("ignore=%d %s", w.Code, w.Body.String())
@@ -257,9 +247,6 @@ func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
 	}
 }
 
-// TRANSACTION_MISSING has a defined outcome: the residual review resolves as
-// "transaksi belum tercatat", and recording a transaction in that cycle reopens
-// it with the recomputed residual. No synthetic transaction is written.
 func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -287,8 +274,6 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	if status != "RESOLVED" || resolution != "TRANSACTION_MISSING" || route.Route != "CANONICAL_TRANSACTION_FLOW" || route.CycleStart != "2026-08-25" {
 		t.Fatalf("status=%s resolution=%s route=%+v", status, resolution, route)
 	}
-	// The household records the missing expense through manual entry, where
-	// the Inbox sends it.
 	at := time.Date(2026, 9, 1, 5, 0, 0, 0, time.UTC)
 	var category string
 	f.must(f.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 LIMIT 1`, f.household).Scan(&category))
@@ -303,11 +288,9 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	if reopened != "700000" || residual != "700000" {
 		t.Fatalf("reopened residual=%s basis=%s", reopened, residual)
 	}
-	// A residual that already has an open review is never given a second one.
 	if w := f.reopen(item); w.Code != http.StatusConflict {
 		t.Fatalf("reopen beside an open residual review=%d %s", w.Code, w.Body.String())
 	}
-	// An expense that exhausts the residual records cleanly and asks nothing.
 	reopenedItem := ""
 	f.must(f.pool.QueryRow(ctx, `SELECT id FROM review_item WHERE cycle_residual_case_id=$1 AND status='OPEN'`, caseID).Scan(&reopenedItem))
 	if w := f.resolve(reopenedItem, `{"action":"TRANSACTION_MISSING"}`); w.Code != http.StatusOK {
@@ -327,8 +310,6 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	}
 }
 
-// The transaction review list is paged with a keyset cursor instead of being
-// silently capped at 100.
 func TestTransactionReviewListPagesWithACursor(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -348,8 +329,6 @@ func TestTransactionReviewListPagesWithACursor(t *testing.T) {
 	}
 }
 
-// A transfer case with neither candidates nor a proposed purpose offers a new
-// transfer with the bounded purpose choices instead of IGNORE only.
 func TestTransferCaseWithoutPurposeOffersBoundedNewTransfer(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -376,8 +355,6 @@ func TestTransferCaseWithoutPurposeOffersBoundedNewTransfer(t *testing.T) {
 	}
 }
 
-// A source that never printed a date is answered with a bounded one-tap date
-// that Go resolves (SET_TRANSACTION_DATE), not a date the user cannot know.
 func TestMissingTransactionDateTakesAOneTapDateChoice(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -415,8 +392,6 @@ func TestMissingTransactionDateTakesAOneTapDateChoice(t *testing.T) {
 	}
 }
 
-// Reopening a transaction review rebuilds its decision from the transaction as
-// it is now instead of reusing the old snapshot.
 func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -430,10 +405,6 @@ func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
 	defer tx.Rollback(ctx)
 	f.must(reviewdomain.ReopenTransactionReview(ctx, tx, f.household, transaction))
 	f.must(tx.Commit(ctx))
-	// Reversing a merge makes the duplicate relationship undecided again; the
-	// category is already known now, so it is not asked again, and the stale
-	// snapshot (amount 1, merchant/category missing) is not reused. The new item
-	// is projected to Telegram through the shared job.
 	var missing, amount, item string
 	f.must(f.pool.QueryRow(ctx, `SELECT id::text,decision->>'missingFacts',decision->'knownFacts'->>'amount_idr' FROM review_item WHERE transaction_id=$1 AND status='OPEN'`, transaction).Scan(&item, &missing, &amount))
 	if missing != `["duplicate_relationship"]` || amount != "25000" {
@@ -446,8 +417,6 @@ func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
 	}
 }
 
-// IGNORE through the canonical resolve on an open transaction review is the
-// transaction lane's rejection, so offered and accepted agree.
 func TestIgnoreOnOpenTransactionReviewRejectsThroughTheTransactionLane(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -464,8 +433,6 @@ func TestIgnoreOnOpenTransactionReviewRejectsThroughTheTransactionLane(t *testin
 	}
 }
 
-// Merging into a case without a proposed purpose keeps the matched transfer's
-// own purpose; an unclassified candidate cannot be merged without one.
 func TestTransferMergeWithoutProposedPurposeKeepsTheTargetPurpose(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -494,9 +461,6 @@ func TestTransferMergeWithoutProposedPurposeKeepsTheTargetPurpose(t *testing.T) 
 	}
 }
 
-// A provider-email wealth review binds both the wealth and the email
-// observation (migration 00052); it is still a decision whose account choice
-// executes, not a notice.
 func TestProviderEmailWealthReviewKeepsItsAccountChoice(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()
@@ -518,9 +482,6 @@ func TestProviderEmailWealthReviewKeepsItsAccountChoice(t *testing.T) {
 	}
 }
 
-// The transaction-bound list path filters the stored decision through the same
-// executable rule as the canonical path: an action no resolver runs on an open
-// transaction is never offered.
 func TestTransactionReviewListOffersOnlyExecutableActions(t *testing.T) {
 	f := newLaneFixture(t)
 	ctx := context.Background()

@@ -26,7 +26,6 @@ CREATE TABLE llm_call (
 );
 CREATE INDEX llm_call_household_task_time_idx ON llm_call(household_id,task,created_at DESC);
 
--- The end date is exclusive. Null bounds mean no confirmed primary salary cycle.
 -- +goose StatementBegin
 CREATE FUNCTION salary_cycle_bounds(p_household UUID, p_as_of DATE)
 RETURNS TABLE(configured BOOLEAN, starts_on DATE, ends_on DATE)
@@ -42,7 +41,6 @@ LANGUAGE sql STABLE AS $$
 $$;
 -- +goose StatementEnd
 
--- Ensure incomplete sources already visible as NEEDS_REVIEW have one canonical item.
 INSERT INTO review_item(household_id,source_event_id,review_type,status)
 SELECT s.household_id,s.id,CASE WHEN s.source_type='BANK_EMAIL' THEN 'UNKNOWN_BANK_TEMPLATE' ELSE 'MANUAL_CORRECTION' END,'OPEN'
 FROM source_event s

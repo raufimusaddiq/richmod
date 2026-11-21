@@ -16,10 +16,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// localTimePattern accepts 15:00, 9:30 and the Indonesian 15.00.
 var localTimePattern = regexp.MustCompile(`^([01]?[0-9]|2[0-3])[:.]([0-5][0-9])$`)
 
-// parseLocalTime reads an exact clock time or a named time of day; approximate names return their representative hour.
 func parseLocalTime(value string) (hour, minute int, ok bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if approximate, found := approximateLocalTimes[value]; found {
@@ -90,7 +88,6 @@ type telegramUpdate struct {
 	} `json:"callback_query"`
 }
 
-// turnTime is the household-local send time; the message timestamp wins so a retried turn keeps the sent day.
 func (p *Processor) turnTime(update telegramUpdate) time.Time {
 	if update.Message.Date > 0 {
 		return time.Unix(update.Message.Date, 0).In(jakartaLocation())
@@ -108,7 +105,6 @@ func (p *Processor) SetPostGenerativeAutoConfirm(enabled bool) {
 	p.postGenerativeAutoConfirmOff = !enabled
 }
 
-// EnsureSourceEventFinal turns an acknowledged job with an unprocessed Telegram event into a retryable failure.
 func (p *Processor) EnsureSourceEventFinal(ctx context.Context, sourceEventID string) error {
 	var status string
 	if err := p.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceEventID).Scan(&status); err != nil {
@@ -138,8 +134,6 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	}
 	if update.CallbackQuery != nil {
 		ctx = withCallbackQuestion(ctx, payloadText)
-		// A generic callback can never resolve a staged screenshot-link dispute; refuse it as stale so the
-		// job is not retried.
 		defer func() {
 			if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
 				err = p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")
@@ -158,7 +152,6 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	} else if !authorized {
 		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
 	}
-	// Only a typed reply renews a card past its projection window; a tap racing the expiry sweep must not.
 	if update.CallbackQuery == nil && update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
 			return err
@@ -212,7 +205,6 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 				return err
 			}
 		}
-		// A review:salary: callback the policy lane did not handle is stale; answer it here.
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
 			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 		}
@@ -220,7 +212,6 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
-			// Transfer-classification buttons carry a bounded intent, so they continue into the bound-review lane.
 			switch update.CallbackQuery.Data {
 			case "review:expense", "review:own", "review:household", "review:asset", "review:investment", "review:income":
 				if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
@@ -239,7 +230,6 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
-	// Process owns callbacks; typed text is queued as PROCESS_TELEGRAM_TEXT for ProcessAgent.
 	return p.ProcessAgent(ctx, sourceEventID)
 }
 
@@ -522,7 +512,6 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 }
 
 func enqueueReply(ctx context.Context, tx pgx.Tx, update telegramUpdate, message string) error {
-	// The API webhook already answers answerCallbackQuery; a second ACK is rejected by Telegram with HTTP 400.
 	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000))
 	return err
 }

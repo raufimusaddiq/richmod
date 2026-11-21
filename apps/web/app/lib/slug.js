@@ -1,6 +1,3 @@
-// Category slug from a display name. The API still requires a slug, so the form
-// derives it instead of asking the family to type one: lowercase ASCII, words
-// joined by single hyphens. Accents are folded, symbols dropped.
 export function categorySlug(name) {
   return String(name || "")
     .normalize("NFD")
@@ -10,8 +7,6 @@ export function categorySlug(name) {
     .replace(/^-+|-+$/g, "");
 }
 
-// A name that is already taken under the same parent gets -2, -3, ... so the
-// server's uniqueness index is not the first thing the user hears about.
 export function uniqueCategorySlug(name, taken = []) {
   const base = categorySlug(name) || "kategori";
   const used = new Set(taken);

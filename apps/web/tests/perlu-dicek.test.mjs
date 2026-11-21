@@ -98,7 +98,6 @@ test("a card with no suggestions still offers Kategori lain, and no memory optio
 test("inline confirmation line: label, amount and what happened, with Urungkan calling reopen", () => {
   const item = { id: "t1", merchantName: "Grab", amount: "25000" };
   assert.deepEqual(resolvedLine({ ...item, type: "EXPENSE", reviewItemId: "ri1" }, "confirm", { categoryId: "c2" }, categories), { id: "t1", reopenId: "ri1", transactionId: "t1", canUndo: true, label: "Grab", amount: "25000", summary: "→ Transport" });
-  // Undo is offered only where /reopen can reverse it.
   const tx = { id: "t1", type: "EXPENSE", reviewItemId: "ri1" };
   assert.equal(canUndoResolution(tx, "confirm", {}), true);
   assert.equal(canUndoResolution({ ...tx, reviewItemId: undefined }, "confirm", {}), false, "no review item id, no undo");

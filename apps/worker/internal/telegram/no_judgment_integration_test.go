@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// ADR-052: with no judgment plane, a stated expense must still reach record_transaction.
 func TestTelegramRecordsExpenseWithoutAJudgmentPlane(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -40,7 +39,6 @@ func TestTelegramRecordsExpenseWithoutAJudgmentPlane(t *testing.T) {
 	}
 }
 
-// A plain chat answer still resolves the one open review via the server-found binding.
 func TestTelegramUniqueReviewAnswerResolvesWithoutAJudgmentPlane(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

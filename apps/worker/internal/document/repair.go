@@ -11,14 +11,11 @@ import (
 )
 
 type repairableField struct {
-	Field string `json:"field"`
-	Issue string `json:"issue"`
-	// Detail is the validator-owned rule that broke, when it has one.
+	Field  string `json:"field"`
+	Issue  string `json:"issue"`
 	Detail string `json:"detail,omitempty"`
 }
 
-// repairFailedField is the marker appended to the original issues when a repair call fails, is malformed or
-// unrepairable; it never replaces the original field codes.
 const repairFailedCode = "REPAIR_FAILED"
 
 func repairToolName(documentType string) string {
@@ -34,7 +31,6 @@ func repairToolName(documentType string) string {
 	}
 }
 
-// repairableFieldNames are the top-level fields a tool may touch; anything else is rejected before decode.
 func repairableFieldNames(documentType string) []string {
 	switch documentType {
 	case "RECEIPT":
@@ -79,8 +75,6 @@ func repairSchema(documentType string) map[string]any {
 	}
 }
 
-// encodeRepairContext renders bounded JSON for the repair prompt; the input is untrusted data, never
-// instructions, and the 4000-byte cap stops an oversized extraction inflating it.
 func encodeRepairContext(value any) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -92,8 +86,6 @@ func encodeRepairContext(value any) string {
 	return string(encoded)
 }
 
-// repairExtracted applies one bounded model repair and revalidates; any error keeps the pre-repair value and
-// sends the caller to review. content is the first call's own evidence; unreadable input cannot be fixed.
 func repairExtracted[T any](ctx context.Context, gw Gateway, requestID, documentType string, content any, value *T, issues *validationIssues, validate func(T) error) (T, gateway.Metadata, error) {
 	if issues == nil || len(*issues) == 0 || value == nil {
 		return *value, gateway.Metadata{}, nil
@@ -142,7 +134,6 @@ func repairExtracted[T any](ctx context.Context, gw Gateway, requestID, document
 		return *value, metadata, nil
 	}
 	if _, ok := arguments["fields"]; !ok {
-		// Schema-valid tools may return the patch directly.
 		arguments = map[string]json.RawMessage{"fields": rawFields}
 	}
 	var patch map[string]json.RawMessage
@@ -172,8 +163,6 @@ func repairExtracted[T any](ctx context.Context, gw Gateway, requestID, document
 	return patched, metadata, nil
 }
 
-// applyRepairPatch merges the patch into the typed value via JSON after the allowlist; only fields present in
-// the patch change.
 func applyRepairPatch[T any](current T, patch map[string]json.RawMessage) (T, error) {
 	var patched T
 	base, err := json.Marshal(current)

@@ -93,8 +93,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve integration action"})
 		return
 	}
-	// Closing a failed-source action acknowledges the failure, so the source event
-	// is finalized in the same transaction and analytics stops counting it.
 	if actionType == reviewdomain.FailedSourceActionType {
 		ignored, err := reviewdomain.IgnoreFailedSource(r.Context(), tx, householdID, sourceEventID)
 		if err != nil {
@@ -129,11 +127,6 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-// AutoResolve closes every OPEN action of one type for a household once the
-// system has proof the action is no longer needed (for example, forwarding
-// works because mail arrived). It runs inside the caller's transaction, is
-// idempotent because it only touches OPEN rows, and writes one audit row per
-// action it actually closed. It returns how many actions it closed.
 func AutoResolve(ctx context.Context, tx pgx.Tx, householdID, integrationType, actionType, reason string) (int, error) {
 	rows, err := tx.Query(ctx, `UPDATE integration_action SET status='RESOLVED',resolved_at=now(),updated_at=now() WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' RETURNING id,title`, householdID, integrationType, actionType)
 	if err != nil {

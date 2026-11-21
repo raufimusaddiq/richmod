@@ -1,12 +1,4 @@
 -- +goose Up
--- transaction.status = 'PENDING' and transaction.type = 'ADJUSTMENT' have no producer:
--- no endpoint, worker or migration has ever written them (STATE_MACHINES.md: "never
--- inserted"). Dead states in a CHECK or in the transition trigger invite a future
--- writer to use a path nothing tests. Remove them so the schema states only what the
--- ledger can actually hold. REFUND stays (created by "Uang kembali").
---
--- Canonical financial rows are never rewritten or deleted here. If a legacy row
--- somehow exists, the migration stops instead of guessing a replacement state.
 
 -- +goose StatementBegin
 DO $$

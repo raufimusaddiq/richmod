@@ -89,8 +89,6 @@ func disputeToolStatus(t *testing.T, ctx context.Context, f agentIntegrationFixt
 	return status
 }
 
-// Regression: production text intake leaves source_event.telegram_chat_id NULL, and authorization must not
-// depend on it.
 func TestDisputeAuthorizesWhenTextIntakeHasNoChatID(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "dispute-null-chat")

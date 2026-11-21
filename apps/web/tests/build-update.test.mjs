@@ -1,7 +1,3 @@
-// The update notice has no service worker state to lean on: the worker skipWaiting()s
-// and keeps no cache, so `registration.waiting` is always null. This checks the
-// comparison itself: the id baked into the page against the id the server serves, with
-// the polling rules around it.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,8 +66,6 @@ test("mounting checks at once, because every route remounts the shell", async ()
   assert.equal(watcher.fetches(), 1, "the check runs without waiting for the interval");
   assert.equal(watcher.scheduled(), 1, "the interval still runs afterwards");
 
-  // A navigation mounts a second watcher; it must check again immediately
-  // instead of restarting a ten-minute timer the user keeps resetting.
   const next = harness({ answer: async () => "aaaaaaaaaaaa" });
   await settle();
   assert.equal(next.fetches(), 1, "the next navigation checks immediately too");
@@ -155,16 +149,13 @@ test("editing a hashed input changes the id; the generated files do not", async 
     const before = computeBuildId(dir);
     assert.equal(computeBuildId(dir), before, "the same tree hashes the same");
 
-    // A generated id file must not feed back into the hash, or it could never stabilise.
     writeFileSync(join(dir, GENERATED_MODULE), "export const BUILD_ID = 'x';\n");
     writeFileSync(join(dir, SERVED_FILE), "x\n");
     assert.equal(computeBuildId(dir), before, "generated output is excluded");
 
-    // But a file the export imports is an input: touching it changes the id.
     writeFileSync(join(dir, "scripts/splash-devices.mjs"), "export const splashDevices = [{ file: 'a.png' }];\n");
     assert.notEqual(computeBuildId(dir), before, "an imported script is part of the build identity");
 
-    // And a rename is a change too: the path is hashed with the contents.
     const renamed = computeBuildId(dir);
     writeFileSync(join(dir, "scripts/splash-devices.mjs"), "export const splashDevices = [{ file: 'a.png' }];\n");
     writeFileSync(join(dir, "scripts/devices.mjs"), "export const splashDevices = [{ file: 'a.png' }];\n");

@@ -1,13 +1,3 @@
-// One entry per distinct portrait screen geometry among installed iPhones. Logical
-// size and scale come from ios-resolution.com (checked 2026-11-03); the drawn pixel
-// size is logical × scale. The media query must carry the logical size and the pixel
-// ratio, because devices share a logical size at different densities (414×896 at 2× and 3×).
-//
-// 375×812 @3 is the one conflict: the X/XS/11 Pro are 1125×2436 and the 12/13 mini are
-// 1080×2340 at the same logical size, so one image must win. The larger 1125×2436 is
-// used; the mini scales it down by 4%.
-//
-// iPads and landscape are not covered: the installed app is phone-portrait only.
 export const splashDevices = [
   { width: 440, height: 956, ratio: 3, models: "iPhone 16/17/18 Pro Max" },
   { width: 430, height: 932, ratio: 3, models: "iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus" },

@@ -84,12 +84,11 @@ func (f *failedBankFixture) inTx(fn func(pgx.Tx) error) {
 	}
 }
 
-// An unusable extraction is final: the household is told at once with a dismissable item and gets no review (ADR-048).
 func TestInvalidExtractionLeavesADismissableItemAndNoReview(t *testing.T) {
 	f := newFailedBankFixture(t)
 	source := f.source(1)
 	processor := &Processor{pool: f.pool}
-	for i := 0; i < 2; i++ { // a replay must not duplicate the item
+	for i := 0; i < 2; i++ {
 		if err := processor.persistExtractionFailure(f.ctx, source, f.listener, "stub", "INVALID", "REPAIR"); err != nil {
 			t.Fatal(err)
 		}
@@ -106,8 +105,6 @@ func TestInvalidExtractionLeavesADismissableItemAndNoReview(t *testing.T) {
 	}
 }
 
-// A retryable failure is not announced while attempts remain, so a successful retry leaves no stale item; it
-// is announced when the job gives up.
 func TestRetryableFailureIsAnnouncedOnlyWhenTheJobGivesUp(t *testing.T) {
 	f := newFailedBankFixture(t)
 	source := f.source(2)
@@ -131,7 +128,6 @@ func TestRetryableFailureIsAnnouncedOnlyWhenTheJobGivesUp(t *testing.T) {
 		t.Fatalf("a replay must not duplicate the item, got %d", count)
 	}
 
-	// An email that finished meanwhile is never reopened or announced.
 	done := f.source(3)
 	if _, err := f.pool.Exec(f.ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, done); err != nil {
 		t.Fatal(err)
@@ -144,6 +140,5 @@ func TestRetryableFailureIsAnnouncedOnlyWhenTheJobGivesUp(t *testing.T) {
 		t.Fatalf("a processed email must not be announced, got %d", count)
 	}
 
-	// A malformed ID is a no-op, never an SQL error that aborts the transaction.
 	f.inTx(func(tx pgx.Tx) error { return processor.TerminalFailureTx(f.ctx, tx, "not-a-uuid") })
 }

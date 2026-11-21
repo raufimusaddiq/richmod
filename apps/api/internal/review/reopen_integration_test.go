@@ -11,9 +11,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// TestReopenTransactionReviewConcurrentReversals pins that two reversals racing
-// on one transaction leave exactly one active review_item and neither fails on
-// the one-active-item-per-transaction unique index.
 func TestReopenTransactionReviewConcurrentReversals(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -40,8 +37,6 @@ func TestReopenTransactionReviewConcurrentReversals(t *testing.T) {
 	if err := reviewdomain.ReopenTransactionReview(ctx, first, household, transaction); err != nil {
 		t.Fatal(err)
 	}
-	// The second reversal starts before the first commits, so it cannot see the
-	// first item and blocks on the unique index until the first transaction ends.
 	second, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)

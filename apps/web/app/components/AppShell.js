@@ -9,8 +9,6 @@ import BuildUpdateNotice from "./BuildUpdateNotice";
 import { trackScreenView } from "../lib/telemetry";
 import { ChartDonut, DotsThree, HouseLine, Plus, Receipt, ShieldChevron, SignOut, Tray, UsersThree } from "@phosphor-icons/react";
 
-// Four places to be: Beranda, Transaksi, Laporan, Keluarga. "Perlu dicek" appears
-// only while something waits on a person; /inbox always works by direct URL.
 const nav = [
   ["/", "Beranda", "home"],
   ["/transactions", "Transaksi", "ledger"],
@@ -20,7 +18,6 @@ const nav = [
 const inboxItem = ["/inbox", "Perlu dicek", "inbox"];
 const icons = { home: HouseLine, ledger: Receipt, analytics: ChartDonut, household: UsersThree, inbox: Tray, admin: ShieldChevron };
 
-// Pages that live under a primary place keep that place highlighted.
 const ALIASES = { "/wealth": "/analytics", "/settings": "/household" };
 export function activeHref(pathname) {
   const path = ALIASES[Object.keys(ALIASES).find(prefix => pathname.startsWith(prefix))] || pathname;
@@ -67,7 +64,7 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
 
 function NavLink({ item, active, inboxCount, className = "", onClick }) {
   const [href, label, icon] = item;
-  const Icon = icons[icon] || DotsThree; // the nav test guarantees every entry is mapped; this keeps a typo from crashing the shell
+  const Icon = icons[icon] || DotsThree;
   const pending = href === "/inbox" && inboxCount > 0;
   return <Link href={href} className={`${active ? "active" : ""} ${className}`.trim()} aria-current={active ? "page" : undefined} aria-label={pending ? `${label}, ${inboxCount} item menunggu keputusan` : undefined} onClick={onClick}>
     <Icon aria-hidden="true" weight={active ? "fill" : "regular"}/><span>{label}</span>

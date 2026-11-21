@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// A reopened review asks only what the transaction still lacks; a supplied
-// date, category or classification is never asked again.
 func TestReopenedResidualsComeFromCanonicalFacts(t *testing.T) {
 	for _, tt := range []struct {
 		kind               string
@@ -28,8 +26,6 @@ func TestReopenedResidualsComeFromCanonicalFacts(t *testing.T) {
 	}
 }
 
-// Only a vanished binding reads as already resolved; a transient failure must
-// surface so the callback retries instead of closing the card.
 func TestNotFoundAsResolvedKeepsTransientErrors(t *testing.T) {
 	if !errors.Is(notFoundAsResolved(pgx.ErrNoRows), ErrAlreadyResolved) {
 		t.Fatal("no rows must read as already resolved")

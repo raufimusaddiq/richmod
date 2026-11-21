@@ -1,5 +1,3 @@
-// Cycle residual reconciliation, shared by Web and both Telegram lanes so the
-// basis and stale/allocation rules cannot drift between surfaces.
 package reviewdomain
 
 import (
@@ -13,77 +11,48 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// CycleAllocation is one requested retained-balance allocation.
 type CycleAllocation struct {
 	WealthAccountID string
 	AmountIDR       string
 	Note            string
 }
 
-// CycleResidualCommand resolves one cycle_residual_case review.
-//
-// Action is the canonical action (ALLOCATE_RETAINED_BALANCE or
-// LEAVE_UNALLOCATED); Allocations are required only for allocation. The caller
-// must already have authorized the actor and bound the exact review item.
 type CycleResidualCommand struct {
-	HouseholdID string
-	// CaseID is the cycle_residual_case under review; it is locked for update.
-	CaseID string
-	// ReviewItemID and RequestID pin the exact projection to complete.
+	HouseholdID  string
+	CaseID       string
 	ReviewItemID string
 	RequestID    string
 	Action       string
 	Allocations  []CycleAllocation
-	// ActorUserID owns the allocations and the resolution.
-	ActorUserID string
+	ActorUserID  string
 }
 
-// CycleOutcome is the canonical result the surfaces map to their own wording.
 type CycleOutcome string
 
 const (
-	// CycleResolved means the review is complete and any allocations are stored.
-	CycleResolved CycleOutcome = "RESOLVED"
-	// CycleStaleRefreshed means the recomputed basis differed with a positive
-	// residual; the case basis was refreshed and the review stays open.
-	CycleStaleRefreshed CycleOutcome = "STALE_REFRESHED"
-	// CycleStaleNotApplicable means the recomputed residual is no longer positive;
-	// the review was completed as no-longer-applicable without allocations.
+	CycleResolved           CycleOutcome = "RESOLVED"
+	CycleStaleRefreshed     CycleOutcome = "STALE_REFRESHED"
 	CycleStaleNotApplicable CycleOutcome = "STALE_NOT_APPLICABLE"
 )
 
-// CycleResult reports the outcome plus the residual the decision saw.
 type CycleResult struct {
-	Outcome   CycleOutcome
-	Residual  string
-	Allocated string
-	// CycleStart and CycleEnd are the Jakarta dates of the residual cycle, set by
-	// MarkCycleTransactionMissing so a surface can open manual entry there.
+	Outcome              CycleOutcome
+	Residual             string
+	Allocated            string
 	CycleStart, CycleEnd string
 }
 
-// cycleRefreshOnly is the internal command RefreshOpenCycleResiduals uses to
-// re-evaluate an open review's basis without completing it. It is not a
-// household action.
 const cycleRefreshOnly = "REFRESH_BASIS"
 
 var (
-	// ErrCycleCaseNotFound reports a cycle case outside the household.
-	ErrCycleCaseNotFound = errors.New("reviewdomain: cycle residual case not found")
-	// ErrCycleAllocationsRequired reports an allocation with no allocation rows.
-	ErrCycleAllocationsRequired = errors.New("reviewdomain: at least one allocation is required")
-	// ErrCycleAllocationInvalid reports an allocation with a bad account or amount.
-	ErrCycleAllocationInvalid = errors.New("reviewdomain: allocation must use a positive whole IDR amount and a valid wealth account")
-	// ErrCycleAllocationDuplicate reports the same wealth account twice.
-	ErrCycleAllocationDuplicate = errors.New("reviewdomain: each wealth account may appear once")
-	// ErrCycleAllocationMismatch reports allocations that do not sum to residual.
-	ErrCycleAllocationMismatch = errors.New("reviewdomain: allocation total must equal the cycle residual")
-	// ErrCycleWealthAccountInvalid reports an inactive or foreign wealth account.
+	ErrCycleCaseNotFound         = errors.New("reviewdomain: cycle residual case not found")
+	ErrCycleAllocationsRequired  = errors.New("reviewdomain: at least one allocation is required")
+	ErrCycleAllocationInvalid    = errors.New("reviewdomain: allocation must use a positive whole IDR amount and a valid wealth account")
+	ErrCycleAllocationDuplicate  = errors.New("reviewdomain: each wealth account may appear once")
+	ErrCycleAllocationMismatch   = errors.New("reviewdomain: allocation total must equal the cycle residual")
 	ErrCycleWealthAccountInvalid = errors.New("reviewdomain: wealth account must be active and belong to this household")
 )
 
-// cycleBasisSQL locks the case and returns the stored basis alongside the basis
-// recomputed from confirmed transactions in the cycle window.
 const cycleBasisSQL = `SELECT basis_income_idr::text,basis_expense_idr::text,basis_savings_idr::text,basis_residual_idr::text,
 	(SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),
 	(SELECT COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),
@@ -91,10 +60,6 @@ const cycleBasisSQL = `SELECT basis_income_idr::text,basis_expense_idr::text,bas
 	(SELECT (COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)-COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0))::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta'))
 	FROM cycle_residual_case c WHERE c.id=$1 AND c.household_id=$2 FOR UPDATE`
 
-// ApplyCycleResidual locks the case, revalidates the recomputed basis, applies any
-// allocations, and completes the review. A changed positive residual refreshes the
-// stored basis (CycleStaleRefreshed); a non-positive one closes the review as
-// no-longer-applicable.
 func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) (CycleResult, error) {
 	var result CycleResult
 	var oldIncome, oldExpense, oldSavings, oldResidual, income, expense, savings, residual string
@@ -127,8 +92,6 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND household_id=$3 AND cycle_residual_case_id=$4 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 			return result, err
 		}
-		// Edit bound cards in the same commit; the sender falls back to a new message if
-		// Telegram can no longer edit.
 		var cycleStart, cycleEnd time.Time
 		if err := tx.QueryRow(ctx, `SELECT cycle_start,cycle_end FROM cycle_residual_case WHERE id=$1 AND household_id=$2`, cmd.CaseID, cmd.HouseholdID).Scan(&cycleStart, &cycleEnd); err != nil {
 			return result, err
@@ -161,7 +124,6 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		result.Allocated = total.String()
 	}
 	if residualInt.Sign() <= 0 {
-		// Defensive: a zero basis with no stale change should not allocate.
 		result.Allocated = "0"
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
@@ -174,23 +136,15 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	return result, nil
 }
 
-// Why a cycle review was asked again; stored as the reopened review's provenance and in its
-// REOPEN_REVIEW audit row, and read by nothing else.
 const (
 	CycleReopenTransactionRecorded = "TRANSACTION_RECORDED"
 	CycleReopenTransactionVoided   = "TRANSACTION_VOIDED"
 )
 
-// RefreshOpenCycleResiduals re-evaluates open cycle reviews affected by a newly
-// confirmed transaction. Every lane that writes a CONFIRMED transaction calls it
-// (empty actor for worker writes), inside the transaction's commit boundary.
 func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
 	return RefreshOpenCycleResidualsFor(ctx, tx, householdID, at, actorID, CycleReopenTransactionRecorded)
 }
 
-// RefreshOpenCycleResidualsFor is RefreshOpenCycleResiduals with the reason a waiting
-// ("transaksi belum tercatat") cycle is asked again: CycleReopenTransactionVoided when a
-// confirmed transaction left the cycle's totals.
 func RefreshOpenCycleResidualsFor(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID, reason string) error {
 	rows, err := tx.Query(ctx, `SELECT c.id::text,ri.id::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id WHERE c.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY c.id`, householdID, at)
 	if err != nil {
@@ -216,7 +170,6 @@ func RefreshOpenCycleResidualsFor(ctx context.Context, tx pgx.Tx, householdID st
 			return err
 		}
 	}
-	// A cycle marked "transaksi belum tercatat" is asked again once a transaction lands in it (or leaves it).
 	waiting, err := tx.Query(ctx, `SELECT c.id::text FROM cycle_residual_case c WHERE c.household_id=$1
 		AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')
 		AND NOT EXISTS (SELECT 1 FROM review_item o WHERE o.cycle_residual_case_id=c.id AND o.status IN ('PENDING_SEND','OPEN'))
@@ -237,9 +190,6 @@ func RefreshOpenCycleResidualsFor(ctx context.Context, tx pgx.Tx, householdID st
 	return nil
 }
 
-// MarkCycleTransactionMissing completes a residual review with the answer "a
-// transaction is not recorded yet". It writes no transaction or allocation (ADR-036);
-// RefreshOpenCycleResiduals reopens the review once one lands in the cycle.
 func MarkCycleTransactionMissing(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) (CycleResult, error) {
 	var result CycleResult
 	if err := tx.QueryRow(ctx, `SELECT c.basis_residual_idr::text,c.cycle_start::text,c.cycle_end::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id AND ri.household_id=c.household_id
@@ -263,9 +213,6 @@ func MarkCycleTransactionMissing(ctx context.Context, tx pgx.Tx, cmd CycleResidu
 	return result, nil
 }
 
-// reopenCycleResidual recomputes one case's basis and, when money is still
-// unexplained, opens a fresh residual review with a newly built decision. It
-// returns the new review item id, or "" when nothing remains to allocate.
 func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, actorID, reason string) (string, error) {
 	var oldIncome, oldExpense, oldSavings, oldResidual, income, expense, savings, residual string
 	if err := tx.QueryRow(ctx, cycleBasisSQL, caseID, householdID).Scan(&oldIncome, &oldExpense, &oldSavings, &oldResidual, &income, &expense, &savings, &residual); err != nil {
@@ -274,8 +221,6 @@ func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, ac
 		}
 		return "", err
 	}
-	// An exhausted residual asks nothing; basis_residual_idr is positive-only, so
-	// the case keeps its last positive basis as history and no review reopens.
 	if amount, ok := new(big.Int).SetString(residual, 10); !ok || amount.Sign() <= 0 {
 		return "", nil
 	}
@@ -307,8 +252,6 @@ func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, ac
 	return itemID, EnqueueReviewProjection(ctx, tx, householdID, itemID)
 }
 
-// resolveCycleRequest completes the exact Telegram projection (or every open
-// projection when no request is pinned, which is the Web behavior).
 func resolveCycleRequest(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) error {
 	if cmd.RequestID != "" {
 		_, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND household_id=$2 AND review_item_id=$3 AND status IN ('PENDING_SEND','OPEN')`, cmd.RequestID, cmd.HouseholdID, cmd.ReviewItemID)
@@ -318,8 +261,6 @@ func resolveCycleRequest(ctx context.Context, tx pgx.Tx, cmd CycleResidualComman
 	return err
 }
 
-// ValidateCycleAllocations checks uniqueness, positivity, and household
-// ownership, and returns the summed total. It never mutates state.
 func ValidateCycleAllocations(ctx context.Context, tx pgx.Tx, householdID, residual string, allocations []CycleAllocation) (*big.Int, error) {
 	if len(allocations) == 0 {
 		return nil, ErrCycleAllocationsRequired
@@ -358,8 +299,6 @@ func ValidateCycleAllocations(ctx context.Context, tx pgx.Tx, householdID, resid
 	return total, nil
 }
 
-// mustCycleValues serializes the resolution values stored on the review item; it
-// cannot fail for the fixed struct shape.
 func mustCycleValues(cmd CycleResidualCommand) []byte {
 	type allocationValues struct {
 		WealthAccountID string `json:"wealthAccountId"`

@@ -10,7 +10,6 @@ const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8"
 test("displayDate renders Indonesian day-month-year in Asia/Jakarta", () => {
   assert.equal(displayDate("2026-10-22"), "22 Okt 2026");
   assert.equal(displayDate("2026-10-22T14:53:00+07:00"), "22 Okt 2026");
-  // 17:30Z is already the next day in Jakarta.
   assert.equal(displayDate("2026-10-22T17:30:00Z"), "23 Okt 2026");
   assert.equal(displayDate(""), "—");
   assert.equal(displayDate("bukan tanggal"), "—");
@@ -61,7 +60,6 @@ test("Indonesian copy replaces raw MANUAL and the Test button", () => {
 });
 
 test("displayDate's date-only guard is a real digit pattern", () => {
-  // A date-only value must be read as a Jakarta calendar day, never as UTC midnight.
   assert.ok(read("app/lib/format.js").includes(String.raw`/^\d{4}-\d{2}-\d{2}$/`));
   assert.equal(displayDate("2026-12-31"), "31 Des 2026");
 });

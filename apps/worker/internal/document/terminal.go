@@ -13,8 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// TerminalDownstreamFailureTx marks a still-CLASSIFIED document FAILED when its downstream job fails.
-// The source fails only if nothing else on it produced evidence, a proposal, a review or a finished sibling.
 func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, documentID string) error {
 	if !reviewdomain.IsSourceEventID(documentID) {
 		return nil
@@ -48,8 +46,6 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 	})
 }
 
-// unpaidInvoiceOnly reports a correct extraction of an unpaid bill; an invoice is not proof of payment
-// and must not open a review.
 func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
 	if documentType != "BILL_OR_INVOICE" || value.PaymentStatus == "PAID" {
 		return false
@@ -65,8 +61,6 @@ func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
 	return true
 }
 
-// failScreenshotExtraction routes a validation failure that survived normalization and repair: an unpaid
-// invoice stays plain FAILED, anything else opens a review instead of a dead end.
 func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, cause error) error {
 	if unpaidInvoiceOnly(value, documentType) {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "TRANSACTION_SCREENSHOT", value, value.Confidence, model, cause)
@@ -74,8 +68,6 @@ func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, ho
 	return p.persistScreenshotExtractionFailure(ctx, documentID, householdID, sourceID, value, model, cause)
 }
 
-// persistScreenshotExtractionFailure keeps an extraction that failed validation after repair as unvalidated
-// evidence with an open review and no canonical write; the document stays FAILED.
 func (p *Processor) persistScreenshotExtractionFailure(ctx context.Context, documentID, householdID, sourceID string, value screenshotExtraction, model string, cause error) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
@@ -111,7 +103,6 @@ func (p *Processor) persistScreenshotExtractionFailure(ctx context.Context, docu
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		// A retried job or sibling classification review already holds the one active document review; reuse it.
 		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID, householdID).Scan(&reviewItemID); err != nil {
 			return err
 		}

@@ -3,10 +3,6 @@ import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
 
-// A one-shot motion marker must survive exactly the render that follows the user's
-// action. This drives the real static export: a filter fades the ledger but the
-// pagination after it must not; a save marks the figures it moved and a later retry
-// must not replay that flash.
 const port = "3212";
 const base = `http://127.0.0.1:${port}`;
 const output = new URL("../test-results/motion-one-shot/", import.meta.url);
@@ -22,8 +18,6 @@ const snapshot = (id, value) => ({ id, netWorthIdr: value, assetTotalIdr: value,
 let latest = snapshot("wealth-1", "1000000");
 let saves = 0;
 
-// Phones collapse the filter bar behind a "Filter" toggle; open it before clicking a
-// filter control. On wider screens the toggle is hidden and the bar is already open.
 async function openFilters(page) {
   const toggle = page.locator(".filter-toggle");
   if (await toggle.isVisible()) await toggle.click();
@@ -49,7 +43,6 @@ async function api(route) {
   if (path === "/api/v1/wealth/observations") return json([]);
   if (path === "/api/v1/wealth/snapshots" && route.request().method() === "POST") {
     saves += 1;
-    // The second save is the "retry" path: it fails, the user retries the load.
     if (saves > 1) return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "synthetic failure" }) });
     latest = snapshot("wealth-2", "1500000");
     return json({});
@@ -59,7 +52,6 @@ async function api(route) {
   return json([]);
 }
 
-// Marker present and the CSS animation that reads it is running.
 async function animated(page, selector, attribute, animation) {
   await page.waitForFunction(([selector, attribute, animation]) => {
     const element = document.querySelector(selector);
@@ -67,8 +59,6 @@ async function animated(page, selector, attribute, animation) {
   }, [selector, attribute, animation], { timeout: 3000 });
 }
 
-// Marker gone from the element after the unrelated re-render. A timeout is a
-// failure, not a pass: the assertion below reports why.
 async function settled(page, selector, attribute) {
   return page.waitForFunction(([selector, attribute]) => {
     const element = document.querySelector(selector);
@@ -101,12 +91,10 @@ try {
     await page.waitForSelector(panel);
     await openFilters(page);
 
-    // The filter re-run is the user's action: it fades once.
     await page.getByRole("button", { name: "Terapkan filter", exact: true }).click();
     await animated(page, ".ledger-panel", "data-refreshed", "list-in");
     await page.screenshot({ path: new URL(`${label}-transactions-filter.png`, output).pathname, fullPage: false });
 
-    // Pagination is not a refresh: the same panel must not fade again.
     await page.getByRole("button", { name: "Berikutnya", exact: true }).click();
     if (!await settled(page, ".ledger-panel", "data-refreshed")) problems.push(`${label}: pagination replayed the filter fade`);
     await page.screenshot({ path: new URL(`${label}-transactions-next-page.png`, output).pathname, fullPage: false });
@@ -115,14 +103,12 @@ try {
     await page.goto(`${base}/wealth`, { waitUntil: "networkidle" });
     await page.waitForSelector(".wealth-position-primary > strong:not([data-updated])");
 
-    // The save is the user's action: only the figure it moved flashes.
     await page.getByRole("button", { name: "Perbarui nilai", exact: true }).click();
     await page.locator('input[name="value-asset-1"]').fill("1500000");
     await page.getByRole("button", { name: "Simpan catatan lengkap", exact: true }).click();
     await animated(page, ".wealth-position-primary > strong", "data-updated", "value-updated");
     await page.screenshot({ path: new URL(`${label}-wealth-saved.png`, output).pathname, fullPage: false });
 
-    // A later retry remounts the figures; it must not replay the earlier save.
     await page.getByRole("button", { name: "Perbarui nilai", exact: true }).click();
     await page.getByRole("button", { name: "Simpan catatan lengkap", exact: true }).click();
     await page.locator(".notice.error").waitFor();

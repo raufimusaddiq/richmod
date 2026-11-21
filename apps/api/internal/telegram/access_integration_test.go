@@ -12,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestCaptureRejectsDisabledUserAndRemovedMember: an active Telegram identity
-// alone is not enough; the user must be active and still a member.
 func TestCaptureRejectsDisabledUserAndRemovedMember(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -65,9 +63,6 @@ func TestCaptureRejectsDisabledUserAndRemovedMember(t *testing.T) {
 	}
 }
 
-// TestLinkNeverRebindsABoundTelegramID: Telegram ID and user are bound 1:1.
-// An ID still bound to a removed member (inactive) or to an active member is
-// refused through any invite, and the binding is left untouched.
 func TestLinkNeverRebindsABoundTelegramID(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -122,7 +117,6 @@ func TestLinkNeverRebindsABoundTelegramID(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM telegram_identity WHERE (telegram_user_id=$1 AND user_id=$2 AND NOT active) OR (telegram_user_id=$3 AND user_id=$4 AND active)`, retiredID, formerUser, ownerID, owner).Scan(&bound); err != nil || bound != 2 {
 		t.Fatalf("bindings changed: %d intact (%v)", bound, err)
 	}
-	// A fresh Telegram ID still links normally.
 	if err := link(1, stamp%9_000_000_000+37); err != nil {
 		t.Fatalf("fresh Telegram ID: %v", err)
 	}

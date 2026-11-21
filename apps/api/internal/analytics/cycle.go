@@ -9,9 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
 )
 
-// Cycle returns the current salary-anchored financial period. Only confirmed
-// events for the active primary salary source can open a cycle; without one,
-// callers receive an explicit calendar fallback instead of a guessed payday.
 func cycleNow(h *Handler) func() time.Time {
 	if h.now != nil {
 		return h.now

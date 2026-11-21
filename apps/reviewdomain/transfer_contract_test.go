@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// Every surface must classify a transfer through the shared operation; no adapter
-// may keep its own transaction/proposal mutation SQL.
 func TestTransferIsSharedAcrossSurfaces(t *testing.T) {
 	cases := []struct{ path, start, end string }{
 		{"../api/internal/review/handler.go", "func (h *Handler) ClassifyTransfer(", "\nfunc "},

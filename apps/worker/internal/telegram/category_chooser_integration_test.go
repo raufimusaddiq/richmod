@@ -12,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The pager callback on a category-only review sits on the chooser message, so it re-renders in place instead
-// of pointing at the Review Inbox.
 func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

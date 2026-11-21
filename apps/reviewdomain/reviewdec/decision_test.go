@@ -2,8 +2,6 @@ package reviewdec
 
 import "testing"
 
-// Every active reason must encode: a producer that falls back to its preset can
-// never be refused by Validate or by the review_item decision trigger.
 func TestEveryActivePresetValidates(t *testing.T) {
 	for _, reason := range ActiveReasons() {
 		decision, ok := Preset(reason, "transaction", "00000000-0000-0000-0000-000000000000")

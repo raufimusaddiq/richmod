@@ -1,6 +1,4 @@
 -- +goose Up
--- Sprint 4: household-authored cycle decisions. These are human notes, not
--- transactions or Wealth observations, and they never mutate canonical state.
 CREATE TABLE cycle_decision(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     household_id uuid NOT NULL REFERENCES household(id),

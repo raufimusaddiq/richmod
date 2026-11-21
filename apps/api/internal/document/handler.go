@@ -237,12 +237,6 @@ func (h *Handler) store(household string, content []byte, extension string) (str
 	return ref, nil
 }
 
-// documentPendingSQL is true while anything actionable still waits on the
-// document (alias d): an open review item, a NEEDS_REVIEW transaction or
-// proposal, a pending provider-email observation, an open transfer case or a
-// pending wealth observation, over the same source set RefreshSourceLifecycle
-// uses (the document's source plus every album page source). The badge derives
-// from it (N5). Migration 00099 embeds this exact text; a test keeps them equal.
 const documentPendingSQL = `
 			EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=d.household_id AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.document_id=d.id OR ri.source_event_id IN (SELECT d.source_event_id UNION SELECT dp.source_event_id FROM document_page dp WHERE dp.document_id=d.id) OR ri.transaction_id IN (SELECT te.transaction_id FROM transaction_evidence te WHERE te.source_event_id IN (SELECT d.source_event_id UNION SELECT dp.source_event_id FROM document_page dp WHERE dp.document_id=d.id) AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE') OR ri.proposal_id IN (SELECT p.id FROM transaction_proposal p WHERE p.source_event_id IN (SELECT d.source_event_id UNION SELECT dp.source_event_id FROM document_page dp WHERE dp.document_id=d.id)) OR ri.wealth_observation_id IN (SELECT w.id FROM wealth_observation w WHERE w.document_id=d.id) OR ri.financial_email_observation_id IN (SELECT f.id FROM financial_email_observation f WHERE f.source_event_id IN (SELECT d.source_event_id UNION SELECT dp.source_event_id FROM document_page dp WHERE dp.document_id=d.id))))
 			OR EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id WHERE t.household_id=d.household_id AND t.status='NEEDS_REVIEW' AND (te.source_event_id IN (SELECT d.source_event_id UNION SELECT dp.source_event_id FROM document_page dp WHERE dp.document_id=d.id) OR te.metadata_json->>'disputed_document_id'=d.id::text) AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE')
@@ -318,7 +312,6 @@ const (
 	maxDocumentPage     = 100
 )
 
-// documentPage reads limit and cursor. It answers 400 itself, so a bad value never silently falls back to the first page.
 func documentPage(w http.ResponseWriter, r *http.Request) (limit int, at *time.Time, id string, ok bool) {
 	limit = defaultDocumentPage
 	if raw := r.URL.Query().Get("limit"); raw != "" {
@@ -342,9 +335,6 @@ func documentPage(w http.ResponseWriter, r *http.Request) (limit int, at *time.T
 	return limit, at, id, true
 }
 
-// Reprocess re-queues the existing PROCESS_DOCUMENT job for a FAILED document.
-// It is household-scoped, idempotent (no second job while one is PENDING or
-// RUNNING) and audited; source evidence is never touched.
 func (h *Handler) Reprocess(w http.ResponseWriter, r *http.Request) {
 	p, household, ok := principalHousehold(w, r)
 	if !ok {
@@ -365,8 +355,6 @@ func (h *Handler) Reprocess(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 409, map[string]string{"error": "only failed documents can be reprocessed"})
 		return
 	}
-	// An open document review is resolved through the same path /reviews uses, so the Inbox stops offering REPROCESS/IGNORE for a document already being retried.
-	// Today review_item_active_document_unique (migration 00029) allows one open review per document; the loop stays so relaxing that index cannot leave a stale review.
 	rows, err := tx.Query(r.Context(), `SELECT id::text FROM review_item WHERE document_id=$1 AND household_id=$2 AND review_type IN ('DOCUMENT_CLASSIFICATION','DOCUMENT_EXTRACTION_LOW_CONFIDENCE') AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at FOR UPDATE`, r.PathValue("id"), household)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
@@ -508,10 +496,6 @@ func (h *Handler) PageContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(raw)
 }
 
-// Thumbnail serves a small JPEG preview of a document's first page. It is
-// generated on demand from the stored original and cached beside it, so the
-// grid never downloads full-resolution bytes. Household scoping comes from the
-// same query PageContent uses; no storage URL or object key reaches the client.
 func (h *Handler) Thumbnail(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principalHousehold(w, r)
 	if !ok {
@@ -535,7 +519,6 @@ func (h *Handler) Thumbnail(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, err = imagethumb.JPEG(original)
 		if err != nil {
-			// An undecodable image still gets a usable card: serve the original.
 			serveImage(w, r, original, media)
 			return
 		}
@@ -544,8 +527,6 @@ func (h *Handler) Thumbnail(w http.ResponseWriter, r *http.Request) {
 	serveImage(w, r, raw, "image/jpeg")
 }
 
-// serveImage writes an image with a content-derived ETag so the browser can
-// revalidate cheaply and reuse the bytes across reloads.
 func serveImage(w http.ResponseWriter, r *http.Request, raw []byte, media string) {
 	sum := sha256.Sum256(raw)
 	etag := `"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`

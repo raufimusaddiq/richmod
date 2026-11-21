@@ -16,12 +16,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// Review UI acceptance tests.
-//
-// U1-U4 are properties of the payload the API hands the Inbox: the client must
-// render only what the stored decision named as missing, because the server is
-// the authority on what is unresolved. They are asserted here
-// rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
 	ID               string         `json:"id"`
 	MissingFacts     []string       `json:"missingFacts"`
@@ -97,8 +91,6 @@ func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
 	return pool, household, user
 }
 
-// seedCategoryReview writes the U1 state: a bank expense whose only
-// unresolved fact is the category, with that fact recorded in the decision.
 func seedCategoryReview(t *testing.T, pool *pgxpool.Pool, household string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -124,8 +116,6 @@ func seedCategoryReview(t *testing.T, pool *pgxpool.Pool, household string) stri
 	return review
 }
 
-// U1 - a decision that names only the category must not cause the API to demand
-// merchant, amount, time or account from the client.
 func TestReviewU1ListExposesOnlyTheUnresolvedFact(t *testing.T) {
 	pool, household, user := reviewUIFixture(t)
 	seedCategoryReview(t, pool, household)
@@ -183,8 +173,6 @@ func TestReviewListUsesStoredDecisionForBankTransactionReview(t *testing.T) {
 	t.Fatalf("transaction-backed review %s not returned by Inbox API", review)
 }
 
-// U4 - known facts are carried as known and never listed as missing. The client
-// renders them read-only; the server guarantees it never asks for them.
 func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
 	pool, household, user := reviewUIFixture(t)
 	seedCategoryReview(t, pool, household)
@@ -201,9 +189,6 @@ func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
 	}
 }
 
-// U5 - a review resolved through the canonical route reaches the same terminal
-// state Telegram writes, because both call this one server-owned handler. This
-// pins that there is one resolution path, not two that happen to agree today.
 func TestReviewU5WebResolutionWritesCanonicalTerminalState(t *testing.T) {
 	pool, household, user := reviewUIFixture(t)
 	review := seedCategoryReview(t, pool, household)
@@ -260,8 +245,6 @@ func TestReviewR3ReceiptDuplicateExposesBoundedCandidateChoices(t *testing.T) {
 	t.Fatalf("open duplicate transaction %s missing", transactionID)
 }
 
-// listCanonicalReviews calls the real list handler and decodes the payload a
-// client actually receives, so the assertions run against production shape.
 func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/reviews/", nil)

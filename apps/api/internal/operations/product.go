@@ -4,20 +4,8 @@ import (
 	"context"
 )
 
-// productAggregate is the product scoreboard computed from canonical
-// state that already exists: source events, transactions, and review items. It
-// is read-only and stores nothing, so it cannot drift from the ledger and needs
-// no new pipeline. Amounts and free text are never selected.
-//
-// Every metric below is derived from canonical state, so the aggregate cannot
-// disagree with the ledger and needs no write-path instrumentation.
-//
-// ponytail: unbounded 30-day scans with no new indexes. Add a rollup table when
-// these tables outgrow a cheap aggregate, not before.
 type productAggregate struct {
-	WindowDays int `json:"windowDays"`
-	// SourceEvents is raw ingestion in the window and the cohort for HumanTouchRate (reviewed events over all events), so it cannot exceed 1.
-	// IGNORED events (promos, internal moves) are not canonical financial events.
+	WindowDays     int            `json:"windowDays"`
 	SourceEvents   int            `json:"sourceEvents"`
 	Processed      int            `json:"processed"`
 	Ignored        int            `json:"ignored"`
@@ -28,22 +16,14 @@ type productAggregate struct {
 	ReviewBySource map[string]int `json:"reviewRateBySource"`
 	ReviewByReason map[string]int `json:"reviewRateByReason"`
 
-	// RHICE is explicit human inputs per canonical financial event (one transaction). The numerator is recorded review turns,
-	// so a multi-field form counts each supplied field. Derived, not written, so it cannot drift from the ledger.
-	CanonicalEvents int     `json:"canonicalEvents"`
-	ExplicitInputs  int     `json:"explicitInputs"`
-	RHICE           float64 `json:"rhice"`
-	TypedFields     int     `json:"typedFields"`
-	// Reviews still open is the friction the proposal-first card targets.
-	OpenReviews int `json:"openReviews"`
-	// AcceptedWithoutEdit counts resolutions that only accepted a proposal:
-	// CONFIRM_REVIEW (web) and its Telegram equivalents. MERGE_EXISTING is a
-	// choice between candidates, not an accepted proposal, so it is excluded.
-	AcceptedWithoutEdit int `json:"reviewAcceptedWithoutEdit"`
-	// Permanent coverage gaps are distinct from incomplete historical provenance.
-	Coverage           []string `json:"notYetMeasurable"`
-	CoverageIncomplete []string `json:"coverageIncomplete"`
-	// TimeToResolutionMs is the mean open-to-resolve time, read from review_item so every review counts.
+	CanonicalEvents             int            `json:"canonicalEvents"`
+	ExplicitInputs              int            `json:"explicitInputs"`
+	RHICE                       float64        `json:"rhice"`
+	TypedFields                 int            `json:"typedFields"`
+	OpenReviews                 int            `json:"openReviews"`
+	AcceptedWithoutEdit         int            `json:"reviewAcceptedWithoutEdit"`
+	Coverage                    []string       `json:"notYetMeasurable"`
+	CoverageIncomplete          []string       `json:"coverageIncomplete"`
 	TimeToResolutionMs          int64          `json:"timeToResolutionMs"`
 	ReviewRoundTrips            int            `json:"reviewRoundTrips"`
 	BoundedChoices              int            `json:"boundedChoices"`
@@ -68,20 +48,16 @@ type productAggregate struct {
 	ResidualViolations          int            `json:"residualViolations"`
 	ResidualUnknownReviews      int            `json:"residualUnknownReviews"`
 	ResidualFidelityRate        float64        `json:"residualFidelityRate"`
-	// CEUBinding counts conversational-evidence binding outcomes by bounded action name; counters only, no text, value or identifier.
-	CEUBinding map[string]int `json:"ceuBinding"`
+	CEUBinding                  map[string]int `json:"ceuBinding"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
 	aggregate := productAggregate{WindowDays: 30, CEUBinding: map[string]int{}, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
 
-	// Every read below is independent, so they run concurrently: the aggregate
-	// costs one round trip instead of ~19. Derived rates are computed after.
 	var boundedChoicesPerEventSum float64
 	var telemetryHistoryComplete bool
 
 	err := h.runProbes(ctx,
-		// Reviewed events use the same cohort as the processing states, which keeps the human-touch ratio bounded by 1.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				SELECT count(*),
@@ -113,7 +89,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 			}
 			return rows.Err()
 		},
-		// Reviews with no source event (legacy/proposal-scoped) group as "unattributed" rather than being dropped.
 		func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, `
 				SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*)
@@ -155,8 +130,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 			}
 			return rows.Err()
 		},
-		// Only populated ReviewDecision contracts support the known-fact re-ask
-		// metric; historical null decisions are excluded from its denominator.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				SELECT count(*), count(*) FILTER (WHERE EXISTS (
@@ -168,7 +141,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				  AND jsonb_typeof(ri.decision->'missingFacts')='array'`, householdID).
 				Scan(&aggregate.ReviewsWithDecision, &aggregate.KnownFactReasks)
 		},
-		// Only bounded validation reviews with explicit entry provenance are eligible; conflicts, canonical ambiguity and human policy are excluded.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				WITH reviews AS (
@@ -189,8 +161,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				  count(*) FILTER (WHERE NOT COALESCE(eligible,false))
 				FROM reviews`, householdID).Scan(&aggregate.ValidatorEligibleReviews, &aggregate.ValidatorInducedReviews, &aggregate.ValidatorUnknownReviews)
 		},
-		// A NULL accepted set is historical/unknown; '{}' is explicitly empty.
-		// Evidence-support and same-event identity checks are not semantic re-decisions.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				SELECT count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL),
@@ -203,8 +173,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				  AND NOT (purpose='OTHER_BOUNDED' AND semantic_dimensions<@ARRAY['same_real_event']::text[])`, householdID).
 				Scan(&aggregate.SemanticEligiblePhases, &aggregate.SemanticReDecisions, &aggregate.SemanticUnknownPhases)
 		},
-		// Fidelity is a property of the stored contract, not semantic ground truth: only complete ReviewDecision contracts enter the denominator.
-		// Changed fields come from review-turn telemetry, not raw resolution values.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				WITH contracts AS (
@@ -233,10 +201,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				  count(*) FILTER (WHERE NOT COALESCE(eligible,false)) FROM scored`, householdID).
 				Scan(&aggregate.ResidualEligibleReviews, &aggregate.ResidualViolations, &aggregate.ResidualUnknownReviews)
 		},
-		// Derived from canonical state plus append-only review-turn telemetry. RHICE counts each supplied field or bounded choice;
-		// values merged from known server state and residual allocation (review metadata) are excluded.
-		// One pass over review_item with hashed IN-subqueries; a UNION of three bindings re-materialised the
-		// resolved set and measured 790ms on a 30-day seed, versus 12ms here.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				WITH recent_transactions AS (
@@ -279,8 +243,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
 				FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit)
 		},
-		// The per-event numerator only matters with a canonical cohort, so the sum
-		// query is skipped when there is no confirmed transaction (a real zero).
 		func(ctx context.Context) error {
 			if err := h.pool.QueryRow(ctx, `
 				SELECT count(*) FROM transaction
@@ -296,7 +258,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 				WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN'
 				  AND t.status='CONFIRMED' AND t.created_at >= now()-interval '30 days'`, householdID).Scan(&boundedChoicesPerEventSum)
 		},
-		// Open-to-resolve time reads review_item, not review_request, so every review type counts.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				SELECT COALESCE(avg(EXTRACT(EPOCH FROM (ri.resolved_at - ri.created_at)) * 1000)::bigint, 0)
@@ -365,7 +326,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 			}
 			return rows.Err()
 		},
-		// Pre-migration history cannot be reconstructed; keep that gap visible for the first 30 days of product telemetry. UI_EVENT screen views are not product history and must not clear it.
 		func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1 AND event_type<>'UI_EVENT'`, householdID).Scan(&telemetryHistoryComplete)
 		},

@@ -10,8 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// incidentRow is the shape of a real failure: one 72001 IDR row whose receipt printed two reference numbers,
-// a transaction id and an order id.
 func incidentRow(at string) screenshotRow {
 	return screenshotRow{
 		Direction: "OUT", Amount: ptr("72001"), Currency: "IDR", TransactionAt: &at,
@@ -122,8 +120,6 @@ func (c *screenshotRepairCapture) NativeToolCall(_ context.Context, _ string, pr
 	return gateway.ToolCall{Name: "repair_transaction_fields", Arguments: json.RawMessage(`{"fields":{"transactions":[]}}`)}, gateway.Metadata{Model: "repair"}, nil
 }
 
-// The repair stays field-restricted (only the top-level transactions field is flagged and allowed) but the
-// prompt says which rule broke and where.
 func TestScreenshotRepairPromptNamesTheRuleAndStaysFieldRestricted(t *testing.T) {
 	at := time.Now().In(jakarta()).Format(time.RFC3339)
 	value := screenshotExtraction{Confidence: .99, Transactions: []screenshotRow{incidentRow(at)}}

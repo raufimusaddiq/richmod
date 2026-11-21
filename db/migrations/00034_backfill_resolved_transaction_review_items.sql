@@ -1,6 +1,4 @@
 -- +goose Up
--- Legacy transaction review routes resolved the transaction and optional Telegram
--- delivery projection but could leave the canonical review item active.
 UPDATE review_item ri
 SET status='RESOLVED',
     resolved_at=now(),
@@ -13,4 +11,3 @@ WHERE ri.transaction_id=t.id
   AND t.status IN ('CONFIRMED','VOIDED');
 
 -- +goose Down
--- Canonical review resolution is irreversible. Do not reopen items during rollback.

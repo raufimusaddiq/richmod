@@ -24,11 +24,6 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// TestJudgmentAggregateCountsLanesAndAvoidedCalls is the judgment-plane completion
-// criterion 13: telemetry must report Jev-only vs mixed vs generative turns and
-// the native tool calls the decision plane avoided. The aggregate is derived
-// from the two tables the worker already writes, so a household's scoreboard is
-// correct without any extra pipeline, and a second household never bleeds in.
 func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -53,14 +48,12 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 		{householdID, "JEV_ONLY", 0},
 		{householdID, "JEV_THEN_GENERATIVE", 1},
 		{householdID, "GENERATIVE_ONLY", 0},
-		{otherHouseholdID, "JEV_ONLY", 99}, // must not be counted for householdID
+		{otherHouseholdID, "JEV_ONLY", 99},
 	} {
 		if _, err := pool.Exec(ctx, `INSERT INTO judgment_turn_telemetry(household_id,lane,decision_tasks,policy_version,model,native_tool_calls_avoided) VALUES($1,$2,'{}','test','jev-test',$3)`, row.householdID, row.lane, row.avoided); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Production-shaped rows: protocol 'systemone', call_kind JUDGMENT/DECISION, and the gateway's SUCCEEDED/FAILED statuses
-	// (not the 'SUCCESS'/'ERROR' spellings an earlier revision used, which made the counter read zero).
 	for _, row := range []struct {
 		status     string
 		callKind   string
@@ -75,8 +68,6 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A generative call in the same window must not be mistaken for a bounded
-	// call: the aggregate filters on protocol.
 	if _, err := pool.Exec(ctx, `INSERT INTO llm_call(household_id,task,protocol,model,status,duration_ms,call_kind) VALUES($1,'TELEGRAM_NATIVE','responses','gpt-test','FAILED',9000,'NATIVE_TOOL')`, householdID); err != nil {
 		t.Fatal(err)
 	}
@@ -105,10 +96,6 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 	}
 }
 
-// TestJudgmentAggregateMeasuresPhaseOrderWithoutConfusingTransportForPolicy is
-// the judgment exit gate: model-order counts, latency, double-pass shape, and
-// rescue outcome must come from the rows that actually prove them. Transport
-// success is never reported as policy acceptance.
 func TestJudgmentAggregateMeasuresPhaseOrder(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -126,15 +113,11 @@ func TestJudgmentAggregateMeasuresPhaseOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Valid order: generative extraction then a Jev residual category ruling.
 	phase("GENERATIVE", "EXTRACTION", []string{"amount", "merchant"}, "SUCCEEDED")
 	phase("JEV", "RESIDUAL_CATEGORY", []string{"category"}, "SUCCEEDED")
-	// Go accepted that rescue: the decision row is what makes it a success.
 	if _, err := pool.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,outcome) VALUES($1,$2,'RECEIPT_CATEGORY','test-model','test-policy',ARRAY['category'],'AUTO_CONFIRM')`, householdID, eventID); err != nil {
 		t.Fatal(err)
 	}
-	// Redundant order on a second event: generative accepted a category and a
-	// later non-residual Jev pass repeated the same semantic dimension.
 	var redundantEvent string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode('01','hex'),'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("phase-redundant-%d", stamp)).Scan(&redundantEvent); err != nil {
 		t.Fatal(err)

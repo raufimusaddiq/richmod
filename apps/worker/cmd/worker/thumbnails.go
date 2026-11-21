@@ -13,9 +13,6 @@ import (
 	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
 )
 
-// backfillThumbnails is the one-shot `worker thumbnails [household-id]` command.
-// It writes the document thumbnails that are missing, for one household or for
-// every household when no id is given, and is safe to re-run.
 func backfillThumbnails(logger *slog.Logger, args []string) error {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

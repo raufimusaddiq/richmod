@@ -24,8 +24,6 @@ func (s *stubRowVerifier) Evaluate(_ context.Context, _ string, request judgment
 
 var rowCategoryOptions = []categoryOption{{ID: "cat-food", Slug: "food-and-drink"}, {ID: "cat-groceries", Slug: "groceries"}}
 
-// rowAnswerFor builds a complete distribution over the server-owned criteria: one confident top choice, the
-// rest split over the others.
 func rowAnswerFor(choice string, top float64) judgment.Answer {
 	distribution := map[string]float64{}
 	for _, key := range []string{"food-and-drink", "groceries", "OTHER_OR_UNCLEAR"} {
@@ -43,7 +41,6 @@ func unmatchedOutRow(amount string) validatedScreenshotRow {
 }
 
 func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
-	// Every screenshot reason code must store its one contract, or the Inbox hides an action the API still accepts.
 	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
 		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true}, false)
 		want, ok := reviewdec.Preset(reason, "transaction", "transaction")
@@ -142,8 +139,6 @@ func TestResolveRowCategoriesWithoutVerifierDecidesNothing(t *testing.T) {
 	}
 }
 
-// An unmatched OUT row reaches canonical state only with a decisive category, a printed date and no
-// unresolved conflict; an incoming row never does.
 func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 	category := "cat-food"
 	decided := unmatchedOutRow("54000")

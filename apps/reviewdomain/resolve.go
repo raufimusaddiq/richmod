@@ -1,6 +1,3 @@
-// Package reviewdomain holds the canonical, channel-neutral review resolution
-// operations (ADR-046). Web and Telegram adapters call them inside their own
-// transaction; no surface owns review-transition policy.
 package reviewdomain
 
 import (
@@ -11,21 +8,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrAlreadyResolved reports a resolution attempt against a review that is no
-// longer open. Callers surface a deterministic stale/resolved response.
 var ErrAlreadyResolved = errors.New("reviewdomain: review already resolved")
 
 const resolveRequestSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
 		WHERE household_id=$3 AND (review_item_id=ANY($1::uuid[]) OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
 
-// resolveRequestByItemSQL resolves only the request(s) bound to the exact
-// review item. The Telegram exact-binding path must never close sibling reviews
-// that merely share the same transaction.
 const resolveRequestByItemSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
 		WHERE household_id=$2 AND review_item_id=ANY($1::uuid[]) AND status IN ('PENDING_SEND','OPEN')`
 
-// resolveTransactionSQL resolves every open canonical item for one transaction
-// in a single statement, preserving the prior all-item API behavior.
 const resolveTransactionSQL = `UPDATE review_item
 		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
 		    resolution_values=$5::jsonb,updated_at=now()
@@ -37,29 +27,16 @@ const resolveByIDSQL = `UPDATE review_item
 		    resolution_values=$4::jsonb,updated_at=now()
 		WHERE id=$1 AND household_id=$5 AND status IN ('PENDING_SEND','OPEN')`
 
-// Command is a channel-neutral resolution request. Surface, callback, and reply
-// binding stay in the adapters; this type carries only canonical inputs.
 type Command struct {
 	HouseholdID  string
 	ActorUserID  string
 	ReviewItemID string
-	// RequestID is the exact Telegram projection identity for bound resolution.
-	RequestID string
-	// SubjectID is the review subject identity (a transaction ID for the
-	// transaction operation family).
-	SubjectID string
-	Action    string
-	// Values carries the canonical residual values recorded with the resolution.
-	Values []byte
+	RequestID    string
+	SubjectID    string
+	Action       string
+	Values       []byte
 }
 
-// ResolveByTransaction completes every open review_item bound to one transaction and
-// household. It takes the canonical lock, verifies the review is still active,
-// records the human actor/action/values, and resolves the Telegram projection in the
-// same transaction.
-//
-// Fact validation and the review-family mutation stay with the caller; this owns the
-// terminal review transition.
 func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	values := cmd.Values
 	if len(values) == 0 {
@@ -93,9 +70,6 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, cmd.SubjectID)
 }
 
-// ResolveByID completes one exact review item after locking and validating its
-// household, subject, and active status. Telegram uses this to preserve stored
-// message/request binding; the caller must authenticate actorUserID first.
 func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	values := cmd.Values
 	if len(values) == 0 {
@@ -105,8 +79,6 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 			return err
 		}
 	}
-	// Every review_request links to its review_item (migration 00081), so a
-	// request-bound caller resolves through that item.
 	itemID := cmd.ReviewItemID
 	if itemID == "" {
 		if err := tx.QueryRow(ctx, `SELECT review_item_id::text FROM review_request

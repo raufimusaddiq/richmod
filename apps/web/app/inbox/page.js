@@ -20,19 +20,11 @@ export default function InboxPage() {
   const [view, setView] = useState("transactions");
   const [reviews, setReviews] = useState([]), [categories, setCategories] = useState([]), [wealthAccounts, setWealthAccounts] = useState([]), [accounts, setAccounts] = useState([]);
   const [error, setError] = useState(""), [toast, setToast] = useState("");
-  // One busy flag per card: acting on card B must not release or overwrite card A.
   const { busy, run: runBusy } = useBusyMap();
-  // The needs-your-decision count spans every page and excludes notices; the
-  // cursor fetches the next page of transaction reviews ("Muat lagi").
   const [decisionCount, setDecisionCount] = useState(null), [nextCursor, setNextCursor] = useState(""), [loadingMore, setLoadingMore] = useState(false);
-  // The badge may only be published from a load that fetched the review list.
   const [complete, setComplete] = useState(false);
-  // Decisions made in this visit stay as one undoable line until the household leaves.
   const [resolved, setResolved] = useState([]);
-  // Recently resolved: its own state machine so a failed fetch is shown and retried, never cached as "empty".
   const [history, setHistory] = useState({ status: "idle", items: [] }), [historyTick, setHistoryTick] = useState(0);
-  // A reload (after a 409, a reopen, a save) is a refresh: cards stay mounted so a typed
-  // note and the merchant/category hint survive.
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const [reviewResponse, categoryResponse, wealthResponse, accountResponse] = await Promise.all(["/api/v1/reviews", "/api/v1/categories", "/api/v1/wealth/accounts", "/api/v1/accounts"].map(url => fetch(url, { signal })));
     const readOptional = async response => { try { return response.ok ? await response.json() : null; } catch { return null; } };
@@ -53,7 +45,6 @@ export default function InboxPage() {
   });
   const load = loader.run;
   useEffect(() => {
-    // Tindakan and Email masuk moved to Keluarga › Sumber otomatis; old links follow them there.
     const sync = () => {
       const moved = legacyViewTarget(new URLSearchParams(window.location.search).get("view"));
       if (moved) { window.location.replace(moved); return; }
@@ -63,7 +54,6 @@ export default function InboxPage() {
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
   const decisions = decisionCount ?? reviews.filter(item => item.presentation !== "NOTICE").length;
-  // Keyed on the load itself, not on the banner: a stale error must not freeze the nav badge.
   useEffect(() => { if (loader.status === LOAD.READY && complete) publishInboxCount({ reviewCount: decisions }); }, [loader.status, complete, decisions]);
   const historyOpen = view === "history";
   useEffect(() => {
@@ -87,7 +77,6 @@ export default function InboxPage() {
     } catch { setError("Tinjauan berikutnya belum dapat dimuat."); }
     finally { setLoadingMore(false); }
   }
-  // Reopen from "Riwayat" or from an inline "Urungkan"; the card comes back with fresh data.
   function reopen(id) {
     return runBusy(id, async () => {
       setError("");
@@ -119,7 +108,6 @@ export default function InboxPage() {
         const response = await fetch(`/api/v1/reviews/${id}/${name}`, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
         if (!response.ok) {
           const result = await response.json().catch(() => ({}));
-          // Refresh in place: the card that asked stays mounted to show its hint.
           if (response.status === 409 && result.missingFacts) await load();
           setError(result.error || "Tinjauan belum dapat diperbarui.");
           return result;

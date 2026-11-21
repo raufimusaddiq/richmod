@@ -20,15 +20,12 @@ const (
 	agentToolSideEffect agentToolClass = "SIDE_EFFECT"
 )
 
-// agentReadTools is the Telegram-native READ catalog; query_spending carries the category breakdown,
-// query_cashflow the insight extras, search_transactions orders by LARGEST.
 var agentReadTools = map[string]struct{}{
 	"query_spending": {}, "query_cashflow": {}, "query_savings": {},
 	"query_wealth": {}, "list_wealth_accounts": {}, "search_transactions": {},
 	"list_review_items": {}, "get_evidence_context": {}, "get_transaction_details": {},
 }
 
-// The shared analytical READ catalog is channel-neutral: Telegram reuses the analytics API's tool set and fact engine.
 func init() {
 	for _, tool := range analyticscore.Tools() {
 		agentReadTools[tool.Name] = struct{}{}
@@ -63,8 +60,6 @@ func readOnlyAgentTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition
 	return readOnly
 }
 
-// AgentFinanceTools is the default live catalog; policy tests use it to assert which tools the model sees per
-// server state.
 func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
 }
@@ -216,7 +211,6 @@ type pendingBatchDecisionArgs struct {
 	ConfirmAfterUpdate bool    `json:"confirm_after_update"`
 }
 
-// batchItemRefPattern is the item_ref shape pending_batch lists (batch_1..batch_10).
 var batchItemRefPattern = regexp.MustCompile(`^batch_(10|[1-9])$`)
 
 type agentResidualAllocationInput struct {

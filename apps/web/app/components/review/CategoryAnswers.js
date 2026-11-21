@@ -2,8 +2,6 @@
 import { useState } from "react";
 import { categoryAnswers, rememberLabel } from "../../lib/reviewInbox";
 
-// One plain question with ready 1-tap answers. The top three come from the household's own
-// history (ranked by Go); "Kategori lain…" opens every other active category.
 export default function CategoryAnswers({ item, categories, disabled, action }) {
   const [more, setMore] = useState(false);
   const [remember, setRemember] = useState(false);

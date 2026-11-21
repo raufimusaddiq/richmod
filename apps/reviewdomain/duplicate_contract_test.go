@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Web and Telegram must merge a duplicate through the shared operation; no
-// adapter may keep its own void/evidence-copy mutation SQL.
 func TestDuplicateMergeIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",

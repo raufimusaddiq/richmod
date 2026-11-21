@@ -7,34 +7,23 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// A source event (typed message, button tap, bank email) that reaches a terminal
-// failure becomes one dismissable item in the Inbox's Tindakan tab. It is an action,
-// not a review: the failure is infrastructure state, not a household fact question
-// (ADR-048). Dismissing it finalizes the source event so analytics stops counting it
-// as unfinished.
 const (
 	FailedSourceIntegrationType = "SOURCE_PROCESSING"
 	FailedSourceActionType      = "SOURCE_FAILED"
-	// FailedSourceInboxLink is where analytics sends the household to see them.
-	FailedSourceInboxLink = "/inbox?view=actions"
+	FailedSourceInboxLink       = "/inbox?view=actions"
 )
 
 var sourceEventIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// IsSourceEventID reports whether value is a well-formed source event ID, so a
-// malformed one can be skipped before any SQL that would abort a transaction.
 func IsSourceEventID(value string) bool { return sourceEventIDPattern.MatchString(value) }
 
-// FailedSource names one source event that will not be processed again.
 type FailedSource struct {
 	HouseholdID   string
 	SourceEventID string
-	SourceType    string // source_event.source_type
-	Reason        string // INVALID, TRANSPORT_FAILED, VERIFICATION_FAILED, TIMEOUT, ERROR, ...
+	SourceType    string
+	Reason        string
 }
 
-// FailedSourceCopy is the household-facing title and description for a failed
-// source: what happened, what it means for their data, and what to do.
 func FailedSourceCopy(sourceType, reason string) (title, description string) {
 	switch sourceType {
 	case "TELEGRAM_TEXT":
@@ -63,10 +52,6 @@ func FailedSourceCopy(sourceType, reason string) (title, description string) {
 		"Satu masukan tidak selesai diproses. Periksa datamu, lalu tutup tindakan ini."
 }
 
-// RecordFailedSourceAction creates the Tindakan item for a failed source. It is
-// idempotent per source event (the dedupe key), and a missing household or a
-// malformed event ID is a no-op, never an SQL error that would abort the
-// transaction it runs in.
 func RecordFailedSourceAction(ctx context.Context, tx pgx.Tx, f FailedSource) error {
 	if f.HouseholdID == "" || !IsSourceEventID(f.SourceEventID) {
 		return nil
@@ -80,9 +65,6 @@ func RecordFailedSourceAction(ctx context.Context, tx pgx.Tx, f FailedSource) er
 	return err
 }
 
-// IgnoreFailedSource finalizes a source event the household has acknowledged. It
-// only moves an event that is still unfinished, so a message that was answered
-// in the meantime keeps its PROCESSED state. It reports whether a row changed.
 func IgnoreFailedSource(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string) (bool, error) {
 	if householdID == "" || !IsSourceEventID(sourceEventID) {
 		return false, nil
@@ -94,18 +76,10 @@ func IgnoreFailedSource(ctx context.Context, tx pgx.Tx, householdID, sourceEvent
 	return tag.RowsAffected() == 1, nil
 }
 
-// TxBeginner is the part of a connection pool the sweep needs.
 type TxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-// SweepFailedSources gives every unfinished source whose processing has permanently
-// stopped its dismissable Tindakan item. Terminal-failure hooks cover typed messages,
-// button taps and bank email; documents, images, financial email, and failed hooks
-// leave a FAILED/RECEIVED source the cycle review counts but the Inbox cannot show. A
-// source qualifies with no queued or running job and either FAILED or a FAILED job.
-// Idempotent through the per-source dedupe key; it returns how many items were
-// created.
 func SweepFailedSources(ctx context.Context, pool TxBeginner, limit int) (int, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

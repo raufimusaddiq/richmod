@@ -12,8 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// Every callback emitted or parsed here must pass the API webhook grammar
-// (reviewdomain.ValidTelegramCallback), or the tap is dropped before the worker sees it.
 func TestEveryCallbackLiteralIsAdmittedByIngress(t *testing.T) {
 	samples := reviewdomain.TelegramCallbackSamples()
 	hasPrefix := func(prefix string) bool {

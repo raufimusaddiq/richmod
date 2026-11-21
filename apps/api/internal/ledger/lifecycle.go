@@ -45,9 +45,6 @@ type transactionView struct {
 	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
-// activeMergeView is an ACTIVE reconciliation merge this transaction takes part in, with the
-// other side described for the drawer's "Pisahkan penggabungan" action. Role TARGET means this
-// transaction absorbed the other (voiding it is refused); SOURCE means it was folded into the other.
 type activeMergeView struct {
 	ID                 string    `json:"id"`
 	Role               string    `json:"role"`
@@ -78,8 +75,6 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
 	}
-	// An empty page carries no window counts (first page with only voided matches, or a page past the
-	// end), so count the hidden rows with a probe: same filters, from the start, status VOIDED.
 	if filters.ExcludeVoided && len(out) == 0 {
 		probe := filters
 		probe.ExcludeVoided, probe.Status, probe.CursorAt, probe.CursorID, probe.Limit = false, "VOIDED", nil, "", 1
@@ -87,8 +82,6 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 			voided = count
 		}
 	}
-	// The count of every row matching the filters, before the page limit. The window
-	// function rides the same query, so a second COUNT round-trip is not needed.
 	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
 	if filters.ExcludeVoided {
 		w.Header().Set("X-Voided-Count", strconv.FormatInt(voided, 10))
@@ -101,8 +94,6 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// listTransactionRows runs the filtered list. total counts every visible row matching the filters
-// before the page limit; voided counts the VOIDED rows hidden by ExcludeVoided.
 func (h *Handler) listTransactionRows(ctx context.Context, household string, filters transactionFilters) ([]transactionView, int64, int64, error) {
 	rows, err := h.pool.Query(ctx, `
 		WITH filtered AS (
@@ -162,8 +153,7 @@ type transactionFilters struct {
 	CursorAt                           *time.Time
 	CursorID                           string
 	Limit                              int
-	// ExcludeVoided hides VOIDED rows; it applies only when no explicit status filter is set.
-	ExcludeVoided bool
+	ExcludeVoided                      bool
 }
 
 func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) {
@@ -263,8 +253,6 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to load transaction"})
 		return
 	}
-	// The merge annotation is secondary to the record: if it cannot be read the detail still loads, without
-	// the "Pisahkan penggabungan" action, and the void endpoint keeps refusing a merge target on its own.
 	merges, err := h.activeMerges(r.Context(), household, v.ID)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "load active merges for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
@@ -329,8 +317,6 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		writeJSON(w, 409, map[string]string{"error": "invalid transaction status transition"})
 		return
 	}
-	// The merge flow locks its target row FOR UPDATE, so this read cannot race a merge being
-	// created. The database guard (00100) backs it up for every other void path.
 	if target == "VOIDED" {
 		protected, err := reviewdomain.ActiveMergeTarget(r.Context(), tx, household, id)
 		if err != nil {
@@ -356,8 +342,6 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		writeJSON(w, 500, map[string]string{"error": "unable to audit transaction"})
 		return
 	}
-	// A voided CONFIRMED transaction leaves the totals, so an open cycle residual review
-	// built on them is recomputed in the same commit (as a newly recorded one does).
 	if target == "VOIDED" && before == "CONFIRMED" {
 		if err = reviewdomain.RefreshOpenCycleResidualsFor(r.Context(), tx, household, occurredAt, p.UserID, reviewdomain.CycleReopenTransactionVoided); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
@@ -372,8 +356,6 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 }
 
 func canTransition(from, to string) bool {
-	// The only ledger move left to this endpoint: a confirmed transaction is voided. A
-	// transaction is confirmed by its review (or created CONFIRMED), never directly.
 	return to == "VOIDED" && from == "CONFIRMED"
 }
 

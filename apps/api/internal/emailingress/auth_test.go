@@ -94,11 +94,8 @@ func TestAuthTrusted(t *testing.T) {
 		{"misaligned header.from", email("alerts@bank.test", "mx.example; dkim=pass; dmarc=pass header.from=attacker.test"), false},
 		{"pass only inside a comment", email("alerts@bank.test", "mx.example; dkim=none (dkim=pass); dmarc=none (dmarc=pass)"), false},
 		{"pass only as a substring", email("alerts@bank.test", "mx.example; xdkim=pass; spf=pass reason=dmarc=pass"), false},
-		// The receiving MTA prepends its header; a sender-written trusted one
-		// below it must not be believed.
 		{"forged header below the receiver's", email("alerts@bank.test", "mx.example; dkim=none; dmarc=fail", "mx.example; dkim=pass; dmarc=pass"), false},
 		{"forged header below an untrusted receiver", email("alerts@bank.test", "relay.test; dkim=none", "mx.example; dkim=pass; dmarc=pass"), false},
-		// ARC results are sender-writable without a validated ARC-Seal chain.
 		{"ARC results alone", ParsedEmail{Sender: "alerts@bank.test", ARCAuthenticationResults: "i=1; mx.example; dkim=pass; dmarc=pass header.from=bank.test"}, false},
 		{"no headers", ParsedEmail{Sender: "alerts@bank.test"}, false},
 	}

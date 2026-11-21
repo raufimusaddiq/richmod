@@ -1,9 +1,6 @@
 #!/bin/sh
 set -eu
 
-# The local stack publishes the API on loopback but the API still makes outbound
-# requests (OSS uploads, the LLM gateway). At least one of its Compose networks
-# must therefore not be internal; otherwise `docker compose up` has no egress.
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 
 config=$(

@@ -6,7 +6,6 @@ import { cycleEntryWindow, missingTransactionHref, withinCycleWindow } from "../
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("the missing-transaction handoff carries the residual cycle as an inclusive range", () => {
-  // The API returns the cycle's Jakarta dates with an exclusive end.
   assert.equal(missingTransactionHref({ route: "CANONICAL_TRANSACTION_FLOW", cycleStart: "2026-08-25", cycleEnd: "2026-09-25" }), "/transactions?record=missing&from=2026-08-25&to=2026-09-24");
   assert.equal(missingTransactionHref({ route: "CANONICAL_TRANSACTION_FLOW" }), "/transactions");
   assert.equal(missingTransactionHref({ cycleStart: "2026-09-25", cycleEnd: "2026-09-25" }), "/transactions");
@@ -31,8 +30,6 @@ test("the inbox and the transaction form use the cycle handoff", () => {
   assert.match(text("app/inbox/page.js"), /CANONICAL_TRANSACTION_FLOW"\) \{ window\.location\.assign\(missingTransactionHref\(result\)\)/);
   const page = text("app/transactions/page.js");
   assert.match(page, /cycleEntryWindow\(window\.location\.search\)/);
-  // Regression: on a cold load this page's effect runs before the provider attaches its window
-  // listener, so the handoff must call the provider's open() from context, never dispatch an event.
   assert.match(page, /const \{ open: openQuickRecord \} = useQuickRecord\(\);/);
   assert.doesNotMatch(page, /import \{ openQuickRecord \}/);
   assert.match(page, /if \(window_\) openCreate\(window_\); \}, \[user, openQuickRecord\]\);/);

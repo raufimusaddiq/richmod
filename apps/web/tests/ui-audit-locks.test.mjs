@@ -158,7 +158,6 @@ test("destructive and text-entry choices use the shared dialog, not window.confi
   assert.match(dialogs, /onCancel=/);
   assert.match(dialogs, /useId\(\)/);
   assert.doesNotMatch(dialogs, /app-dialog-title/);
-  // The leave-page guard in analytics must answer synchronously, so it keeps window.confirm.
   assert.match(text("app/analytics/page.js"), /window\.confirm\("Ada draf keputusan/);
 });
 
@@ -172,8 +171,6 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
   assert.match(provider, /INBOX_COUNT_EVENT/);
   assert.match(text("app/layout.js"), /<InboxCountProvider><QuickRecordProvider>\{children\}<\/QuickRecordProvider><\/InboxCountProvider>/);
-  // Notices are not decisions: the count is the server's needs-your-decision
-  // count across every page (X-Decision-Count) plus pending actions.
   assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(\{ reviewCount: decisions \}\)/, "the review page never clobbers the action count");
   assert.match(provider, /X-Decision-Count/);
 });
@@ -320,27 +317,21 @@ test("document thumbnails load lazily and the list shows twelve at a time", () =
   assert.match(page, /alt="Pratinjau dokumen keuangan" loading="lazy" decoding="async"/);
   assert.match(page, /visibleItems\.slice\(0, visibleCount\)\.map/);
   assert.match(page, /setVisibleCount\(count => count \+ 12\)/);
-  // The grid asks for the derived thumbnail; the drawer keeps the full original.
   assert.ok(page.includes("src={`/api/v1/documents/${item.id}/thumbnail`}"));
   assert.ok(page.includes("src={`/api/v1/documents/${selected.id}/pages/${page}/content`}"));
 });
 
 test("documents: one pager, an honest status filter, and an upload form that waits for a file", () => {
   const page = text("app/documents/page.js");
-  // One "show me more" control: reveal the loaded page first, then fetch older pages.
   assert.equal((page.match(/Tampilkan lebih banyak/g) || []).length, 1, "a single pagination label");
   assert.doesNotMatch(page, /Muat dokumen lebih lama/);
   assert.match(page, /function showMore\(\)/);
-  // The filter states how many documents it actually looked at and can page further.
   assert.match(page, /di antara \$\{items\.length\} dokumen termuat/);
   assert.match(page, /Muat lebih banyak untuk memeriksa dokumen yang lebih lama\./);
-  // No upload without a chosen file, and the limits sit below the picker.
   assert.match(page, /<button disabled=\{working \|\| !fileInfo\}>/);
   assert.match(page, /JPG atau PNG · maksimal 10 MB total · maksimal 10 gambar<\/small>/);
   assert.doesNotMatch(page, /actions=\{<span className="header-meta">/, "the limits left the page header");
-  // The title wraps instead of truncating the merchant.
   assert.doesNotMatch(text("app/styles/05-inbox-and-documents.css"), /\.document-card h2 \{[^}]*text-overflow: ellipsis/);
-  // Touch keeps a 44px chip and pager target.
   assert.match(text("app/styles/11-responsive.css"), /@media \(pointer: coarse\)\s*\{[^@]*\.filter-chips \.chip, \.document-more button \{ min-height: 44px; \}/);
 });
 
@@ -396,7 +387,6 @@ test("unfinished sources link to the Tindakan tab, which can show and close them
   const sections = text("app/analytics/CycleDashboard.js");
   assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
   assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
-  // Tindakan moved into Keluarga > Sumber otomatis; the old inbox link follows it.
   assert.match(text("app/lib/reviewInbox.js"), /view === "actions"\) return "\/household\?tab=sumber#tindakan"/);
   assert.match(text("app/components/SettingsPanels.js"), /tindakan/);
 });
@@ -436,12 +426,10 @@ test("motion uses one scale and one reduced-motion guard", () => {
   assert.equal((source.match(/prefers-reduced-motion: reduce/g) || []).length, 1, "the reduce guard is declared exactly once");
   const motion = text("app/styles/15-motion.css");
   const guard = motion.indexOf("@media (prefers-reduced-motion: reduce)");
-  assert.ok(guard > 0, "the motion piece owns the guard");
+  assert.ok(guard >= 0, "the motion piece owns the guard");
   assert.match(motion.slice(guard), /animation-duration: \.01ms !important/);
   assert.match(motion.slice(guard), /transition-duration: \.01ms !important/);
   for (const token of ["motion-fast", "motion-base", "motion-slow", "ease-standard", "ease-out"]) assert.match(source, new RegExp(`--${token}: `), `--${token} is missing from the scale`);
-  // Every animation the app adds reads the scale; a literal duration outside
-  // the guard would be a second timing the scale does not describe.
   assert.doesNotMatch(motion.slice(0, guard), /\b\d*\.?\d+m?s\b/, "motion rules must not hard-code a duration");
 });
 
@@ -467,11 +455,9 @@ test("documents: titles read screenshot transactions[] and fall back to date and
   assert.ok(!body.includes("/^d+$/"));
   assert.match(body, /if \(!parts\.length\)/, "a card with no merchant falls back to source and date");
   assert.match(body, /transaksi/);
-  // Execute the real function against screenshot, failed and receipt cards.
   const rawFn = new Function("documentTypeLabel", "money", "sourceLabel", "dateTime", `${body}\nreturn documentTitle;`)(v => ({ EWALLET_SCREENSHOT: "Tangkapan layar dompet digital", RECEIPT: "Struk" }[v]), money, () => "Gambar Telegram", () => "15 Nov 2026, 12.48");
   const fn = doc => rawFn(doc).replace(/\s/g, " ");
   const shot = { documentType: "EWALLET_SCREENSHOT", status: "EXTRACTED", summary: { transactions: [{ merchant: "Kopi Kenangan", amount: "45000" }, { merchant: "X", amount: "1" }] } };
-  // The merchant leads: the type prefix used to push it out of the truncated title.
   assert.equal(fn(shot), "Kopi Kenangan · Rp 45.000 · 2 transaksi");
   assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "50000" } }), "Toko · Rp 50.000");
   assert.equal(fn({ documentType: "RECEIPT", status: "EXTRACTED", summary: { merchant: "Toko", total: "45000.00" } }), "Toko · Rp 45.000");

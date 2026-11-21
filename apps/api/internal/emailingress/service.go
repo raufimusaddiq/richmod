@@ -24,22 +24,18 @@ const (
 	StatusDisabled    = "DISABLED"
 )
 
-// Activation prerequisites. The handler maps them to specific 409 responses.
 var (
 	ErrAddressRequired = errors.New("provisioned email ingress address required")
 	ErrInvalidCursor   = errors.New("invalid delivery cursor")
 	ErrSenderRequired  = errors.New("add an active bank sender or financial provider source before activating")
 )
 
-// Step states for the onboarding checklist.
 const (
 	StepDone    = "done"
 	StepCurrent = "current"
 	StepBlocked = "blocked"
 )
 
-// Steps is the guided-onboarding state of the household's email ingress. It is
-// derived from canonical rows on every read and never stored.
 type Steps struct {
 	Address    string `json:"address"`
 	Sender     string `json:"sender"`
@@ -55,21 +51,17 @@ type Service struct {
 }
 
 type Address struct {
-	ID             string     `json:"-"`
-	HouseholdID    string     `json:"-"`
-	LocalPart      string     `json:"-"`
-	Address        string     `json:"address"`
-	Status         string     `json:"status"`
-	Provider       string     `json:"provider"`
-	LastReceivedAt *time.Time `json:"lastReceivedAt"`
-	// ForwardingAction is the open Gmail forwarding verification, set only for
-	// owners. It exposes the confirmation code and verify link inline.
+	ID               string            `json:"-"`
+	HouseholdID      string            `json:"-"`
+	LocalPart        string            `json:"-"`
+	Address          string            `json:"address"`
+	Status           string            `json:"status"`
+	Provider         string            `json:"provider"`
+	LastReceivedAt   *time.Time        `json:"lastReceivedAt"`
 	ForwardingAction *ForwardingAction `json:"forwardingAction"`
-	// Steps is the onboarding checklist state, set by the handler.
-	Steps *Steps `json:"steps,omitempty"`
+	Steps            *Steps            `json:"steps,omitempty"`
 }
 
-// ForwardingAction is the household's pending forwarding verification.
 type ForwardingAction struct {
 	ID         string    `json:"id"`
 	Title      string    `json:"title"`
@@ -78,8 +70,6 @@ type ForwardingAction struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
-// Delivery is the household-visible outcome of one inbound email. It carries no
-// canonical IDs: the owner only needs to know what happened and why.
 type Delivery struct {
 	Status     string    `json:"status"`
 	Reason     string    `json:"reason,omitempty"`
@@ -88,10 +78,8 @@ type Delivery struct {
 	id         string
 }
 
-// recentDeliveryLimit is the page size of the deliveries list; older pages are reached with the cursor.
 const recentDeliveryLimit = 20
 
-// DeliveryCursor is the opaque position after the last delivery of a page.
 func deliveryCursor(d Delivery) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(d.ReceivedAt.UTC().Format(time.RFC3339Nano) + "|" + d.id))
 }
@@ -135,9 +123,6 @@ func (s *Service) Current(ctx context.Context, householdID string) (Address, boo
 	return out, true, nil
 }
 
-// buildSteps derives checklist states from the address status and two facts.
-// A sender is the only hard prerequisite of activation. Forwarding verification
-// needs only the address (Gmail confirms against a PROVISIONED address).
 func buildSteps(hasAddress bool, addressStatus string, hasSender, forwardingVerified bool) Steps {
 	steps := Steps{Address: StepCurrent, Sender: StepBlocked, Forwarding: StepBlocked, Activated: StepBlocked}
 	if !hasAddress {
@@ -165,24 +150,18 @@ type rowQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-// hasActiveSender reports whether the household has an active bank listener or
-// an active financial provider source, the same sources Deliver matches.
 func hasActiveSender(ctx context.Context, q rowQuerier, householdID string) (bool, error) {
 	var ok bool
 	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM bank_email_listener WHERE household_id=$1 AND active) OR EXISTS(SELECT 1 FROM financial_email_source WHERE household_id=$1 AND status='ACTIVE')`, householdID).Scan(&ok)
 	return ok, err
 }
 
-// forwardingVerified reports whether a real (non-control) email reached the
-// address. A Gmail confirmation email is a delivery too, but proves nothing.
 func (s *Service) forwardingVerified(ctx context.Context, addressID string) (bool, error) {
 	var ok bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM email_ingress_delivery d WHERE d.address_id=$1 AND d.status IN ('PROVISIONED_RECEIVED','INGESTED','DUPLICATE') AND NOT EXISTS(SELECT 1 FROM integration_action ia WHERE ia.source_delivery_id=d.id))`, addressID).Scan(&ok)
 	return ok, err
 }
 
-// Checklist returns the onboarding step states for the household. address is
-// the household's current address, or nil when none exists.
 func (s *Service) Checklist(ctx context.Context, householdID string, address *Address) (Steps, error) {
 	hasSender, err := hasActiveSender(ctx, s.pool, householdID)
 	if err != nil {
@@ -198,9 +177,6 @@ func (s *Service) Checklist(ctx context.Context, householdID string, address *Ad
 	return buildSteps(true, address.Status, hasSender, verified), nil
 }
 
-// OpenForwardingAction returns the household's newest unresolved forwarding
-// verification for the current address, if any. An action whose source delivery
-// belongs to a disabled (rotated) address is never returned.
 func (s *Service) OpenForwardingAction(ctx context.Context, householdID string) (*ForwardingAction, error) {
 	var out ForwardingAction
 	err := s.pool.QueryRow(ctx, `SELECT ia.id,ia.title,ia.action_url,ia.action_code,ia.created_at FROM integration_action ia WHERE ia.household_id=$1 AND ia.integration_type=$2 AND ia.action_type=$3 AND ia.status='OPEN' AND NOT EXISTS(SELECT 1 FROM email_ingress_delivery d JOIN email_ingress_address a ON a.id=d.address_id WHERE d.id=ia.source_delivery_id AND a.status='DISABLED') ORDER BY ia.created_at DESC, ia.id DESC LIMIT 1`, householdID, forwardingIntegrationType, forwardingActionType).Scan(&out.ID, &out.Title, &out.ActionURL, &out.ActionCode, &out.CreatedAt)
@@ -213,8 +189,6 @@ func (s *Service) OpenForwardingAction(ctx context.Context, householdID string) 
 	return &out, nil
 }
 
-// RecentDeliveries lists one page of the household's inbound email outcomes, newest first.
-// A non-empty next is the cursor for the following (older) page; an unreadable cursor is ErrInvalidCursor.
 func (s *Service) RecentDeliveries(ctx context.Context, householdID, cursor string) (out []Delivery, next string, err error) {
 	var cursorAt *time.Time
 	cursorID := ""
@@ -273,7 +247,6 @@ func (s *Service) Provision(ctx context.Context, householdID, userID string) (Ad
 	var id string
 	err = tx.QueryRow(ctx, `INSERT INTO email_ingress_address(household_id,local_part,purpose,provider,status,created_by_user_id) VALUES($1,$2,'BANK_EMAIL','CLOUDFLARE_EMAIL','PROVISIONED',$3) ON CONFLICT DO NOTHING RETURNING id`, householdID, local, userID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// A concurrent request provisioned this household's address first.
 		_ = tx.Rollback(ctx)
 		if current, found, currentErr := s.Current(ctx, householdID); currentErr != nil || found {
 			return current, currentErr
@@ -307,8 +280,6 @@ func (s *Service) Rotate(ctx context.Context, householdID, userID string) (Addre
 		if _, err = tx.Exec(ctx, `UPDATE email_ingress_address SET status='DISABLED',disabled_at=now() WHERE id=$1`, oldID); err != nil {
 			return Address{}, err
 		}
-		// The pending Gmail verification belongs to the old address. Its code and
-		// link must not be offered for the new one.
 		if _, err = integrationaction.AutoResolve(ctx, tx, householdID, forwardingIntegrationType, forwardingActionType, "ADDRESS_ROTATED"); err != nil {
 			return Address{}, err
 		}
@@ -505,9 +476,6 @@ func (s *Service) persistFinancialActive(ctx context.Context, tx pgx.Tx, address
 	return err
 }
 
-// acceptedDeliveryStatus reports whether a delivery outcome proves that mail
-// really reached Richmod through forwarding. Rejected outcomes (IGNORED_*)
-// prove nothing and must not close a pending verification.
 func acceptedDeliveryStatus(status string) bool {
 	switch status {
 	case "PROVISIONED_RECEIVED", "INGESTED", "DUPLICATE":
@@ -516,8 +484,6 @@ func acceptedDeliveryStatus(status string) bool {
 	return false
 }
 
-// resolveForwardingProof closes the pending Gmail forwarding verification for
-// an accepted delivery. The Gmail confirmation email itself never counts.
 func resolveForwardingProof(ctx context.Context, tx pgx.Tx, householdID string, in deliveryInput) error {
 	if _, isControl := detectControlAction(in.Email, in.Signed.ContentHash); isControl {
 		return nil

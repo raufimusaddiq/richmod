@@ -146,8 +146,6 @@ func TestAgentWealthAssetPurchaseRollsBackTransferWhenLaterWriteFails(t *testing
 	state.Update.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 702}
-	// A valid but nonexistent source_event UUID: the FK failure comes after the transfer insert, proving the
-	// whole side effect rolls back.
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&state.SourceEventID))
 	at := time.Now().In(jakartaLocation()).Truncate(time.Minute)
 	_, _, err = p.agentResolveBoundWealthAssetPurchaseAtomic(ctx, &state, gateway.ToolCall{CallID: "asset-purchase-fail", Name: "resolve_review"}, map[string]any{

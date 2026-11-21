@@ -1,4 +1,3 @@
-// The email delivery log lives in the Inbox (owner-only), not in Settings.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -70,7 +69,6 @@ test("Keluarga > Sumber otomatis hosts the owner delivery log and pending action
   assert.match(settings, /title="Tindakan"/);
   assert.match(settings, /\/api\/v1\/integrations\/email-ingress\/deliveries/);
   assert.match(settings, /\/api\/v1\/integration-actions\/\$\{id\}\/resolve/);
-  // A member only ever gets the notifications section, so the log and the actions stay owner-only.
   assert.match(settings, /if \(!owner\) return <NotificationsSection/);
 });
 

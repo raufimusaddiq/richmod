@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// persistAgentTransactionReferencesTx persists model-safe refs in the mutation's own transaction, so a
-// committed ledger row never lacks a durable reference.
 func persistAgentTransactionReferencesTx(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, update telegramUpdate, prefix string, ids []string) ([]agentPublicRef, error) {
 	if len(ids) == 0 {
 		return nil, nil

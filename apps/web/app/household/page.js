@@ -15,12 +15,9 @@ const untilLabel = iso => new Date(iso).toLocaleString("id-ID", { timeZone: "Asi
 const TICK_MS = 15000;
 const INVITE_PATH = { telegram: "telegram-invite", dashboard: "dashboard-invite" };
 
-// Keluarga: members, accounts & wealth, categories & rules, automatic sources and notifications
-// in one workspace. /settings renders this same page, so old links keep working.
 export default function HouseholdPage() {
   const { confirm, dialogs } = useDialogs();
   const [household, setHousehold] = useState(null);
-  // null means "not loaded", never "no members": a failed request must not read as 0 akun.
   const [membersState, setMembers] = useState(null);
   const members = membersState || [];
   const [me, setMe] = useState(null);
@@ -29,19 +26,15 @@ export default function HouseholdPage() {
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState(""), [highlight, setHighlight] = useState("");
   const closeToast = useCallback(() => setToast(""), []);
-  // A row flash is a short confirmation, not state: it clears itself.
   useEffect(() => { if (!highlight) return undefined; const timer = window.setTimeout(() => setHighlight(""), 2000); return () => window.clearTimeout(timer); }, [highlight]);
   const { busy, run: runBusy } = useBusyMap();
   const linkInput = useRef(null);
-  // Expiry is time, not state: tick so an invite that lapses while the page is
-  // open stops looking valid and offers "create" instead of "cancel".
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), TICK_MS); return () => window.clearInterval(timer); }, []);
   const stillValid = iso => Boolean(iso) && new Date(iso).getTime() > now;
 
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const [meResponse, householdResponse, membersResponse] = await Promise.all(["/api/v1/auth/me", "/api/v1/household", "/api/v1/household/members"].map(url => fetch(url, { signal })));
-    // Only a 401 means signed out; a 5xx or dropped request keeps the session.
     if (meResponse.status === 401) { window.location.href = "/"; return; }
     if (!meResponse.ok) throw new LoadError("Sesi belum dapat diperiksa. Coba lagi.");
     const nextMe = await meResponse.json();
@@ -57,15 +50,12 @@ export default function HouseholdPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setCopied(false); }, [invite?.link]);
-  // A new link is the next thing to copy, so it takes focus.
   useEffect(() => { if (invite?.link) linkInput.current?.focus(); }, [invite?.link]);
   const owner = me?.household?.role === "OWNER";
   const { actionCount } = useInboxCounts();
   const tabs = tabsForRole(owner);
   const tabKeyList = tabs.map(([key]) => key).join(",");
   const [tab, setTab] = useState("anggota"), [anchor, setAnchor] = useState("");
-  // ?tab= deep-links a tab and an old #anchor opens the tab that holds it; the anchor is
-  // scrolled to once that tab has rendered. A tab the role cannot see falls back to Anggota.
   useEffect(() => {
     if (me === null) return undefined;
     const allowed = tabKeyList.split(",");
@@ -85,15 +75,12 @@ export default function HouseholdPage() {
     event.currentTarget.parentElement?.querySelectorAll("[role=tab]")[next]?.focus();
   }
   useEffect(() => { document.getElementById(`settings-tab-${tab}`)?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [tab]);
-  // Anggota scrolls to its own anchor once rendered; the settings tabs scroll themselves.
   useEffect(() => {
     if (tab !== "anggota" || !anchor) return;
     const target = document.getElementById(anchor);
     if (target) { target.scrollIntoView({ block: "start" }); setAnchor(""); }
   }, [tab, anchor, me]);
 
-  // Every handler clears the previous error, holds a per-key busy flag, and releases it
-  // in finally, so a dropped request can neither stick a button nor leave an old message.
   function addMember(event) {
     event.preventDefault(); const formEl = event.currentTarget; const form = new FormData(formEl);
     const displayName = String(form.get("displayName") || "");
@@ -129,7 +116,6 @@ export default function HouseholdPage() {
   const createInvite = memberId => runBusy(`member:${memberId}`, () => issueInvite(memberId, "telegram", "Undangan belum dapat dibuat.", body => ({ kind: "telegram", link: body.link, expiresAt: body.expiresAt, memberId })));
   const createDashboardInvite = memberId => runBusy(`member:${memberId}`, () => issueInvite(memberId, "dashboard", "Undangan login belum dapat dibuat.", body => ({ kind: "dashboard", reset: body.purpose === "RESET", link: window.location.origin + body.link, expiresAt: body.expiresAt, memberId })));
 
-  // 404 means there was nothing pending to cancel, which is the state we want.
   async function cancelInvite(kind, memberId) {
     setError("");
     try {
@@ -143,7 +129,6 @@ export default function HouseholdPage() {
   }
   const revokeInvite = (kind, memberId) => runBusy(`member:${memberId}`, () => cancelInvite(kind, memberId));
 
-  // The link is only returned when it is created, so a new link means cancelling the pending one first.
   const renewInvite = (kind, memberId) => runBusy(`member:${memberId}`, async () => {
     if (!(await cancelInvite(kind, memberId))) return;
     if (kind === "telegram") await issueInvite(memberId, "telegram", "Undangan belum dapat dibuat.", body => ({ kind: "telegram", link: body.link, expiresAt: body.expiresAt, memberId }));
@@ -156,7 +141,6 @@ export default function HouseholdPage() {
     catch { linkInput.current?.select(); setError("Tautan belum bisa disalin otomatis. Tautan sudah dipilih, tekan Ctrl+C."); }
   }
 
-  // One link both activates a new account and resets a forgotten password.
   function loginInviteControls(member) {
     const pending = member.dashboardInviteStatus === "PENDING" && stillValid(member.dashboardInviteExpiresAt);
     const resetting = member.passwordInitialized;
@@ -175,7 +159,6 @@ export default function HouseholdPage() {
       : <button className="secondary" aria-label={`${create} ${member.displayName}`} disabled={Boolean(busy[`member:${member.id}`])} onClick={() => createInvite(member.id)}>{create}</button>;
   }
 
-  // One plain sentence per invite so an owner can see whether a link is still usable.
   function inviteState(member) {
     const notes = [];
     const loginLabel = member.passwordInitialized ? "Tautan atur ulang kata sandi" : "Undangan masuk";
@@ -192,12 +175,10 @@ export default function HouseholdPage() {
       try {
         const response = await fetch(`/api/v1/household/members/${memberId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: false }) });
         if (!response.ok) { setError(await responseError(response, "Anggota belum dapat dinonaktifkan.")); return; }
-        // The deactivated member's one-time link is dead: take its panel down.
         setInvite(current => (current?.memberId === memberId ? null : current));
         setToast(`Anggota ${members.find(item => item.id === memberId)?.displayName || "anggota"} dinonaktifkan.`);
         setHighlight(memberId);
         await load();
-        // The row's action is gone, so focus the row itself.
         document.getElementById(`member-${memberId}`)?.focus();
       } catch { setError("Koneksi terputus. Anggota belum dinonaktifkan."); }
     });

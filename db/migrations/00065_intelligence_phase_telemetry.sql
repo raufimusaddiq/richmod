@@ -1,5 +1,3 @@
--- IR-09: privacy-safe per-inference phase facts, correlated to source events.
--- Existing llm_call remains the operational token/cost record.
 -- +goose Up
 CREATE TABLE intelligence_phase_telemetry (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

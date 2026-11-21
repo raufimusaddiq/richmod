@@ -18,9 +18,6 @@ type resolvedReview struct {
 	Reopenable       bool      `json:"reopenable"`
 }
 
-// Resolved lists the household's most recently resolved reviews so a decision
-// can be reopened where reviewdomain.ReopenReview allows it. Reopenable mirrors
-// that rule; the POST remains the authority and refuses anything else.
 func (h *Handler) Resolved(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principalHousehold(w, r)
 	if !ok {
@@ -74,8 +71,6 @@ func (h *Handler) Resolved(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// Reopen reverses one resolved review through the shared domain operation and
-// returns the new open review item.
 func (h *Handler) Reopen(w http.ResponseWriter, r *http.Request) {
 	p, household, ok := principalHousehold(w, r)
 	if !ok {

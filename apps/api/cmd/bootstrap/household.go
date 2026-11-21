@@ -13,12 +13,7 @@ import (
 type bootstrapMode int
 
 const (
-	// modeFirstOwner is the one-time platform bootstrap: it refuses to run
-	// once any owner exists.
 	modeFirstOwner bootstrapMode = iota
-	// modeAdditionalHousehold creates one more tenant on a bootstrapped
-	// platform. It never reuses or moves an existing user (ADR-035): the owner
-	// is always a new user, so no membership changes household implicitly.
 	modeAdditionalHousehold
 )
 
@@ -40,24 +35,17 @@ type householdInput struct {
 func normalizeInput(email, name, householdName string, telegramUserID int64) (householdInput, error) {
 	in := provision.HouseholdInput{HouseholdName: householdName, OwnerName: name, OwnerEmail: email, TelegramUserID: telegramUserID}
 	if err := in.Normalize(); err != nil {
-		// Normalize names the rejected field (household name, owner name,
-		// owner email or Telegram user ID), matching --household, --name,
-		// --email and --telegram-user-id.
 		return householdInput{}, err
 	}
 	return householdInput{Email: in.OwnerEmail, Name: in.OwnerName, HouseholdName: in.HouseholdName, TelegramUserID: in.TelegramUserID}, nil
 }
 
-// createHousehold runs the shared provisioning (internal/provision) for the
-// operator command and returns the new household ID. The owner's password is
-// set directly, so no invite is issued.
 func createHousehold(ctx context.Context, pool *pgxpool.Pool, mode bootstrapMode, in householdInput) (string, error) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return "", fmt.Errorf("begin bootstrap transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	// Serialize with the console path before the owner check below.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('richmod.household.create'))`); err != nil {
 		return "", fmt.Errorf("lock household creation: %w", err)
 	}

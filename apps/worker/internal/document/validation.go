@@ -6,13 +6,9 @@ import (
 	"time"
 )
 
-// ValidationIssue is one structured, field-scoped validator problem; codes are deterministic and the model
-// never decides their meaning.
 type ValidationIssue struct {
-	Field string `json:"field"`
-	Code  string `json:"code"`
-	// Detail names the exact rule that broke (validator-owned text, never model output) so a field-restricted
-	// repair knows what to fix.
+	Field  string `json:"field"`
+	Code   string `json:"code"`
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -25,7 +21,6 @@ func (i ValidationIssue) String() string {
 
 type validationIssues []ValidationIssue
 
-// append records one more issue without replacing the original validator findings.
 func (list *validationIssues) append(issue ValidationIssue) {
 	*list = append(*list, issue)
 }
@@ -47,7 +42,6 @@ func (list validationIssues) String() string {
 	return strings.Join(parts, ",")
 }
 
-// validateReceiptIssues re-derives the receipt rules as structured field-level issues instead of one package error.
 func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (receiptValidation, validationIssues) {
 	validation, legacyErr := validateReceipt(value, receivedAt)
 	if legacyErr == nil {
@@ -109,8 +103,6 @@ func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (recei
 		}
 	}
 	if len(issues) == 0 {
-		// Rule violation not yet mapped field-locally; keep the package-level failure deterministic instead
-		// of guessing a field.
 		issues = append(issues, ValidationIssue{Field: "receipt", Code: "UNMAPPED_VALIDATION_FAILURE"})
 	}
 	return validation, issues
@@ -160,8 +152,6 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 	return issues
 }
 
-// screenshotValidationIssues maps screenshot rule failures to the top-level field the model may re-answer;
-// row-local problems stay on rows so a repair cannot restructure the row set.
 func screenshotValidationIssues(value screenshotExtraction, documentType string) validationIssues {
 	issues := validationIssues{}
 	if value.Confidence < 0 || value.Confidence > 1 {

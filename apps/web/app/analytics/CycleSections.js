@@ -69,9 +69,6 @@ export function ChangesTable({ items, comparison, selected, select }) {
   </table></div></>;
 }
 
-// Kategori × siklus. Same-day mode is the default while a cycle runs, so every
-// column is cut at the same elapsed day; full mode marks the running column and
-// leaves it out of the tint. Values, deltas and totals are served.
 export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory }) {
   const sameDay = facts.categoryHistory?.sameDay;
   const [mode, setMode] = useState(sameDay ? "SAME_DAY" : "FULL");
@@ -119,7 +116,6 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
   </div>;
 }
 
-// Merchant pendukung: one row per payee, largest net amount first, as served.
 export function MerchantRanking({ ranking, period }) {
   const list = merchantBars(ranking);
   if (!list || !list.rows.length) return <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p>;
@@ -161,8 +157,6 @@ export function MerchantRanking({ ranking, period }) {
   </div>;
 }
 
-// Catatan rumah tangga: a 100% bar and a fixed-order list. Never sorted by amount,
-// so it cannot read as a ranking; the hues are identity, not data.
 export function HouseholdSection({ members = [] }) {
   const rows = householdRows(members);
   return <section id="household" className="review-section" aria-labelledby="household-title">

@@ -8,10 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Resolving a review item closes its request, and closing a request resolves
-// its conversation, whichever resolver did the work (migration 00098). An
-// expired request is closed too; an expired request alone leaves the
-// conversation awaiting, because an expired card can be reopened.
 func TestReviewItemResolutionCascadesToRequestAndConversation(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -55,8 +51,6 @@ func TestReviewItemResolutionCascadesToRequestAndConversation(t *testing.T) {
 			t.Fatalf("%s request after the item was resolved: %s/%s, want RESOLVED/RESOLVED", from, status, conversation)
 		}
 	}
-	// The merchant-learning question is asked after the request is RESOLVED and
-	// must survive both the trigger and the repair.
 	learnItem, learnRequest := newReview("OPEN")
 	_, err = pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT_DECISION' WHERE review_request_id=$1`, learnRequest)
 	must(err)

@@ -12,14 +12,8 @@
 .spinner { width: 26px; height: 26px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .75s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* The prerendered loading shells (app/components/LoadingShell.js). The card is the same
-   box as the real login card: min-height is its measured height at each breakpoint, so
-   the swap does not move it, and .loading-nav reserves the public nav's height (18px
-   padding + 48px bar; 14px on a phone). Bars reuse the `skeleton` keyframes. */
 .loading-nav { height: 66px; }
 .loading-card { display: grid; min-height: 523.5px; align-content: start; justify-items: start; gap: 12px; width: 100%; }
-/* The dashboard shell replaces this with the app shell or the landing page, so
-   it has no single footprint to match; it only has to look deliberate. */
 .loading .loading-card { width: min(440px, calc(100vw - 32px)); min-height: 0; }
 .loading .loading-spinner { min-height: 120px; }
 .loading-mark { display: block; width: 38px; height: 38px; margin-bottom: 17px; border-radius: 10px; background: var(--line); }
@@ -39,8 +33,6 @@
 @media (max-width: 680px) {
   .loading-nav { height: 62px; }
   .loading-card { min-height: 553px; }
-  /* The real context column dissolves into the flex column; the back link, kicker and h1
-       keep their measured heights (18 / 18 / 42.5) so the card lands at the same y. */
   .loading-context { display: contents; }
   .loading-context .loading-title.short,
   .loading-context .loading-copy { display: none; }
@@ -51,7 +43,7 @@
 
 .skeleton-page { display: grid; gap: 18px; }
 .skeleton-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
-.skeleton-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); } /* as many columns as there are cards, never a fixed four with a grey gap */
+.skeleton-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); }
 .skeleton-cards i, .skeleton-panel i { display: block; background: linear-gradient(90deg, var(--surface-muted), var(--surface), var(--surface-muted)); background-size: 200% 100%; animation: skeleton 1.4s ease infinite; }
 .skeleton-cards i { height: 130px; border: 1px solid var(--line); border-radius: var(--radius-md); }
 .skeleton-panel { display: grid; gap: var(--space-3); }

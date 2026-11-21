@@ -25,7 +25,6 @@ func TestBuildQuickSuggestionsEmpty(t *testing.T) {
 }
 
 func TestBuildQuickSuggestionsRanksDeterministically(t *testing.T) {
-	// Newest first, as the query returns them.
 	rows := []quickRow{
 		{Description: "  Kopi   Pagi ", Amount: "25000", Type: "EXPENSE", CategoryID: "cat-food", AccountID: "acc-1"},
 		{Description: "Parkir", Amount: "5000", Type: "EXPENSE", CategoryID: "cat-transport"},
@@ -51,7 +50,6 @@ func TestBuildQuickSuggestionsRanksDeterministically(t *testing.T) {
 	if want := []string{"cat-food", "cat-transport", "cat-snack"}; !reflect.DeepEqual(got.RecentCategories, want) {
 		t.Fatalf("recentCategories=%v want %v", got.RecentCategories, want)
 	}
-	// "kopi pagi" was categorised food twice and snack once.
 	if got.DescriptionMap["kopi pagi"] != "cat-food" || got.DescriptionMap["parkir"] != "cat-transport" {
 		t.Fatalf("descriptionMap=%v", got.DescriptionMap)
 	}

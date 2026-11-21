@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import useDialogs from "../components/useDialogs";
 import { time, Badge, Empty, Pending, useDrawerA11y, useLoad, Table } from "./shared";
 
-// Server error codes from POST /api/v1/admin/households and owner-invite.
 const provisionErrors = {
   USER_ALREADY_EXISTS: "Email ini sudah dipakai pengguna lain. Rumah tangga baru butuh email pemilik baru.",
   TELEGRAM_ID_ALREADY_LINKED: "Telegram user ID ini sudah terikat ke pengguna lain (termasuk anggota yang sudah dihapus) dan tidak bisa dipakai ulang.",
@@ -28,15 +27,10 @@ export async function postProvision(url, payload) {
   return body;
 }
 
-// The owner invite is shown once: only its hash is stored, so a lost link is
-// replaced with "Buat ulang undangan pemilik", never recovered.
 function InviteLink({ invite, title, onDismiss }) {
   const link = typeof window === "undefined" ? invite.link : window.location.origin + invite.link;
   const [copied, setCopied] = useState("");
-  // A different link is a different secret: the previous "copied" notice must not vouch for it.
   useEffect(() => { setCopied(""); }, [link]);
-  // The link is shown once, so say plainly whether it reached the clipboard;
-  // without a secure context the browser has no clipboard API at all.
   async function copy() {
     try {
       if (!navigator.clipboard) throw new Error("clipboard unavailable");
@@ -183,15 +177,11 @@ function HouseholdDetail({ id, close, setError }) {
   const drawer = useDrawerA11y(close);
   const pendingOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && !x.enrolled);
   const enrolledOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && x.enrolled);
-  // The link is a one-time secret tied to this household and owner state; once the owner
-  // enrolls (or is deactivated) it is spent and must not stay on screen as if it worked.
   useEffect(() => {
     if (!data || !ownerInvite) return;
     if (ownerInvite.kind === "invite" && !pendingOwner) setOwnerInvite(null);
     if (ownerInvite.kind === "reset" && !enrolledOwner) setOwnerInvite(null);
   }, [data, ownerInvite, pendingOwner, enrolledOwner]);
-  // Each reissue revokes the previous link, so a double click must not
-  // silently invalidate the link just shown.
   async function reissue() {
     if (reissuing) return;
     setReissuing(true);
@@ -205,8 +195,6 @@ function HouseholdDetail({ id, close, setError }) {
       setReissuing(false);
     }
   }
-  // The old password keeps working until the owner opens the link; opening it
-  // replaces the password and signs the owner out everywhere.
   async function resetOwnerPassword() {
     if (reissuing) return;
     if (!(await confirm(`Buat tautan atur ulang kata sandi untuk ${enrolledOwner.email}? Kata sandi lama berlaku sampai tautan dipakai.`, { confirmLabel: "Buat tautan" }))) return;

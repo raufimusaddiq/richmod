@@ -45,9 +45,6 @@ func TestExecutableActionsFollowTheStoredDecisionAndTheBinding(t *testing.T) {
 	}
 }
 
-// Every action a surface can be offered must be executable for that binding;
-// the filter is the only producer of offered actions, so this pins that no
-// preset action survives on a binding whose resolver would refuse it.
 func TestNoOfferedActionIsUnexecutable(t *testing.T) {
 	bindings := []Binding{
 		{Subject: SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"},
@@ -77,7 +74,7 @@ func TestNoOfferedActionIsUnexecutable(t *testing.T) {
 }
 
 func TestTransactionDateChoicesAreBoundedJakartaDates(t *testing.T) {
-	now := time.Date(2026, 11, 5, 18, 0, 0, 0, time.UTC) // 01:00 WIB on 6 Nov
+	now := time.Date(2026, 11, 5, 18, 0, 0, 0, time.UTC)
 	message := time.Date(2026, 11, 2, 3, 0, 0, 0, time.UTC)
 	got := TransactionDateChoices(message, true, now)
 	want := []DateChoice{{DateChoiceToday, "Hari ini", "2026-11-06"}, {DateChoiceYesterday, "Kemarin", "2026-11-05"}, {DateChoiceMessageDate, "Tanggal pesan", "2026-11-02"}}
@@ -99,7 +96,7 @@ func TestLedgerMatchingIsDeterministic(t *testing.T) {
 	}{
 		{"Alfamart", "QRIS ALFAMART SUDIRMAN", true},
 		{"Indomaret", "indomaret", true},
-		{"Kopi", "Kopi Kenangan", false}, // too short to prove anything
+		{"Kopi", "Kopi Kenangan", false},
 		{"Alfamart", "Indomaret", false},
 		{"", "Alfamart", false},
 	} {
@@ -148,10 +145,6 @@ func TestLedgerRaceGuardSeesNewChangedAndVanishedCandidates(t *testing.T) {
 	}
 }
 
-// The merge rule the surfaces offer by is the one the resolver enforces: a case
-// with no proposed purpose merges only into a classified transfer with a valid
-// purpose, and any merge needs the case's account and amount and a compatible
-// purpose/Wealth pair.
 func TestTransferMergeableMatchesWhatTheResolverAccepts(t *testing.T) {
 	ok := TransferMergeCandidate{Type: "TRANSFER", Status: "CONFIRMED", Purpose: "INTERNAL_TRANSFER", SameAccount: true, SameAmount: true, Compatible: true}
 	for _, tt := range []struct {

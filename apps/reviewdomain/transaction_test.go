@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Prevent either surface from replacing the shared household and stale-subject
-// checks with adapter-local candidate validation.
 func TestTransactionReviewAdaptersUseSharedValidation(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",

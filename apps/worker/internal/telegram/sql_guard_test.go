@@ -13,8 +13,6 @@ import (
 	"testing"
 )
 
-// pgx prepares each Exec/Query as one statement and PostgreSQL refuses more than one command (SQLSTATE 42601).
-// This scans every SQL literal in worker and API across lines, unlike CI's single-line ripgrep guard.
 func TestNoSQLStringHoldsMoreThanOneCommand(t *testing.T) {
 	statement := regexp.MustCompile(`(?is)^\s*(SELECT|INSERT|UPDATE|DELETE|WITH)\b`)
 	second := regexp.MustCompile(`(?is);\s*(SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER|DROP)\b`)

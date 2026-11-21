@@ -1,16 +1,9 @@
 import { displayDate, money } from "./format.js";
 
-// KPI cells for the top of the cycle view. Every amount, delta and percentage is a
-// served string (cycle-review-v1); this module only picks the served baseline,
-// decides direction and tone from the sign, and formats. It never adds, subtracts
-// or divides money.
-
 const isNegative = value => String(value).trim().startsWith("-");
 const isZero = value => /^[-+]?0+(\.0+)?$/.test(String(value).trim());
 const magnitude = value => String(value).trim().replace(/^[-+]/, "");
 
-// Tone follows the sign of the served delta and what is good for that figure:
-// lower spending is good; higher income, cash flow and net worth are good.
 export function deltaTone(value, lowerIsBetter) {
   if (value == null || isZero(value)) return "none";
   return isNegative(value) === Boolean(lowerIsBetter) ? "good" : "bad";
@@ -22,8 +15,6 @@ export function percentText(value) {
   return `${Number(value) < 0 ? "−" : ""}${text}`;
 }
 
-// A delta view: direction glyph, unsigned magnitude, optional served percentage and
-// a tone. null or zero never get a glyph or a colour; "+0" is never produced.
 export function deltaView(value, { relative = null, lowerIsBetter = false } = {}) {
   if (value == null) return { tone: "none", empty: true, mark: "", text: "—", percent: "" };
   if (isZero(value)) return { tone: "none", zero: true, mark: "", text: money("0"), percent: "" };
@@ -31,8 +22,6 @@ export function deltaView(value, { relative = null, lowerIsBetter = false } = {}
   return { tone: deltaTone(value, lowerIsBetter), mark: isNegative(value) ? "▼" : "▲", word: isNegative(value) ? "turun" : "naik", text: money(magnitude(value)), percent: percent ? `(${percent})` : "" };
 }
 
-// Which served baseline a cycle compares against: an active cycle against the previous
-// cycle at the same elapsed day, a closed cycle against the previous full cycle.
 export function baselineFor(period, days) {
   if (period?.state === "ACTIVE") {
     return { field: "previous", delta: "deltaVsPrevious", relative: "relativeDeltaVsPrevious", label: days ? `vs siklus lalu di hari ke-${days}` : "vs siklus lalu di hari yang sama", same: "sama dengan siklus lalu di hari yang sama" };
@@ -51,7 +40,6 @@ function comparisonCell(row, basis, lowerIsBetter) {
   return { ...view, note };
 }
 
-// Whole-rupiah daily average, served by the API (half-up in Go); null when absent, never 0.
 export function averageDailyText(shape) {
   return shape?.averageDailyExpenseRounded ?? null;
 }

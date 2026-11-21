@@ -1,13 +1,7 @@
-// Beranda decisions that are pure arithmetic or state selection. Money arrives as decimal strings
-// and is summed as integers (BigInt); only chart geometry uses plain numbers.
-
 export function toRupiahInt(value) {
   try { return BigInt(String(value ?? "0").trim().split(".")[0] || "0"); } catch { return 0n; }
 }
 
-// "empty": no confirmed transaction and nothing on the list yet. "expenses-only": spending but no
-// income recorded in the period, where a "remaining" balance would read as a misleading negative.
-// Everything else is the normal hero.
 export function homeState(overview, transactions = []) {
   if (!overview) return "normal";
   const confirmed = Number(overview.confirmedCount ?? 0);
@@ -16,7 +10,6 @@ export function homeState(overview, transactions = []) {
   return "normal";
 }
 
-// Expense against the previous salary cycle / month, from the server's deterministic delta.
 export function comparisonLine(overview) {
   if (!overview || overview.expenseDelta == null || overview.previousExpense == null) return null;
   const delta = toRupiahInt(overview.expenseDelta);
@@ -28,7 +21,6 @@ export function comparisonLine(overview) {
   return { direction: lower ? "down" : "up", amount, text: `${lower ? "lebih rendah" : "lebih tinggi"} dari ${unit}${days}` };
 }
 
-// How much of the period's income went out, 0..100, for the spending-share bar.
 export function spendingShare(overview) {
   const income = Number(toRupiahInt(overview?.income)), expense = Number(toRupiahInt(overview?.expense));
   if (income <= 0) return 0;
@@ -41,8 +33,6 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-// One outlier day must not flatten the rest of the month: bars are capped at 3x the median day, but
-// only when the largest day exceeds that and the median is above zero. `rows` keep their real values.
 export function dailyChartModel(items = []) {
   const values = items.map(item => Math.max(Number(item.expenseValue ?? item.expense ?? 0), 0));
   const max = values.reduce((top, value) => Math.max(top, value), 0), mid = median(values);
@@ -59,7 +49,6 @@ export function dailyChartModel(items = []) {
   return { rows, cap, max, median: mid, average, biggest, spendDays };
 }
 
-// Day bars and category rows drill into the ledger for exactly that window.
 export function dayLedgerHref(period) { return `/transactions?from=${period}&to=${period}`; }
 export function categoryLedgerHref(id, window) {
   const params = new URLSearchParams();
@@ -69,7 +58,6 @@ export function categoryLedgerHref(id, window) {
   return `/transactions?${params}`;
 }
 
-// Top rows plus one "Kategori lain" bucket, each with a share of the net spend.
 export function rankedCategories(items = [], limit = 6) {
   const positive = items.filter(item => toRupiahInt(item.amount) > 0n);
   const total = positive.reduce((sum, item) => sum + toRupiahInt(item.amount), 0n);

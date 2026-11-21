@@ -20,7 +20,6 @@ const helpMessage = "👋 Hai! Aku Richmod, siap bantu mencatat keuangan keluarg
 	"Kamu juga bisa kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
 	"Kalau ada yang belum jelas, aku akan minta detail lewat tombol atau balasan ke pesanku."
 
-// Typed text reaches the worker through the agent lane, so this must run before any model call.
 func isHelpCommand(text string) bool {
 	fields := strings.Fields(strings.ToLower(text))
 	if len(fields) == 0 {
@@ -34,7 +33,6 @@ func botCommands() []map[string]string {
 	return []map[string]string{{"command": "help", "description": "Contoh pesan dan cara memakai Richmod"}}
 }
 
-// Best-effort at worker start; every finance flow works without it.
 func (b *Bot) SetCommands(ctx context.Context) error {
 	if b.token == "" {
 		return fmt.Errorf("Telegram commands are not configured")
@@ -45,13 +43,11 @@ func (b *Bot) SetCommands(ctx context.Context) error {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/setMyCommands", bytes.NewReader(body))
 	if err != nil {
-		// Never wrap errors: the request URL contains the bot token.
 		return fmt.Errorf("create Telegram commands request")
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := b.http.Do(request)
 	if err != nil {
-		// The transport error stringifies the URL, token included.
 		return fmt.Errorf("set Telegram commands failed")
 	}
 	defer response.Body.Close()

@@ -175,7 +175,6 @@ func TestForwardingVerificationIsExposedAndAutoResolves(t *testing.T) {
 	if action := statusFor("MEMBER")["forwardingAction"]; action != nil {
 		t.Fatalf("non-owner saw forwarding action: %v", action)
 	}
-	// The Gmail confirmation itself must not count as proof that forwarding works.
 	if err := service.Deliver(ctx, signedInput(control, addressA.Address, "forwarder@test.invalid", "resolve/control-again-"+householdA+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +183,6 @@ func TestForwardingVerificationIsExposedAndAutoResolves(t *testing.T) {
 	}
 	ordinary := []byte("From: Alice <alice@example.com>\r\nSubject: Hello\r\nMessage-ID: <resolve-ordinary@test.invalid>\r\nContent-Type: text/plain\r\n\r\nforwarded mail")
 	input := signedInput(ordinary, addressA.Address, "alice@example.com", "resolve/ordinary-"+householdA+".eml", "secret")
-	// The same delivery twice (webhook retry) must resolve once and audit once.
 	for i := 0; i < 2; i++ {
 		if err := service.Deliver(ctx, input); err != nil {
 			t.Fatal(err)
@@ -208,14 +206,12 @@ func TestForwardingVerificationIsExposedAndAutoResolves(t *testing.T) {
 	if audits != 1 {
 		t.Fatalf("auto-resolve audits=%d, want 1", audits)
 	}
-	// A later replay of the confirmation email must not reopen a resolved action.
 	if err := service.Deliver(ctx, signedInput(control, addressA.Address, "forwarder@test.invalid", "resolve/control-again-"+householdA+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}
 	if reopened, err := service.OpenForwardingAction(ctx, householdA); err != nil || reopened != nil {
 		t.Fatalf("resolved action reopened: %+v err=%v", reopened, err)
 	}
-	// Household B is untouched by household A's delivery.
 	if other, err := service.OpenForwardingAction(ctx, householdB); err != nil || other == nil {
 		t.Fatalf("other household's action was resolved: %+v err=%v", other, err)
 	}
@@ -279,7 +275,6 @@ func TestRejectedDeliveriesDoNotResolveForwardingVerification(t *testing.T) {
 	unmatched := []byte("From: Stranger <stranger@test.invalid>\r\nSubject: Unmatched\r\nMessage-ID: <rejected-unmatched@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/plain\r\n\r\nAmount IDR 500")
 	deliver(unmatched, "unmatched")
 	stillOpen("unmatched sender")
-	// Replaying a rejected delivery stays rejected.
 	deliver(unmatched, "unmatched")
 	stillOpen("replayed unmatched sender")
 	var ignored int

@@ -8,7 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// An unknown merchant is collected first on any channel; known amount and time are never requested again.
 func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
 	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
@@ -43,7 +42,6 @@ func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
 	}
 }
 
-// The missing-facts list names every absent required fact: an email with neither amount nor time asks for both.
 func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	decision := partialDecision("household", "source", Extraction{}, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"amount", "transaction_at"}, "facts absent")
 	if len(decision.MissingFacts) != 2 {
@@ -57,7 +55,6 @@ func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	}
 }
 
-// A bank transfer parked for classification offers the shared relationship choices, not only IGNORE.
 func TestTransferClassificationDecisionOffersRelationshipChoices(t *testing.T) {
 	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, "t")
 	preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", "t")

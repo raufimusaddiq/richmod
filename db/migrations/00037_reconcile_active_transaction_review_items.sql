@@ -1,8 +1,4 @@
 -- +goose Up
--- Telegram review replies may have resolved a transaction and delivery request
--- before canonical review-item resolution was wired into every reply path.
--- Preserve the record, but close only active items whose financial subject is
--- already terminal.
 UPDATE review_item ri
 SET status='RESOLVED',
     resolved_at=now(),
@@ -15,4 +11,3 @@ WHERE ri.transaction_id=t.id
   AND t.status IN ('CONFIRMED','VOIDED');
 
 -- +goose Down
--- Resolution is audit state. Do not reopen records during rollback.

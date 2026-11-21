@@ -85,9 +85,6 @@ func TestActionAuthorizationAndHouseholdScope(t *testing.T) {
 	}
 }
 
-// Closing a failed-source action acknowledges the failure: the source event is
-// finalized in the same transaction, only for that household, only while it is
-// still unfinished, and the change is audited.
 func TestResolvingAFailedSourceActionFinalizesItsSourceEvent(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -158,14 +155,12 @@ func TestResolvingAFailedSourceActionFinalizesItsSourceEvent(t *testing.T) {
 	failedA, failedB, finished := source(householdA, "FAILED"), source(householdB, "FAILED"), source(householdA, "PROCESSED")
 	actionA, actionB, actionFinished := record(householdA, failedA), record(householdB, failedB), record(householdA, finished)
 
-	// The same item recorded twice is one item.
 	record(householdA, failedA)
 	var items int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM integration_action WHERE household_id=$1 AND dedupe_key=$2`, householdA, failedA).Scan(&items); err != nil || items != 1 {
 		t.Fatalf("recording twice must keep one item, got %d (%v)", items, err)
 	}
 
-	// Another household cannot close it, and nothing changes.
 	if code := resolve(actionA, ownerB, householdB); code != 404 {
 		t.Fatalf("a foreign household must get 404, got %d", code)
 	}
@@ -173,7 +168,6 @@ func TestResolvingAFailedSourceActionFinalizesItsSourceEvent(t *testing.T) {
 		t.Fatalf("a foreign resolve must not touch the event, got %s", status(failedA))
 	}
 
-	// The owner closes it: the event is finalized and the change is audited.
 	if code := resolve(actionA, ownerA, householdA); code != 204 {
 		t.Fatalf("owner resolve=%d", code)
 	}
@@ -185,7 +179,6 @@ func TestResolvingAFailedSourceActionFinalizesItsSourceEvent(t *testing.T) {
 		t.Fatalf("finalizing the event must be audited once, got %d (%v)", audits, err)
 	}
 
-	// Another household's event is untouched; an event that finished in the meantime keeps its state.
 	if status(failedB) != "FAILED" {
 		t.Fatalf("the other household's event must be untouched, got %s", status(failedB))
 	}

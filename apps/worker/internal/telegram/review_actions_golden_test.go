@@ -12,7 +12,6 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
-// The agent's resolve_review action enum per review kind is a deliberate projection of the stored actions.
 func TestAgentReviewActionsGolden(t *testing.T) {
 	kinds := []string{
 		"TRANSFER_RECONCILIATION", "WEALTH_OBSERVATION", "TRANSFER_CLASSIFICATION",

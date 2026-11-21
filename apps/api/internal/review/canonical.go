@@ -55,16 +55,10 @@ type transferReviewCandidate struct {
 	Description   *string   `json:"description"`
 	Purpose       string    `json:"purpose,omitempty"`
 	WealthAccount string    `json:"wealthAccountId,omitempty"`
-	// Mergeable is reviewdomain.TransferMergeable's verdict: the Web card
-	// enables a merge button only for it, so a tap never returns 400.
-	Mergeable bool `json:"mergeable"`
+	Mergeable     bool      `json:"mergeable"`
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	// Transaction-bound items are normally delivered over Telegram, so the
-	// web Inbox excludes them to avoid double work. Include the orphaned ones — a
-	// transaction-bound item whose transaction is already CONFIRMED (no live work)
-	// — so a stranded review still surfaces where it can be resolved.
 	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.transaction_id IS NOT NULL THEN 'transaction' WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.transaction_id,ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',tx.description,CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' WHEN tx.id IS NOT NULL THEN 'Transaksi perlu ditinjau' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,tx.amount::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE(trc.id::text,''),ri.decision,ri.created_at,COALESCE(tx.status,''),COALESCE(se.source_type,fse.source_type,''),ri.document_id IS NOT NULL,COALESCE(trc.status='OPEN',false),COALESCE(cardinality(trc.candidate_transaction_ids),0),COALESCE(trc.financial_email_observation_id IS NOT NULL,false),ri.wealth_observation_id IS NOT NULL FROM review_item ri LEFT JOIN source_event se ON se.id=ri.source_event_id AND se.household_id=ri.household_id LEFT JOIN financial_email_observation feo ON feo.id=ri.financial_email_observation_id AND feo.household_id=ri.household_id LEFT JOIN source_event fse ON fse.id=feo.source_event_id AND fse.household_id=ri.household_id LEFT JOIN transaction tx ON tx.id=ri.transaction_id LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON trc.household_id=ri.household_id AND ((ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id)) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND (ri.transaction_id IS NULL OR (tx.status <> 'NEEDS_REVIEW' AND NOT EXISTS (SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN')))) ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
@@ -88,8 +82,6 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 		v := &out[index]
 		v.TransferCandidates = []transferReviewCandidate{}
 		if v.binding.HasTransferCase {
-			// The resolver's own merge rule marks which candidates a merge
-			// accepts; MERGE_EXISTING is offered only when one exists.
 			set, err := reviewdomain.LoadTransferMergeSet(ctx, h.pool, household, v.transferCaseID)
 			if err != nil {
 				return nil, err
@@ -99,8 +91,6 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 				v.TransferCandidates = append(v.TransferCandidates, transferReviewCandidate{ID: candidate.ID, Type: candidate.Type, Status: candidate.Status, Amount: candidate.Amount, TransactionAt: candidate.TransactionAt, Description: candidate.Description, Purpose: candidate.Purpose, WealthAccount: candidate.WealthAccountID, Mergeable: candidate.Mergeable})
 			}
 		}
-		// ADR-054: the stored decision is what the household sees; the binding
-		// removes only what no resolver can execute for this item.
 		v.AllowedActions = reviewdomain.ExecutableActions(v.ReviewType, proposalFacts(v.Decision).AllowedActions, v.binding)
 		v.Presentation = reviewdomain.PresentationFor(v.AllowedActions)
 		if v.ProposedPurpose == "" && containsString(v.AllowedActions, "CONFIRM_NEW_TRANSFER") {
@@ -159,8 +149,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "snapshot preparation is optional navigation, not a review action"})
 		return
 	}
-	// ADR-054: an action is accepted only when the list would offer it, so the
-	// Inbox can never render a button that this dispatcher refuses.
 	if kind != "PAYSLIP_CONFIRMATION" && kind != "MISSING_PAY_DATE" {
 		_, stored, binding, err := reviewdomain.LoadBinding(r.Context(), tx, household, r.PathValue("id"))
 		if err != nil {
@@ -220,8 +208,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 500, map[string]string{"error": "unable to set wealth account"})
 				return
 			}
-			// ADR-046: the observation mutation and review-learned alias live in the shared operation; Web keeps its HTTP mapping.
-			// ADR-036 amendment: choosing the account accepts the observation and completes the review; the value waits on /wealth for the next complete snapshot and never becomes a transaction.
 			if err = reviewdomain.ResolveWealthObservation(r.Context(), tx, reviewdomain.WealthObservationCommand{
 				HouseholdID: household, ObservationID: *wealthObservation,
 				WealthAccountID: values.WealthAccountID, Alias: normalizeEntityAlias(hint),
@@ -255,8 +241,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid financial entity values"})
 			return
 		}
-		// ADR-046: entity merge, household validation, alias learning and the canonical payload live in the shared operation.
-		// Web keeps its HTTP mapping, review completion and the replay enqueue.
 		result, err := reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{
 			HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"),
 			AccountID: values.AccountID, WealthAccountID: values.WealthAccountID,
@@ -300,8 +284,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if transaction != nil {
-		// An orphaned transaction-bound item has no remaining financial work; the
-		// shared operation acknowledges it without touching the final transaction.
 		if in.Action != "IGNORE" {
 			writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
 			return
@@ -328,9 +310,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if kind == "CYCLE_RESIDUAL_ALLOCATION" && residualCase != nil {
 		if in.Action == "TRANSACTION_MISSING" {
-			// ADR-036 amendment: the residual review resolves as "transaksi belum
-			// tercatat"; recording the missing transaction in that cycle reopens it
-			// with the recomputed residual. No synthetic transaction is written.
 			outcome, err := reviewdomain.MarkCycleTransactionMissing(r.Context(), tx, reviewdomain.CycleResidualCommand{HouseholdID: household, CaseID: *residualCase, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, Action: in.Action})
 			if err != nil {
 				writeJSON(w, cycleResidualStatus(err), map[string]string{"error": cycleResidualMessage(err)})
@@ -354,7 +333,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid residual review action"})
 			return
 		}
-		// ADR-046: cycle basis refresh, allocation validation and completion live in the shared operation; Web keeps its HTTP mapping and audit.
 		allocations := make([]reviewdomain.CycleAllocation, 0, len(values.Allocations))
 		for _, allocation := range values.Allocations {
 			allocations = append(allocations, reviewdomain.CycleAllocation{WealthAccountID: allocation.WealthAccountID, AmountIDR: allocation.AmountIDR, Note: allocation.Note})
@@ -488,7 +466,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		err = reviewdomain.IgnoreMissingAmountProposal(r.Context(), tx, reviewdomain.MissingAmountCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: r.PathValue("id"), ProposalID: *proposal, SourceEventID: *source, ActorType: "USER"})
 		payslipResolved = err == nil
 	} else if in.Action == "IGNORE" {
-		// ADR-046: the generic dismissal (evidence kept, proposal rejected, source settled) is the shared domain operation.
 		err = reviewdomain.IgnoreReviewItem(r.Context(), tx, reviewdomain.IgnoreCommand{HouseholdID: household, ActorUserID: p.UserID, ActorType: "USER", ReviewItemID: r.PathValue("id"), Values: in.Values})
 		payslipResolved = err == nil
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
@@ -557,10 +534,6 @@ func normalizeEntityAlias(value string) string {
 	return b.String()
 }
 
-// learnEntityAlias and learnEntityAliasIfNew now live in reviewdomain; the
-// Review Inbox financial-email resolution calls them there. No local duplicate
-// is kept, so an alias-learning change cannot drift from the shared operation.
-
 var errInvalid = &reviewResolutionError{}
 
 type reviewResolutionError struct{}
@@ -587,10 +560,6 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, re
 	return result, err
 }
 
-// resolveMissingAmount completes a screenshot row whose image never showed an
-// amount. The proposal stays unresolved until the household supplies
-// the value, so no canonical transaction exists without a positive amount. The
-// shared domain operation owns the mutation and the review completion.
 func (h *Handler) resolveMissingAmount(ctx context.Context, tx pgx.Tx, household, user, reviewItem, proposal, source string, amount *string, categoryID, transactionDate string, incomeConfirmed bool) (reviewdomain.MissingAmountResult, error) {
 	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{
 		HouseholdID: household, UserID: user, ReviewItemID: reviewItem, ProposalID: proposal, SourceEventID: source, ActorType: "USER", AmountIDR: amount, CategoryID: categoryID, TransactionDate: transactionDate, IncomeConfirmed: incomeConfirmed,
@@ -601,9 +570,6 @@ func (h *Handler) resolveMissingAmount(ctx context.Context, tx pgx.Tx, household
 	return result, err
 }
 
-// cycleResidualStatus maps a shared cycle-residual error to an HTTP status. The
-// shared operation returns typed errors so every surface keeps its own status
-// code without owning the validation rules.
 func cycleResidualStatus(err error) int {
 	switch {
 	case errors.Is(err, reviewdomain.ErrCycleCaseNotFound):
@@ -619,8 +585,6 @@ func cycleResidualStatus(err error) int {
 	}
 }
 
-// cycleResidualMessage returns the client-facing message for a cycle-residual
-// error, preserving the wording the Web API already returned.
 func cycleResidualMessage(err error) string {
 	switch {
 	case errors.Is(err, reviewdomain.ErrCycleCaseNotFound):
@@ -640,8 +604,6 @@ func cycleResidualMessage(err error) string {
 	}
 }
 
-// financialEmailStatus maps a shared financial-email resolution error to an HTTP
-// status so the surface does not re-implement the validation rules.
 func financialEmailStatus(err error) int {
 	switch {
 	case errors.Is(err, reviewdomain.ErrFinancialObservationUnavailable):
@@ -656,8 +618,6 @@ func financialEmailStatus(err error) int {
 	}
 }
 
-// financialEmailMessage returns the client-facing message for a shared
-// financial-email resolution error, preserving the previous wording.
 func financialEmailMessage(err error) string {
 	switch {
 	case errors.Is(err, reviewdomain.ErrFinancialObservationUnavailable):

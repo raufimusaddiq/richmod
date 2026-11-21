@@ -9,13 +9,8 @@ import (
 	"strings"
 )
 
-// errEndpointBlocked never carries the resolved address; callers return a
-// generic rejection so a probe cannot learn the lookup result.
 var errEndpointBlocked = errors.New("endpoint is not allowed")
 
-// validateEndpoint pins HTTPS, then resolves the host and rejects any answer in
-// a loopback, private, link-local, CGNAT, unspecified, multicast, or reserved
-// range. It is a subscribe-time gate; the worker repeats the check at dial time.
 func validateEndpoint(ctx context.Context, endpoint string) error {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
@@ -64,15 +59,15 @@ func blockedAddress(address netip.Addr) bool {
 	}
 	value := address.As4()
 	switch {
-	case value[0] == 0: // "this network" 0.0.0.0/8
+	case value[0] == 0:
 		return true
-	case value[0] == 100 && value[1] >= 64 && value[1] <= 127: // CGNAT 100.64.0.0/10
+	case value[0] == 100 && value[1] >= 64 && value[1] <= 127:
 		return true
-	case value[0] == 192 && value[1] == 0 && value[2] == 0: // IETF protocol assignments
+	case value[0] == 192 && value[1] == 0 && value[2] == 0:
 		return true
-	case value[0] == 198 && (value[1] == 18 || value[1] == 19): // benchmarking 198.18.0.0/15
+	case value[0] == 198 && (value[1] == 18 || value[1] == 19):
 		return true
-	case value[0] >= 240: // reserved, including broadcast
+	case value[0] >= 240:
 		return true
 	default:
 		return false

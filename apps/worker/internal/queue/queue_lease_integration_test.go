@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// A worker that lost its lease to a reclaim must not finish, fail or defer the run that now owns the job.
 func TestStaleWorkerCannotSettleAReclaimedJob(t *testing.T) {
 	q, pool := isolatedQueue(t)
 	ctx := context.Background()
@@ -47,7 +46,6 @@ func TestStaleWorkerCannotSettleAReclaimedJob(t *testing.T) {
 	}
 }
 
-// A job reclaimed after spending every attempt is reported exhausted, not run again.
 func TestReclaimPastMaxAttemptsIsExhausted(t *testing.T) {
 	q, pool := isolatedQueue(t)
 	ctx := context.Background()

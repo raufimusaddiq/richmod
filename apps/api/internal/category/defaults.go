@@ -1,7 +1,5 @@
 package category
 
-// DefaultCategory is an initial household category. Categories remain editable
-// after seeding; this list only gives deterministic classification a common base.
 type DefaultCategory struct {
 	Name       string
 	Slug       string
@@ -9,8 +7,6 @@ type DefaultCategory struct {
 	SortOrder  int
 }
 
-// IndonesianDefaults intentionally excludes investments and asset categories,
-// which are outside the MVP ledger scope.
 var IndonesianDefaults = []DefaultCategory{
 	{Name: "Makanan & Minuman", Slug: "makanan-minuman", SortOrder: 10},
 	{Name: "Makan di Luar", Slug: "makan-di-luar", ParentSlug: "makanan-minuman", SortOrder: 10},

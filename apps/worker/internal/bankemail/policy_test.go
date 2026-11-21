@@ -51,9 +51,6 @@ func TestApplyEmailReceivedTimeFallback(t *testing.T) {
 func ptr(v string) *string { return &v }
 func timePtr() *time.Time  { v := time.Now(); return &v }
 
-// A bank email whose body never prints a transaction time, but whose spending facts are all present,
-// is settled by Go from the email's own received time (provenance EMAIL_RECEIVED_AT) instead of opening
-// an UNKNOWN_BANK_TEMPLATE / incomplete-facts review. Missing or ambiguous facts still open one.
 func TestMissingTransactionTimeAloneNeverOpensBankFactsReview(t *testing.T) {
 	listener := Listener{TrackingPolicy: "SPENDING_ONLY"}
 	receivedAt := time.Date(2026, 8, 31, 3, 32, 46, 0, time.UTC)
@@ -77,7 +74,6 @@ func TestMissingTransactionTimeAloneNeverOpensBankFactsReview(t *testing.T) {
 		t.Fatalf("expected an expense decision, got %+v", result)
 	}
 
-	// Guardrails: Go never guesses a missing amount, an unknown kind, or an ambiguous email.
 	noAmount := complete()
 	noAmount.AmountIDR = nil
 	if applyEmailReceivedTimeFallback(&noAmount, receivedAt) {

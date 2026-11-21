@@ -14,25 +14,19 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// evidenceRef is opaque, server-issued and scoped to household, user and chat (ADR-050).
-// canonicalDocumentID is server-only and never model-visible; only resolveEvidenceRef maps one to the other.
 type evidenceRef string
 
 type canonicalDocumentID string
 
 const (
-	evidenceRefTTL   = 60 * time.Minute
-	maxEvidenceItems = 5
-	// The "_ev" suffix keeps the key space disjoint from transaction refs ("_tx").
-	evidenceRefPhase = "p0r0"
-	// Separate phase because recentAgentTransactions owns p0r0_tx<n> for the same source event and sharing it
-	// could re-point an earlier ref; p9 cannot collide (MaxModelPhases).
+	evidenceRefTTL        = 60 * time.Minute
+	maxEvidenceItems      = 5
+	evidenceRefPhase      = "p0r0"
 	evidenceLinkedTxPhase = "p9r0"
 )
 
 var evidenceRefPattern = regexp.MustCompile(`^a[0-9a-f]{8}_p[0-9]+r[0-9]+_ev[0-9]+$`)
 
-// Allow-listed telemetry action; never carries text, values or identifiers.
 type ceuOutcome string
 
 const (
@@ -55,7 +49,6 @@ var ceuTelemetryOutcomes = map[ceuOutcome]bool{
 	ceuReferenceExpired: true, ceuReferenceInvalid: true, ceuEvidenceNotFound: true, ceuEvidenceStale: true,
 }
 
-// Best-effort: telemetry must not change financial behavior.
 func (p *Processor) recordCEUOutcome(ctx context.Context, householdID, sourceEventID string, outcome ceuOutcome) {
 	if p.pool == nil || !ceuTelemetryOutcomes[outcome] {
 		return
@@ -64,14 +57,11 @@ func (p *Processor) recordCEUOutcome(ctx context.Context, householdID, sourceEve
 		VALUES($1,NULLIF($2,'')::uuid,'CEU_BINDING',$3)`, householdID, sourceEventID, string(outcome))
 }
 
-// Depends only on the source event and document, never position, so loading more documents later in a turn
-// cannot re-point a held ref.
 func evidenceRefKey(prefix string, document canonicalDocumentID) string {
 	sum := sha256.Sum256([]byte(document))
 	return prefix + "_ev" + strconv.FormatUint(binary.BigEndian.Uint64(sum[:8]), 10)
 }
 
-// Idempotent: a retried turn reuses the same TOOL turn and re-upserts the same keys.
 func (p *Processor) issueEvidenceRefs(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, documents []canonicalDocumentID) ([]evidenceRef, error) {
 	if len(documents) == 0 {
 		return nil, nil
@@ -124,8 +114,6 @@ func issueEvidenceRefsTx(ctx context.Context, tx pgx.Tx, householdID, sourceEven
 	return refs, nil
 }
 
-// Re-checks scope, expiry and document state; returns a bounded outcome and never falls back to "the most
-// recent evidence".
 func (p *Processor) resolveEvidenceRef(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, ref evidenceRef) (canonicalDocumentID, ceuOutcome, error) {
 	outcome := func(value ceuOutcome) (canonicalDocumentID, ceuOutcome, error) {
 		p.recordCEUOutcome(ctx, householdID, sourceEventID, value)
@@ -143,7 +131,6 @@ func (p *Processor) resolveEvidenceRef(ctx context.Context, householdID, sourceE
 		ORDER BY t.created_at DESC LIMIT 1`,
 		householdID, update.Message.From.ID, update.Message.Chat.ID, string(ref)).Scan(&documentID, &live)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Indistinguishable on purpose, so a probe learns nothing about other scopes.
 		return outcome(ceuReferenceInvalid)
 	}
 	if err != nil {

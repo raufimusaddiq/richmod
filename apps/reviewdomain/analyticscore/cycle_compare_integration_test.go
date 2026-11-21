@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The active cycle is longer than the previous one and the previous cycle's
-// first-day spending happens just after Jakarta midnight on the anchor day.
 func TestActiveCycleLongerThanPreviousComparesAgainstWholePreviousCycle(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -51,12 +49,12 @@ func TestActiveCycleLongerThanPreviousComparesAgainstWholePreviousCycle(t *testi
 			t.Fatal(err)
 		}
 	}
-	expense("2026-08-30 12:00", 1000000) // older cycle
-	expense("2026-09-25 00:30", 2760000) // first Jakarta day of the previous cycle, after midnight but before any anchor time-of-day
-	expense("2026-10-10 12:00", 8199839) // later in the previous cycle
-	expense("2026-10-22 23:59", 0+1)     // last Jakarta day of the previous cycle
-	expense("2026-10-23 08:00", 500000)  // first day of the active cycle
-	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600)) // active day 30, previous is 28 days
+	expense("2026-08-30 12:00", 1000000)
+	expense("2026-09-25 00:30", 2760000)
+	expense("2026-10-10 12:00", 8199839)
+	expense("2026-10-22 23:59", 0+1)
+	expense("2026-10-23 08:00", 500000)
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600))
 	facts, err := LoadWithHistory(ctx, pool, household, "", now, 3)
 	if err != nil {
 		t.Fatal(err)

@@ -21,9 +21,6 @@ type financialResolutionFixture struct {
 	account, wealthAccount, otherWealth  string
 }
 
-// seedFinancialResolution models the partially resolved state: the evidence resolved the
-// funding account, the provider Wealth Account is still unresolved, and one
-// observation-scoped review is open.
 func seedFinancialResolution(t *testing.T, resolved bool) financialResolutionFixture {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -78,8 +75,6 @@ func seedFinancialResolutionValues(t *testing.T, resolved bool) financialResolut
 	return seedFinancialResolution(t, resolved)
 }
 
-// A partial first pick must persist, stay pending, and not close the
-// review; the same canonical operation is what Telegram calls.
 func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
 	fixture := seedFinancialResolutionValues(t, true)
 	ctx := context.Background()
@@ -95,15 +90,9 @@ func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
 	}
 }
 
-// Web IGNORE must take the same lifecycle as the Telegram callback.
-// A genuinely partial first turn (one entity still unresolved)
-// persists the supplied entity, stays 202 with the item OPEN and asks for the
-// remaining entity; only the second turn completes the review.
 func TestFinancialResolutionGenuinePartialTurnThenSecondTurnCompletes(t *testing.T) {
 	fixture := seedFinancialResolution(t, false)
 	ctx := context.Background()
-	// Both entities are initially unresolved; the first turn must not leave
-	// the original decision advertising a choice that has already been bound.
 	if _, err := fixture.pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["funding_account","wealth_account"]'::jsonb) WHERE id=$1`, fixture.review); err != nil {
 		t.Fatal(err)
 	}
@@ -164,9 +153,6 @@ func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 	}
 }
 
-// A financial-email classification review can exist without a transfer
-// reconciliation case. Ignore must resolve its observation, request and audit
-// through the shared finalizer instead of trying the case-only transfer path.
 func TestFinancialEmailClassificationWithoutTransferCaseCanBeIgnored(t *testing.T) {
 	fixture := seedFinancialResolutionValues(t, true)
 	ctx := context.Background()
@@ -195,8 +181,6 @@ func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest
 	return w
 }
 
-// The request supplies only the unresolved entity, and the persisted
-// entity is merged back in rather than asked for again.
 func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	ctx := context.Background()
@@ -241,7 +225,6 @@ func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
 	}
 }
 
-// A partial resolution must not rewrite an entity the household already bound.
 func TestFinancialResolutionKeepsAlreadyKnownEntityAlias(t *testing.T) {
 	fixture := seedFinancialResolution(t, false)
 	ctx := context.Background()
@@ -260,7 +243,6 @@ func TestFinancialResolutionKeepsAlreadyKnownEntityAlias(t *testing.T) {
 	}
 }
 
-// Nothing to resolve is a client error, not a silently empty resolution.
 func TestFinancialResolutionRejectsEmptyValues(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{}}`); w.Code != http.StatusBadRequest {
@@ -271,10 +253,6 @@ func TestFinancialResolutionRejectsEmptyValues(t *testing.T) {
 	}
 }
 
-// The list must expose the already resolved entity, so the Inbox can render a
-// partial card and ask only for what is missing.
-// The review must name exactly the one unresolved entity, never
-// both. F1 has the funding account resolved; F2 the Wealth Account.
 func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -287,8 +265,6 @@ func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := seedFinancialResolution(t, test.resolved)
 			if !test.resolved {
-				// F2: the evidence resolved the provider Wealth Account but not the
-				// funding account, and the stored decision names only the gap.
 				if _, err := fixture.pool.Exec(context.Background(), `UPDATE financial_email_observation SET resolved_wealth_account_id=$2 WHERE id=$1`, fixture.observation, fixture.wealthAccount); err != nil {
 					t.Fatal(err)
 				}
@@ -358,16 +334,9 @@ func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
 	t.Fatal("the open financial resolution review must appear in the list")
 }
 
-// A provider-email facts residual is observation-scoped: the review_item carries
-// only financial_email_observation_id, so source_event_id is NULL. Web IGNORE
-// must still settle the owning source event instead of leaving it parked as
-// NEEDS_REVIEW, exactly like the Telegram lane and the shared financial-email
-// resolver.
 func TestFinancialEmailFactsIgnoreSettlesSourceEvent(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	ctx := context.Background()
-	// Move the observation into the facts-residual shape and drop the entity
-	// binding: the review_item keeps only the observation id, never a source id.
 	var source string
 	if err := fixture.pool.QueryRow(ctx, `SELECT source_event_id::text FROM financial_email_observation WHERE id=$1`, fixture.observation).Scan(&source); err != nil {
 		t.Fatal(err)

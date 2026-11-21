@@ -18,7 +18,6 @@ function Delta({ delta }) {
   </span>;
 }
 
-// "Ke mana uangnya": the served amount ranking. A row opens the category drawer.
 export function WhereCard({ facts, step, select, openComparison }) {
   const view = rankingView(facts);
   const count = facts.categoryChanges.length;
@@ -51,7 +50,6 @@ function RankRow({ row }) {
   </>;
 }
 
-// "Yang berubah": first five served changes as diverging bars, merchant movers, and the full comparison on demand.
 export function ChangesCard({ facts, step, select, comparisonRef, children }) {
   const view = changesView(facts);
   return <section id="changes" className="surface dash-card changes-card" aria-labelledby="changes-title">
@@ -79,7 +77,6 @@ export function ChangesCard({ facts, step, select, comparisonRef, children }) {
   </section>;
 }
 
-// Daily spending (2/3). Average sits in the header, so the reference line carries no label over the bars.
 export function DailyCard({ facts, step, children }) {
   const average = averageDailyText(facts.spendingShape);
   const shape = facts.spendingShape;
@@ -102,7 +99,6 @@ export function DailyCard({ facts, step, children }) {
   </section>;
 }
 
-// "Siklus ke siklus": one column per served cycle; choosing a column opens that cycle.
 export function HistoryCard({ facts, onSelect }) {
   const columns = buildLedger(facts.history, facts.period.start, null).columns;
   if (!columns.length) return null;
@@ -123,7 +119,6 @@ export function HistoryCard({ facts, onSelect }) {
   </section>;
 }
 
-// Right drawer (bottom sheet on phones). Totals are the served row, so they equal the list it was opened from.
 export function CategoryDrawer({ item, facts, period, close, triggerRef }) {
   const ref = useRef(null);
   const closeRef = useRef(close);

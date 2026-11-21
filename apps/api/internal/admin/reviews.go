@@ -8,20 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// ReviewOpsSummary, ReviewOpsBreakdown, and ReviewOpsProjections are the
-// read-only Super Admin aggregates for rollout health. They answer the
-// rollout/DoD questions from the Admin surface instead of manual SQL. Nothing
-// here returns financial evidence: amounts, merchants, counterparties, email
-// bodies, document content, and prompt text are never selected.
-
-// resolutionSurfaceSQL attributes a resolved review to TELEGRAM, USER (Web), or
-// SYSTEM. Every resolver writes its audit row in the same database transaction
-// as the review_item update, so an audit row in the household whose created_at
-// equals resolved_at (both are the transaction's now()) carries the resolving
-// surface whatever action name that resolver uses. The legacy entity match on
-// the dedicated resolution actions covers rows audited outside that
-// transaction; resolution_action covers resolvers that wrote no audit row.
-// Unresolved items have no surface.
 const resolutionSurfaceSQL = `LEFT JOIN LATERAL (SELECT CASE WHEN ri.resolved_at IS NULL THEN NULL ELSE COALESCE(
 	(SELECT CASE a.actor_type WHEN 'TELEGRAM' THEN 'TELEGRAM' WHEN 'USER' THEN 'USER' ELSE 'SYSTEM' END
 	 FROM audit_log a
@@ -31,10 +17,6 @@ const resolutionSurfaceSQL = `LEFT JOIN LATERAL (SELECT CASE WHEN ri.resolved_at
 	CASE WHEN ri.resolution_action LIKE 'TELEGRAM\_%' THEN 'TELEGRAM'
 	     WHEN ri.resolution_action IN ('LEGACY_TRANSACTION_RESOLVED','RECONCILED_TERMINAL_TRANSACTION','EMAIL_RECEIVED_AT_FALLBACK') THEN 'SYSTEM' END) END AS surface) s ON true`
 
-// telegramCapabilitySQL reports whether a stored ReviewDecision's ordinary
-// allowed_actions ($2) are all completable from Telegram. It mirrors the
-// action-level gate in the worker, so a delivered card whose only button lives
-// on Web is not counted as actionable coverage.
 const telegramCapabilitySQL = `jsonb_path_exists(ri.decision,'$.allowedActions[*]') AND NOT EXISTS (
 	SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' THEN ri.decision->'allowedActions' ELSE '[]'::jsonb END) a(action)
 	WHERE a.action <> 'IGNORE' AND NOT (a.action = ANY($2::text[]))
@@ -44,50 +26,24 @@ const telegramRecipientSQL = `EXISTS (SELECT 1 FROM telegram_identity ti JOIN ho
 
 const deliveredCardSQL = `EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rc.telegram_message_id IS NOT NULL)`
 
-// telegramEligibleSQL decides whether a review could have reached Telegram. It
-// reads review_item.telegram_eligible_at_creation, the recipient snapshot the
-// BEFORE INSERT trigger takes (migration 00080), so linking or unlinking a
-// Telegram identity later cannot move a review into or out of TARC. Rows
-// created before the snapshot existed hold NULL (unknown) and fall back to the
-// current-recipient predicate.
 const telegramEligibleSQL = `COALESCE(ri.telegram_eligible_at_creation, ` + telegramRecipientSQL + `)`
 
-// coverageEligibleSQL is the TARC denominator: reviews created in range ($1)
-// in a household that had an active Telegram recipient when the review was
-// created. Reviews without a stored
-// ReviewDecision predate the decision contract, so their Telegram capability
-// cannot be measured; they are reported separately as legacy. Reviews the
-// system settled without a person never needed a Telegram card.
 const coverageEligibleSQL = `ri.created_at>=$1 AND ri.decision IS NOT NULL AND s.surface IS DISTINCT FROM 'SYSTEM' AND ` + telegramEligibleSQL
 
-// coverageActionableSQL is the TARC numerator: an eligible review whose
-// Telegram card was delivered and is fully completable in Telegram.
 const coverageActionableSQL = coverageEligibleSQL + ` AND ` + deliveredCardSQL + ` AND ` + telegramCapabilitySQL
 
-// coverageSQL returns eligible, actionable, and legacy (unmeasurable) counts
-// for reviews created in range. It is range-based rather than a snapshot of
-// open reviews, so it stays measurable once the inbox is empty.
 const coverageSQL = `SELECT count(*) FILTER(WHERE ` + coverageEligibleSQL + `),
 	count(*) FILTER(WHERE ` + coverageActionableSQL + `),
 	count(*) FILTER(WHERE ri.decision IS NULL)
 	FROM review_item ri ` + resolutionSurfaceSQL + ` WHERE ri.created_at>=$1`
 
-// webEscapeBaseSQL is the Web Escape Rate denominator: decision-backed reviews
-// resolved in range by a person after a Telegram projection existed.
 const webEscapeBaseSQL = `ri.resolved_at>=$1 AND ri.decision IS NOT NULL AND s.surface IN ('USER','TELEGRAM') AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)`
 
-// webEscapeSQL counts Web resolutions whose ordinary actions could not all be
-// completed in Telegram. A fully Telegram-capable review that was still
-// resolved on Web is a voluntary switch, not a mandatory escape.
 const webEscapeSQL = webEscapeBaseSQL + ` AND s.surface='USER' AND NOT (` + telegramCapabilitySQL + `)`
 
-// webEscapeCountsSQL returns (denominator, escapes), optionally for one review
-// type ($3; empty means all types).
 const webEscapeCountsSQL = `SELECT count(*) FILTER(WHERE ` + webEscapeBaseSQL + `),count(*) FILTER(WHERE ` + webEscapeSQL + `)
 	FROM review_item ri ` + resolutionSurfaceSQL + ` WHERE ri.resolved_at>=$1 AND ($3='' OR ri.review_type=$3)`
 
-// telegramCompleteActions is the shared ordinary-action vocabulary with a
-// Telegram terminal or continuation lane.
 var telegramCompleteActions = reviewdomain.TelegramCompleteActions()
 
 func ratio(numerator, denominator int) *float64 {
@@ -98,7 +54,6 @@ func ratio(numerator, denominator int) *float64 {
 	return &rate
 }
 
-// ReviewOpsSummary is GET /api/v1/admin/reviews/summary.
 func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	start := adminRange(r.URL.Query().Get("range"))
@@ -121,9 +76,6 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 		ResolvedByWeb                  int      `json:"resolvedByWeb"`
 		ResolvedBySystem               int      `json:"resolvedBySystem"`
 	}
-	// Open reviews: an item is open when it is not terminal AND (for a
-	// transaction-backed item) the transaction still awaits review. This is the
-	// only point-in-time count; every other signal is range-based.
 	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')`).Scan(&out.OpenReviews); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -133,14 +85,10 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.TelegramActionableCoverageRate = ratio(out.ActionableTelegramProjections, out.EligibleTelegramReviews)
-	// Delivery aggregates come from the review send jobs in range.
 	if err := h.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE status='SUCCEEDED'),count(*) FILTER(WHERE status='FAILED'),coalesce(sum(GREATEST(attempts-1,0)),0),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json ? 'review_request_id' AND created_at>=$1`, start).Scan(&out.DeliveryAttempts, &out.DeliverySucceeded, &out.DeliveryFailed, &out.DeliveryRetried, &out.DeliverySuccessRate); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	// Resolution surface comes from the audit row the resolving surface wrote,
-	// never from the resolver's Telegram identity: one person may resolve from
-	// either channel. Latency still uses the canonical review window.
 	if err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE s.surface='TELEGRAM'),count(*) FILTER(WHERE s.surface='USER'),count(*) FILTER(WHERE s.surface='SYSTEM'),percentile_cont(.5) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000),percentile_cont(.95) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.resolved_at>=$1`, start).Scan(&out.ResolvedByTelegram, &out.ResolvedByWeb, &out.ResolvedBySystem, &out.ResolutionLatencyP50Ms, &out.ResolutionLatencyP95Ms); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -158,7 +106,6 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// ReviewOpsBreakdown is GET /api/v1/admin/reviews/breakdown.
 func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 	start := adminRange(r.URL.Query().Get("range"))
 	rows, err := h.pool.Query(r.Context(), `
@@ -206,7 +153,6 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"range": r.URL.Query().Get("range"), "rows": out})
 }
 
-// ReviewOpsProjections is GET /api/v1/admin/reviews/projections.
 func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	start := adminRange(q.Get("range"))
@@ -279,8 +225,6 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": nextCursor})
 }
 
-// reviewAgeMs is how long a review was open: frozen at resolution time once the
-// review is resolved, still growing while it is open.
 func reviewAgeMs(createdAt time.Time, resolvedAt *time.Time, now time.Time) int64 {
 	end := now
 	if resolvedAt != nil {

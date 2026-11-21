@@ -11,7 +11,7 @@ import (
 )
 
 func TestIndonesianDateFormatting(t *testing.T) {
-	at := time.Date(2026, time.May, 3, 21, 5, 0, 0, time.UTC) // 04 May 04:05 Jakarta
+	at := time.Date(2026, time.May, 3, 21, 5, 0, 0, time.UTC)
 	cases := map[string]string{
 		formatIDDate(at):     "04 Mei 2026",
 		formatIDDateTime(at): "04 Mei 2026 04:05",

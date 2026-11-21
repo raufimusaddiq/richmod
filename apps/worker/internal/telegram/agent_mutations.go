@@ -37,12 +37,10 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	value, err := nativeValidatedExtraction(args, state.Now)
 	if err != nil {
-		// validateCreate already checked every field; anything left is the model's to correct, never a job error.
 		return result, true, &agentRecoverable{Status: "INVALID_TRANSACTION_FIELDS", Reason: err.Error(),
 			NextStep: "correct the fields and call record_transaction again, or ask the user for the missing detail",
 			UserCopy: "Detail transaksinya belum lengkap, jadi belum ada yang dicatat. Sebutkan nominal dan tanggalnya, ya."}
 	}
-	// A second ledger row for evidence that already produced this transaction is refused, whatever the model asked.
 	if p.evidenceAlreadyRecorded(ctx, state.HouseholdID, state.FreshEvidenceDocuments, value.Type, value.Amount, value.Merchant) {
 		result.Status = "ALREADY_RECORDED_FROM_EVIDENCE"
 		result.Facts = map[string]any{"hint": "the document you just sent is already recorded; correct that transaction instead, or ask the user for what differs"}
@@ -58,8 +56,6 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		}
 	}
 
-	// Creating a transaction must never silently become a correction of a similar recent one; corrections
-	// need the dedicated tool and a uniquely resolved target.
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return result, true, err
@@ -71,8 +67,6 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, fmt.Errorf("re-authorize Telegram identity: %w", err)
 	}
 
-	// The typed merchant gets the household's merchant identity as a review answer does, so confirmed
-	// merchant rules apply and merchant learning can follow.
 	merchantID, remembered, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
 	if err != nil {
 		return result, true, err
@@ -95,8 +89,6 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		categoryID = &id
 	}
 
-	// record_transaction is a canonical mutation boundary using the shared decision object (ADR-038).
-	// A category query failure is infrastructure, not an empty set: retry rather than downgrade to review.
 	allowedCategories, err := p.categorySlugs(ctx, state.HouseholdID)
 	if err != nil {
 		return result, true, err
@@ -220,11 +212,8 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		"status":         transactionStatus,
 	}
 	if !autoConfirm {
-		// The review card goes to this chat, so the reply points at it instead of the Inbox.
 		result.Review = map[string]any{"required": true, "reason": "TRANSACTION_NEEDS_REVIEW", "card_in_chat": true}
 	}
-	// The result is fully deterministic: the reply is queued with the mutation so a later failure cannot
-	// leave the household unanswered.
 	if err = p.queueTurnReplyTx(ctx, tx, state, result); err != nil {
 		return result, true, err
 	}

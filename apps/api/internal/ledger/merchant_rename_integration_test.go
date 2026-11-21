@@ -15,8 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// "Tempat · Ubah": PATCH merchantName resolves a household merchant, repoints the raw
-// source name's alias, keeps counterparty_name as evidence, and audits both changes.
 func TestEditTransactionMerchantRename(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -120,7 +118,6 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 		if target != "Gojek" || def == nil || *def != category || !auto {
 			t.Fatalf("alias clobbered or not repointed: target=%s cat=%v auto=%t", target, def, auto)
 		}
-		// A later transaction with the same raw name resolves to the clean merchant via the same normalized lookup bank-email uses.
 		var resolved string
 		must(pool.QueryRow(ctx, `SELECT min(normalized_merchant_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g'))`, household, "GOJEK   99").Scan(&resolved))
 		var wanted string
@@ -242,7 +239,6 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 		if n != 0 {
 			t.Fatal("foreign caller created a merchant")
 		}
-		// The same raw name in another household is untouched by this household's alias.
 		if _, found := aliasTarget(foreign, "QRIS GRAB*1234"); found {
 			t.Fatal("alias leaked across households")
 		}

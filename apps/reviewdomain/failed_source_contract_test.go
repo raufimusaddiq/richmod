@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// Analytics sends the household to the Tindakan tab; the API closes the action
-// and the worker records it. All three must keep using the shared constants and
-// functions so the count, the link, and the item cannot drift apart again.
 func TestFailedSourceFlowStaysShared(t *testing.T) {
 	query := sourceFile(t, "analyticscore/query.go")
 	if !strings.Contains(query, `facts.block("PROCESSING_INCOMPLETE", processing, nil, "`+FailedSourceInboxLink+`")`) {

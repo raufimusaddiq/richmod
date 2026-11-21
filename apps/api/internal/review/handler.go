@@ -78,21 +78,13 @@ type item struct {
 	WhyNotAutoConfirm       string                    `json:"whyNotAutoConfirm,omitempty"`
 	HasPrimarySalary        bool                      `json:"hasPrimarySalary,omitempty"`
 	PurposeChoices          []string                  `json:"purposeChoices,omitempty"`
-	// Presentation is DECISION for a review that asks the household something
-	// and NOTICE for an acknowledge-only item (reviewdomain.PresentationFor).
-	Presentation string `json:"presentation"`
-	// DateChoices are the one-tap dates offered when the source never printed a
-	// transaction date (SET_TRANSACTION_DATE).
-	DateChoices []reviewdomain.DateChoice `json:"dateChoices,omitempty"`
-	// SuggestedCategories: up to three ranked active household categories (zero AI), 1-tap answers.
-	SuggestedCategories []suggestedCategory `json:"suggestedCategories,omitempty"`
+	Presentation            string                    `json:"presentation"`
+	DateChoices             []reviewdomain.DateChoice `json:"dateChoices,omitempty"`
+	SuggestedCategories     []suggestedCategory       `json:"suggestedCategories,omitempty"`
 }
 
-// reviewPageSize bounds one page of transaction-bound reviews.
 const reviewPageSize = 100
 
-// reviewCursor is the opaque keyset position (transaction_at, id) of the last
-// transaction-bound review on a page.
 func encodeReviewCursor(at time.Time, id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(at.UTC().Format(time.RFC3339Nano) + "|" + id))
 }
@@ -128,8 +120,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid review cursor"})
 		return
 	}
-	// The Inbox reads canonical review_item only. Every NEEDS_REVIEW transaction has one active item carrying its ReviewDecision, with or without Telegram.
-	// The item ID stays the transaction id because Web actions address /reviews/{transactionId}/...
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
 		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,t.merchant_id::text,ri.id::text,
@@ -164,14 +154,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": "unable to generate reconciliation candidates"})
 			return
 		}
-		// The persisted ReviewDecision is the single source of truth for what a
-		// review asks: a Telegram card and the Inbox read the same contract.
 		stored := proposalFacts(value.Decision)
 		value.Reason = stored.ReasonCode
 		value.ReviewType = stored.ReasonCode
-		// ADR-054: both Inbox list paths offer only what the dispatcher executes
-		// for the binding (here an open transaction). A legacy row with no stored
-		// actions keeps the card's own transaction lane.
 		value.AllowedActions, value.Presentation = transactionReviewOffer(stored)
 		value.KnownFacts = stored.KnownFacts
 		value.ProposedFacts = stored.ProposedFacts
@@ -187,7 +172,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
-	// Keyset pagination: the extra row only proves another page exists.
 	if len(items) > reviewPageSize {
 		items = items[:reviewPageSize]
 		last := items[len(items)-1]
@@ -202,8 +186,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		items[index].SuggestedCategories = suggestions[items[index].ID]
 	}
 	if cursorAt != nil {
-		// Later pages carry only transaction reviews; the canonical items and
-		// the decision count arrive with the first page.
 		writeJSON(w, 200, items)
 		return
 	}
@@ -223,14 +205,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			canonicalDecisions++
 		}
 	}
-	// The needs-your-decision count spans every page and excludes notices.
 	w.Header().Set("X-Decision-Count", strconv.Itoa(transactionDecisions+canonicalDecisions))
 	for _, value := range canonical {
 		sourceType := value.Channel
 		stored := proposalFacts(value.Decision)
-		// The persisted observation columns are the single source of truth for what
-		// this review already resolved; the stored decision is only a fallback for
-		// reviews written before those columns existed.
 		resolvedWealth := firstNonEmpty(value.ResolvedWealthAccountID, stored.resolvedEntity("resolvedWealthAccountId"))
 		resolvedAccount := firstNonEmpty(value.ResolvedAccountID, stored.resolvedEntity("resolvedAccountId"))
 		hasPrimarySalary, _ := stored.Provenance["hasPrimarySalary"].(bool)
@@ -241,8 +219,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 500, map[string]string{"error": "unable to read salary policy"})
 				return
 			}
-			// The stored decision is a snapshot of salary policy at creation; the
-			// shared rule refreshes it against the household's current policy.
 			policy := reviewdec.Decision{MissingFacts: missingFacts}
 			if len(value.Decision) > 0 {
 				_ = json.Unmarshal(value.Decision, &policy)
@@ -268,12 +244,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, items)
 }
 
-// transactionReviewOffer is the one rule for what a transaction-bound review
-// offers and how it is presented. ADR-054: both Inbox list paths offer only what
-// the dispatcher executes for the binding (here an open transaction); a legacy
-// row with no stored actions keeps the card's own transaction lane and is a
-// decision. The list and the decision count both call it, so what the Inbox
-// renders as a decision is exactly what X-Decision-Count counts.
 func transactionReviewOffer(stored storedDecision) ([]string, string) {
 	actions := stored.AllowedActions
 	if len(stored.AllowedActions) > 0 {
@@ -282,10 +252,6 @@ func transactionReviewOffer(stored storedDecision) ([]string, string) {
 	return actions, reviewdomain.PresentationFor(actions)
 }
 
-// transactionDecisionCount counts every open transaction-bound review (across
-// all pages) that transactionReviewOffer presents as a decision. The count is
-// computed in Go from the stored decisions rather than re-expressed in SQL, so
-// it cannot drift from the executable-action rule the cards use.
 func (h *Handler) transactionDecisionCount(ctx context.Context, household string) (int, error) {
 	rows, err := h.pool.Query(ctx, `SELECT COALESCE(ri.decision,'null'::jsonb) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW'`, household)
 	if err != nil {
@@ -305,9 +271,6 @@ func (h *Handler) transactionDecisionCount(ctx context.Context, household string
 }
 
 func (h *Handler) candidates(ctx context.Context, household string, source item) ([]candidate, error) {
-	// Same rule as the Telegram card: the window candidates plus the
-	// transactions a reprocessed document was already linked to, carried in the
-	// review decision, even when amount or date drifted.
 	rows, err := h.pool.Query(ctx, `
 		WITH prior AS (SELECT jsonb_array_elements_text(ri.decision->'knownFacts'->'prior_match_transaction_ids') AS id FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array')
 		SELECT t.id,t.amount::text,t.transaction_at,t.description,t.account_id,t.category_id,
@@ -371,9 +334,7 @@ type confirmInput struct {
 	MerchantName     *string `json:"merchantName"`
 	RememberMerchant bool    `json:"rememberMerchant"`
 	TransactionAt    *string `json:"transactionAt"`
-	// DateChoice is a bounded SET_TRANSACTION_DATE answer (TODAY, YESTERDAY,
-	// MESSAGE_DATE) that Go resolves to a Jakarta date.
-	DateChoice *string `json:"dateChoice"`
+	DateChoice       *string `json:"dateChoice"`
 }
 
 func parseReviewDate(value *string) (*time.Time, error) {
@@ -455,7 +416,6 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		}
 		categoryID = input.CategoryID
 	}
-	// Recall only when no category was chosen; explicit user choices win.
 	if kind == "EXPENSE" && categoryID == nil && merchantName != "" {
 		learned, err := reviewdomain.LearnedMerchantCategory(r.Context(), tx, household, merchantName)
 		if err != nil {
@@ -742,9 +702,6 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}
-	// Only the transaction the merge voided is reopened; one that has changed
-	// since (the transition guard also forbids reopening anything else) stops
-	// the reversal instead of being dragged back into review.
 	reopened, err := tx.Exec(r.Context(), `UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,voided_at=NULL,updated_at=now() WHERE id=$1 AND household_id=$2 AND status='VOIDED'`, sourceID, household)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
@@ -826,7 +783,6 @@ func firstText(values ...*string) string {
 	return ""
 }
 
-// firstNonEmpty returns the first non-empty string of a short fallback chain.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

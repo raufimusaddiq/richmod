@@ -8,8 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// Go narrows deterministically and the plane may reuse a ledger row only on an affirmative yes; the undecided
-// middle band stays in Review.
 func TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
@@ -46,7 +44,6 @@ func TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul(t *testing.T) {
 	}
 }
 
-// With no bounded plane configured nothing is silently merged and the Review path still runs (ADR-038).
 func TestReconcileSemanticallyWithoutAPlaneStaysInReview(t *testing.T) {
 	answer, err := (&Processor{}).reconcileSemantically(context.Background(), "req-1", "3000000", "2026-09-22T10:00:00+07:00", "desc", "UNCLASSIFIED", "", "2026-09-22T10:03:00+07:00")
 	if err != nil {
@@ -57,7 +54,6 @@ func TestReconcileSemanticallyWithoutAPlaneStaysInReview(t *testing.T) {
 	}
 }
 
-// A provider outage must not read as a negative ruling, so callers can tell "no" from "could not ask".
 func TestReconcileSemanticallyPropagatesProviderFailure(t *testing.T) {
 	processor := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
 	if _, err := processor.reconcileSemantically(context.Background(), "req-1", "1", "at", "d", "UNCLASSIFIED", "", "at"); err == nil {
@@ -65,7 +61,6 @@ func TestReconcileSemanticallyPropagatesProviderFailure(t *testing.T) {
 	}
 }
 
-// Many survivors stay ambiguous in Review, not a forced choice, and an already-reused row is not re-ruled.
 func TestCanReconcileSemanticallyRequiresExactlyOneCandidate(t *testing.T) {
 	for _, testCase := range []struct {
 		name string

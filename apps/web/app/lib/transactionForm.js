@@ -1,15 +1,10 @@
-// Pure helpers for the /transactions page, kept out of the component so they
-// can be unit-tested without a browser.
-
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Indonesian message when the range is inverted, else "". Same-day is valid.
 export function dateRangeError(from, to) {
   if (!ISO_DATE.test(from || "") || !ISO_DATE.test(to || "")) return "";
   return from > to ? "Tanggal “Dari” tidak boleh setelah tanggal “Sampai”." : "";
 }
 
-// Never show API text to the household: map known statuses to Indonesian copy.
 export function transactionsErrorMessage(status, body = {}) {
   const text = String(body?.error || "").toLowerCase();
   if (text.includes("from date must not be after to date")) return "Tanggal “Dari” tidak boleh setelah tanggal “Sampai”.";
@@ -24,31 +19,22 @@ export function createErrorMessage(status, body = {}) {
   return "Transaksi belum dapat disimpan. Periksa isian lalu coba lagi.";
 }
 
-// Params that select the list. An evidence link carries ?id=, which scopes the
-// ledger to that one row on purpose; the list request keeps it.
 export function listSearch(search) {
   const query = new URLSearchParams(search);
-  // ?open= is the drawer, not a list filter; ?id= is an evidence-link scope and stays.
   query.delete("open");
   if (!query.has("limit")) query.set("limit", "50");
   return `?${query}`;
 }
 
-// True when the URL scopes the ledger to a single linked transaction.
 export function isScopedToTransaction(search) {
   return Boolean(new URLSearchParams(search).get("id"));
 }
 
-// "25.000" (id-ID thousands dots) -> "25000". Only well-formed grouping is
-// stripped, so "2.5" or "1.2.3" still fail validation.
 export function normalizeAmount(value) {
   const text = String(value || "").trim();
   return /^[1-9]\d{0,2}(\.\d{3})+$/.test(text) ? text.replace(/\./g, "") : text;
 }
 
-// The list filters the URL can carry. Both the "Hapus filter" affordance and the
-// mobile "Filter (n)" badge read this one list, so an unknown param (?sort=) neither
-// counts nor flips hasFilters; ?open=, ?id= and the pager params are not filters.
 const FILTER_KEYS = ["q", "from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "merchantId", "cycle", "review"];
 
 export function hasActiveFilters(search) {
@@ -56,33 +42,26 @@ export function hasActiveFilters(search) {
   return FILTER_KEYS.some(key => query.get(key));
 }
 
-// How many filters the URL carries, for the mobile "Filter" toggle.
 export function activeFilterCount(search) {
   const query = new URLSearchParams(search);
   return FILTER_KEYS.filter(key => query.get(key)).length;
 }
 
-// The page size actually requested: ?limit= wins over the default. Used for the
-// pager's page/range so a small custom page does not read as a page of 50.
 export function pageSize(search, fallback = 50) {
   const size = Number.parseInt(new URLSearchParams(search).get("limit") ?? "", 10);
   return size > 0 ? size : fallback;
 }
 
-// The results heading. A range when more matches exist than rows on screen, else the
-// total; the loaded rows are the honest fallback when the API sends no total.
 export function resultCountLabel(total, shown, offset = 0) {
   if (!Number.isFinite(total) || total < 0) return `${shown} transaksi`;
   if (total <= shown) return `${total} transaksi`;
   return `${offset + 1}–${offset + shown} dari ${total} transaksi`;
 }
 
-// The pager's current page and slice, e.g. "Halaman 2 · 51–100".
 export function pageLabel(offset, shown, size) {
   return shown ? `Halaman ${Math.floor(offset / size) + 1} · ${offset + 1}–${offset + shown}` : "";
 }
 
-// Inline validation for the add form. Returns {field: message}.
 export function createFormErrors(values, { cycle = false } = {}) {
   const errors = {};
   if (!/^[1-9][0-9]*$/.test(normalizeAmount(values.amount))) errors.amount = "Isi jumlah dengan angka bulat lebih dari 0.";
@@ -93,8 +72,6 @@ export function createFormErrors(values, { cycle = false } = {}) {
   return errors;
 }
 
-// Tab cycling for a modal. `items` are the focusable elements in order, `active`
-// the focused one. Returns the element to focus, or null to let the browser move.
 export function trapTarget(items, active, shift, container = null) {
   if (!items.length) return container;
   const first = items[0], last = items[items.length - 1];
@@ -103,21 +80,15 @@ export function trapTarget(items, active, shift, container = null) {
   return null;
 }
 
-// ---- Edit existing transaction (PATCH /api/v1/transactions/{id}) ----
-
-// Statuses the API accepts for an edit; NEEDS_REVIEW is resolved through review and VOIDED is final.
 export function canEditTransaction(transaction) {
   return Boolean(transaction?.id) && ["CONFIRMED"].includes(transaction.status);
 }
 
-// Transfers keep their account and have no category; only text fields move.
 export function editableFields(transaction) {
   const transfer = transaction?.type === "TRANSFER";
   return { category: !transfer, account: !transfer, place: !transfer, description: true, note: true };
 }
 
-// Ingestion may leave description NULL, so it is only required once the user
-// changes it (or when the transaction already has one).
 export function editFormErrors(values, transaction = {}) {
   const errors = {};
   const description = String(values.description || "").trim();
@@ -129,14 +100,10 @@ export function editFormErrors(values, transaction = {}) {
   return errors;
 }
 
-// Body for PATCH: only fields the household may change, "" -> null to clear.
 export function editPayload(transaction, values) {
   const fields = editableFields(transaction), body = {};
-  // Only changed fields are sent, so a since-deactivated category/account never
-  // blocks a description-only edit.
   if (fields.category && (values.categoryId || null) !== (transaction.categoryId || null)) body.categoryId = values.categoryId || null;
   if (fields.account && (values.accountId || null) !== (transaction.accountId || null)) body.accountId = values.accountId || null;
-  // "Tempat · Ubah": a non-empty clean name; the API repoints the raw bank name's alias to it.
   const place = String(values.merchantName || "").trim().replace(/\s+/g, " ");
   if (fields.place && place && place !== (transaction.merchantName || "")) body.merchantName = place;
   const description = String(values.description || "").trim();
@@ -146,7 +113,6 @@ export function editPayload(transaction, values) {
   return body;
 }
 
-// Never show API text: map the stable error code (then the status) to Indonesian.
 export function editErrorMessage(status, body = {}) {
   switch (body?.code) {
     case "REVIEW_OPEN": return "Transaksi ini masih menunggu tinjauan. Selesaikan tinjauan dulu.";
@@ -167,18 +133,13 @@ export function editErrorMessage(status, body = {}) {
   return "Perubahan belum dapat disimpan. Periksa isian lalu coba lagi.";
 }
 
-// ---- Void a transaction (POST /api/v1/transactions/{id}/void) ----
-
 export const VOID_CONFIRM_MESSAGE = "Batalkan transaksi ini? Transaksi keluar dari semua total dan tetap tersimpan di riwayat beserta catatan perubahannya.";
 export const VOID_SUCCESS_MESSAGE = "Transaksi dibatalkan. Tidak lagi dihitung dalam total, dan tetap ada di riwayat.";
 
-// Same statuses the API voids. NEEDS_REVIEW is resolved in Tinjauan; VOIDED is already final.
 export function canVoidTransaction(transaction) {
   return Boolean(transaction?.id) && ["CONFIRMED"].includes(transaction.status);
 }
 
-// What the drawer shows after a refused void. Never raw API text. `review` adds the link to
-// Tinjauan; `reload` means the record changed under us, so the drawer is fetched again.
 export function voidFailure(status, body = {}) {
   if (status === 409 && body?.code === "REVIEW_OPEN") return { kind: "review", message: "Transaksi ini masih menunggu keputusan, jadi belum bisa dibatalkan di sini. Selesaikan dulu di Tinjauan." };
   if (status === 409 && body?.code === "MERGE_TARGET") return { kind: "error", reload: true, message: "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan. Pisahkan penggabungannya dulu lewat tombol “Pisahkan penggabungan” di bawah." };
@@ -188,12 +149,8 @@ export function voidFailure(status, body = {}) {
   return { kind: "error", message: "Transaksi belum dibatalkan. Coba lagi." };
 }
 
-// ---- Reverse a reconciliation merge (POST /api/v1/reconciliation-merges/{id}/reverse) ----
-
 export const REVERSE_MERGE_SUCCESS_MESSAGE = "Penggabungan dipisahkan. Transaksi yang tadi digabung kembali ke Tinjauan untuk diputuskan lagi.";
 
-// One line about an ACTIVE merge from GET /transactions/{id}: TARGET absorbed the other
-// transaction, SOURCE was folded into it. `formatAmount` is the page's money formatter.
 export function mergeSummary(merge, formatAmount = value => value) {
   const other = [merge?.otherLabel || "Transaksi lain", merge?.otherAmount ? formatAmount(merge.otherAmount) : ""].filter(Boolean).join(" · ");
   return merge?.role === "TARGET" ? `Menyerap transaksi duplikat: ${other}.` : `Digabung ke transaksi lain: ${other}.`;

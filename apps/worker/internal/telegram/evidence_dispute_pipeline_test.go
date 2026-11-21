@@ -1,8 +1,5 @@
 package telegram_test
 
-// Runs synthetic screenshots through the real pipeline, text intake and callback intake; only the model and
-// image bytes are scripted.
-
 import (
 	"context"
 	"encoding/json"
@@ -97,7 +94,6 @@ func newPipe(t *testing.T) *pipe {
 		t.Fatal(err)
 	}
 	at := time.Now().Add(-30 * time.Minute).In(time.FixedZone("WIB", 7*3600)).Truncate(time.Minute).Format(time.RFC3339)
-	// A printed transaction ID keeps identical repeat evidence on its safe auto-link path.
 	extraction := fmt.Sprintf(`{"account_hint":"","payment_status":"PAID","confidence":0.97,"transactions":[{"direction":"OUT","amount":"7500","currency":"IDR","transaction_at":%q,"merchant":"Synthetic Store","description":"Payment to Synthetic Store","category_slug":"food-and-drink","category_confidence":0.96,"confidence":0.97,"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"SYNTHETIC-DISPUTE-REPEAT"}],"transaction_time_precision":"TIME"}]}`, at)
 	p.gw = &scriptGW{extraction: json.RawMessage(extraction), agent: disputeCall}
 	p.docs = document.NewProcessorWithStorage(pool, p.gw, store)
@@ -153,7 +149,6 @@ func (p *pipe) upload() upload {
 	return u
 }
 
-// Text intake leaves chat and message ids off the source_event, as in production.
 func (p *pipe) text(body string, replyTo int64, from int64) (string, error) {
 	p.t.Helper()
 	p.gw.mu.Lock()
@@ -172,7 +167,6 @@ func (p *pipe) text(body string, replyTo int64, from int64) (string, error) {
 	return source, p.tg.Process(p.ctx, source)
 }
 
-// Keeps callback IDs unique under concurrent presses (colliding UnixNano breaks source_event_external_id_unique).
 var pressSequence atomic.Int64
 
 func (p *pipe) press(data string, message int64, from int64) (string, error) {
@@ -484,8 +478,6 @@ func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *te
 	}
 }
 
-// A staged dispute transaction that is the target of an ACTIVE merge must not be voided by the reject button:
-// the household gets a plain reply, the card stays open, and the job does not fail.
 func TestDisputeRejectRefusesActiveMergeTarget(t *testing.T) {
 	p := newPipe(t)
 	_, second, _ := p.mergedPair()

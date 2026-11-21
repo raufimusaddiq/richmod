@@ -155,8 +155,6 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES ($1,'USER',$2,'CREATE','transaction',$3,jsonb_build_object('type',$4::text,'amount',$5::text,'currency','IDR','accountId',$6::text,'categoryId',$7::text))`, householdID, principal.UserID, transactionID, input.Type, amount.String(), input.AccountID, input.CategoryID); err != nil {
 		return "", fmt.Errorf("audit transaction: %w", err)
 	}
-	// The Inbox sends "transaksi belum tercatat" here: a cycle waiting on a
-	// missing transaction reopens with the recomputed residual (ADR-036).
 	if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, transactionAt, principal.UserID); err != nil {
 		return "", fmt.Errorf("refresh cycle residuals: %w", err)
 	}

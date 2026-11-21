@@ -32,20 +32,15 @@ type SendPayload struct {
 }
 
 type EditPayload struct {
-	ChatID      int64                 `json:"chat_id"`
-	MessageID   int64                 `json:"message_id"`
-	Text        string                `json:"text"`
-	ReplyMarkup *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	// Edits of a live review card are skipped once the request is terminal, so a queued edit cannot restore
-	// buttons that retirement stripped.
-	ReviewRequestID string `json:"review_request_id,omitempty"`
-	// Outcome edits apply only at the current revision, under a lock, so a delayed earlier outcome cannot
-	// restore answered buttons.
-	OutcomeRequestID string `json:"outcome_request_id,omitempty"`
-	OutcomeRevision  int    `json:"outcome_revision,omitempty"`
+	ChatID           int64                 `json:"chat_id"`
+	MessageID        int64                 `json:"message_id"`
+	Text             string                `json:"text"`
+	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	ReviewRequestID  string                `json:"review_request_id,omitempty"`
+	OutcomeRequestID string                `json:"outcome_request_id,omitempty"`
+	OutcomeRevision  int                   `json:"outcome_revision,omitempty"`
 }
 
-// APIError never carries the request URL, which contains the bot token.
 type APIError struct {
 	Method            string
 	StatusCode        int
@@ -60,13 +55,10 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("Telegram %s API returned HTTP %d: %s", e.Method, e.StatusCode, e.Description)
 }
 
-// Permanent means the same request will never pass (400, 403). 429, 401/404 (rotated token, operator-
-// fixable), 5xx and transport failures keep retrying.
 func (e *APIError) Permanent() bool {
 	return e.StatusCode == http.StatusBadRequest || e.StatusCode == http.StatusForbidden
 }
 
-// Zero means no hint; the queue uses it instead of its own backoff.
 func (e *APIError) RetryAfter() time.Duration {
 	if e.StatusCode != http.StatusTooManyRequests || e.RetryAfterSeconds <= 0 {
 		return 0
@@ -161,7 +153,6 @@ func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 	request.Header.Set("Content-Type", "application/json")
 	response, err := b.http.Do(request)
 	if err != nil {
-		// Never wrap the transport error: its URL contains the bot token.
 		return 0, fmt.Errorf("send Telegram response failed")
 	}
 	defer response.Body.Close()
@@ -231,7 +222,6 @@ func (b *Bot) edit(ctx context.Context, method string, requestBody map[string]an
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := b.http.Do(req)
 	if err != nil {
-		// Never wrap the transport error: its URL contains the bot token.
 		return fmt.Errorf("edit Telegram message failed")
 	}
 	defer resp.Body.Close()
@@ -247,7 +237,6 @@ func (b *Bot) edit(ctx context.Context, method string, requestBody map[string]an
 	return nil
 }
 
-// Finished means retrying cannot change it; rate limits, 5xx and transport failures are retried by the queue.
 func editFinished(err error) bool {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
@@ -265,7 +254,6 @@ func editFinished(err error) bool {
 	return false
 }
 
-// Telegram refuses an unchanged edit (double tap); the goal is met, so it is a success.
 func editNotModified(err error) bool {
 	var apiErr *APIError
 	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")

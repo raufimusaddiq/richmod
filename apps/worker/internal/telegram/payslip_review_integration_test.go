@@ -101,7 +101,6 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	if transactions != 1 {
 		t.Fatalf("stale callback created another payslip transaction: %d", transactions)
 	}
-	// A confirmed salary opens cycle residual reconciliation; the stale replay must not enqueue a second.
 	var residualJobs int
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'household_id'=$1`, householdID).Scan(&residualJobs))
 	if residualJobs != 1 {
@@ -115,7 +114,6 @@ func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, [
 	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"","description":"","note":"","confidence":0,"ambiguous":false,"pay_date":"2026-09-25"}`)}, gateway.Metadata{}, nil
 }
 
-// Telegram closes document-bound reviews: reprocess enqueues the shared pipeline, ignore parks the document.
 func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -182,7 +180,6 @@ func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 	}
 }
 
-// Telegram resolves FINANCIAL_EMAIL_RESOLUTION through the shared resolver and enqueues the provider-email replay.
 func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -230,7 +227,6 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 		return sid
 	}
 	processor := NewProcessor(pool, boundReviewGateway{})
-	// Partial resolution: the first pick persists and re-asks for the remaining dimension.
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:account:"+accountID))))
 	var itemStatus, resolvedAccount, missingFact string
 	must(pool.QueryRow(ctx, `SELECT status,COALESCE(decision->'missingFacts'->>0,'') FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus, &missingFact))
@@ -313,7 +309,6 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	}
 }
 
-// A review card that resolves between enqueue and send must not be delivered as live.
 func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -333,8 +328,6 @@ func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
 	stamp := time.Now().UnixNano()
 	var householdID, openItem, resolvedItem, expiredItem, openRequest, resolvedRequest, expiredRequest string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("queued send %d", stamp)).Scan(&householdID))
-	// Each item needs its own source event: review_item_active_source_unique allows one active
-	// AMBIGUOUS_CATEGORY item per source.
 	newItem := func(status string, resolved bool) string {
 		var sourceID, id string
 		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("queued-%d-%s", time.Now().UnixNano(), status), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
@@ -345,7 +338,6 @@ func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
 		}
 		return id
 	}
-	// A resolved item must carry resolved_at (schema cross-check).
 	resolvedItem = newItem("RESOLVED", true)
 	openItem, expiredItem = newItem("OPEN", false), newItem("OPEN", false)
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, openItem, householdID).Scan(&openRequest))

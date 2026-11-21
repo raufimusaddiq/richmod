@@ -6,20 +6,15 @@ import { chromium, webkit } from "playwright";
 
 const base = "http://127.0.0.1:3211";
 const output = new URL("../test-results/transaction-date/", import.meta.url);
-// Serve the static export the API embeds; `next start` cannot run an export.
 const server = spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: "3211" } });
 let browser;
 
-// Phones collapse the filter bar behind a "Filter" toggle; open it before reading the
-// controls. On wider screens the toggle is hidden and the bar is already open.
 async function openFilters(page) {
   const toggle = page.locator(".filter-toggle");
   if (await toggle.isVisible()) await toggle.click();
 }
 
 async function fits(input) {
-  // Layout can still be settling right after navigation or a viewport-sized reflow (seen on CI WebKit),
-  // so measure until the box is touch-sized, up to two seconds, then assert on the last reading.
   let box;
   for (let attempt = 0; attempt < 20; attempt++) {
     box = await measure(input);
@@ -78,7 +73,6 @@ try {
       await page.screenshot({ path: fileURLToPath(new URL(`${engine.name()}-${width}-filters.png`, output)), fullPage: true });
       await page.getByRole("button", { name: "Tambah transaksi", exact: true }).click();
       const dialog = page.locator("dialog[open]");
-      // Waktu, akun and notes sit behind one disclosure so the sheet stays a two-field entry.
       await dialog.getByText("Waktu, akun, dan catatan", { exact: true }).click();
       const time = dialog.getByLabel("Waktu", { exact: true });
       await fits(time);

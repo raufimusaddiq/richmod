@@ -12,10 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// A review-held transaction can be the TARGET of an ACTIVE reconciliation merge (a cross-lane candidate
-// the duplicate was merged into). Ignoring or rejecting it would leave the merged event with no live
-// transaction, so every Telegram path answers with a clean refusal: no mutation, no returned error (so
-// no job failure), and a plain reply or tool status.
 type mergeTargetFixture struct {
 	t                                      *testing.T
 	ctx                                    context.Context
@@ -56,14 +52,12 @@ func newMergeTargetFixture(t *testing.T, kind, reviewType string) *mergeTargetFi
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("merge-target-%d@example.test", stamp)).Scan(&f.user))
 	exec(`INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, f.household, f.user)
 	exec(`INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, f.chat, f.household, f.user)
-	// The review-held target, with a bank evidence row like a real transfer/expense review.
 	var bank string
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.household, fmt.Sprintf("bank-%d", stamp), []byte(fmt.Sprintf("bank-%d", stamp))).Scan(&bank))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,$2,'NEEDS_REVIEW',75000,now(),'Toko') RETURNING id`, f.household, kind).Scan(&f.target))
 	exec(`INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, f.target, bank)
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, f.target, reviewType).Scan(&f.item))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,$3,$4,'OPEN',$5) RETURNING id`, f.household, f.item, f.target, reviewType, f.chat).Scan(&f.request))
-	// The duplicate, voided BY the merge, and the ACTIVE merge into the target.
 	var dup string
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name,voided_at) VALUES($1,$2,'VOIDED',75000,now(),'Toko',now()) RETURNING id`, f.household, kind).Scan(&dup))
 	exec(`INSERT INTO reconciliation_merge(household_id,source_transaction_id,target_transaction_id,status,created_by_user_id) VALUES($1,$2,$3,'ACTIVE',$4)`, f.household, dup, f.target, f.user)
@@ -81,7 +75,6 @@ func (f *mergeTargetFixture) str(sql string, args ...any) string {
 	return v
 }
 
-// untouched asserts the refusal changed nothing about the target, its review, or its audit trail.
 func (f *mergeTargetFixture) untouched() {
 	f.t.Helper()
 	if got := f.str(`SELECT status FROM transaction WHERE id=$1`, f.target); got != "NEEDS_REVIEW" {
@@ -101,7 +94,6 @@ func (f *mergeTargetFixture) untouched() {
 	}
 }
 
-// refusedReply asserts the plain-Indonesian reply was queued and the reply's source event settled.
 func (f *mergeTargetFixture) refusedReply() {
 	f.t.Helper()
 	text := f.str(`SELECT COALESCE(string_agg(payload_json->>'text',' | '),'') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, f.chat)

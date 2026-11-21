@@ -9,15 +9,12 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// InstrumentedEngine records the bounded call after the wrapped engine returns, logging question keys only,
-// never state, prompts or answers.
 type InstrumentedEngine struct {
 	Engine judgment.Engine
 	Record Recorder
 }
 
 func (e InstrumentedEngine) Evaluate(ctx context.Context, requestID string, input judgment.Request) (judgment.Result, error) {
-	// Wraps rather than lives inside the engine so telemetry never changes the wire request.
 	started := time.Now()
 	result, err := e.Engine.Evaluate(ctx, requestID, input)
 	if e.Record == nil {
@@ -57,7 +54,6 @@ func questionKeys(questions map[string]judgment.Question) []string {
 	return keys
 }
 
-// PurposeForQuestions labels a phase from the question shape when no purpose was set; it never invents a fact.
 func PurposeForQuestions(questions map[string]judgment.Question) string {
 	if _, ok := questions["route"]; ok {
 		return "ROUTE"

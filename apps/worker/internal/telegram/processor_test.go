@@ -34,7 +34,6 @@ func TestNativeExtractionPreservesExplicitDateWithApproximateMorning(t *testing.
 	}
 }
 
-// A message sent at 23:59 and processed after midnight keeps the day the household sent it.
 func TestUndatedEntryKeepsMessageDayWhenProcessedAfterMidnight(t *testing.T) {
 	sent := time.Date(2026, time.October, 12, 23, 59, 20, 0, jakartaLocation())
 	worker := time.Date(2026, time.October, 13, 0, 1, 5, 0, jakartaLocation())
@@ -76,7 +75,6 @@ func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
 	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now); !ok {
 		t.Fatal("an in-the-moment entry with no stated date must be accepted at its message time")
 	}
-	// A model-supplied date is never accepted as the household's.
 	base["date_reference"] = "YESTERDAY"
 	invented, err := nativeValidatedExtraction(base, now)
 	if err != nil {
@@ -99,7 +97,6 @@ func TestResolveTimeRejectsUnknownApproximatePeriod(t *testing.T) {
 	}
 }
 
-// Category acceptance, not model self-confidence, decides confirmation (ADR-038).
 func TestClearExpenseDecisionDoesNotCreateAvoidableReview(t *testing.T) {
 	clear := TransactionSemanticDecision{
 		RouteAccepted: true, TransactionType: "EXPENSE", TypeAccepted: true,

@@ -16,15 +16,12 @@ import (
 )
 
 type ParsedEmail struct {
-	Sender                   string
-	Subject                  string
-	Date                     string
-	MessageID                string
-	AuthenticationResults    string
-	ARCAuthenticationResults string
-	// Authentication-Results one per element, topmost (most recently added)
-	// first. Only the topmost one was added by the receiving MTA; anything
-	// below it may have been written by the sender.
+	Sender                       string
+	Subject                      string
+	Date                         string
+	MessageID                    string
+	AuthenticationResults        string
+	ARCAuthenticationResults     string
 	AuthenticationResultsHeaders []string
 	HTMLBody                     string
 	TextBody                     string
@@ -96,7 +93,7 @@ func parsePart(contentType, transfer string, body io.Reader) (string, string, er
 			htmlValue, textValue, partErr := parsePart(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part)
 			_ = part.Close()
 			if partErr != nil {
-				continue // attachments or malformed optional alternatives are ignored.
+				continue
 			}
 			if htmlBody == "" {
 				htmlBody = htmlValue

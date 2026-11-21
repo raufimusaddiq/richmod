@@ -11,7 +11,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Uses the Telegram callback flow's query so both surfaces agree on what a document may merge into.
 func (p *Processor) duplicateCandidatesForTransaction(ctx context.Context, householdID, transactionID string) ([]duplicateCandidate, error) {
 	if transactionID == "" {
 		return nil, nil
@@ -29,8 +28,6 @@ func (p *Processor) duplicateCandidatesForTransaction(ctx context.Context, house
 	return duplicateCandidateRows(ctx, p.pool, householdID, transactionID, sourceType, currency, amount, sourceAt)
 }
 
-// The model supplies only an opaque transaction ref; Go requires it to be one of the review's current server-
-// computed candidates before the canonical merge.
 func (p *Processor) agentMergeDuplicateReview(ctx context.Context, state *agentState, call gateway.ToolCall, review agentTransactionReview, candidateRef string) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	if review.reviewType != "POSSIBLE_DUPLICATE" {

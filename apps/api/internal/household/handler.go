@@ -105,8 +105,6 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 			out(w, 500, map[string]string{"error": "unable to create member"})
 			return
 		}
-		// Emails are unique across households, so say which case this is: already in this household (share their invite) or an account elsewhere (use a different email).
-		// Release the failed transaction's connection before using the pool again, or a small pool can deadlock on duplicate requests.
 		_ = tx.Rollback(r.Context())
 		var inThisHousehold bool
 		if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM "user" u JOIN household_member hm ON hm.user_id=u.id WHERE u.email=$1 AND hm.household_id=$2)`, in.Email, householdID).Scan(&inThisHousehold); err != nil {
@@ -175,7 +173,6 @@ func (h *Handler) CreateDashboardInvite(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback(r.Context())
 	_, _ = tx.Exec(r.Context(), `UPDATE dashboard_account_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`, householdID, memberID)
-	// The same link activates a new account or resets a forgotten password.
 	var reset bool
 	_ = tx.QueryRow(r.Context(), `SELECT password_initialized_at IS NOT NULL FROM "user" WHERE id=$1`, memberID).Scan(&reset)
 	purpose := "SETUP"
@@ -238,8 +235,6 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 		out(w, 404, map[string]string{"error": "active member not found"})
 		return
 	}
-	// Removing a member revokes every way back in: Telegram identity and
-	// invites, dashboard invites, and live dashboard sessions.
 	for _, statement := range []string{
 		`UPDATE telegram_identity SET active=false,updated_at=now() WHERE household_id=$1 AND user_id=$2`,
 		`UPDATE telegram_link_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`,
@@ -250,8 +245,6 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Sessions belong to the user, not the household: revoke them only when
-	// no other active membership remains (always true under ADR-035).
 	if _, err := tx.Exec(r.Context(), `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM household_member WHERE user_id=$1 AND active)`, memberID); err != nil {
 		out(w, 500, map[string]string{"error": "unable to deactivate member"})
 		return
@@ -289,9 +282,6 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	_, _ = tx.Exec(r.Context(), `UPDATE telegram_link_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`, householdID, memberID)
-	// Any active member without Telegram is eligible, the owner included: a
-	// household created without a Telegram ID has no other way to link its owner
-	// (ADR-059).
 	var id string
 	err = tx.QueryRow(r.Context(), `INSERT INTO telegram_link_invite(household_id,user_id,token_hash,expires_at,created_by_user_id) SELECT $1,$2,$3,$4,$5 FROM household_member hm WHERE hm.household_id=$1 AND hm.user_id=$2 AND hm.active AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.household_id=$1 AND ti.user_id=$2 AND ti.active) RETURNING id`, householdID, memberID, digest[:], expires, p.UserID).Scan(&id)
 	if err != nil {

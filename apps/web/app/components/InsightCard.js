@@ -4,8 +4,6 @@ import { dateTime } from "../lib/format";
 import { measuredLabel } from "../lib/cycleReview";
 import { insightPeriod } from "../lib/insightData";
 
-// The model text is untrusted prose: rendered as plain paragraphs, never markdown
-// or HTML. The banner and the "Cek dengan data" links are static, not generated.
 const dataLinks = [
   ["Laju pengeluaran", "#spending-shape"],
   ["Yang berubah", "#changes"],

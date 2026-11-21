@@ -201,9 +201,6 @@ func TestDocumentListIncludesStagedEvidenceDispute(t *testing.T) {
 	}
 }
 
-// N5: a document stored as NEEDS_REVIEW whose linked transaction is CONFIRMED and
-// that has no open review item must not read as needing review, and the badge
-// returns once an actionable review exists.
 func TestDocumentListDoesNotShowNeedsReviewWithoutActionableReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

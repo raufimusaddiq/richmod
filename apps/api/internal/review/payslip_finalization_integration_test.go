@@ -16,8 +16,6 @@ func TestPayslipFinalizerLinksExactDuplicateAndRejectsConflict(t *testing.T) {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
-	// pay_date is a household-local (Asia/Jakarta) civil date; the outcome must
-	// not depend on the Postgres session timezone.
 	for _, tz := range []string{"UTC", "Asia/Jakarta"} {
 		t.Run(tz, func(t *testing.T) { testPayslipFinalizerDuplicateConflict(t, url, tz) })
 	}

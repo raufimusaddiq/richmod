@@ -1,5 +1,3 @@
-// Rasterises the PWA icon sources into the PNG files committed under public/icons. Run
-// `node scripts/build-icons.mjs` after editing an SVG. webui.go serves the PNGs as files.
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";

@@ -1,8 +1,3 @@
-// Indonesian labels for values the API returns as machine enums (MUTUAL_FUND,
-// TRANSFER_PROOF, ...). Every map falls back to the raw value through label(), so a
-// backend value added later degrades to its code; tests/ui-audit-locks.test.mjs checks
-// the document types against the worker's own list.
-
 export const wealthTypeLabel = { BANK: "Bank", CASH: "Tunai", EWALLET: "Dompet digital", MUTUAL_FUND: "Reksa dana", GOLD: "Emas", BROKERAGE: "Rekening efek", DEPOSIT: "Deposito", CRYPTO: "Kripto", LOAN: "Pinjaman", OTHER: "Lainnya" };
 export const usageRoleLabel = { TRANSACTIONAL: "Transaksional", SAVINGS: "Tabungan", INVESTMENT: "Investasi", OTHER: "Lainnya" };
 export const sideLabel = { ASSET: "Aset", LIABILITY: "Kewajiban" };
@@ -12,8 +7,6 @@ export const financialSourceStatusLabel = { ACTIVE: "Aktif", DISABLED: "Dinonakt
 export const emailDeliveryStatusLabel = { INGESTED: "Diproses", IGNORED_AUTH: "Diabaikan", IGNORED_UNMATCHED: "Diabaikan", DUPLICATE: "Duplikat", PROVISIONED_RECEIVED: "Diterima sebelum aktivasi" };
 export const emailDeliveryReasonLabel = { UNTRUSTED_AUTHENTICATION: "Pengirim tidak lolos verifikasi autentikasi email.", TRUSTED_AUTHSERV_UNCONFIGURED: "Verifikasi autentikasi belum dikonfigurasi di server.", UNMATCHED_SENDER: "Pengirim tidak cocok dengan daftar pengirim tepercaya.", DUPLICATE_PAYLOAD: "Email yang sama sudah pernah diterima." };
 
-// The ten types the document worker can assign (apps/worker/internal/document/processor.go),
-// plus two older names that may still exist on stored documents.
 export const documentTypeLabels = {
   RECEIPT: "Struk",
   PAYSLIP: "Slip gaji",
@@ -37,8 +30,6 @@ export function labels(map, values) {
   return (values || []).map(value => label(map, value)).join(", ");
 }
 
-// Transaction audit trail ("Riwayat Perubahan"): the action codes the API writes.
-// An action added later falls back to a readable form, never the raw code.
 export const auditActionLabel = {
   CREATE: "Transaksi dibuat",
   CREATE_FROM_BANK_EMAIL: "Dibuat dari email bank",
@@ -81,8 +72,6 @@ export const auditActionLabel = {
   ROLLBACK_REOPEN_LEGACY_UNCATEGORIZED: "Pembukaan kembali transaksi lama dibatalkan",
 };
 
-// Known code -> Indonesian label; unknown code -> sentence-cased words
-// ("SOME_NEW_ACTION" -> "Some new action"); empty -> a dash.
 export function auditActionText(action) {
   if (!action) return "—";
   const code = String(action).trim().toUpperCase().replace(/[\s-]+/g, "_");
@@ -91,10 +80,8 @@ export function auditActionText(action) {
 
 export const snapshotSourceLabel = { MANUAL: "Input manual", DOCUMENT: "Dokumen", SYSTEM: "Sistem" };
 
-// Who performed an audit-trail action (audit_event.actor_type).
 export const actorLabel = { USER: "Pengguna", SYSTEM: "Sistem", WORKER: "Sistem otomatis", TELEGRAM: "Telegram", TELEGRAM_CALLBACK: "Telegram", WEB: "Web", ADMIN: "Admin" };
 
-// Evidence kinds shown under "Sumber pencatatan" on a transaction.
 export const evidenceTypeLabel = {
   BANK_EMAIL: "Email bank",
   FINANCIAL_EMAIL: "Email penyedia keuangan",
@@ -113,7 +100,6 @@ export const evidenceTypeLabel = {
   TRANSACTION_HISTORY_SCREENSHOT: "Riwayat transaksi",
 };
 
-// Unknown codes become sentence-cased words, never the raw enum.
 export function humanizeCode(value, fallback = "—") {
   const words = String(value ?? "").toLowerCase().replace(/[_\s]+/g, " ").trim();
   return words ? words[0].toUpperCase() + words.slice(1) : fallback;

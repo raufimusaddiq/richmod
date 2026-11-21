@@ -85,9 +85,6 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 	}
 }
 
-// A confirmed primary salary enqueues exactly one cycle-residual review,
-// even when a stale replay repeats the confirmation. Pins the residual coverage
-// the Telegram lanes previously skipped.
 func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -124,7 +121,7 @@ func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
 	if w := resolve(); w.Code != http.StatusNoContent {
 		t.Fatalf("primary salary resolve=%d %s", w.Code, w.Body.String())
 	}
-	resolve() // a replay must not enqueue a second residual
+	resolve()
 	var jobs int
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'household_id'=$1`, household).Scan(&jobs))
 	if jobs != 1 {
@@ -150,8 +147,6 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Current producers write the canonical item, with its ReviewDecision, in
-	// the same transaction as the NEEDS_REVIEW transaction it reviews.
 	var transactionID, reviewItemID string
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now(),'Warung') RETURNING id`, household).Scan(&transactionID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, household, transactionID).Scan(&reviewItemID))
@@ -174,9 +169,6 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 		}
 		return out
 	}
-	// The transaction-bound item lists from review_item. Move the transaction
-	// out of NEEDS_REVIEW while the canonical item stays open: it must keep
-	// listing through canonicalOpenItems, because its authority is the item.
 	must(pool.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',confirmed_at=now() WHERE id=$1 RETURNING id`, transactionID).Scan(&transactionID))
 	found := false
 	for _, value := range list() {
@@ -254,7 +246,6 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 	if !gotWealth || !gotResidual {
 		t.Fatalf("wealth=%t residual=%t reviews=%s", gotWealth, gotResidual, res.Body.String())
 	}
-	// Optional snapshot navigation is a link, not a canonical completion.
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+wealthReview+"/resolve", bytes.NewBufferString(`{"action":"PREPARE_SNAPSHOT"}`))
 	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
 	req.SetPathValue("id", wealthReview)
@@ -309,9 +300,6 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 		return res
 	}
 
-	// E1: a primary salary already exists, so the only residual is the date. The
-	// client posts a date with no salary classification; the existing policy must
-	// stay intact and this income must not silently become primary.
 	var existingSource string
 	must(pool.QueryRow(ctx, "INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Employer','employer',true) RETURNING id", household, user).Scan(&existingSource))
 	dateOnly := seed("date-only", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}})
@@ -322,7 +310,6 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 	var originalDocument, otherDocument, otherSource, unrelatedSource string
 	must(pool.QueryRow(ctx, `SELECT document_id::text FROM review_item WHERE id=$1`, dateOnly).Scan(&originalDocument))
 	must(pool.QueryRow(ctx, `SELECT document_id::text,source_event_id::text FROM review_item WHERE id=$1`, wrongBinding).Scan(&otherDocument, &otherSource))
-	// Bind a document no other open review holds; the unique index forbids stealing another review's document before validation runs.
 	var foreignAttachment, foreignOtherDocument string
 	must(pool.QueryRow(ctx, "INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id", household, []byte(fmt.Sprintf("payslip-foreign-%d", stamp)), fmt.Sprintf("%s/payslip-foreign.png", household)).Scan(&foreignAttachment))
 	var foreignSource string
@@ -369,9 +356,6 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 		t.Fatalf("date-only resolution ignored the supplied date: %s", confirmedAt)
 	}
 
-	// E2: the first salary source with a missing date is two dimensions at once.
-	// A date alone must be rejected, and the explicit policy choice must record
-	// exactly one canonical salary event.
 	_, err = pool.Exec(ctx, `UPDATE salary_source SET is_primary=false WHERE household_id=$1 AND active`, household)
 	must(err)
 	restricted := seed("restricted", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "IGNORE"}})
@@ -432,8 +416,6 @@ dualListed:
 		t.Fatalf("combined RHICE fields=%v choices=%d", changedFields, boundedChoices)
 	}
 
-	// Clear-date first source asks for policy only and contributes one bounded
-	// choice, with no typed fields.
 	var clearSource, clearAttachment, clearDocument, clearProposal, clearReview string
 	must(pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id", household, fmt.Sprintf("payslip-clear-%d", stamp), []byte(fmt.Sprintf("payslip-clear-%d", stamp))).Scan(&clearSource))
 	must(pool.QueryRow(ctx, "INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id", household, []byte(fmt.Sprintf("payslip-clear-%d", stamp)), fmt.Sprintf("%s/payslip-clear.png", household)).Scan(&clearAttachment))
@@ -442,8 +424,6 @@ dualListed:
 	clearDecision := map[string]any{"version": 1, "reasonCode": "PAYSLIP_CONFIRMATION", "decisionClass": "HUMAN_POLICY_CHOICE", "interactionMode": "POLICY_CHOICE", "knownFacts": map[string]any{}, "missingFacts": []string{"salary_classification"}, "decisionProvenance": map[string]any{"hasPrimarySalary": false}, "allowedActions": []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}}
 	clearRaw, _ := json.Marshal(clearDecision)
 	must(pool.QueryRow(ctx, "INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,'PAYSLIP_CONFIRMATION','OPEN',$5) RETURNING id", household, clearProposal, clearSource, clearDocument, clearRaw).Scan(&clearReview))
-	// A primary salary already exists from the earlier dual decision, so the
-	// clear-date policy choice must be the ordinary-income lane.
 	if res := resolve(clearReview, "{\"action\":\"ORDINARY_INCOME\"}"); res.Code != http.StatusNoContent {
 		t.Fatalf("clear-date policy resolve status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -605,10 +585,6 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 	}
 }
 
-// A transaction-bound review item stranded after its transaction was
-// already finalized must surface in the Inbox (previously hidden by the
-// transaction_id IS NULL filter) and be dismissible without touching the
-// confirmed transaction.
 func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -673,10 +649,6 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 	}
 }
 
-// A plain confirm with no user-supplied date passes a nil *time.Time into the
-// shared command's `any` field. As a non-nil interface it used to slip past the
-// domain guard and write NULL into the NOT NULL transaction_proposal.transaction_at,
-// returning 500. The confirm must succeed untouched when no date was supplied.
 func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -720,8 +692,6 @@ func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
 	}
 }
 
-// Malformed account identifiers are user input: the shared resolver keeps them
-// a 400 like the previous inline handler, never a 500 server error.
 func TestResolveFinancialEmailMalformedAccountIsClientError(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

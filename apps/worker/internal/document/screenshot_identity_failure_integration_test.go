@@ -13,8 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// identityGateway answers the extraction call with a fixed extraction and records every repair prompt; repair
-// controls what a repair call returns.
 type identityGateway struct {
 	t             *testing.T
 	extraction    screenshotExtraction
@@ -105,8 +103,6 @@ func TestIncidentDuplicateReferenceNumbersStillRecordThePayment(t *testing.T) {
 	}
 }
 
-// An identity still invalid after normalization and repair is not a dead end: the household gets a document-
-// bound review, nothing is written to the ledger, and a rerun opens no second review.
 func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	row := incidentRow(at)
@@ -162,8 +158,6 @@ func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
 	}
 }
 
-// An unpaid invoice is a correct extraction (an invoice alone is not proof of payment), not a fixable
-// failure: it keeps the plain FAILED outcome and opens no review.
 func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
 	f, _, _ := runTypedScreenshot(t, "Unpaid invoice", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .97, PaymentStatus: "UNPAID", Transactions: []screenshotRow{}})
 	ctx := context.Background()
@@ -180,8 +174,6 @@ func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
 	}
 }
 
-// REPROCESS_DOCUMENT from the review re-runs the whole pipeline; the source must end settled, never stranded
-// in NEEDS_REVIEW, while the document stays FAILED.
 func TestReprocessFromScreenshotReviewRerunsTheDocument(t *testing.T) {
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	bad := incidentRow(at)

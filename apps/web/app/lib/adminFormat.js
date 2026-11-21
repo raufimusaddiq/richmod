@@ -1,4 +1,3 @@
-// Display formatters for the admin console: Indonesian decimal commas, readable spans.
 const integer = new Intl.NumberFormat("id-ID");
 const oneDecimal = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
@@ -11,7 +10,6 @@ export const ms = (v) =>
       ? `${integer.format(Math.round(v))} ms`
       : `${oneDecimal.format(v / 1000)} dtk`;
 
-// Human-readable span for ages and long waits: "5 dtk", "3 m 20 dtk", "1 j 1 m", "2 h 3 j".
 export function duration(milliseconds) {
   if (milliseconds == null || !Number.isFinite(Number(milliseconds))) return "—";
   const total = Math.max(0, Math.round(Number(milliseconds) / 1000));

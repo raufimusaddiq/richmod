@@ -1,5 +1,3 @@
-// Wealth observation resolution, shared by the Review Inbox and the Telegram review
-// lanes so their wealth_observation mutations cannot drift.
 package reviewdomain
 
 import (
@@ -11,35 +9,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// WealthObservationCommand pins the observation under review and its actor.
 type WealthObservationCommand struct {
-	HouseholdID   string
-	ObservationID string
-	// WealthAccountID is the account a SET_WEALTH_ACCOUNT decision selected.
-	WealthAccountID string
-	// Alias is the already-normalized observed hint to learn, or empty to learn
-	// nothing. Callers normalize it because folding is a presentation concern the
-	// adapters already own.
-	Alias string
-	// IgnoreFinancialEmail also marks the linked financial email observation
-	// ignored, which only the Review Inbox IGNORE action does.
+	HouseholdID          string
+	ObservationID        string
+	WealthAccountID      string
+	Alias                string
 	IgnoreFinancialEmail bool
-	// ActorUserID is the authenticated household member completing the review,
-	// or empty when the surface resolves through a bound projection only.
-	ActorUserID string
-	// ActorType is the audit surface ('USER' for Web, 'TELEGRAM' for chat).
-	ActorType string
+	ActorUserID          string
+	ActorType            string
 }
 
 var (
-	// ErrWealthObservationNotFound reports an observation outside this household
-	// or one that is no longer pending.
 	ErrWealthObservationNotFound = errors.New("reviewdomain: wealth observation not found")
-	// ErrWealthAccountInvalid reports an inactive or foreign wealth account.
-	ErrWealthAccountInvalid = errors.New("reviewdomain: wealth account must be active and belong to this household")
+	ErrWealthAccountInvalid      = errors.New("reviewdomain: wealth account must be active and belong to this household")
 )
 
-// ValidateWealthAccount confirms the account is active and household-scoped.
 func ValidateWealthAccount(ctx context.Context, tx pgx.Tx, householdID, wealthAccountID string) error {
 	if strings.TrimSpace(wealthAccountID) == "" {
 		return ErrWealthAccountInvalid
@@ -54,13 +38,6 @@ func ValidateWealthAccount(ctx context.Context, tx pgx.Tx, householdID, wealthAc
 	return nil
 }
 
-// ResolveWealthObservation records the chosen wealth account on a pending
-// observation, accepts it, and completes its review in one transaction (ADR-036
-// amendment, 2026-11). The accepted observation stays an observation: it is listed
-// on /wealth as a value waiting for the next complete snapshot and never becomes a
-// transaction or partial snapshot. The observed hint is learned as a household
-// alias. It returns ErrWealthObservationNotFound when a concurrent decision already
-// closed the observation, which surfaces report as stale.
 func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand) error {
 	if err := ValidateWealthAccount(ctx, tx, cmd.HouseholdID, cmd.WealthAccountID); err != nil {
 		return err
@@ -75,13 +52,10 @@ func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 	if _, err := tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,status='ACCEPTED',updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ObservationID, cmd.WealthAccountID, cmd.HouseholdID); err != nil {
 		return err
 	}
-	// The provider email behind the value is applied as if its account had resolved
-	// deterministically.
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='APPLIED',updated_at=now() WHERE household_id=$2 AND id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1 AND household_id=$2) AND status IN ('PENDING','REVIEW')`, cmd.ObservationID, cmd.HouseholdID); err != nil {
 		return err
 	}
 	if cmd.Alias != "" {
-		// A user-authored alias is never overwritten by review learning.
 		if _, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,wealth_account_id,alias,normalized_alias,source) VALUES($1,'WEALTH_ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET wealth_account_id=EXCLUDED.wealth_account_id,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now() WHERE financial_entity_alias.source <> 'USER'`, cmd.HouseholdID, cmd.WealthAccountID, strings.TrimSpace(hint), cmd.Alias); err != nil {
 			return err
 		}
@@ -89,9 +63,6 @@ func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 	return completeWealthReview(ctx, tx, cmd, "SET_WEALTH_ACCOUNT", map[string]any{"wealthAccountId": cmd.WealthAccountID, "pending_snapshot": true})
 }
 
-// completeWealthReview resolves every open review bound to the observation and
-// its Telegram projection, audits the decision, and settles the evidence source
-// through the shared lifecycle.
 func completeWealthReview(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand, action string, values map[string]any) error {
 	encoded, err := json.Marshal(values)
 	if err != nil {
@@ -124,8 +95,6 @@ func completeWealthReview(ctx context.Context, tx pgx.Tx, cmd WealthObservationC
 	return RefreshWealthObservationSource(ctx, tx, cmd.HouseholdID, cmd.ObservationID)
 }
 
-// RefreshWealthObservationSource settles the evidence source behind one wealth
-// observation (the document's source or the financial email's source).
 func RefreshWealthObservationSource(ctx context.Context, tx pgx.Tx, householdID, observationID string) error {
 	var source string
 	err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT d.source_event_id::text FROM document d WHERE d.id=wo.document_id AND d.household_id=wo.household_id),(SELECT f.source_event_id::text FROM financial_email_observation f WHERE f.id=wo.financial_email_observation_id AND f.household_id=wo.household_id),'') FROM wealth_observation wo WHERE wo.id=$1 AND wo.household_id=$2`, observationID, householdID).Scan(&source)
@@ -138,11 +107,6 @@ func RefreshWealthObservationSource(ctx context.Context, tx pgx.Tx, householdID,
 	return RefreshSourceLifecycle(ctx, tx, householdID, source)
 }
 
-// DismissWealthObservation closes a pending observation, returning
-// ErrWealthObservationNotFound when a concurrent decision already closed it.
-// IgnoreFinancialEmail controls whether the financial email observation behind this
-// wealth observation is also ignored. Only the Review Inbox IGNORE does; the
-// asset-purchase reclassification keeps it because the evidence became a transaction.
 func DismissWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand) error {
 	result, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, cmd.ObservationID, cmd.HouseholdID)
 	if err != nil {
@@ -159,9 +123,6 @@ func DismissWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 	return nil
 }
 
-// ReclassifyWealthEvidence marks the document behind a wealth observation as a
-// transaction-history screenshot once the observation became an asset purchase,
-// keeping the evidence provenance recorded.
 func ReclassifyWealthEvidence(ctx context.Context, tx pgx.Tx, householdID, observationID string) error {
 	_, err := tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE household_id=$2 AND id=(SELECT document_id FROM wealth_observation WHERE id=$1 AND household_id=$2)`, observationID, householdID)
 	return err

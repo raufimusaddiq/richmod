@@ -14,16 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// Editable fields of an existing transaction (PATCH /api/v1/transactions/{id}).
-// Amount, time, type, currency and evidence links are deliberately locked:
-// correcting those is void + re-create so evidence stays intact.
-//
-// Review policy: a transaction with an open review item is rejected with 409
-// (code REVIEW_OPEN, "selesaikan tinjauan dulu"). Review resolution owns those
-// facts; this endpoint never routes around it. Transfers keep their account and
-// have no category, so those two fields are rejected for TRANSFER. An unchanged
-// current category/account is accepted even if deactivated since; only a change
-// TO an inactive one is rejected.
 const (
 	codeInvalidRequest   = "INVALID_REQUEST"
 	codeUnknownField     = "UNKNOWN_FIELD"
@@ -40,7 +30,6 @@ const (
 	codeTransferLocked   = "TRANSFER_FIELD_LOCKED"
 )
 
-// maxMerchantNameRunes mirrors the merchant.normalized_name CHECK (1..160).
 const maxMerchantNameRunes = 160
 
 var lockedEditFields = map[string]bool{
@@ -48,7 +37,6 @@ var lockedEditFields = map[string]bool{
 	"purpose": true, "relatedWealthAccountId": true, "merchantId": true, "evidence": true,
 }
 
-// editError is a deterministic, client-mappable failure.
 type editError struct {
 	status int
 	code   string
@@ -66,8 +54,6 @@ type editInput struct {
 	categoryID, accountID, description, note, merchantName optString
 }
 
-// parseEditBody decodes the PATCH body. A field present as null clears it
-// (category/account/note); absent fields are left untouched.
 func parseEditBody(body []byte) (editInput, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil || raw == nil {
@@ -104,7 +90,7 @@ func parseEditBody(body []byte) (editInput, error) {
 		s = strings.TrimSpace(s)
 		if key == "categoryId" || key == "accountId" {
 			if s == "" {
-				continue // empty string clears, like null
+				continue
 			}
 			if uuid.Validate(s) != nil {
 				return editInput{}, editError{http.StatusBadRequest, codeInvalidField, key + " must be a UUID"}
@@ -237,9 +223,6 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 			return editError{http.StatusBadRequest, codeInvalidAccount, "accountId must identify an active household account"}
 		}
 	}
-	// "Tempat · Ubah": resolve (or create) the household's clean merchant and point the
-	// raw source name's alias at it, so the next transaction from that raw name inherits it.
-	// counterparty_name stays untouched as preserved source evidence.
 	var newMerchantID *string
 	var aliasChange map[string]any
 	if in.merchantName.set {
@@ -248,7 +231,6 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET normalized_name=excluded.normalized_name,updated_at=CASE WHEN merchant.normalized_name IS DISTINCT FROM excluded.normalized_name THEN now() ELSE merchant.updated_at END RETURNING id::text`, household, name).Scan(&resolved); err != nil {
 			return fmt.Errorf("resolve merchant: %w", err)
 		}
-		// A case-only rename (GRAB -> Grab) keeps the same merchant row but is still a change.
 		if !equalPtr(&resolved, merchantID) || !equalPtr(&name, merchantCurrent) {
 			newMerchantID = &resolved
 			raw := firstNonBlank(counterparty, merchantCurrent, description)
@@ -312,8 +294,6 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 				return fmt.Errorf("audit merchant alias: %w", err)
 			}
 		}
-		// A detail edit has no residual side effect: analytics read the ledger
-		// live and the cycle basis sums confirmed transactions household-wide.
 	}
 	return tx.Commit(ctx)
 }

@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Both surfaces must reject a transaction review through the same operation; no
-// adapter may keep its own void/cancel SQL.
 func TestRejectIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",

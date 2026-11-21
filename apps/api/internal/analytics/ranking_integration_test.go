@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// categorized inserts one confirmed transaction in the named category (empty
-// name = uncategorized), creating the category on first use.
 func (f reviewFixture) categorized(t *testing.T, name, date, typ, amount string) {
 	t.Helper()
 	ctx := context.Background()
@@ -24,9 +22,6 @@ func (f reviewFixture) categorized(t *testing.T, name, date, typ, amount string)
 	}
 }
 
-// categoryRanking is the amount-ranked "where did the money go" list: top 7 plus
-// one bucket that together equal the cycle's net expense to the rupiah, ordered
-// numerically (not by string), with same-day baselines while the cycle runs.
 func TestCycleReviewCategoryRankingTop7PlusOtherReconcilesWithSameDayBaseline(t *testing.T) {
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-01")
@@ -36,7 +31,6 @@ func TestCycleReviewCategoryRankingTop7PlusOtherReconcilesWithSameDayBaseline(t 
 	}
 	f.categorized(t, "Cat A", "2026-09-04", "REFUND", "100000")
 	f.categorized(t, "", "2026-09-05", "EXPENSE", "7777")
-	// Previous cycle: inside the same elapsed days, plus one later day that must be ignored.
 	f.categorized(t, "Cat A", "2026-08-03", "EXPENSE", "300000")
 	f.categorized(t, "Cat C", "2026-08-03", "EXPENSE", "5000000")
 	f.categorized(t, "Cat D", "2026-08-04", "EXPENSE", "100")
@@ -79,7 +73,6 @@ func TestCycleReviewCategoryRankingTop7PlusOtherReconcilesWithSameDayBaseline(t 
 	if r.Other.Baseline == nil || *r.Other.Baseline != "100" || *r.Other.Delta != "11677" {
 		t.Fatalf("other baseline=%+v", r.Other)
 	}
-	// 24,076,777 over the 10 measured days = 2,407,677.7 -> whole rupiah, half up.
 	if facts.SpendingShape.AverageRounded != "2407678" {
 		t.Fatalf("rounded average=%s (raw %s, days %d)", facts.SpendingShape.AverageRounded, facts.SpendingShape.Average, facts.SpendingShape.Days)
 	}
@@ -109,7 +102,6 @@ func TestCycleReviewCategoryRankingFewCategoriesAndUncategorizedOnClosedCycle(t 
 	if r.Other.Amount != "0" || r.Other.CategoryCount != 0 || r.Other.Count != 0 || *r.Other.Baseline != "0" || *r.Other.Delta != "0" {
 		t.Fatalf("empty bucket=%+v", r.Other)
 	}
-	// The first cycle has no earlier cycle: ranking present, every delta null.
 	first := f.review(t, "?cycle_start=2026-07-01").CategoryRanking
 	if len(first.Rows) != 1 || first.Rows[0].Delta != nil || first.Other.Baseline != nil {
 		t.Fatalf("first cycle=%+v", first)

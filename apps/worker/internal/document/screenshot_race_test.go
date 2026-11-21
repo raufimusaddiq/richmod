@@ -2,8 +2,6 @@ package document
 
 import "testing"
 
-// The locked re-check validates the whole decided candidate set: a non-chosen candidate that vanished (voided
-// or merged by another lane) forces a retry too, so a stale list never decides the write.
 func TestScreenshotRecheckValidatesTheWholeCandidateSet(t *testing.T) {
 	chosen := matchCandidate{ID: "chosen", Score: 0.95}
 	runnerUp := matchCandidate{ID: "runner-up", Score: 0.75}

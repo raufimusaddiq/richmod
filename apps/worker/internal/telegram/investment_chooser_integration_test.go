@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// An ambiguous investment classification stays in Telegram: the card offers real household investment accounts.
 func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

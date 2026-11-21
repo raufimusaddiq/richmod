@@ -9,13 +9,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// ErrReopenNotReversible reports a resolved review that cannot be undone without
-// hard-deleting or rewriting a canonical record (ADR-054 amendment, 2026-11); the
-// household uses the canonical reversal (void, unmerge, snapshot correction).
 var ErrReopenNotReversible = errors.New("reviewdomain: this resolution is not reversible from review")
 
-// possibleDuplicateDecision is the POSSIBLE_DUPLICATE decision from the kind
-// registry, so a reopened review matches a freshly created one.
 func possibleDuplicateDecision(transactionID string, known map[string]any) ([]byte, error) {
 	decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
 	if !ok {
@@ -27,22 +22,11 @@ func possibleDuplicateDecision(transactionID string, known map[string]any) ([]by
 	return decision.JSON()
 }
 
-// ReopenTransactionReview gives a transaction that a reversal returned to
-// NEEDS_REVIEW a fresh active review_item; resolved items stay as history. Its only
-// caller is Unmerge, so the new item is a POSSIBLE_DUPLICATE decision from the
-// registry. Other residuals are recomputed from the transaction and evidence as
-// they are now, never copied from an old snapshot, so supplied facts are not asked
-// again. The previous kind is kept as provenance only.
-//
-// A reopened item is projected to Telegram by a PROJECT_TELEGRAM_REVIEW job.
-// Idempotent and race-safe: an existing active item is kept and not projected twice.
 func ReopenTransactionReview(ctx context.Context, tx pgx.Tx, household, transactionID string) error {
 	_, err := reopenTransaction(ctx, tx, household, transactionID, "")
 	return err
 }
 
-// reopenTransaction is the one transaction reopen path (Unmerge and
-// ReopenReview). It returns the new item id, or "" when an active item exists.
 func reopenTransaction(ctx context.Context, tx pgx.Tx, household, transactionID, actorID string) (string, error) {
 	var amount, at, kind, previousType, previousItem, categorySlug string
 	var dateFallback bool
@@ -110,9 +94,6 @@ func auditReopen(ctx context.Context, tx pgx.Tx, household, actorID, itemID stri
 	return err
 }
 
-// reopenedResiduals lists the facts besides the duplicate relationship that the
-// transaction still lacks, from canonical state only: category, a received-time-only
-// date, and an unclassified transfer.
 func reopenedResiduals(transactionType string, hasCategory, dateFallback bool) []string {
 	var missing []string
 	if transactionType == "EXPENSE" && !hasCategory {
@@ -127,38 +108,17 @@ func reopenedResiduals(transactionType string, hasCategory, dateFallback bool) [
 	return missing
 }
 
-// EnqueueReviewProjection asks the worker to project one review item to
-// Telegram through the shared projection path. Surfaces that cannot render a
-// card themselves (the API) use it; the projection is idempotent per item.
 func EnqueueReviewProjection(ctx context.Context, tx pgx.Tx, household, itemID string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('PROJECT_TELEGRAM_REVIEW',jsonb_build_object('household_id',$1::uuid,'review_item_id',$2::uuid))`, household, itemID)
 	return err
 }
 
-// ReopenCommand asks to reopen one resolved review item.
 type ReopenCommand struct {
 	HouseholdID  string
 	ActorUserID  string
 	ReviewItemID string
 }
 
-// ReopenReview reverses a resolved review where that is possible without
-// hard-deleting or rewriting a canonical record, and opens a new item with a freshly
-// built decision; the resolved item stays as history. It returns the new item id and
-// projects it to Telegram through PROJECT_TELEGRAM_REVIEW.
-//
-// Reversible (the resolution only changed review or observation state):
-//   - transaction reviews whose transaction is NEEDS_REVIEW again, or whose CONFIRM_REVIEW
-//     confirmation is bounded and undoable (ConfirmedReviewReopenable: latest item, plain
-//     expense/income/refund, no active merge, no salary event);
-//   - wealth observations ACCEPTED or DISMISSED (an APPLIED value is inside a
-//     snapshot; snapshot correction owns that);
-//   - financial email observations IGNORED or still under review (an APPLIED
-//     observation wrote a transaction or a value; void/unmerge owns that);
-//   - proposals REJECTED (screenshot missing amount, payslip ignored);
-//   - source- and document-bound reviews IGNORED with no accepted evidence;
-//   - residual reviews left unallocated, marked "transaction missing", or
-//     closed as no longer applicable (allocation rows are canonical and stay).
 func ReopenReview(ctx context.Context, tx pgx.Tx, cmd ReopenCommand) (string, error) {
 	var status, kind string
 	var decision []byte
@@ -262,16 +222,11 @@ func ReopenReview(ctx context.Context, tx pgx.Tx, cmd ReopenCommand) (string, er
 		if err != nil {
 			return "", err
 		}
-		// The shared refresh derives NEEDS_REVIEW; reopen never sets the status directly.
 		return id, RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, sourceID)
 	}
 	return "", ErrReopenNotReversible
 }
 
-// insertReopened writes the new OPEN item for a non-transaction subject, rebuilding
-// the decision: the kind's preset when one exists, otherwise the producer's own
-// decision from immutable source evidence with resolution-time state cleared.
-// Payslip policy is re-applied against the current salary policy.
 func insertReopened(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, kind, column, subjectID, subjectType string, previous []byte) (string, error) {
 	var rebuilt reviewdec.Decision
 	if err := json.Unmarshal(previous, &rebuilt); err != nil || rebuilt.ReasonCode == "" {
@@ -302,9 +257,6 @@ func insertReopened(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, kind, col
 		return "", err
 	}
 	var itemID string
-	// column is one of a fixed set of subject columns chosen above, never input.
-	// A subject that already has active work is never given a second open
-	// review (a repeated or racing reopen); the partial unique indexes back this.
 	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,`+column+`,review_type,status,decision) SELECT $1,$2,$3,'OPEN',$4::jsonb
 		WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE household_id=$1 AND `+column+`=$2 AND status IN ('OPEN','PENDING_SEND')) ON CONFLICT DO NOTHING RETURNING id::text`, cmd.HouseholdID, subjectID, kind, string(encoded)).Scan(&itemID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -316,6 +268,5 @@ func insertReopened(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, kind, col
 	if err := auditReopen(ctx, tx, cmd.HouseholdID, cmd.ActorUserID, itemID, map[string]any{"reopened_from": cmd.ReviewItemID, "review_type": kind, "subject": subjectType}); err != nil {
 		return "", err
 	}
-	// The reopened review is asked again where it started (Telegram projection).
 	return itemID, EnqueueReviewProjection(ctx, tx, cmd.HouseholdID, itemID)
 }

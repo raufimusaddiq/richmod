@@ -15,8 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// GET /api/v1/reviews ranks up to three active household categories per review that asks for
-// a category: merchant history first (frequency, then recency), then household-recent fill.
 func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -55,13 +53,11 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id,category_id,description,confirmed_at,voided_at) VALUES($1,'EXPENSE',$2,10000,now()-$3::interval,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,NULLIF($6,''),CASE WHEN $2='CONFIRMED' THEN now() END,CASE WHEN $2='VOIDED' THEN now() END) RETURNING id`, owner, status, fmt.Sprintf("%d seconds", int(ago.Seconds())), merchant, categoryID, description).Scan(&id))
 		return id
 	}
-	// Grab history: transport x2 (older), food x2 (more recent) -> tie on count, recency wins; shopping x1.
 	insert(household, grab, transport, "CONFIRMED", "", 48*time.Hour)
 	insert(household, grab, transport, "CONFIRMED", "", 40*time.Hour)
 	insert(household, grab, food, "CONFIRMED", "", 3*time.Hour)
 	insert(household, grab, food, "CONFIRMED", "", 2*time.Hour)
 	insert(household, grab, shopping, "CONFIRMED", "", 1*time.Hour)
-	// Ignored history: voided, inactive category, foreign household.
 	insert(household, grab, bills, "VOIDED", "", time.Hour)
 	insert(household, grab, bills, "VOIDED", "", time.Hour)
 	insert(household, grab, bills, "VOIDED", "", time.Hour)
@@ -70,13 +66,11 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 	insert(household, grab, retired, "CONFIRMED", "", time.Hour)
 	insert(foreign, foreignGrab, foreignCategory, "CONFIRMED", "", time.Hour)
 	insert(foreign, foreignGrab, foreignCategory, "CONFIRMED", "", time.Hour)
-	// Household-wide recent: bills x2 (other merchant) fills the slot a merchant with thin history leaves.
 	insert(household, other, bills, "CONFIRMED", "", 5*time.Hour)
 	insert(household, other, bills, "CONFIRMED", "", 6*time.Hour)
 
 	withMerchant := insert(household, grab, "", "NEEDS_REVIEW", "GRAB RIDE", time.Minute)
 	noHistory := insert(household, "", "", "NEEDS_REVIEW", "WARUNG BARU", time.Minute)
-	// Same normalized description, no merchant id: matches by description key.
 	insert(household, "", transport, "CONFIRMED", "Ojek Pangkalan", 30*time.Hour)
 	byDescription := insert(household, "", "", "NEEDS_REVIEW", "  ojek   pangkalan ", time.Minute)
 	categorized := insert(household, grab, food, "NEEDS_REVIEW", "SUDAH ADA", time.Minute)
@@ -84,7 +78,6 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 		_, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSACTION_FACTS_MISSING','OPEN','{"reasonCode":"TRANSACTION_FACTS_MISSING","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}')`, household, id)
 		must(err)
 	}
-	// A category already chosen and not missing is not asked again.
 	_, err = pool.Exec(ctx, `UPDATE review_item SET decision='{"reasonCode":"LOW_CONFIDENCE","missingFacts":[],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}' WHERE transaction_id=$1`, categorized)
 	must(err)
 
@@ -128,7 +121,6 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 		}
 	}
 
-	// No history at all: only household-recent fill, never a MERCHANT_HISTORY reason.
 	fill := got[noHistory]
 	if len(fill) == 0 {
 		t.Fatal("expected a household-recent fill")
@@ -142,7 +134,6 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 		t.Fatalf("fill must come from this household's confirmed history: %+v", fill)
 	}
 
-	// Normalized description match without a merchant id.
 	byDesc := got[byDescription]
 	if len(byDesc) == 0 || byDesc[0].ID != transport || byDesc[0].Reason != suggestionMerchantHistory {
 		t.Fatalf("description match: %+v", byDesc)
@@ -151,7 +142,6 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 		t.Fatalf("an already-categorized review must carry no suggestions: %+v", got[categorized])
 	}
 
-	// Household isolation: the foreign household sees nothing of this household's history.
 	foreignTx := insert(foreign, foreignGrab, "", "NEEDS_REVIEW", "GRAB RIDE", time.Minute)
 	_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSACTION_FACTS_MISSING','OPEN','{"reasonCode":"TRANSACTION_FACTS_MISSING","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}')`, foreign, foreignTx)
 	must(err)

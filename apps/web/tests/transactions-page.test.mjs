@@ -142,12 +142,10 @@ test("edit: validation and payload", () => {
   assert.ok(editFormErrors({ description: "x".repeat(501) }).description);
   assert.ok(editFormErrors({ description: "ok", note: "x".repeat(2001) }).note);
   assert.deepEqual(editFormErrors({ description: "Kopi", note: "" }), {});
-  // NULL description (ingestion) stays blank without error; blanking an existing one errors.
   assert.deepEqual(editFormErrors({ description: "", note: "" }, { description: null }), {});
   assert.ok(editFormErrors({ description: "", note: "" }, { description: "Lama" }).description);
   assert.deepEqual(editPayload({ type: "INCOME", description: null, categoryId: null }, { categoryId: "c1", accountId: "", description: "", note: "" }), { categoryId: "c1" });
   assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", description: "Lama", note: "n" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
-  // Unchanged (possibly deactivated) category/account are never resent.
   assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", accountId: "a0", description: "Lama", note: null }, { categoryId: "c0", accountId: "a0", description: "Baru", note: "" }), { description: "Baru" });
   assert.deepEqual(editPayload({ type: "EXPENSE", description: "Lama" }, { categoryId: "", accountId: "", description: "Lama", note: "" }), {});
   assert.deepEqual(Object.keys(editPayload({ type: "TRANSFER" }, { categoryId: "c", accountId: "a", description: "x", note: "n" })).sort(), ["description", "note"]);
@@ -205,7 +203,6 @@ test("void: a refused or failed request is never reported as success", () => {
     assert.doesNotMatch(outcome.message, /boom|^Transaksi dibatalkan/, "no raw API text, no success wording");
   }
   assert.match(voidFailure(500).message, /Coba lagi/);
-  // Success is declared only from response.ok; a thrown fetch is an error that re-reads the record.
   assert.match(page, /response\.ok \? \{ kind: "success"/);
   assert.match(page, /catch \{ outcome = \{ kind: "error", message: "Koneksi terputus\./);
 });
@@ -218,7 +215,6 @@ test("void: posts once, then reloads the drawer and the list", () => {
   assert.match(page, /const voidTransaction = \(\) => canVoidTransaction\(selected\) && runDrawerAction/);
   assert.match(page, /drawer\.open\(id\)[\s\S]{0,120}load\(\)/);
   assert.match(page, /openId\.current === id/, "a drawer closed or moved to another row is not reopened");
-  // The ref follows the drawer from an effect, never from the render body.
   assert.match(page, /useEffect\(\(\) => \{ openId\.current = drawer\.id; setActionNotice\(null\); \}, \[drawer\.id\]\)/);
   assert.doesNotMatch(page, /^\s*openId\.current = drawer\.id;/m);
 });
@@ -294,7 +290,6 @@ test("T-30: opening a row writes ?open= and closing removes it, so back closes t
 });
 
 test("T-30: a row drawer is not an evidence-link scope, so pagination and the full page stay", () => {
-  // ?open= is the drawer; ?id= alone scopes the ledger to one evidence-linked row.
   assert.equal(isScopedToTransaction("?open=abc"), false);
   assert.equal(isScopedToTransaction("?id=abc"), true);
   assert.equal(listSearch("?open=abc&limit=50"), "?limit=50", "the drawer id never reaches the list request");
@@ -309,7 +304,6 @@ test("T-30: resetFilters closes the drawer", () => {
 });
 
 test("T-37: paging with the drawer open changes page and closes the drawer", () => {
-  // history.back() would pop the drawer's ?open= entry instead of the previous page.
   assert.doesNotMatch(page, /window\.history\.back\(\);/);
   assert.match(page, /async function nextPage\(\)[\s\S]*?query\.delete\("open"\); drawer\.close\(\);/);
   assert.match(page, /async function previousPage\(\)[\s\S]*?const history = cursorHistory\.slice\(0, -1\)[\s\S]*?query\.delete\("open"\);\s+setCursorHistory\(history\); drawer\.close\(\);/);
@@ -346,8 +340,6 @@ test("T-37: one filter-key list drives the count and hasFilters, unknown params 
 test("T-62: the phone dialog stretches its fields to the full width", () => {
   const css = readFileSync(new URL("../app/styles/04-ledger-and-drawers.css", import.meta.url), "utf8");
   const phone = css.slice(css.indexOf("@media (max-width: 719px)"));
-  // The desktop grid sets align-items:start; in the phone flex column that would shrink
-  // every field to its content width, so the rule has to reset it.
   assert.match(phone, /\.create-dialog \.transaction-form \{[^}]*align-items: stretch;/);
   assert.match(css, /\.create-dialog \.date-hint\[data-date=""\] \{ display: none; \}/, "an empty date hint adds no gap under Waktu");
 });

@@ -60,7 +60,6 @@ func cashObservation(confidence float64) observation {
 
 func stringPtrFor(value string) *string { return &value }
 
-// A bounded ruling suffices even when the extractor's self-reported confidence is below the legacy 0.80 gate.
 func TestCashMovementAllowedBelowLegacyConfidenceGate(t *testing.T) {
 	verifier := &stubVerifier{answers: cashRuling("CONTRIBUTION")}
 	processor := &Processor{verifier: verifier}
@@ -85,7 +84,6 @@ func TestCashMovementAllowedBelowLegacyConfidenceGate(t *testing.T) {
 	}
 }
 
-// A wealth value is observed, not transacted, so it must never classify as cash.
 func TestWealthValueIsNotACashMovement(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"observation_type":        choice("WEALTH_VALUE", judgment.ChoiceCriteria(observationTypeCriteria)),
@@ -117,8 +115,6 @@ func TestMovementTypeRequiredForCash(t *testing.T) {
 	}
 }
 
-// material_ambiguity is inverted: only a decided negative clears it, and an undecided middle band must not
-// read as approval (a fail-open hole shared with bank email).
 func TestUndecidedAmbiguityFailsClosed(t *testing.T) {
 	for _, probability := range []float64{0.02, 0.10} {
 		answers := cashRuling("CONTRIBUTION")
@@ -157,7 +153,6 @@ func TestProviderFailureIsInfrastructureNotApproval(t *testing.T) {
 	}
 }
 
-// A provider outage is retry state; it does not become a human review card.
 func TestProviderFailureRemainsInfrastructure(t *testing.T) {
 	processor := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
 	plan, err := processor.planCash(context.Background(), nil, "household", "", "", "", false, "", "", cashObservation(0.9))
@@ -166,7 +161,6 @@ func TestProviderFailureRemainsInfrastructure(t *testing.T) {
 	}
 }
 
-// Unconfigured: no ruling exists, so callers keep their deterministic gate and must not read it as approval.
 func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 	processor := &Processor{}
 	if _, verified, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9)); err != nil || verified {
@@ -174,8 +168,6 @@ func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 	}
 }
 
-// material_ambiguity must use the inverted Ambiguity policy like the boolean gate; Supported recorded a (Low,
-// High) noul as a decided NO, so cashResidual returned empty and the case borrowed TRANSFER_CLASSIFICATION.
 func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
 	for _, probability := range []float64{0.10, 0.20} {
 		answers := cashRuling("CONTRIBUTION")
@@ -188,20 +180,16 @@ func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
 		if classification.cashAllowed() {
 			t.Fatalf("undecided ambiguity (noul=%.2f) must fail closed: %+v", probability, classification)
 		}
-		// The undecided reading must reach the residual so the review names the real blocker, not a transfer
-		// classification.
 		if !containsString(classification.cashResidual(), "transaction_ambiguity") {
 			t.Fatalf("undecided ambiguity (noul=%.2f) must produce the transaction_ambiguity residual: %+v", probability, classification.cashResidual())
 		}
 	}
 }
 
-// A choice AcceptChoice rejects (marginal confidence) must record UNDECIDED, not the raw label, or it reads
-// as a passing predicate and cashResidual() returns empty.
 func TestRejectedChoiceOutcomeIsUndecidedNotPassing(t *testing.T) {
 	answers := cashRuling("CONTRIBUTION")
 	marginal := choice("CASH_MOVEMENT", judgment.ChoiceCriteria(observationTypeCriteria))
-	marginal.Confidence = 0.50 // below classificationPolicy.Type.MinConfidence (0.60)
+	marginal.Confidence = 0.50
 	answers["observation_type"] = marginal
 	processor := &Processor{verifier: &stubVerifier{answers: answers}}
 	classification, verified, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9))

@@ -1,9 +1,4 @@
 -- +goose Up
--- Turn-level Jev value telemetry (PRD §23). One row per Telegram turn records
--- which lane resolved it so "Jev-only", "Jev then generative", and
--- "generative only" turns are countable, alongside how many bounded generative
--- tool calls the bounded decision plane made unnecessary. No prompt, answer
--- text, household message, or financial value is stored here.
 CREATE TABLE judgment_turn_telemetry (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     household_id UUID REFERENCES household(id),

@@ -10,17 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// RetireCardPayload is a RETIRE_TELEGRAM_REVIEW_CARD job, written by the migration 00079 trigger when the
-// request closes and by BindReviewMessage for a card arriving after close.
 type RetireCardPayload struct {
 	ReviewRequestID string `json:"review_request_id"`
 	RecipientID     string `json:"recipient_id"`
 	ChatID          int64  `json:"chat_id"`
 	MessageID       int64  `json:"message_id"`
 	Status          string `json:"status"`
-	// Superseded marks a message replaced by a newer message of the same open review; it loses its buttons
-	// without a closure note.
-	Superseded bool `json:"superseded,omitempty"`
+	Superseded      bool   `json:"superseded,omitempty"`
 }
 
 func DecodeRetireCardPayload(raw json.RawMessage) (RetireCardPayload, error) {
@@ -36,8 +32,6 @@ func DecodeRetireCardPayload(raw json.RawMessage) (RetireCardPayload, error) {
 	return payload, nil
 }
 
-// reviewClosureNote is the line a retired card gains; an active status has none (the request was renewed) and
-// a resolved review names its outcome when known.
 func reviewClosureNote(status, outcome string) string {
 	switch status {
 	case "RESOLVED":
@@ -55,8 +49,6 @@ func reviewClosureNote(status, outcome string) string {
 
 const supersededCardNote = "↪️ Dilanjutkan di pesan berikutnya."
 
-// RetireReviewCard strips one delivered card's buttons after re-reading state; a renewed copy keeps its card.
-// Gone or unreachable cards are finished; transient Telegram failures are returned for retry.
 func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload RetireCardPayload) error {
 	var status, recipientStatus, recipientText string
 	var boundMessageID int64
@@ -79,17 +71,12 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 	switch {
 	case note != "":
 	case recipientStatus == "EXPIRED":
-		// This copy's own window passed while the review is open elsewhere (or was reopened for a queued copy).
 		note = reviewClosureNote("EXPIRED", "")
 	case payload.Superseded && boundMessageID != payload.MessageID:
-		// A newer message of the open review replaced this one.
 		note = supersededCardNote
 	default:
-		// The card is live: the request was renewed or this is its current card.
 		return nil
 	}
-	// A card settled in place (ADR-046) belongs to its outcome edits; a retirement claimed before the settle
-	// superseded it must not strip the inline choice.
 	var settled bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_conversation WHERE review_request_id=$1 AND COALESCE(context_json->'card_outcomes','{}'::jsonb) ? $2)`, payload.ReviewRequestID, cardOutcomeKey(payload.ChatID, payload.MessageID)).Scan(&settled); err != nil {
 		return fmt.Errorf("load settled Telegram review card: %w", err)
@@ -97,8 +84,6 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 	if settled {
 		return nil
 	}
-	// Each message keeps its own last text; the recipient row holds the current card's for cards bound before
-	// review_request_message existed.
 	var text string
 	err = p.pool.QueryRow(ctx, `SELECT COALESCE(delivered_text,'') FROM review_request_message WHERE recipient_id=$1 AND telegram_chat_id=$2 AND telegram_message_id=$3`, payload.RecipientID, payload.ChatID, payload.MessageID).Scan(&text)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -115,7 +100,6 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 		if !editRejected(err) {
 			return err
 		}
-		// Telegram refused the text itself; removing the keyboard is enough.
 	}
 	err = bot.EditReplyMarkup(ctx, payload.ChatID, payload.MessageID)
 	if err == nil || editFinished(err) {
@@ -127,8 +111,6 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 	return err
 }
 
-// ReviewCardLive reports whether a queued edit may still apply: once the request is terminal the card belongs
-// to retirement and an old keyboard must not return.
 func (p *Processor) ReviewCardLive(ctx context.Context, reviewRequestID string) (bool, error) {
 	var live bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request WHERE id=$1 AND status IN ('PENDING_SEND','OPEN'))`, reviewRequestID).Scan(&live); err != nil {
@@ -137,7 +119,6 @@ func (p *Processor) ReviewCardLive(ctx context.Context, reviewRequestID string) 
 	return live, nil
 }
 
-// Keeps the stored card text in step with a successful edit so a later retirement reproduces what Telegram shows.
 func (p *Processor) RecordReviewCardText(ctx context.Context, chatID, messageID int64, text string) error {
 	if _, err := p.pool.Exec(ctx, `UPDATE review_request_recipient SET delivered_text=NULLIF($3,'') WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, chatID, messageID, clean(text, 4000)); err != nil {
 		return err
@@ -146,8 +127,6 @@ func (p *Processor) RecordReviewCardText(ctx context.Context, chatID, messageID 
 	return err
 }
 
-// Records the separate merchant-learning question on the recipient row, creating it when the confirming chat
-// never received the card.
 func (p *Processor) BindMerchantLearningMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
 	_, err := p.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,merchant_learning_message_id,delivery_status) VALUES($1,$2,$3,'SKIPPED')
 		ON CONFLICT (review_request_id,telegram_chat_id) DO UPDATE SET merchant_learning_message_id=EXCLUDED.merchant_learning_message_id`, reviewRequestID, chatID, messageID)

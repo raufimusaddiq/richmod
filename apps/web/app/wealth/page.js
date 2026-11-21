@@ -46,21 +46,15 @@ export default function WealthPage() {
   const user = useAuth();
   const [data, setData] = useState(empty), [error, setError] = useState("");
   const [working, setWorking] = useState(false), [correcting, setCorrecting] = useState(false);
-  // The snapshot drawer is {closed | loading | error | ready}; its request is
-  // aborted on close or when another row is opened.
   const drawer = useDrawerRecord(async (id, signal) => {
     const response = await fetch(`/api/v1/wealth/snapshots/${id}`, { signal });
     if (!response.ok) throw new LoadError("Detail catatan posisi belum dapat dimuat.");
     return response.json();
   }, "Detail catatan posisi belum dapat dimuat.");
   const selected = drawer.status === "ready" ? drawer.data : null;
-  // The figures the page showed before the user saved, so only a value the
-  // save actually moved is marked. A load that follows no save marks nothing.
   const beforeSave = useRef(null);
   const drawerRef = useDrawerA11y(drawer.status !== "closed", () => closeSnapshot());
   const [snapshotOpen, setSnapshotOpen] = useState(false);
-  // First load shows the skeleton; every later load refreshes in place. A failed
-  // load drops the old figures, so the banner never sits above stale numbers.
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const observationId = new URLSearchParams(window.location.search).get("observationId");
     const [accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationResponse, observationsResponse] = await Promise.all([
@@ -74,9 +68,6 @@ export default function WealthPage() {
   const load = loader.run;
   const loading = loader.loading || loader.refreshing;
   useEffect(() => { if (user) load(); }, [user, load]);
-  // Consume the saved-value comparison after the commit that painted the changed figures.
-  // Mutating the ref, not state, keeps data-updated on the figures for the whole flash;
-  // later renders compare nothing. Skip while loading: the first commit is the skeleton.
   useEffect(() => {
     if (!loading && loader.hasLoaded) beforeSave.current = null;
   }, [loading, loader.hasLoaded, data]);
@@ -133,7 +124,6 @@ export default function WealthPage() {
   if (!user) return null;
 
   const latest = data.latest || data.snapshots?.[0];
-  // A figure is marked only when the user's save changed that figure.
   const moved = (value, index) => Boolean(beforeSave.current) && beforeSave.current[index] !== value;
   const previous = data.summary?.previous || data.previous;
   const previousValues = new Map((latest?.items || []).map(item => [item.wealthAccountId, item.valueIdr]));

@@ -9,6 +9,18 @@ permissions:
   contents: read
 
 jobs:
+  comments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.14.0
+      - name: Test the comment scanner
+        run: node --test scripts/check-comments.test.mjs
+      - name: Enforce the no-comments ratchet
+        run: node scripts/check-comments.mjs
+
   secrets:
     runs-on: ubuntu-latest
     steps:
@@ -110,9 +122,6 @@ jobs:
         working-directory: apps/web
         run: npm test
 
-  # Each leg rebuilds the static export it serves: a shared artifact would need
-  # `needs: frontend` and serialise the smokes behind the build, which costs more
-  # than a parallel `next build`.
   frontend-smoke:
     name: frontend-smoke (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -120,8 +129,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # transaction-date drives webkit too, and webkit needs libraries the
-          # runner image does not carry, so that leg installs the OS deps.
           - name: transaction-date
             script: scripts/transaction-date-smoke.mjs
             artifact: transaction-date-screenshots
@@ -129,7 +136,6 @@ jobs:
             browsers: chromium webkit
             browser-cache-key: chromium-webkit
             install-deps: "true"
-          # analytics-review is chromium-only; ubuntu-latest already satisfies it.
           - name: analytics-review
             script: scripts/analytics-review-smoke.mjs
             artifact: cycle-review-screenshots
@@ -161,13 +167,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          # The browser set is part of the key: the legs cache different browsers.
           key: playwright-${{ runner.os }}-${{ matrix.browser-cache-key }}-${{ steps.playwright.outputs.version }}
       - name: Install Playwright browsers
         if: steps.cache-playwright.outputs.cache-hit != 'true'
         working-directory: apps/web
         run: npx playwright install ${{ matrix.browsers }}
-      # OS libraries are not part of the browser cache, so this still runs on a hit.
       - name: Install Playwright OS dependencies
         if: matrix.install-deps == 'true'
         working-directory: apps/web
@@ -211,8 +215,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      # No push/load: the build itself is the check; nothing downstream consumes
-      # these images (release-images.yml publishes the real ones).
       - uses: docker/build-push-action@v7
         with:
           context: .

@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// The Review Inbox financial-email resolution must call the shared operation and
-// must not keep its own observation update or alias-learning SQL, so the
-// resolved-fact rules stay channel-neutral for the future Telegram surface.
 func TestFinancialEmailResolutionIsShared(t *testing.T) {
 	path := "../api/internal/review/canonical.go"
 	source, err := os.ReadFile(path)
@@ -27,9 +24,6 @@ func TestFinancialEmailResolutionIsShared(t *testing.T) {
 	}
 }
 
-// Alias keys must fold Unicode compatibility forms the same way every surface
-// does. A full-width hint and its ASCII spelling are the same household alias,
-// so losing NFKC here would persist two keys for one account and break lookup.
 func TestNormalizeAliasFoldsUnicodeCompatibility(t *testing.T) {
 	ascii := normalizeAlias("Bank BCA")
 	if got := normalizeAlias("Ｂａｎｋ　ＢＣＡ"); got != ascii {

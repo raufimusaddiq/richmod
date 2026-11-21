@@ -10,41 +10,30 @@ import (
 	"time"
 )
 
-// AgentToolOutput is a model-safe tool result: only the structured projection from the Go finance layer; the
-// gateway never reads canonical state.
 type AgentToolOutput struct {
 	CallID string
 	Output any
 }
 
-// AgentReadPhase preserves a completed native READ batch for stateless Chat Completions replay; Responses
-// keeps history by response ID.
 type AgentReadPhase struct {
 	ToolCalls   []ToolCall
 	ToolOutputs []AgentToolOutput
 }
 
-// AgentRequest is the protocol-neutral conversational contract; unlike NativeToolCall, a reply may be text or
-// several native tool calls.
 type AgentRequest struct {
 	SystemPrompt    string
 	Content         any
 	Tools           []ToolDefinition
 	AllowParallel   bool
 	ReasoningEffort string
-	// RequiredTool forces one native tool for lanes that cannot accept ordinary assistant text.
-	RequiredTool string
+	RequiredTool    string
 
-	// Continuation fields carry tool-call state across phases: Responses uses PreviousResponseID,
-	// Chat Completions rebuilds the assistant tool_calls plus role=tool messages.
 	PreviousResponseID string
 	PreviousToolCalls  []ToolCall
 	ToolOutputs        []AgentToolOutput
 	ReadHistory        []AgentReadPhase
 }
 
-// AgentResponse exposes only display text and native tool calls; provider reasoning fields never surface as
-// finance data.
 type AgentResponse struct {
 	ResponseID string
 	Text       string
@@ -66,8 +55,6 @@ func chatToolChoice(name string) any {
 	return map[string]any{"type": "function", "function": map[string]any{"name": name}}
 }
 
-// AgentTurn performs one model phase and never executes tools. Zero tool calls need non-empty text;
-// native calls need allow-listed names and valid JSON arguments.
 func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentRequest) (response AgentResponse, err error) {
 	started := time.Now()
 	if sourceEventFrom(ctx) == "" {

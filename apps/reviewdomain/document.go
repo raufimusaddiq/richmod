@@ -8,19 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrDocumentReviewInvalid reports a document-bound review that is no longer
-// resolvable: wrong subject, already resolved, or an action the stored decision
-// does not allow.
 var ErrDocumentReviewInvalid = errors.New("reviewdomain: document review is no longer valid")
 
-// DocumentReviewCommand closes a review whose subject is a document rather than a
-// transaction, proposal, or source event: DOCUMENT_CLASSIFICATION and
-// DOCUMENT_EXTRACTION_LOW_CONFIDENCE, raised when the shared document pipeline cannot
-// classify or extract with confidence.
-//
-// REPROCESS records the human intent and returns the source event so the surface can
-// enqueue the pipeline job (the queue is a worker concern). IGNORE closes the review
-// and parks the document so it stops surfacing.
 type DocumentReviewCommand struct {
 	HouseholdID, UserID, ReviewItemID, DocumentID, ActorType string
 	Action                                                   string
@@ -54,8 +43,6 @@ func ResolveDocumentReview(ctx context.Context, tx pgx.Tx, cmd DocumentReviewCom
 		return out, ErrDocumentReviewInvalid
 	}
 	if cmd.Action == "IGNORE" {
-		// document.status has no IGNORED value; the source event carries the
-		// terminal ignored state and RefreshSourceLifecycle settles the document.
 		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1 AND household_id=$2`, *documentSource, cmd.HouseholdID); err != nil {
 			return out, err
 		}
@@ -82,8 +69,6 @@ func ResolveDocumentReview(ctx context.Context, tx pgx.Tx, cmd DocumentReviewCom
 		return out, err
 	}
 	if cmd.Action == "IGNORE" {
-		// Runs after the review is resolved so the document leaves NEEDS_REVIEW; the
-		// source stays IGNORED unless a sibling review or accepted work says otherwise.
 		if err := RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, *documentSource); err != nil {
 			return out, err
 		}

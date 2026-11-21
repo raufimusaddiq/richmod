@@ -15,8 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// "Urungkan" on Perlu dicek: a plain category confirmation is undone through the review item's
-// own id, and only where reviewdomain.ConfirmedReviewReopenable allows it.
 func TestReopenConfirmedCategoryReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -70,7 +68,6 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 	}
 
 	t.Run("confirm_then_undo_restores_an_open_category_question", func(t *testing.T) {
-		// Household history so the reopened card has ranked answers again.
 		_, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,category_id,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',9000,now()-interval '1 day',$2,'Riwayat',now())`, household, category)
 		must(err)
 		transaction := openReview("EXPENSE")
@@ -118,8 +115,6 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 		if reopened := reviewItemID(transaction); reopened == "" || reopened == original {
 			t.Fatalf("the list must show the fresh item again, got %q", reopened)
 		}
-		// The reopened item asks for the category again: category missing, no stale known answer,
-		// 1-tap suggestions present, and a fresh confirmation with another category succeeds.
 		var anotherCategory string
 		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Lain','lain') ON CONFLICT DO NOTHING RETURNING id`, household).Scan(&anotherCategory))
 		listed := call(http.MethodGet, "/api/v1/reviews", "", "", handler.List)
@@ -161,7 +156,6 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 		if reconfirmed != "CONFIRMED" {
 			t.Fatalf("re-confirm left status %s", reconfirmed)
 		}
-		// A second undo of the original (superseded) item is refused.
 		if w := call(http.MethodPost, "/reopen", original, "", handler.Reopen); w.Code != http.StatusConflict {
 			t.Fatalf("second reopen %d", w.Code)
 		}

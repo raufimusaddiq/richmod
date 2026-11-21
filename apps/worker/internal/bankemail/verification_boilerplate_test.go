@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// Protective footers ("Jika kamu tidak melakukan transaksi ini...") once made a real Jago email unsupported.
-// Pin that such footers make neither a completed transaction unreal nor a competing amount.
 func TestVerificationClaimsTreatSecurityBoilerplateAsNeutral(t *testing.T) {
 	verifier := &stubVerifier{answers: supportedRuling()}
 	processor := &Processor{verifier: verifier}
