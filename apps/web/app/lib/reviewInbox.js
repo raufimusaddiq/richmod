@@ -1,0 +1,49 @@
+// Pure helpers for "Perlu dicek": legacy deep links, 1-tap category answers and the inline
+// "Urungkan" confirmation line. Kept free of React so tests can run them directly.
+
+// Tindakan and Email masuk live in Keluarga › Sumber otomatis; the old inbox deep links
+// keep working by moving there.
+export function legacyViewTarget(view) {
+  if (view === "actions") return "/household?tab=sumber#tindakan";
+  if (view === "email") return "/household?tab=sumber#email-masuk-terakhir";
+  return null;
+}
+
+export function inboxView(search) {
+  const view = new URLSearchParams(search || "").get("view");
+  return view === "history" ? "history" : "transactions";
+}
+
+// Up to three ranked answers from the server; the "sering dipakai" hint belongs only to a
+// genuine merchant-history first rank, never to a household-wide fill.
+export function categoryAnswers(item, categories = []) {
+  const active = new Map(categories.filter(category => category.active !== false).map(category => [category.id, category]));
+  const answers = (item?.suggestedCategories || []).filter(value => active.size === 0 || active.has(value.id)).slice(0, 3)
+    .map((value, index) => ({ id: value.id, name: value.name, often: index === 0 && value.reason === "MERCHANT_HISTORY" }));
+  const shown = new Set(answers.map(value => value.id));
+  const others = [...active.values()].filter(category => !shown.has(category.id)).map(category => ({ id: category.id, name: category.name }));
+  return { answers, others };
+}
+
+export function rememberLabel(item) {
+  return item?.merchantName || item?.counterparty || "";
+}
+
+const transferLabels = { OWN_ACCOUNT: "rekening sendiri", HOUSEHOLD_ACCOUNT: "rekening rumah tangga", INVESTMENT_ACCOUNT: "investasi", ASSET_PURCHASE: "beli aset", EXPENSE: "pengeluaran", IGNORE: "diabaikan" };
+const resolveLabels = { IGNORE: "diabaikan", MERGE_EXISTING: "disatukan", CONFIRM_NEW_TRANSFER: "transfer baru dicatat", SET_WEALTH_ACCOUNT: "akun dipilih", SET_FINANCIAL_EMAIL_ENTITIES: "rekening dipilih", ALLOCATE_RETAINED_BALANCE: "sisa dialokasikan", LEAVE_UNALLOCATED: "dibiarkan", COMPLETE_BANK_FACTS: "dilengkapi", SET_PAY_DATE: "tanggal diisi", PRIMARY_SALARY: "gaji utama", ORDINARY_INCOME: "pemasukan biasa", ACKNOWLEDGE: "dimengerti" };
+
+// "→ Makanan" / "diabaikan": how a decision ended, for the one-line confirmation.
+export function resolutionSummary(name, body, categories = []) {
+  if (name === "confirm") {
+    const category = categories.find(value => value.id === body?.categoryId);
+    return category ? `→ ${category.name}` : "disimpan";
+  }
+  if (name === "reject") return "diabaikan";
+  if (name === "merge") return "disatukan";
+  if (name === "classify-transfer") return transferLabels[body?.classification] || "dikelompokkan";
+  return resolveLabels[body?.action] || "selesai";
+}
+
+export function resolvedLine(item, name, body, categories = []) {
+  return { id: item.id, label: item.merchantName || item.counterparty || item.description || "Transaksi", amount: item.amount || null, summary: resolutionSummary(name, body, categories) };
+}

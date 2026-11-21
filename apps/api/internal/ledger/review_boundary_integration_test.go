@@ -44,7 +44,6 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 		{"missing_category_date", "EXPENSE", "NEEDS_REVIEW", "OPEN", false},
 		{"unclassified", "UNCLASSIFIED", "NEEDS_REVIEW", "PENDING_SEND", false},
 		{"missing_item", "INCOME", "NEEDS_REVIEW", "", false},
-		{"inconsistent_pending", "EXPENSE", "PENDING", "OPEN", false},
 		{"inconsistent_confirmed", "EXPENSE", "CONFIRMED", "OPEN", false},
 		{"foreign", "EXPENSE", "NEEDS_REVIEW", "OPEN", true},
 	} {
@@ -71,7 +70,7 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 				return value
 			}
 			before := snapshot()
-			for _, action := range []http.HandlerFunc{h.ConfirmTransaction, h.VoidTransaction, h.EditTransaction} {
+			for _, action := range []http.HandlerFunc{h.VoidTransaction, h.EditTransaction} {
 				r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/fixture/action", strings.NewReader(`{"description":"x"}`))
 				r.Header.Set("If-Match", time.Now().UTC().Format(time.RFC3339Nano))
 				r.SetPathValue("id", id)
@@ -92,10 +91,10 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 		})
 	}
 	var id string
-	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'INCOME','PENDING',1000,now()) RETURNING id`, household).Scan(&id); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1000,now(),now()) RETURNING id`, household).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range []http.HandlerFunc{h.ConfirmTransaction, h.VoidTransaction} {
+	for _, action := range []http.HandlerFunc{h.VoidTransaction} {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/fixture/action", nil)
 		r.SetPathValue("id", id)
 		r = r.WithContext(auth.ContextWithPrincipal(ctx, principal))

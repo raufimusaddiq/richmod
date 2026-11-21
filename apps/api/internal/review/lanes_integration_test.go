@@ -518,24 +518,6 @@ func TestProviderEmailWealthReviewKeepsItsAccountChoice(t *testing.T) {
 	}
 }
 
-// A transaction that is neither awaiting review nor final is not acknowledged
-// as stale.
-func TestIgnoreRefusesAnUnfinishedNonReviewTransaction(t *testing.T) {
-	f := newLaneFixture(t)
-	ctx := context.Background()
-	var transaction, item string
-	f.must(f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','PENDING',1000,now()) RETURNING id`, f.household).Scan(&transaction))
-	f.must(f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","knownFacts":{},"missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction).Scan(&item))
-	if w := f.resolve(item, `{"action":"IGNORE"}`); w.Code != http.StatusConflict {
-		t.Fatalf("pending transaction ignore=%d %s", w.Code, w.Body.String())
-	}
-	var status string
-	f.must(f.pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, item).Scan(&status))
-	if status != "OPEN" {
-		t.Fatalf("item=%s", status)
-	}
-}
-
 // The transaction-bound list path filters the stored decision through the same
 // executable rule as the canonical path: an action no resolver runs on an open
 // transaction is never offered.

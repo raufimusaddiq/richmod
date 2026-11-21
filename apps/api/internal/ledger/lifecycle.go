@@ -203,7 +203,7 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		}
 		result.CursorAt, result.CursorID = &at, parts[1]
 	}
-	if result.Type != "" && !oneOf(result.Type, "INCOME", "EXPENSE", "TRANSFER", "REFUND", "ADJUSTMENT", "UNCLASSIFIED", "SPENDING") {
+	if result.Type != "" && !oneOf(result.Type, "INCOME", "EXPENSE", "TRANSFER", "REFUND", "UNCLASSIFIED", "SPENDING") {
 		return result, errors.New("invalid transaction type")
 	}
 	if result.MerchantID != "" && result.MerchantID != "none" && uuid.Validate(result.MerchantID) != nil {
@@ -212,7 +212,7 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 	if result.TransactionID != "" && uuid.Validate(result.TransactionID) != nil {
 		return result, errors.New("invalid transaction ID")
 	}
-	if result.Status != "" && !oneOf(result.Status, "PENDING", "CONFIRMED", "NEEDS_REVIEW", "VOIDED") {
+	if result.Status != "" && !oneOf(result.Status, "CONFIRMED", "NEEDS_REVIEW", "VOIDED") {
 		return result, errors.New("invalid transaction status")
 	}
 	if result.Source != "" && !oneOf(result.Source, "BANK_EMAIL", "TELEGRAM_TEXT", "TELEGRAM_IMAGE", "WEB_MANUAL", "WEB_IMAGE", "SYSTEM") {
@@ -295,9 +295,6 @@ func (h *Handler) activeMerges(ctx context.Context, household, id string) ([]act
 	return merges, rows.Err()
 }
 
-func (h *Handler) ConfirmTransaction(w http.ResponseWriter, r *http.Request) {
-	h.transition(w, r, "CONFIRMED")
-}
 func (h *Handler) VoidTransaction(w http.ResponseWriter, r *http.Request) {
 	h.transition(w, r, "VOIDED")
 }
@@ -345,11 +342,8 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 			return
 		}
 	}
-	if target == "CONFIRMED" {
-		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id)
-	} else {
 		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
-	}
+
 	if errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
 		httpx.WriteMergeTargetRefusal(w)
 		return
@@ -378,13 +372,9 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 }
 
 func canTransition(from, to string) bool {
-	if to == "CONFIRMED" {
-		return from == "PENDING"
-	}
-	if to == "VOIDED" {
-		return from == "PENDING" || from == "CONFIRMED"
-	}
-	return false
+	// The only ledger move left to this endpoint: a confirmed transaction is voided. A
+	// transaction is confirmed by its review (or created CONFIRMED), never directly.
+	return to == "VOIDED" && from == "CONFIRMED"
 }
 
 func (h *Handler) Evidence(w http.ResponseWriter, r *http.Request) {

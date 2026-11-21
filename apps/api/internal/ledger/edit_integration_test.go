@@ -104,7 +104,7 @@ func TestEditTransactionDetails(t *testing.T) {
 		}
 	})
 	t.Run("noop_writes_nothing", func(t *testing.T) {
-		id := newTx("EXPENSE", "PENDING")
+		id := newTx("EXPENSE", "CONFIRMED")
 		first := stamp(id)
 		rec := patch(id, first, `{"description":"Awal"}`, principal)
 		if rec.Code != 200 || audits(id) != 0 || stamp(id) != first {

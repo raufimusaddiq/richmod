@@ -23,9 +23,8 @@ test("all product routes exist", () => {
 test("one inbox exposes separate transaction and integration action views", () => {
   const inbox = text("app/inbox/page.js");
   assert.match(inbox, /\/api\/v1\/reviews/);
-  assert.match(inbox, /\/api\/v1\/integration-actions/);
-  assert.match(inbox, /noopener noreferrer/);
-  assert.match(inbox, /user\?\.household\?\.role === "OWNER"/);
+  assert.doesNotMatch(inbox, /\/api\/v1\/integration-actions/, "Tindakan lives in Keluarga now");
+  assert.match(inbox, /legacyViewTarget/);
   assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
   assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
 });
@@ -254,8 +253,8 @@ test("inbox: a 409 refresh keeps the card mounted, busy is per card, history fai
   assert.match(inbox, /history\.status === "error"/);
   assert.match(inbox, /setHistoryTick\(tick => tick \+ 1\)/, "history can be retried");
   assert.doesNotMatch(inbox, /publishInboxCount[^\n]*\n[^\n]*!error/, "a stale action error does not freeze the badge");
-  const resolve = inbox.slice(inbox.indexOf("function resolveAction"));
-  assert.match(resolve, /setError\(""\)[\s\S]*try \{[\s\S]*catch/, "resolveAction clears the error and catches");
+  const reopen = inbox.slice(inbox.indexOf("function reopen"));
+  assert.match(reopen, /setError\(""\)[\s\S]*try \{[\s\S]*catch/, "reopen clears the error and catches");
 });
 
 test("inbox count: a failed response keeps the last known count instead of claiming zero", () => {

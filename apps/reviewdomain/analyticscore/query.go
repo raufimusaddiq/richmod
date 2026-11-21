@@ -210,7 +210,7 @@ func loadReviewQuality(ctx context.Context, tx pgx.Tx, household, currentSourceE
 	var open, uncategorized, processing int
 	var amount string
 	err := tx.QueryRow(ctx, `WITH bounds AS (SELECT ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AS lo,($3::date::timestamp AT TIME ZONE 'Asia/Jakarta') AS hi), unresolved AS (
-		SELECT 't:'||t.id::text AS ref FROM transaction t,bounds b WHERE t.household_id=$1 AND t.status IN ('NEEDS_REVIEW','PENDING') AND t.transaction_at>=b.lo AND t.transaction_at<b.hi
+		SELECT 't:'||t.id::text AS ref FROM transaction t,bounds b WHERE t.household_id=$1 AND t.status = 'NEEDS_REVIEW' AND t.transaction_at>=b.lo AND t.transaction_at<b.hi
 		UNION SELECT CASE WHEN ri.transaction_id IS NOT NULL THEN 't:'||ri.transaction_id::text ELSE 'r:'||ri.id::text END FROM review_item ri
 		LEFT JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
 		LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id AND p.household_id=ri.household_id

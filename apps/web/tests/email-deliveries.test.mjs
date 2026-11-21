@@ -51,14 +51,11 @@ test("empty, loading and error states are short Indonesian messages", () => {
   assert.match(failed, /Coba lagi/);
 });
 
-test("the Inbox has an owner-only Email masuk tab fed by the existing endpoint", () => {
+test("Perlu dicek no longer hosts Email masuk; the old deep link moves to Keluarga", () => {
   const inbox = read("app/inbox/page.js");
-  assert.match(inbox, /\/api\/v1\/integrations\/email-ingress\/deliveries/);
-  assert.match(inbox, /\{owner && <button role="tab" id="inbox-tab-email" aria-controls="inbox-panel" data-view="email"/);
-  assert.match(inbox, /Email masuk<\/button>/);
-  assert.match(inbox, /const view = rawView === "email" && !owner \? "transactions" : rawView/, "a non-owner never reaches the email view");
-  assert.match(inbox, /const emailOpen = view === "email";/, "the endpoint is only fetched while the owner has the tab open");
-  assert.match(inbox, /owner \? \["transactions", "actions", "history", "email"\]/, "arrow keys skip the tab for non-owners");
+  assert.doesNotMatch(inbox, /email-ingress\/deliveries/);
+  assert.doesNotMatch(inbox, /data-view="email"/);
+  assert.match(inbox, /legacyViewTarget/);
 });
 
 test("Keluarga > Sumber otomatis hosts the owner delivery log and pending actions", () => {
