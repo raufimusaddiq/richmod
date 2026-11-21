@@ -179,3 +179,33 @@ func TestLegacyRankingsDoNotExposeForeignCategoryOrMember(t *testing.T) {
 		}
 	}
 }
+
+// Active cycle 12 Aug - now is 30 days elapsed; its immediate previous cycle
+// (15 Jul - 12 Aug) is only 28 days, the two before it are longer.
+func TestShorterPreviousCycleIsBaselineButNeverEntersUnequalMedian(t *testing.T) {
+	f := cycleReviewFixture(t)
+	for _, anchor := range []string{"2026-04-20", "2026-06-01", "2026-07-15", "2026-08-12"} {
+		f.anchor(t, anchor)
+	}
+	f.transaction(t, "2026-05-01", "EXPENSE", "CONFIRMED", "3000000", true)
+	f.transaction(t, "2026-06-10", "EXPENSE", "CONFIRMED", "4000000", true)
+	f.transaction(t, "2026-07-15", "EXPENSE", "CONFIRMED", "2760000", true) // first day of the 28-day cycle
+	f.transaction(t, "2026-08-11", "EXPENSE", "CONFIRMED", "8199840", true) // its last day
+	f.transaction(t, "2026-08-20", "EXPENSE", "CONFIRMED", "500000", true)
+	facts := f.review(t, "")
+	c := facts.Comparison
+	if c.Mode != "ELAPSED_DAYS" || c.Previous == nil || c.Previous.Start != "2026-07-15" || c.Previous.MeasuredUntil != "2026-08-12" {
+		t.Fatalf("previous must be the 28-day cycle measured whole: %+v", c)
+	}
+	if c.EligibleCycles != 3 || c.Median3Available || c.Expense.Median != nil || c.Expense.DeltaMedian != nil {
+		t.Fatalf("an unequal-window median must not be offered: %+v", c)
+	}
+	if c.Expense.Previous == nil || *c.Expense.Previous != "10959840" || *c.Expense.PreviousFull != "10959840" {
+		t.Fatalf("expense baseline=%+v", c.Expense)
+	}
+	for _, category := range facts.Categories {
+		if category.Median != nil {
+			t.Fatalf("category median must be nil: %+v", category)
+		}
+	}
+}

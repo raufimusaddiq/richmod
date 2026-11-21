@@ -11,7 +11,7 @@ export function screenForPath(pathname) {
 }
 
 export function trackEvent(screen, action = "SCREEN_VIEW") {
-  if (!SCREENS.includes(screen) || (action !== "SCREEN_VIEW" && action !== "NAV_CLICK")) return;
+  if (!SCREENS.includes(screen) || action !== "SCREEN_VIEW") return;
   try {
     const request = fetch("/api/v1/telemetry/events", {
       method: "POST",

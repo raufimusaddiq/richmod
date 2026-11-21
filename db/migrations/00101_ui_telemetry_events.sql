@@ -13,7 +13,7 @@ ALTER TABLE product_telemetry_event ADD CONSTRAINT product_telemetry_event_ui_ev
   CHECK (
     (event_type = 'UI_EVENT'
       AND screen IS NOT NULL AND screen IN ('home','transactions','analytics','wealth','inbox','documents','household','settings','admin')
-      AND action IN ('SCREEN_VIEW','NAV_CLICK')
+      AND action = 'SCREEN_VIEW'
       AND source_event_id IS NULL AND transaction_id IS NULL AND review_item_id IS NULL
       AND source_type IS NULL AND decision_policy_version IS NULL AND decision_source IS NULL
       AND changed_fields = '{}' AND bounded_choices = 0)

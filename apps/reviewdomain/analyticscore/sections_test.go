@@ -199,3 +199,25 @@ func TestSameDayPeriodKeepsShorterPreviousCycleWholeOnJakartaDateGrid(t *testing
 		t.Fatalf("active cycle must keep its cutoff: %+v", got)
 	}
 }
+
+func TestMedianCohortNeedsEqualMeasuredDaysWhileActive(t *testing.T) {
+	m := func(state, start, until string) cycleMeasure {
+		return cycleMeasure{period: reviewPeriod{Start: start, MeasuredUntil: until, State: state}}
+	}
+	active := m("ACTIVE", "2026-08-12", "2026-09-11") // 30 days
+	equal := []cycleMeasure{active, m("CLOSED", "2026-07-15", "2026-08-14"), m("CLOSED", "2026-06-01", "2026-07-01"), m("CLOSED", "2026-04-20", "2026-05-20")}
+	if !medianCohort(equal) {
+		t.Fatal("three 30-day windows must form a cohort")
+	}
+	short := []cycleMeasure{active, m("CLOSED", "2026-07-15", "2026-08-12"), equal[2], equal[3]} // 28 days whole
+	if medianCohort(short) || medianFor(short, []string{"1", "2", "3"}) != nil {
+		t.Fatal("a shorter window must not enter the median")
+	}
+	closed := []cycleMeasure{m("CLOSED", "2026-08-12", "2026-09-10"), short[1], equal[2], equal[3]}
+	if !medianCohort(closed) {
+		t.Fatal("closed selections keep full-cycle medians")
+	}
+	if medianCohort(equal[:3]) {
+		t.Fatal("fewer than three prior cycles has no median")
+	}
+}

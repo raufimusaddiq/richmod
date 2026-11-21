@@ -400,7 +400,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		}
 	}
 	facts.Comparison.EligibleCycles = len(measures) - 1
-	facts.Comparison.Median3Available = len(measures) == 4
+	facts.Comparison.Median3Available = medianCohort(measures)
 	if len(measures) > 1 {
 		p := measures[1].period
 		facts.Comparison.Previous = &p
@@ -847,7 +847,7 @@ func cashChange(measures []cycleMeasure, amount func(reviewCashflow) string, ful
 	if len(history) > 0 {
 		previous = &history[0]
 	}
-	c := change(amount(measures[0].cash), previous, median3(history))
+	c := change(amount(measures[0].cash), previous, medianFor(measures, history))
 	if full != nil {
 		c.setFullPrevious(amount(full.cash))
 	}
@@ -890,7 +890,7 @@ func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]revie
 		if len(history) > 0 {
 			previous = &history[0]
 		}
-		c := change(current.Amount, previous, median3(history))
+		c := change(current.Amount, previous, medianFor(measures, history))
 		c.reviewValue = current
 		if full != nil {
 			amount := "0"
@@ -1019,4 +1019,32 @@ func memberValues(members []reviewMember) []reviewValue {
 		out = append(out, m.reviewValue)
 	}
 	return out
+}
+
+// medianCohort reports whether measures (selected cycle first) hold three prior
+// cycles that may share one median. While the selected cycle is ACTIVE every
+// prior cycle must cover the same number of days as the selected cycle's
+// elapsed days; a shorter cycle measured whole stays the previous-cycle baseline
+// but is never mixed into a median of unequal windows.
+func medianCohort(measures []cycleMeasure) bool {
+	if len(measures) != 4 {
+		return false
+	}
+	if measures[0].period.State != "ACTIVE" {
+		return true
+	}
+	want := daysBetween(measures[0].period.Start, measures[0].period.MeasuredUntil)
+	for _, m := range measures[1:] {
+		if daysBetween(m.period.Start, m.period.MeasuredUntil) != want {
+			return false
+		}
+	}
+	return true
+}
+
+func medianFor(measures []cycleMeasure, history []string) *string {
+	if !medianCohort(measures) {
+		return nil
+	}
+	return median3(history)
 }

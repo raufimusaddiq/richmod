@@ -18,7 +18,7 @@ const RateLimitPerMinute = 120
 const maxBody = 512
 
 var screens = map[string]bool{"home": true, "transactions": true, "analytics": true, "wealth": true, "inbox": true, "documents": true, "household": true, "settings": true, "admin": true}
-var actions = map[string]bool{"SCREEN_VIEW": true, "NAV_CLICK": true}
+var actions = map[string]bool{"SCREEN_VIEW": true}
 
 type Handler struct {
 	pool *pgxpool.Pool
