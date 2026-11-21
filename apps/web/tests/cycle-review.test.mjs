@@ -102,7 +102,7 @@ test("meeting step round-trips; ledger preserves step and cycle on return", () =
 
 test("review page renders deterministic sections, native chart, and AI-disabled path", () => {
   const page = tree("app/analytics");
-  for (const section of ["position", "spending-shape", "where", "changes", "drivers", "merchants", "household", "savings-wealth", "quality", "discussion"]) assert.match(page, new RegExp(`id="${section}"`));
+  for (const section of ["position", "spending-shape", "where", "changes", "drivers", "merchants", "household", "quality", "discussion"]) assert.match(page, new RegExp(`id="${section}"`));
   assert.match(page, /analytics\/cycle-review/);
   assert.match(page, /fetch\(`\/api\/v1\/insights\?\$\{query\}/);
   assert.match(page, /cycle_start: cycleStart/);
@@ -125,7 +125,7 @@ test("cycle explanations use native disclosures without hiding financial facts",
   const page = tree("app/analytics");
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
   for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(text("app/lib/cycleKpi.js"), new RegExp(`cashflow\.${field}`));
-  assert.match(page, /Tentang rekonsiliasi/);
+  assert.match(page, /Angka per kategori ›/);
 });
 
 test("insight card hides historical advice rows and any quality score", () => {
@@ -142,7 +142,7 @@ test("scan-first report keeps every comparison and evidence behind native drill-
   assert.match(page, /className="comparison-bars" aria-label="Perbandingan pengeluaran bersih"/);
   assert.match(page, /className="diverge" aria-label="Perubahan kategori terbesar"/);
   assert.doesNotMatch(page, /change-ranking/, "the 25-row list is gone");
-  assert.match(page, /<summary>Perbandingan lengkap/);
+  assert.match(page, /Perbandingan lengkap · median/);
   for (const field of ["previous", "median3", "deltaVsPrevious", "deltaVsMedian3", "relativeDeltaVsPrevious", "relativeDeltaVsMedian3", "contributionToExpenseChange"]) assert.ok(page.includes(`item.${field}`), field);
   assert.match(page, /selectedCategory && \(!meeting \|\| step === "drivers"\)/);
   assert.match(page, /open={step === "discussion"}/);

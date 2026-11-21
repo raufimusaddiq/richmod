@@ -191,6 +191,9 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 	if active.Comparison.Mode != "ELAPSED_DAYS" || active.Comparison.EligibleCycles != 1 || *active.Comparison.Expense.Previous != "1000" || active.Comparison.Median3Available {
 		t.Fatalf("elapsed comparison=%+v", active.Comparison)
 	}
+	if active.Takeaways.Where != "Dining menghabiskan 100% pengeluaran siklus ini." || active.Takeaways.Pace != "Hari ke-10: Rp 1.500 · siklus lalu Rp 1.000 (10 hari)." {
+		t.Fatalf("takeaways=%+v", active.Takeaways)
+	}
 	for _, cycle := range active.Cycles {
 		if cycle.Start == "2026-08-01" && (cycle.MeasuredUntil != "2026-08-11" || active.Comparison.Previous == nil || cycle.MeasuredUntil != active.Comparison.Previous.MeasuredUntil) {
 			t.Fatalf("cycle list cutoff=%+v previous=%+v", cycle, active.Comparison.Previous)

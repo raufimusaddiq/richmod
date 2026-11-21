@@ -46,8 +46,8 @@ that source; it does not introduce a parallel token file.
 
 | Role | Token | Hex | Use |
 | --- | --- | --- | --- |
-| Income | `--income` | `#315b3f` | Confirmed inflow |
-| Expense | `--expense` | `#8b4437` | Outflow |
+| Income | `--income` | `#315b3f` | Confirmed inflow; lower spending (▼) in a spending-change delta |
+| Expense | `--expense` | `#8b4437` | Outflow; higher spending (▲) in a spending-change delta |
 | Warning | `--warning` | `#73561e` | Review and incomplete data |
 | Danger | `--danger` | `#913e40` | Destructive and failed states |
 | Info | `--info` | `#3a5867` | Informational state |
@@ -60,12 +60,14 @@ that source; it does not introduce a parallel token file.
 - Accent budget per above-the-fold viewport: primary action, one key metric, and
   active navigation.
 - Data marks (bars, lines, matrix cells) never use the accent: they use `--ink`,
-  `--ink-soft` or the chart tokens. Direction is a sign plus ▲/▼, and a decrease is
-  a hatched neutral bar, never a different hue, so no colour implies good or bad. A
-  selected cycle, row or list item is `--butter`.
-- Chart colour is drawn from `--chart-*`; the categorical ramp stays inside the
-  teal, slate, olive, ochre, clay, and muted violet families and never repeats the
-  income green.
+  `--ink-soft` or the chart tokens. Muted `--expense` and `--income` are reserved
+  strictly for spending-change direction, always paired with ▲/▼ and the neutral
+  wording `lebih rendah` / `lebih tinggi` (never `lebih hemat` or `lebih boros`),
+  and appear nowhere else. A selected cycle, row or list item is `--butter`.
+- Chart colour is drawn from `--chart-*`; the categorical ramp (teal, slate,
+  ochre, plum, dusk indigo, warm umber) contains no red and no green, so a
+  category never reads as a spending direction. Every `--chart-category-1..6`
+  token clears WCAG AA 4.5:1 against `--surface-strong`.
 - Text tokens must keep WCAG AA 4.5:1 against every surface token. This is
   enforced by `apps/web/tests/ui-audit-locks.test.mjs`; run it before shipping a
   palette change.

@@ -12,14 +12,14 @@ test("zero money is neutral; only a real amount carries a tone", () => {
   assert.equal(amountTone("-5000000"), "negative");
   assert.equal(amountTone("1750000", true), "negative");
   assert.equal(amountTone("0", true), "");
-  for (const page of ["app/wealth/page.js", "app/page.js"]) {
+  for (const page of ["app/wealth/WealthWorkspace.js", "app/page.js"]) {
     const source = text(page);
     assert.match(source, /amountTone\(/, `${page} uses the shared tone helper`);
     assert.doesNotMatch(source, /className="negative"/, `${page} never hard-codes the negative tone`);
   }
 });
 test("wealth UI keeps decimal strings and supports snapshots", () => {
-  const wealth = text("app/wealth/page.js");
+  const wealth = text("app/wealth/WealthWorkspace.js");
   const charts = text("app/components/Charts.js");
   assert.match(wealth, /\/api\/v1\/wealth\/summary/);
   assert.match(wealth, /\/api\/v1\/wealth\/snapshots\/latest/);
@@ -37,7 +37,7 @@ test("wealth UI keeps decimal strings and supports snapshots", () => {
 });
 
 test("Jakarta datetime-local serialization is explicit", () => {
-  const wealth = text("app/wealth/page.js");
+  const wealth = text("app/wealth/WealthWorkspace.js");
   assert.match(wealth, /timeZone: "Asia\/Jakarta"/);
   assert.match(wealth, /\+07:00/);
 });

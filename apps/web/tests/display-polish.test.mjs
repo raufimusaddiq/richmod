@@ -54,7 +54,7 @@ test("settings wraps unbreakable generated addresses on mobile", () => {
 
 test("Indonesian copy replaces raw MANUAL and the Test button", () => {
   assert.match(read("app/lib/labels.js"), /MANUAL: "Input manual"/);
-  assert.match(read("app/wealth/page.js"), /snapshotSourceLabel\[item\.source\]/);
+  assert.match(read("app/wealth/WealthWorkspace.js"), /snapshotSourceLabel\[item\.source\]/);
   assert.match(read("app/components/SettingsPanels.js"), /testFinancialSource\(item\)\}>Uji</);
   assert.doesNotMatch(read("app/components/SettingsPanels.js"), />Test</);
 });

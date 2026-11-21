@@ -1,6 +1,6 @@
 export const metadata = {
-  title: "Analisis · Richmod",
-  description: "Laporan siklus gaji dan analisis kalender untuk pemasukan dan pengeluaran keluarga.",
+  title: "Laporan · Richmod",
+  description: "Laporan arus kas siklus gaji dan kalender serta kekayaan bersih keluarga.",
 };
 
 export default function Layout({ children }) {

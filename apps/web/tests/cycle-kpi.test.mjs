@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { averageDailyText, baselineFor, deltaTone, deltaView, kpiCells } from "../app/lib/cycleKpi.js";
-import { cycleFacts, firstCycleFacts, noSpendingFacts, noWealthFacts } from "./fixtures/cycle-review.mjs";
+import { cycleFacts, firstCycleFacts, noSpendingFacts } from "./fixtures/cycle-review.mjs";
 
 const text = value => value.replace(/ /g, " ");
 
@@ -42,53 +42,35 @@ test("baseline selection: an active cycle uses the same elapsed day, a closed cy
   assert.equal(closed.label, "vs siklus lalu (penuh)");
 });
 
-test("KPI cells name their baseline and use served fields only (active cycle)", () => {
+test("four calm KPI cells; only the lead cell carries a comparison, in neutral words (active cycle)", () => {
   const facts = cycleFacts();
-  facts.comparison.income = { amount: "12000000", previous: "12000000", deltaVsPrevious: "0", relativeDeltaVsPrevious: "0.0000", previousFullCycle: "12000000", deltaVsPreviousFullCycle: "0" };
-  facts.comparison.netCashflow = { amount: "7800000", previous: "7000000", deltaVsPrevious: "800000", relativeDeltaVsPrevious: "0.1143", previousFullCycle: "9000000", deltaVsPreviousFullCycle: "-1200000" };
   const cells = Object.fromEntries(kpiCells(facts).map(cell => [cell.key, cell]));
-  assert.deepEqual(Object.keys(cells), ["expense", "income", "net", "unallocated", "worth"]);
+  assert.deepEqual(Object.keys(cells), ["expense", "income", "net", "saved"]);
   assert.equal(cells.expense.lead, true);
   assert.match(cells.expense.label, /hari ke-6$/);
   assert.equal(cells.expense.delta.tone, "bad", "spending above the previous cycle's same day is red");
-  assert.match(cells.expense.delta.note, /^vs siklus lalu di hari ke-6 \(Rp/);
-  assert.equal(cells.income.delta.tone, "none");
-  assert.match(cells.income.delta.note, /^sama dengan siklus lalu di hari yang sama$/);
-  assert.equal(cells.net.delta.tone, "good", "higher net cashflow is green");
+  assert.equal(cells.expense.delta.mark, "▲");
+  assert.match(cells.expense.delta.note, /^lebih tinggi vs siklus lalu di hari ke-6$/);
+  assert.equal(cells.expense.delta.word, undefined);
+  assert.equal(cells.income.delta, undefined);
+  assert.equal(cells.net.delta, undefined);
+  assert.equal(cells.net.label, "Arus kas bersih sejauh ini");
   assert.equal(cells.net.footnote, "belum final");
-  assert.match(cells.unallocated.sub, /^Ditabung Rp/);
-  assert.match(cells.worth.observed, /^Pengamatan /);
+  assert.match(cells.saved.sub, /^Belum dialokasikan Rp/);
+  const source = JSON.stringify(kpiCells(facts));
+  assert.doesNotMatch(source, /hemat|boros/);
 });
 
-test("KPI cells for a closed cycle use the full-cycle baseline; a missing comparison is a grey dash", () => {
+test("KPI cells for a closed cycle use the full-cycle baseline; a missing comparison is one line of words", () => {
   const facts = cycleFacts("2026-08-26");
   const expense = kpiCells(facts)[0];
-  assert.equal(expense.delta.note.startsWith("vs siklus lalu (penuh)"), true);
+  assert.match(expense.delta.note, /^lebih (rendah|tinggi) vs siklus lalu \(penuh\)$/);
   assert.equal(expense.label, "Pengeluaran bersih");
-  const cells = Object.fromEntries(kpiCells(facts).map(cell => [cell.key, cell]));
-  assert.equal(cells.income.delta.text, "—", "comparison.income absent: no invented delta");
-  assert.equal(cells.income.delta.tone, "none");
-  assert.equal(cells.income.delta.note, "Belum ada pembanding");
+  assert.equal(kpiCells(facts)[2].label, "Arus kas bersih");
   facts.comparison.expense = { ...facts.comparison.expense, deltaVsPreviousFullCycle: null, relativeDeltaVsPreviousFullCycle: null, previousFullCycle: null };
   const missing = kpiCells(facts)[0].delta;
   assert.deepEqual([missing.text, missing.tone, missing.note], ["—", "none", "Belum ada pembanding"]);
 });
-
-test("net-worth cell: latest observation with its date; no in-cycle change is a dash, not a delta", () => {
-  const facts = cycleFacts();
-  const withChange = kpiCells(facts).find(cell => cell.key === "worth");
-  assert.equal(withChange.delta.tone, "good");
-  assert.match(withChange.delta.note, /^vs pengamatan /);
-  facts.wealth.current = null; facts.wealth.netWorthChange = null;
-  const before = kpiCells(facts).find(cell => cell.key === "worth");
-  assert.equal(text(before.value), "Rp 40.000.000", "the newest earlier observation is the latest observation");
-  assert.equal(before.delta.text, "—");
-  assert.match(before.observed, /^Pengamatan terakhir /);
-  facts.wealth.previous = null;
-  const none = kpiCells(facts).find(cell => cell.key === "worth");
-  assert.deepEqual([none.value, none.observed], ["—", "Belum ada pengamatan"]);
-});
-
 test("the daily average is the served rounded figure, never rounded in the browser", () => {
   assert.equal(averageDailyText({ averageDailyExpense: "700000.40", averageDailyExpenseRounded: "700000" }), "700000");
 });
@@ -120,48 +102,28 @@ test("the pace marker says today only while the cycle runs", () => {
   assert.ok(readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8").includes("period={period}"));
 });
 
-test("the median note names the same-day basis while the cycle runs", () => {
-  const active = cycleFacts();
-  assert.equal(active.comparison.expense.deltaVsMedian3 != null, true, "fixture serves a median delta");
-  assert.equal(kpiCells(active)[0].extra.note, "vs median 3 siklus · hari yang sama");
-  const closed = cycleFacts("2026-08-26");
-  closed.comparison.expense.deltaVsMedian3 = "100000";
-  assert.equal(kpiCells(closed)[0].extra.note, "vs median 3 siklus");
-});
-
 test("the category drawer replaces the evidence section and its way back", () => {
   const sections = readFileSync(new URL("../app/analytics/CycleSections.js", import.meta.url), "utf8");
   assert.equal(sections.includes("Kembali ke ringkasan siklus"), false);
   assert.equal(sections.includes('href="#ledger"'), false);
-  const page = readFileSync(new URL("../app/analytics/page.js", import.meta.url), "utf8");
-  assert.ok(page.includes('<section id="matrix"') && page.includes('id="matrix-title"'), "the target and its summary heading exist");
+  const history = readFileSync(new URL("../app/analytics/CycleWhere.js", import.meta.url), "utf8");
+  assert.ok(history.includes('id="matrix"') && history.includes('id="matrix-title"'), "the target and its heading exist inside Siklus ke siklus");
 });
 
-test("first cycle: every comparison is named as missing, never invented", () => {
+test("first cycle: the lead comparison is named as missing, never invented", () => {
   const cells = Object.fromEntries(kpiCells(firstCycleFacts()).map(cell => [cell.key, cell]));
-  for (const key of ["expense", "income", "net"]) {
-    assert.equal(cells[key].delta.empty, true, `${key} has no comparison`);
-    assert.equal(cells[key].delta.note, "Belum ada pembanding");
-    assert.equal(cells[key].delta.tone, "none");
-  }
-  assert.equal(cells.expense.extra, null, "no median line without a served median");
+  assert.equal(cells.expense.delta.empty, true);
+  assert.equal(cells.expense.delta.note, "Belum ada pembanding");
+  assert.equal(cells.expense.delta.tone, "none");
 });
-
-test("no wealth snapshot: a dash and a sentence, not a delta", () => {
-  const worth = kpiCells(noWealthFacts()).find(cell => cell.key === "worth");
-  assert.equal(worth.value, "—");
-  assert.equal(worth.observed, "Belum ada pengamatan");
-  assert.equal(worth.delta.empty, true);
-});
-
 test("a cycle with no spending: Rp 0 everywhere, and the served delta still decides the tone", () => {
   const cells = Object.fromEntries(kpiCells(noSpendingFacts()).map(cell => [cell.key, cell]));
   assert.match(text(cells.expense.value), /^Rp\s?0$/);
   assert.equal(cells.expense.delta.tone, "good", "spending below the previous cycle is green");
+  assert.match(cells.expense.delta.note, /^lebih rendah /);
   assert.match(text(cells.net.value), /^Rp\s?0$/);
-  assert.match(text(cells.unallocated.sub), /^Ditabung Rp\s?0$/);
+  assert.match(text(cells.saved.sub), /^Belum dialokasikan Rp\s?0$/);
 });
-
 test("a missing comparison is one line of words, not a dash plus a sentence", () => {
   const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
   assert.ok(view.includes("!delta.empty && <strong>"), "the dash is not drawn when the note already says it is missing");

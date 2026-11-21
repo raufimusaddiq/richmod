@@ -306,7 +306,7 @@ async function run() {
       for (const [name, path, scenario, ready] of [
         ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
-        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator("#matrix")],
+        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator("#history")],
         ["analytics-cycle-first-desktop", "/analytics", { firstCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-nowealth-desktop", "/analytics", { noWealth: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-nospending-desktop", "/analytics", { noSpending: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
@@ -316,7 +316,7 @@ async function run() {
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await ready(statePage).waitFor();
-        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#matrix details").open = true; }); await statePage.locator(".heat-table").waitFor(); }
+        if (name === "analytics-cycle-few-desktop") { await statePage.evaluate(() => { document.querySelector("#history details").open = true; }); await statePage.locator(".heat-table").waitFor(); }
         await compareScreenshot(statePage, name);
         await statePage.close();
       }

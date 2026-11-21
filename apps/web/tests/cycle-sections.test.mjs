@@ -92,10 +92,11 @@ test("sections source: no money arithmetic, plain model text, fixed order", () =
 test("the five report sections share one card of compact disclosure rows", () => {
   const page = text("app/analytics/page.js");
   assert.match(page, /<div className="review-stack surface card">/, "one card wraps the detail sections");
-  for (const id of ["matrix", "merchants", "discussion"]) {
+  for (const id of ["discussion"]) {
     assert.match(page, new RegExp(`<section id="${id}" className="review-section"`), `${id} is a row, not its own card`);
   }
   assert.doesNotMatch(page, /review-section surface card/, "no detail section keeps its own outline");
+  assert.match(text("app/analytics/CycleWhere.js"), /<section id="daily" className="review-section"/);
   assert.match(text("app/analytics/CycleSections.js"), /<section id="household" className="review-section"/);
   assert.match(text("app/components/CycleDecisions.js"), /<section id="decisions" className="review-section"/);
   const styles = globalCss();
@@ -104,7 +105,7 @@ test("the five report sections share one card of compact disclosure rows", () =>
 });
 
 test("the pace row sizes its cards to content instead of stretching the shorter one", () => {
-  assert.match(text("app/analytics/page.js"), /className="dash-row dash-row-pace"/);
+  assert.match(text("app/analytics/page.js"), /className="dash-row dash-row-half dash-row-pace"/);
   assert.match(globalCss(), /\.dash-row-pace \{ align-items: start; \}/);
 });
 
@@ -117,7 +118,7 @@ test("an empty merchant ranking is not drawn as a zero total", () => {
 });
 
 test("the heatmap resets its mode when the selected cycle changes", () => {
-  const page = text("app/analytics/page.js");
+  const page = text("app/analytics/CycleWhere.js");
   assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\}/, "a new cycle remounts the heatmap so same-day is re-seeded");
   const sections = text("app/analytics/CycleSections.js");
   assert.match(sections, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/);

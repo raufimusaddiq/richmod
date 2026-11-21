@@ -41,10 +41,11 @@ export function transactionHref(period, filters = {}) {
   return `/transactions?${query}`;
 }
 
-export function readReviewSelection(search) {
+export function readReviewSelection(search, defaultView = "cycle") {
   const params = new URLSearchParams(search);
+  const requested = params.get("view");
   return {
-    view: params.get("view") === "calendar" ? "calendar" : "cycle",
+    view: ["cycle", "calendar", "wealth"].includes(requested) ? requested : defaultView,
     cycle: params.get("cycle") || "",
     range: ["3", "6", "12"].includes(params.get("range")) ? params.get("range") : "6",
     from: params.get("from") || "", to: params.get("to") || "",
@@ -55,6 +56,7 @@ export function readReviewSelection(search) {
 
 export function selectionHref(selection) {
   const params = new URLSearchParams({ view: selection.view });
+  if (selection.view === "wealth") return `/analytics?${params}`;
   if (selection.view === "calendar") {
     params.set("range", selection.range);
     if (selection.from && selection.to) { params.set("from", selection.from); params.set("to", selection.to); }
@@ -70,7 +72,7 @@ export function selectionHref(selection) {
 export const reviewSteps = [
   ["position", "Posisi siklus"], ["spending-shape", "Pola pengeluaran"],
   ["changes", "Perubahan"], ["drivers", "Bukti pendukung"],
-  ["savings-wealth", "Tabungan & kekayaan"], ["quality", "Tindak lanjut"],
+  ["quality", "Tindak lanjut"],
   ["discussion", "Pembahasan"], ["decisions", "Keputusan"],
 ];
 

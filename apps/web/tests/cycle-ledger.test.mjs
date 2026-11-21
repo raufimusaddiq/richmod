@@ -83,18 +83,18 @@ test("ledger source: served numbers only, no colour-only direction, accent reser
   const library = text("app/lib/cycleLedger.js");
   assert.doesNotMatch(library, /\.reduce\(|BigInt\(|parseFloat|toFixed/, "the browser formats and sizes; it never derives totals");
   const styles = globalCss();
-  assert.ok(styles.includes(':not([data-meeting-step="changes"]) #matrix'), "the matrix belongs to the position and changes meeting steps");
+  assert.ok(!styles.includes("#savings-wealth") && !styles.includes("#merchants"), "the folded sections have no meeting rules of their own");
 });
 
 test("page wiring: heatmap, stale-while-revalidate, calendar-aware title", () => {
   const page = tree("app/analytics");
   assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
-  assert.match(page, /facts\.history\?\.length > 0/, "an absent series renders nothing");
+  assert.match(page, /if \(!columns\.length\) return null/, "an absent series renders nothing");
   assert.match(page, /\{loading && !facts && <Skeleton/, "the skeleton is only for the first load");
   assert.match(page, /\{facts && !error && <>/);
   assert.match(page, /setFacts\(null\); setError\(/, "a failed load clears facts instead of showing another cycle");
   assert.match(page, /data-stale=\{refreshing \? "true" : undefined\}/);
-  assert.match(page, /title=\{selection\.view === "calendar" \? "Analisis kalender" : "Laporan siklus"\}/);
+  assert.match(page, /title="Laporan"/);
   assert.ok(page.includes("averageDailyText(facts.spendingShape)"), "whole-rupiah daily average comes from the served figure");
   assert.doesNotMatch(page, /Math\.round/, "no rounding of served money in the page");
   assert.doesNotMatch(page, /maximumFractionDigits: 2/);
@@ -128,7 +128,7 @@ test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day 
   assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
   const page = tree("app/analytics");
   assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
-  assert.match(page, /<details className="review-daily" ref=\{comparisonRef\} open=\{step === "changes" \|\| undefined\}>\s*<summary>Perbandingan lengkap/);
+  assert.match(page, /<details className="review-daily" open=\{step === "changes" \|\| undefined\}>\s*<summary>Detail ›/);
   for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="diverge"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
   assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
   assert.match(page, /Selisih vs hari yang sama/);
@@ -173,7 +173,7 @@ test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back,
   assert.equal(page.split("chooseCategory").length - 1, 5, "ranking, changes, full table and matrix all use it");
   assert.doesNotMatch(page, /Buka semua detail|allOpen/, "the open-all control is gone; sections are few and collapsed by intent");
   assert.match(text("app/analytics/shared.js"), /Tentang \{about \|\| "data ini"\}/);
-  for (const about of ["laju pengeluaran", "pengeluaran harian", "tabungan dan kekayaan", "arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
+  for (const about of ["arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
   assert.match(text("app/analytics/CycleWhere.js"), /aria-label="Tutup rincian kategori"/, "the drawer has a close button; Escape and Back also close it");
   const card = text("app/components/InsightCard.js");
   assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");

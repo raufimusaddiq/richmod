@@ -7,7 +7,7 @@ import { insightPeriod } from "../lib/insightData";
 const dataLinks = [
   ["Laju pengeluaran", "#spending-shape"],
   ["Yang berubah", "#changes"],
-  ["Kategori × siklus", "#matrix"],
+  ["Kategori × siklus", "#history"],
   ["Kelengkapan data", "#quality"],
 ];
 
