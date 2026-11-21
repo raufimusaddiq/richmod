@@ -153,7 +153,13 @@ and PRDs; they never appear in user-facing copy.
   apart; only `reviewCount` drives the navigation, `actionCount` marks
   Keluarga › Sumber otomatis.
 - Modal drawers (`aside[role="dialog"]`) use `useDrawerA11y`: focus moves in,
-  Escape closes, Tab stays inside, and focus returns to the opener.
+  Escape closes, Tab stays inside, and focus returns to the opener. While any modal
+  dialog or drawer is open, background scroll is locked on `html` with
+  `overscroll-behavior: contain` inside the drawer, and on phones drawers render as
+  a single full-screen scroll container.
+- Pages, sheets, and cards avoid sideways scrolling across 320–1366 px viewports (no
+  `100vw` widths); wide detail tables (`.review-table-wrap`, `.merchant-rank-scroll`)
+  stack into label/value rows at `<= 600px`.
 - Navigation has four permanent places: **Beranda** (`/`), **Transaksi**
   (`/transactions`), **Laporan** (`/analytics`; `/wealth` highlights it) and
   **Keluarga** (`/household`; `/settings` renders the same hub and highlights it).
@@ -189,8 +195,10 @@ and PRDs; they never appear in user-facing copy.
   (`?tab=anggota|akun|kategori|sumber|notifikasi`): Anggota, Akun & kekayaan,
   Kategori & aturan, Sumber otomatis (with the owner's pending "Tindakan" and the
   "Email masuk terakhir" log) and Notifikasi. A member sees Anggota (read-only)
-  and Notifikasi only. Every old `/settings?tab=…` and `/settings#<anchor>` link
-  opens the matching tab and scrolls to the anchor.
+  and Notifikasi only. Below the desktop sidebar breakpoint (`<= 1100px`), super
+  admins see an **Admin Richmod** entry row at the top of Keluarga linking to
+  `/admin`. Every old `/settings?tab=…` and `/settings#<anchor>` link opens the
+  matching tab and scrolls to the anchor.
 - **Beranda** keeps one 2px ink-outlined, shadowed card: the hero. Supporting cards
   (`.home-card`: Pengeluaran harian, Ke mana uangnya, Terbaru, Kekayaan bersih) use a
   1.5px `--line-strong` border on `--surface` with no shadow. The hero has three

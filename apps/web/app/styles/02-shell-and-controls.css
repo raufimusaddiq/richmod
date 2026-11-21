@@ -1,3 +1,4 @@
+.route-fade, .app-frame { width: 100%; max-width: 100%; min-width: 0; }
 .app-frame { min-height: 100dvh; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; width: var(--sidebar); flex-direction: column; padding: 24px 16px 16px; border-right: 2px solid var(--ink); background: var(--pastel-mint); }
 .brand { display: flex; align-items: center; gap: 11px; margin: 0 8px 30px; color: var(--ink); text-decoration: none; }
@@ -32,7 +33,7 @@
 .sidebar-user button:hover { background: var(--surface-muted); color: var(--danger); }
 .sidebar-user svg { width: 17px; height: 17px; }
 
-.app-main { width: calc(100% - var(--sidebar)); min-height: 100dvh; margin-left: var(--sidebar); padding: 42px clamp(28px, 4vw, 64px) 70px; }
+.app-main { width: calc(100% - var(--sidebar)); max-width: calc(100% - var(--sidebar)); min-width: 0; min-height: 100dvh; margin-left: var(--sidebar); padding: 42px clamp(28px, 4vw, 64px) 70px; }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 0 0 30px; }
 .page-header h1 { max-width: 820px; margin: 5px 0 0; font-size: clamp(28px, 3vw, 42px); font-weight: 500; line-height: 1.15; letter-spacing: 0; }
 .eyebrow { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: .035em; text-transform: uppercase; }

@@ -83,11 +83,11 @@ export function PaceCard({ facts }) {
         <caption className="visually-hidden">Total pengeluaran bersih sampai setiap hari siklus</caption>
         <thead><tr><th scope="col">Hari</th><th scope="col">Tanggal</th><th scope="col">Siklus ini</th>{previousCurve.length > 0 && <th scope="col">Siklus lalu</th>}{medianCurve.length > 0 && <th scope="col">Median 3 siklus</th>}</tr></thead>
         <tbody>{facts.daily.map((day, index) => <tr key={day.period}>
-          <th scope="row">{index + 1}</th>
-          <td>{dayLabel(day.period)}</td>
-          <td>{day.cumulativeExpense == null ? "—" : money(day.cumulativeExpense)}</td>
-          {previousCurve.length > 0 && <td>{previousCurve[index] == null ? "—" : money(previousCurve[index])}</td>}
-          {medianCurve.length > 0 && <td>{medianCurve[index] == null ? "—" : money(medianCurve[index])}</td>}
+          <th scope="row" data-row-prefix="Hari ">{index + 1}</th>
+          <td data-label="Tanggal">{dayLabel(day.period)}</td>
+          <td data-label="Siklus ini">{day.cumulativeExpense == null ? "—" : money(day.cumulativeExpense)}</td>
+          {previousCurve.length > 0 && <td data-label="Siklus lalu">{previousCurve[index] == null ? "—" : money(previousCurve[index])}</td>}
+          {medianCurve.length > 0 && <td data-label="Median 3 siklus">{medianCurve[index] == null ? "—" : money(medianCurve[index])}</td>}
         </tr>)}</tbody>
       </table></div>
     </details>

@@ -16,9 +16,9 @@
 .custom-range input { width: 142px; min-width: 0; }
 .custom-range > span { color: var(--muted); font-size: 12px; }
 
-.settings-list, .integration-grid { display: grid; gap: 0; }
-.settings-list article, .integration-grid article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 16px; padding: 15px 0; border-top: 1px solid var(--line); }
-.settings-list b, .settings-list small, .integration-grid b, .integration-grid small { display: block; }
+.settings-list, .integration-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; }
+.settings-list article, .integration-grid article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 16px; padding: 15px 0; border-top: 1px solid var(--line); min-width: 0; }
+.settings-list b, .settings-list small, .integration-grid b, .integration-grid small { display: block; overflow-wrap: anywhere; }
 .settings-list small, .integration-grid small { margin-top: 3px; color: var(--ink-soft); font-size: var(--text-md); }
 .panel, .settings-section { padding: var(--card-padding); }
 .inline-form { align-items: start; }
@@ -29,7 +29,7 @@
 .wealth-form > label { flex: 1 1 160px; min-width: 150px; }
 .known-form { gap: 8px; }
 .member-form > label { flex: 1 1 220px; min-width: 150px; }
-.inline-form select, .member-form input { width: 100%; min-width: 0; }
+.inline-form select, .member-form input { width: 100%; min-width: 0; max-width: 100%; }
 .inline-form > button { min-width: 0; }
 .settings-tabs-wrap { position: sticky; top: 0; z-index: 6; margin: 0 0 18px; padding: 4px 0; background: var(--canvas); }
 .settings-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
@@ -60,7 +60,7 @@
 .notification-copy { display: grid; min-width: 0; gap: 3px; }
 .notification-copy p { margin: 0; overflow-wrap: anywhere; color: var(--ink-soft); font-size: var(--text-md); line-height: 1.6; }
 .notification-status { min-height: 1.4em; margin: 8px 0 0; color: var(--ink-soft); font-size: var(--text-md); }
-.list-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
+.list-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
 .list-pagination button { min-height: var(--control-height-compact); padding: 7px 11px; }
 .list-pagination.document-more { flex-direction: column; justify-content: center; margin-top: var(--space-4); border-top: 0; }
 .document-more p { margin: 0; text-align: center; }
@@ -107,3 +107,4 @@ button.admin-link:active:not(:disabled) { border: 0; background: transparent; tr
 .email-checklist li[data-state="blocked"] { opacity: .72; }
 
 .integration-grid small, .email-checklist li small, .settings-list small { overflow-wrap: anywhere; }
+.mobile-admin-entry { display: none; }

@@ -143,6 +143,13 @@ jobs:
             browsers: chromium
             browser-cache-key: chromium
             install-deps: "false"
+          - name: mobile-layout
+            script: scripts/mobile-layout-smoke.mjs
+            artifact: mobile-layout-screenshots
+            results: apps/web/test-results/mobile-layout
+            browsers: chromium
+            browser-cache-key: chromium
+            install-deps: "false"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
