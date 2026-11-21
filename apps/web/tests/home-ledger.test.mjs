@@ -6,7 +6,7 @@ import { groupByDay, jakartaDay } from "../app/lib/ledgerDays.js";
 import { hidesVoided, originTimeline, periodRange, periodValue, withVoidedPolicy } from "../app/lib/transactionView.js";
 
 test("category names map to a Phosphor icon, never a letter box", () => {
-  const expected = { "Kopi & Snack": "Coffee", "Belanja Bulanan": "Basket", Makan: "ForkKnife", "Rumah Tangga": "House", Transportasi: "Car", Kesehatan: "FirstAidKit", Listrik: "Lightning", Langganan: "Repeat", "Orang tua": "Users", Anak: "Baby", Hiburan: "Ticket", Belanja: "ShoppingBag", Tagihan: "Receipt", Liburan: "Airplane" };
+  const expected = { "Kopi & Snack": "Coffee", "Belanja Bulanan": "Basket", Makan: "ForkKnife", "Rumah Tangga": "House", Transportasi: "Car", Kesehatan: "FirstAidKit", Listrik: "Lightning", Langganan: "Repeat", "Orang tua": "Users", Anak: "Baby", Hiburan: "Ticket", Belanja: "ShoppingBag", Tagihan: "Receipt", Liburan: "Airplane", "Tempat Tinggal": "House", "Belanja Bahan Makanan": "Basket", Perjalanan: "Airplane" };
   for (const [name, icon] of Object.entries(expected)) assert.equal(categoryVisual(name).icon, icon, name);
   assert.equal(categoryVisual({ name: "Lain-lain", slug: "lain-lain" }).icon, FALLBACK_ICON);
   assert.equal(categoryVisual({ name: "", slug: "groceries" }).icon, "Basket", "the slug is matched too");

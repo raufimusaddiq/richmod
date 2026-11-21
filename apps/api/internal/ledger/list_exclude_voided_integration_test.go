@@ -86,6 +86,13 @@ func TestTransactionListExcludeVoided(t *testing.T) {
 	if len(items) != 3 || header.Get("X-Total-Count") != "3" || header.Get("X-Voided-Count") != "" {
 		t.Fatalf("status override items=%d total=%q voided=%q", len(items), header.Get("X-Total-Count"), header.Get("X-Voided-Count"))
 	}
+	// A page past the last visible row (cursor on the oldest confirmed row) is empty but still reports hidden rows.
+	_, items, _ = list("?exclude_voided=true")
+	cursor := transactionCursor(items[len(items)-1])
+	_, items, header = list("?exclude_voided=true&cursor=" + cursor)
+	if len(items) != 0 || header.Get("X-Voided-Count") != "3" {
+		t.Fatalf("cursor past end items=%d voided=%q", len(items), header.Get("X-Voided-Count"))
+	}
 	// A filter matching only voided rows still reports how many are hidden.
 	if _, err = pool.Exec(ctx, `UPDATE transaction SET description='only-voided' WHERE household_id=$1 AND status='VOIDED'`, householdID); err != nil {
 		t.Fatal(err)

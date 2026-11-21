@@ -78,13 +78,13 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
 	}
-	// An empty first page carries no window counts; when only voided rows matched, count them again
-	// without the exclusion so "N dibatalkan disembunyikan" stays accurate.
-	if filters.ExcludeVoided && len(out) == 0 && filters.CursorAt == nil {
+	// An empty page carries no window counts (first page with only voided matches, or a page past the
+	// end), so count the hidden rows with a probe: same filters, from the start, status VOIDED.
+	if filters.ExcludeVoided && len(out) == 0 {
 		probe := filters
-		probe.ExcludeVoided, probe.Limit = false, 1
-		if _, all, _, probeErr := h.listTransactionRows(r.Context(), household, probe); probeErr == nil {
-			voided = all
+		probe.ExcludeVoided, probe.Status, probe.CursorAt, probe.CursorID, probe.Limit = false, "VOIDED", nil, "", 1
+		if _, count, _, probeErr := h.listTransactionRows(r.Context(), household, probe); probeErr == nil {
+			voided = count
 		}
 	}
 	// The count of every row matching the filters, before the page limit. The window

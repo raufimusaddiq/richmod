@@ -5,11 +5,11 @@
 // Order matters: the first rule whose keyword appears in the normalized name wins.
 const RULES = [
   ["Coffee", ["kopi", "coffee", "cafe", "kafe", "snack", "jajan", "camilan", "minuman", "boba"]],
-  ["Basket", ["belanja bulanan", "groceries", "grocery", "sembako", "supermarket", "pasar", "dapur"]],
+  ["Basket", ["belanja bulanan", "bahan makanan", "groceries", "grocery", "sembako", "supermarket", "pasar", "dapur"]],
   ["ForkKnife", ["makan", "food", "restoran", "resto", "kuliner", "dining", "warung", "lauk"]],
-  ["House", ["rumah", "home", "housing", "kontrakan", "kos", "sewa", "cicilan rumah", "kpr", "furnitur", "perabot"]],
+  ["House", ["rumah", "home", "housing", "kontrakan", "kos", "tempat tinggal", "tinggal", "sewa", "cicilan rumah", "kpr", "furnitur", "perabot"]],
   ["Lightning", ["listrik", "pln", "utilitas", "utilities", "air", "pdam", "gas", "internet", "wifi", "pulsa", "token"]],
-  ["Airplane", ["travel", "wisata", "liburan", "tiket pesawat", "pesawat", "hotel", "holiday"]],
+  ["Airplane", ["travel", "perjalanan", "wisata", "liburan", "tiket pesawat", "pesawat", "hotel", "holiday"]],
   ["Car", ["transport", "bensin", "bbm", "ojek", "grab", "gojek", "parkir", "tol", "kendaraan", "mobil", "motor", "bus", "kereta", "commute"]],
   ["FirstAidKit", ["kesehatan", "health", "dokter", "obat", "apotek", "rumah sakit", "klinik", "bpjs", "medis"]],
   ["Repeat", ["langganan", "subscription", "subscribe", "netflix", "spotify", "streaming"]],
