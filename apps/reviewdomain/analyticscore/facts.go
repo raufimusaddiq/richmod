@@ -388,12 +388,10 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 			continue
 		}
 		if facts.Period.State == "ACTIVE" {
-			elapsed := daysBetween(facts.Period.Start, facts.Period.MeasuredUntil)
-			if daysBetween(p.Start, p.MeasuredUntil) < elapsed {
-				continue
-			}
-			start, _ := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
-			p.MeasuredUntil = start.AddDate(0, 0, elapsed).Format("2006-01-02")
+			// A closed cycle shorter than the elapsed days is kept whole (measured
+			// to its own end) instead of skipped; skipping it made an older, longer
+			// cycle masquerade as "previous" and disagreed with the history matrix.
+			p = sameDayPeriod(p, daysBetween(facts.Period.Start, facts.Period.MeasuredUntil))
 			facts.Cycles[index+1+offset].MeasuredUntil = p.MeasuredUntil
 		}
 		measures = append(measures, newCycleMeasure(p))
@@ -586,17 +584,28 @@ func historyMeasures(measures []cycleMeasure, window []reviewPeriod) ([]cycleMea
 func sameDayWindow(window []reviewPeriod, elapsed int) []reviewPeriod {
 	out := make([]reviewPeriod, 0, len(window))
 	for _, p := range window {
-		if p.State == "CLOSED" && p.End != nil {
-			start, err := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
-			if err == nil {
-				if cut := start.AddDate(0, 0, elapsed).Format("2006-01-02"); cut < *p.End {
-					p.MeasuredUntil = cut
-				}
-			}
-		}
-		out = append(out, p)
+		out = append(out, sameDayPeriod(p, elapsed))
 	}
 	return out
+}
+
+// sameDayPeriod cuts a closed cycle at the first `elapsed` calendar days
+// (start-inclusive, exclusive end on the Asia/Jakarta date grid). A cycle no
+// longer than that is measured to its own end; open cycles are untouched.
+func sameDayPeriod(p reviewPeriod, elapsed int) reviewPeriod {
+	if p.State != "CLOSED" || p.End == nil {
+		return p
+	}
+	start, err := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
+	if err != nil {
+		return p
+	}
+	if cut := start.AddDate(0, 0, elapsed).Format("2006-01-02"); cut < *p.End {
+		p.MeasuredUntil = cut
+	} else {
+		p.MeasuredUntil = *p.End
+	}
+	return p
 }
 
 // buildHistory turns loaded window measures (oldest first) into the ledger

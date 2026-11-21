@@ -27,6 +27,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/push"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/uitelemetry"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
@@ -80,6 +81,7 @@ func run(logger *slog.Logger) error {
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	emailIngressHandler := emailingress.NewHandler(emailingress.NewService(pool, cfg.EmailIngressDomain, strings.Split(cfg.EmailIngressTrustedAuthservIDs, ",")), cfg.EmailIngressHMACSecret)
 	pushHandler := push.NewHandler(pool, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
+	uiTelemetryHandler := uitelemetry.NewHandler(pool)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
@@ -135,6 +137,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
 	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))
+	mux.Handle("POST /api/v1/telemetry/events", authHandler.RequireSession(http.HandlerFunc(uiTelemetryHandler.Create)))
 	mux.HandleFunc("GET /api/v1/push/public-key", pushHandler.PublicKey)
 	mux.Handle("GET /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.List)))
 	mux.Handle("POST /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.Subscribe)))

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useInboxCount } from "./InboxCountProvider";
 import BuildUpdateNotice from "./BuildUpdateNotice";
 import { trapKeyDown } from "../lib/focusTrap";
+import { trackScreenView } from "../lib/telemetry";
 import { ChartDonut, DotsThree, FileText, GearSix, HouseLine, Receipt, ShieldChevron, SignOut, Tray, UsersThree, Vault, X } from "@phosphor-icons/react";
 
 const nav = [
@@ -32,6 +33,9 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
   const secondaryLinks = links.slice(4);
   const hiddenInboxCount = secondaryLinks.some(([href]) => href === "/inbox") ? inboxCount : 0;
   const isActive = href => href === "/" ? pathname === href : pathname.startsWith(href);
+
+  // One bounded screen-view event per route change; never blocks rendering.
+  useEffect(() => { trackScreenView(pathname); }, [pathname]);
 
   useEffect(() => {
     if (!moreOpen) return;

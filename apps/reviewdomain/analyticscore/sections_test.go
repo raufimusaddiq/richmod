@@ -177,3 +177,25 @@ func TestOrderedMembersPutsAutomaticFirstAndSharesSumToOne(t *testing.T) {
 		t.Fatal("a net-refund member makes shares undefined, never negative")
 	}
 }
+
+// Live regression: the active cycle (23 Oct, day 30) is longer than the
+// previous cycle (25 Sep - 23 Oct, 28 days). The previous cycle must stay the
+// comparison base, measured whole, not be skipped for an older longer cycle.
+func TestSameDayPeriodKeepsShorterPreviousCycleWholeOnJakartaDateGrid(t *testing.T) {
+	end := "2026-10-23"
+	prev := reviewPeriod{Kind: "SALARY_CYCLE", Start: "2026-09-25", End: &end, MeasuredUntil: end, State: "CLOSED"}
+	if got := sameDayPeriod(prev, 30); got.MeasuredUntil != end {
+		t.Fatalf("shorter previous cycle must be measured to its own end, got %s", got.MeasuredUntil)
+	}
+	if got := sameDayPeriod(prev, 28); got.MeasuredUntil != end {
+		t.Fatalf("equal-length cycle: %s", got.MeasuredUntil)
+	}
+	// Day 1 (25 Sep) is always inside the window, however short the elapsed span.
+	if got := sameDayPeriod(prev, 1); got.MeasuredUntil != "2026-09-26" {
+		t.Fatalf("elapsed day 1 must include the whole first Jakarta day: %s", got.MeasuredUntil)
+	}
+	active := reviewPeriod{Start: "2026-10-23", MeasuredUntil: "2026-11-22", State: "ACTIVE"}
+	if got := sameDayPeriod(active, 3); got != active {
+		t.Fatalf("active cycle must keep its cutoff: %+v", got)
+	}
+}
