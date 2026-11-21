@@ -87,7 +87,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
     </div>}
     {closed ? <form className="decision-form" onSubmit={save} aria-busy={busy}>
       <label htmlFor="decision-body">Keputusan baru untuk siklus ini</label>
-      <textarea ref={field} id="decision-body" name="body" rows={4} value={body} disabled={busy} aria-describedby={`decision-hint${saveError ? " decision-error" : ""}`} aria-invalid={Boolean(saveError)} onChange={event => { onBodyChange(event.target.value); setSaveError(""); setStatus(""); }} onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) event.currentTarget.form.requestSubmit(); }}/>
+      <textarea ref={field} id="decision-body" name="body" rows={4} autoCapitalize="sentences" value={body} disabled={busy} aria-describedby={`decision-hint${saveError ? " decision-error" : ""}`} aria-invalid={Boolean(saveError)} onChange={event => { onBodyChange(event.target.value); setSaveError(""); setStatus(""); }} onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) event.currentTarget.form.requestSubmit(); }}/>
       <p id="decision-hint" className="review-description">Perubahan dibuat sebagai catatan baru; catatan lama dapat dibatalkan dan tetap ada di riwayat audit.</p>
       <div className="decision-form-foot"><button type="submit" disabled={busy}>{busy ? "Menyimpan…" : "Simpan keputusan"}</button><span className="decision-count" aria-live="polite">{count} / 2.000</span></div>
     </form> : <p className="decision-closed">Keputusan dapat disimpan setelah siklus ditutup. Catatan siklus sebelumnya tetap dapat dibaca.</p>}

@@ -531,3 +531,57 @@ test("no sideways overflow, single drawer scroll, stacked phone tables, and phon
   assert.match(smoke, /\["mobile-320", 320, 667\]/);
   assert.match(smoke, /document\.documentElement\.scrollWidth > document\.documentElement\.clientWidth\)/);
 });
+
+test("keyboard-aware mobile forms: visualViewport inset, enterKeyHint, 16px phone fields, and quick-repeat row", () => {
+  const layout = text("app/layout.js");
+  assert.match(layout, /import KeyboardViewport from "\.\/components\/KeyboardViewport"/);
+  assert.match(layout, /<KeyboardViewport \/>/);
+  const hook = text("app/lib/keyboardViewport.js");
+  assert.match(hook, /setProperty\("--kb-inset"/);
+  assert.match(hook, /setProperty\("--vv-height"/);
+  assert.match(hook, /scrollIntoView\(\{ block: "center" \}\)/);
+
+  const quick = text("app/components/QuickRecordDialog.js");
+  assert.match(quick, /name="amount"[^>]*inputMode="numeric"[^>]*enterKeyHint="next"/);
+  assert.match(quick, /function onAmountKeyDown\(event\)[\s\S]*event\.key !== "Enter"[\s\S]*descriptionRef\.current\?\.focus\(\)/);
+  assert.match(quick, /name="description"[^>]*enterKeyHint="done"[^>]*autoCapitalize="sentences"/);
+  assert.match(quick, /<textarea name="note" autoCapitalize="sentences"/);
+  const amountPos = quick.indexOf('name="amount"');
+  const repeatPos = quick.indexOf('aria-label="Ulangi cepat"');
+  const descPos = quick.indexOf('name="description"');
+  assert.ok(amountPos > 0 && repeatPos > amountPos && descPos > repeatPos, "Ulangi cepat sits directly under amount and before description");
+
+  const txPage = text("app/transactions/page.js");
+  assert.match(txPage, /name="q" type="search" enterKeyHint="search"/);
+  assert.match(txPage, /name="merchantName"[^>]*autoCapitalize="words"[^>]*autoCorrect="off"/);
+  assert.match(txPage, /name="description"[^>]*autoCapitalize="sentences"[^>]*enterKeyHint="done"/);
+  assert.match(txPage, /<textarea name="note"[^>]*autoCapitalize="sentences"/);
+
+  const login = text("app/login/page.js");
+  assert.match(login, /id="login-email"[^>]*enterKeyHint="next"/);
+  assert.match(login, /id="login-password"[^>]*enterKeyHint="go"/);
+
+  const household = text("app/household/page.js");
+  assert.match(household, /name="displayName" autoCapitalize="words"/);
+  const settings = text("app/components/SettingsPanels.js");
+  assert.match(settings, /name="matchHint" inputMode="numeric" pattern="\[0-9\]\*"/);
+  assert.match(settings, /type="search" enterKeyHint="search"/);
+  assert.match(text("app/components/CycleDecisions.js"), /id="decision-body"[^>]*autoCapitalize="sentences"/);
+  assert.match(text("app/wealth/WealthWorkspace.js"), /inputMode="decimal"/);
+  assert.match(text("app/components/review/ReviewCard.js"), /name="merchantName"[^>]*autoCapitalize="words" autoCorrect="off"/);
+
+  const sheet = css();
+  assert.match(sheet, /--kb-inset: 0px;/);
+  assert.match(sheet, /--vv-height: 100dvh;/);
+  assert.match(sheet, /\.quick-chips\.quick-repeat > div \{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;/);
+  assert.match(sheet, /\.quick-record\.create-dialog \{[^}]*bottom: var\(--kb-inset\);[^}]*max-height: min\(92dvh, calc\(var\(--vv-height\) - 8px\)\);/);
+  assert.match(sheet, /html:has\([^\n]*textarea:focus, select:focus\) \.mobile-nav[\s\S]*display: none;/);
+  assert.match(text("app/styles/11-responsive.css"), /@media \(max-width: 680px\)[\s\S]*input, select, textarea \{ font-size: var\(--text-lg\); \}/);
+  const phoneBlocks = [...sheet.matchAll(/@media \(max-width: (?:719|680|600|430)px\) \{([\s\S]*?)\n\}/g)].map(match => match[1]).join("\n");
+  for (const match of phoneBlocks.matchAll(/([^{}]*\b(?:input|select|textarea)\b[^{}]*)\{([^}]*)\}/g)) {
+    const sizeMatch = match[2].match(/font-size:\s*([^;]+)/);
+    if (!sizeMatch) continue;
+    const raw = sizeMatch[1].trim();
+    assert.ok(raw === "var(--text-lg)" || (raw.endsWith("px") && Number.parseFloat(raw) >= 16), `phone input/select/textarea rule "${match[1].trim()}" sets font-size ${raw} (< 16px)`);
+  }
+});

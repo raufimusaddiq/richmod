@@ -182,6 +182,8 @@ export default function Reviews({ setError }) {
           />
           <input
             aria-label="Cari referensi proyeksi"
+            type="search"
+            enterKeyHint="search"
             placeholder="Cari referensi"
             value={filters.q}
             onChange={(e) => setFilters({ ...filters, q: e.target.value })}

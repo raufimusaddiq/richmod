@@ -23,7 +23,7 @@ async function loadJson(url) {
 }
 
 export default function QuickRecordDialog({ request, onClose, onSaved }) {
-  const dialogRef = useRef(null), amountRef = useRef(null), formRef = useRef(null);
+  const dialogRef = useRef(null), amountRef = useRef(null), descriptionRef = useRef(null), formRef = useRef(null);
   const missingWindow = request.missingWindow;
   const [mode, setMode] = useState(request.mode);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -63,6 +63,12 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
     set({ amount: formatted });
     const caret = caretAfterFormat(formatted, digitsBefore);
     window.requestAnimationFrame(() => { if (document.activeElement === input) input.setSelectionRange(caret, caret); });
+  }
+
+  function onAmountKeyDown(event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    descriptionRef.current?.focus();
   }
 
   function repeat(item) {
@@ -111,12 +117,12 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
         <div className="quick-body">
           <div className="segmented" role="group" aria-label="Jenis transaksi">{TYPES.map(([key, text]) => <button key={key} type="button" aria-pressed={form.type === key} className={form.type === key ? "active" : ""} onClick={() => { set({ type: key, categoryId: key === "TRANSFER" ? "" : form.categoryId }); setErrors({}); }}>{text}</button>)}</div>
           <label className="quick-amount"><span>Jumlah (Rp) <span className="required-mark" aria-hidden="true">*</span></span>
-            <input ref={amountRef} name="amount" inputMode="numeric" autoComplete="off" placeholder="Contoh: 25.000" value={form.amount} onChange={onAmount} required aria-required="true" aria-invalid={errors.amount ? "true" : undefined} aria-describedby={errors.amount ? "quick-amount-error" : undefined}/>
+            <input ref={amountRef} name="amount" inputMode="numeric" enterKeyHint="next" autoComplete="off" placeholder="Contoh: 25.000" value={form.amount} onChange={onAmount} onKeyDown={onAmountKeyDown} required aria-required="true" aria-invalid={errors.amount ? "true" : undefined} aria-describedby={errors.amount ? "quick-amount-error" : undefined}/>
             {errors.amount && <small id="quick-amount-error" className="field-error">{errors.amount}</small>}</label>
+          {data.suggestions.frequent.length > 0 && <div className="quick-chips quick-repeat" role="group" aria-label="Ulangi cepat"><span className="quick-label">Ulangi cepat</span><div>{data.suggestions.frequent.map(item => <button key={`${item.type}-${item.amount}-${item.description}`} type="button" className="chip" title={item.description} onClick={() => repeat(item)}>{repeatLabel(item, money)}</button>)}</div></div>}
           <label><span>Deskripsi <span className="required-mark" aria-hidden="true">*</span></span>
-            <input name="description" maxLength="500" autoComplete="off" value={form.description} onChange={event => { set({ description: event.target.value }); }} required aria-required="true" aria-invalid={errors.description ? "true" : undefined} aria-describedby={errors.description ? "quick-description-error" : undefined}/>
+            <input ref={descriptionRef} name="description" maxLength="500" enterKeyHint="done" autoCapitalize="sentences" autoComplete="off" value={form.description} onChange={event => { set({ description: event.target.value }); }} required aria-required="true" aria-invalid={errors.description ? "true" : undefined} aria-describedby={errors.description ? "quick-description-error" : undefined}/>
             {errors.description && <small id="quick-description-error" className="field-error">{errors.description}</small>}</label>
-          {data.suggestions.frequent.length > 0 && <div className="quick-chips" role="group" aria-label="Ulangi cepat"><span className="quick-label">Ulangi cepat</span><div>{data.suggestions.frequent.map(item => <button key={`${item.type}-${item.amount}-${item.description}`} type="button" className="chip" title={item.description} onClick={() => repeat(item)}>{repeatLabel(item, money)}</button>)}</div></div>}
           {transfer
             ? <>
               <label>Tujuan transfer<select name="purpose" value={form.purpose} onChange={event => set({ purpose: event.target.value, relatedWealthAccountId: "" })}>{PURPOSES.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>
@@ -139,7 +145,7 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
               <div className="quick-more-fields">
                 <label>Waktu<DateInput name="transactionAt" type="datetime-local"/></label>
                 {!transfer && <label>Akun<select name="accountId" value={form.accountId} onChange={event => set({ accountId: event.target.value })}><option value="">Tanpa akun</option>{data.accounts.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-                <label>Catatan<textarea name="note" value={form.note} onChange={event => set({ note: event.target.value })}/></label>
+                <label>Catatan<textarea name="note" autoCapitalize="sentences" value={form.note} onChange={event => set({ note: event.target.value })}/></label>
               </div></details>}
           {formError && <p role="alert" className="error-notice">{formError}</p>}
         </div>

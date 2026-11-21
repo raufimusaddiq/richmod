@@ -112,5 +112,5 @@ button.wealth-history-row small { color: var(--accent); font-size: var(--text-xs
 .wealth-correction-account { display: grid; gap: 11px; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .wealth-correction-account legend { padding: 0 4px; font-size: 12px; font-weight: 700; }
 .wealth-correction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
-.wealth-drawer-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.wealth-drawer-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; background: var(--surface); }
 

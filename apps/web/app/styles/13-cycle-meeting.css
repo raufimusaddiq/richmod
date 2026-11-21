@@ -143,7 +143,6 @@
 }
 @media (max-width: 430px) {
   .cycle-review .custom-range { grid-template-columns: minmax(0, 1fr); }
-  .cycle-review .cycle-picker select { font-size: var(--text-base); }
 }
 
 
