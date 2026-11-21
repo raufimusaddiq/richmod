@@ -40,7 +40,7 @@ test("charts answer distinct dashboard, cycle, calendar, and category questions"
   const analytics = tree("app/analytics");
   for (const name of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "MonthlyCashflowChart", "CategoryDonutChart", "CategoryRankingChart"]) assert.match(charts, new RegExp(`export function ${name}`));
   assert.match(home, /DashboardDailySpendingChart/);
-  assert.match(home, /CategoryDonutChart/);
+  assert.match(home, /CategoryBars/);
   assert.match(analytics, /CycleSpendingPatternChart/);
   assert.match(analytics, /MonthlyCashflowChart/);
   assert.match(analytics, /CategoryRankingChart/);

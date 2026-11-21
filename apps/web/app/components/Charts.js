@@ -4,6 +4,8 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart,
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
 import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerNote, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
+import { dailyChartModel, dayLedgerHref } from "../lib/home";
+import { useRouter } from "next/navigation";
 import { transactionHref } from "../lib/cycleReview";
 
 const colors = ["var(--chart-category-1)", "var(--chart-category-2)", "var(--chart-category-3)", "var(--chart-category-4)", "var(--chart-category-5)", "var(--chart-category-6)"];
@@ -28,11 +30,31 @@ function MonthlyTooltip({ active, payload, label }) {
     <div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(item?.netCashflow)}</strong></div></div>;
 }
 
-export function DashboardDailySpendingChart({ items, height = 280 }) {
+// Beranda's daily spend: bars (a day is a quantity, not a trend), a dashed daily average, and an outlier
+// cap so one large day cannot flatten the rest. A capped bar carries a break slash and its real value.
+// Clicking a day with spend opens the ledger for that day; the value table below links the same way.
+function DailyBarShape({ x, y, width, height, payload }) {
+  if (!(height > 0)) return null;
+  const slashY = y + 7;
+  return <g style={{ cursor: payload.expenseValue > 0 ? "pointer" : "default" }}>
+    <rect x={x} y={y} width={width} height={height} rx={3} fill="var(--chart-expense)"/>
+    {payload.capped && <line x1={x - 2} x2={x + width + 2} y1={slashY + 5} y2={slashY - 3} stroke="var(--surface)" strokeWidth={3}/>}
+  </g>;
+}
+
+export function DashboardDailySpendingChart({ items, height = 240 }) {
+  const router = useRouter();
   const data = mapDailySpending(items);
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran pada periode ini.</p>;
-  const max = Math.max(...data.map(item => item.expenseValue), 0);
-  return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart accessibilityLayer={false} data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
+  const model = dailyChartModel(data);
+  const top = model.cap ? model.cap * 1.22 : Math.max(model.max * 1.1, 1);
+  const open = row => { if (row?.expenseValue > 0 && row.period) router.push(dayLedgerHref(row.period)); };
+  const biggest = model.biggest;
+  return <div className="daily-spend">
+    <p className="chart-unit">Rp juta</p>
+    <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian, dalam jutaan rupiah. Pilih sebuah hari untuk melihat transaksinya." style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={model.rows} margin={{ top: 18, right: 8, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis width={44} domain={[0, top]} allowDataOverflow axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(top)}/><Tooltip content={<DailyTooltip/>} cursor={{ fill: "var(--surface-muted)" }}/><ReferenceLine y={Number(model.average)} stroke="var(--chart-reference)" strokeDasharray="5 4" strokeWidth={1.5}/><Bar dataKey="plotValue" shape={<DailyBarShape/>} maxBarSize={22} isAnimationActive={false} onClick={row => open(row?.payload || row)}><LabelList dataKey="expense" content={({ x, y, width, index }) => model.rows[index]?.capped ? <text x={x + width / 2} y={y - 5} textAnchor="middle" fill="var(--ink-soft)" fontFamily="var(--font-body)" fontSize={12} fontWeight={650}>{compactMillions(model.rows[index].expense)} jt</text> : null}/></Bar></BarChart></ResponsiveContainer></div>
+    <dl className="daily-facts"><div><dt>Rata-rata per hari</dt><dd>{money(model.average)}</dd></div><div><dt>Hari terbesar</dt><dd>{biggest ? <>{money(biggest.expense)}<small> · {dayLabel(biggest.period)}</small></> : "—"}</dd></div></dl>
+  </div>;
 }
 
 // Day tick: the running day of an active cycle says it is not complete yet.
