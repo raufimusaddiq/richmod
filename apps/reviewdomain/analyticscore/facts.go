@@ -388,12 +388,10 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 			continue
 		}
 		if facts.Period.State == "ACTIVE" {
-			elapsed := daysBetween(facts.Period.Start, facts.Period.MeasuredUntil)
-			if daysBetween(p.Start, p.MeasuredUntil) < elapsed {
-				continue
-			}
-			start, _ := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
-			p.MeasuredUntil = start.AddDate(0, 0, elapsed).Format("2006-01-02")
+			// A closed cycle shorter than the elapsed days is kept whole (measured
+			// to its own end) instead of skipped; skipping it made an older, longer
+			// cycle masquerade as "previous" and disagreed with the history matrix.
+			p = sameDayPeriod(p, daysBetween(facts.Period.Start, facts.Period.MeasuredUntil))
 			facts.Cycles[index+1+offset].MeasuredUntil = p.MeasuredUntil
 		}
 		measures = append(measures, newCycleMeasure(p))
@@ -402,7 +400,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		}
 	}
 	facts.Comparison.EligibleCycles = len(measures) - 1
-	facts.Comparison.Median3Available = len(measures) == 4
+	facts.Comparison.Median3Available = medianCohort(measures)
 	if len(measures) > 1 {
 		p := measures[1].period
 		facts.Comparison.Previous = &p
@@ -586,17 +584,28 @@ func historyMeasures(measures []cycleMeasure, window []reviewPeriod) ([]cycleMea
 func sameDayWindow(window []reviewPeriod, elapsed int) []reviewPeriod {
 	out := make([]reviewPeriod, 0, len(window))
 	for _, p := range window {
-		if p.State == "CLOSED" && p.End != nil {
-			start, err := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
-			if err == nil {
-				if cut := start.AddDate(0, 0, elapsed).Format("2006-01-02"); cut < *p.End {
-					p.MeasuredUntil = cut
-				}
-			}
-		}
-		out = append(out, p)
+		out = append(out, sameDayPeriod(p, elapsed))
 	}
 	return out
+}
+
+// sameDayPeriod cuts a closed cycle at the first `elapsed` calendar days
+// (start-inclusive, exclusive end on the Asia/Jakarta date grid). A cycle no
+// longer than that is measured to its own end; open cycles are untouched.
+func sameDayPeriod(p reviewPeriod, elapsed int) reviewPeriod {
+	if p.State != "CLOSED" || p.End == nil {
+		return p
+	}
+	start, err := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
+	if err != nil {
+		return p
+	}
+	if cut := start.AddDate(0, 0, elapsed).Format("2006-01-02"); cut < *p.End {
+		p.MeasuredUntil = cut
+	} else {
+		p.MeasuredUntil = *p.End
+	}
+	return p
 }
 
 // buildHistory turns loaded window measures (oldest first) into the ledger
@@ -838,7 +847,7 @@ func cashChange(measures []cycleMeasure, amount func(reviewCashflow) string, ful
 	if len(history) > 0 {
 		previous = &history[0]
 	}
-	c := change(amount(measures[0].cash), previous, median3(history))
+	c := change(amount(measures[0].cash), previous, medianFor(measures, history))
 	if full != nil {
 		c.setFullPrevious(amount(full.cash))
 	}
@@ -881,7 +890,7 @@ func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]revie
 		if len(history) > 0 {
 			previous = &history[0]
 		}
-		c := change(current.Amount, previous, median3(history))
+		c := change(current.Amount, previous, medianFor(measures, history))
 		c.reviewValue = current
 		if full != nil {
 			amount := "0"
@@ -1010,4 +1019,32 @@ func memberValues(members []reviewMember) []reviewValue {
 		out = append(out, m.reviewValue)
 	}
 	return out
+}
+
+// medianCohort reports whether measures (selected cycle first) hold three prior
+// cycles that may share one median. While the selected cycle is ACTIVE every
+// prior cycle must cover the same number of days as the selected cycle's
+// elapsed days; a shorter cycle measured whole stays the previous-cycle baseline
+// but is never mixed into a median of unequal windows.
+func medianCohort(measures []cycleMeasure) bool {
+	if len(measures) != 4 {
+		return false
+	}
+	if measures[0].period.State != "ACTIVE" {
+		return true
+	}
+	want := daysBetween(measures[0].period.Start, measures[0].period.MeasuredUntil)
+	for _, m := range measures[1:] {
+		if daysBetween(m.period.Start, m.period.MeasuredUntil) != want {
+			return false
+		}
+	}
+	return true
+}
+
+func medianFor(measures []cycleMeasure, history []string) *string {
+	if !medianCohort(measures) {
+		return nil
+	}
+	return median3(history)
 }

@@ -342,3 +342,12 @@ test("T-37: one filter-key list drives the count and hasFilters, unknown params 
     assert.equal(activeFilterCount(`?${key}=1`), 1, key);
   }
 });
+
+test("T-62: the phone dialog stretches its fields to the full width", () => {
+  const css = readFileSync(new URL("../app/styles/04-ledger-and-drawers.css", import.meta.url), "utf8");
+  const phone = css.slice(css.indexOf("@media (max-width: 719px)"));
+  // The desktop grid sets align-items:start; in the phone flex column that would shrink
+  // every field to its content width, so the rule has to reset it.
+  assert.match(phone, /\.create-dialog \.transaction-form \{[^}]*align-items: stretch;/);
+  assert.match(css, /\.create-dialog \.date-hint\[data-date=""\] \{ display: none; \}/, "an empty date hint adds no gap under Waktu");
+});

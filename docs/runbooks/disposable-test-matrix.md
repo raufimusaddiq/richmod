@@ -203,6 +203,11 @@ For README images, use the synthetic browser/API fixtures and cleanup procedure
 in [the README visual showcase runbook](readme-showcase.md). Never reuse a
 production session, URL, or financial dataset.
 
+Visual regression baselines are canonical to the same pinned Playwright image:
+`cd apps/web && npm run test:visual` (compare) and `npm run test:visual:update`
+(regenerate) both run inside it. Do not regenerate baselines with a host
+browser; the glyph rasterisation differs and every baseline changes.
+
 ## Finish and prove cleanup
 
 Let the D1 trap run or invoke it explicitly:

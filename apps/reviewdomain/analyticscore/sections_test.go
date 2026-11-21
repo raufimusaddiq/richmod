@@ -177,3 +177,47 @@ func TestOrderedMembersPutsAutomaticFirstAndSharesSumToOne(t *testing.T) {
 		t.Fatal("a net-refund member makes shares undefined, never negative")
 	}
 }
+
+// Live regression: the active cycle (23 Oct, day 30) is longer than the
+// previous cycle (25 Sep - 23 Oct, 28 days). The previous cycle must stay the
+// comparison base, measured whole, not be skipped for an older longer cycle.
+func TestSameDayPeriodKeepsShorterPreviousCycleWholeOnJakartaDateGrid(t *testing.T) {
+	end := "2026-10-23"
+	prev := reviewPeriod{Kind: "SALARY_CYCLE", Start: "2026-09-25", End: &end, MeasuredUntil: end, State: "CLOSED"}
+	if got := sameDayPeriod(prev, 30); got.MeasuredUntil != end {
+		t.Fatalf("shorter previous cycle must be measured to its own end, got %s", got.MeasuredUntil)
+	}
+	if got := sameDayPeriod(prev, 28); got.MeasuredUntil != end {
+		t.Fatalf("equal-length cycle: %s", got.MeasuredUntil)
+	}
+	// Day 1 (25 Sep) is always inside the window, however short the elapsed span.
+	if got := sameDayPeriod(prev, 1); got.MeasuredUntil != "2026-09-26" {
+		t.Fatalf("elapsed day 1 must include the whole first Jakarta day: %s", got.MeasuredUntil)
+	}
+	active := reviewPeriod{Start: "2026-10-23", MeasuredUntil: "2026-11-22", State: "ACTIVE"}
+	if got := sameDayPeriod(active, 3); got != active {
+		t.Fatalf("active cycle must keep its cutoff: %+v", got)
+	}
+}
+
+func TestMedianCohortNeedsEqualMeasuredDaysWhileActive(t *testing.T) {
+	m := func(state, start, until string) cycleMeasure {
+		return cycleMeasure{period: reviewPeriod{Start: start, MeasuredUntil: until, State: state}}
+	}
+	active := m("ACTIVE", "2026-08-12", "2026-09-11") // 30 days
+	equal := []cycleMeasure{active, m("CLOSED", "2026-07-15", "2026-08-14"), m("CLOSED", "2026-06-01", "2026-07-01"), m("CLOSED", "2026-04-20", "2026-05-20")}
+	if !medianCohort(equal) {
+		t.Fatal("three 30-day windows must form a cohort")
+	}
+	short := []cycleMeasure{active, m("CLOSED", "2026-07-15", "2026-08-12"), equal[2], equal[3]} // 28 days whole
+	if medianCohort(short) || medianFor(short, []string{"1", "2", "3"}) != nil {
+		t.Fatal("a shorter window must not enter the median")
+	}
+	closed := []cycleMeasure{m("CLOSED", "2026-08-12", "2026-09-10"), short[1], equal[2], equal[3]}
+	if !medianCohort(closed) {
+		t.Fatal("closed selections keep full-cycle medians")
+	}
+	if medianCohort(equal[:3]) {
+		t.Fatal("fewer than three prior cycles has no median")
+	}
+}

@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { useInboxCount } from "./InboxCountProvider";
 import { useQuickRecord } from "./QuickRecordProvider";
 import BuildUpdateNotice from "./BuildUpdateNotice";
+import { trackScreenView } from "../lib/telemetry";
 import { ChartDonut, DotsThree, HouseLine, Plus, Receipt, ShieldChevron, SignOut, Tray, UsersThree } from "@phosphor-icons/react";
 
 // Four places to be: Beranda, Transaksi, Laporan, Keluarga. "Perlu dicek" appears
@@ -29,6 +31,7 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();
   const reviewCount = useInboxCount();
   const { open } = useQuickRecord();
+  useEffect(() => { trackScreenView(pathname); }, [pathname]);
   const current = activeHref(pathname);
   const isActive = href => href === "/" ? current === href : current.startsWith(href);
   const [homeLink, ledgerLink, reportLink, familyLink] = nav;

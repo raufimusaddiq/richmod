@@ -365,9 +365,9 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 			}
 			return rows.Err()
 		},
-		// Pre-migration history cannot be reconstructed; keep that gap visible for the first 30 days of telemetry.
+		// Pre-migration history cannot be reconstructed; keep that gap visible for the first 30 days of product telemetry. UI_EVENT screen views are not product history and must not clear it.
 		func(ctx context.Context) error {
-			return h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1`, householdID).Scan(&telemetryHistoryComplete)
+			return h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1 AND event_type<>'UI_EVENT'`, householdID).Scan(&telemetryHistoryComplete)
 		},
 	)
 
