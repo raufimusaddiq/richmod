@@ -89,6 +89,29 @@ export function editableFields(transaction) {
   return { category: !transfer, account: !transfer, place: !transfer, description: true, note: true };
 }
 
+export function editInitialValues(transaction = {}) {
+  return {
+    categoryId: transaction?.categoryId || "",
+    accountId: transaction?.accountId || "",
+    merchantName: transaction?.merchantName || "",
+    description: transaction?.description || "",
+    note: transaction?.note || "",
+  };
+}
+
+export function editOptionsReady(transaction, { categoriesLoaded = false, accountsLoaded = false } = {}) {
+  const fields = editableFields(transaction);
+  return (!fields.category || categoriesLoaded) && (!fields.account || accountsLoaded);
+}
+
+export function editSelectOptions(items = [], selectedId = "", selectedName = "") {
+  const list = items.filter(item => item.active || item.id === selectedId);
+  if (selectedId && !list.some(item => item.id === selectedId) && selectedName) {
+    list.unshift({ id: selectedId, name: selectedName });
+  }
+  return list;
+}
+
 export function editFormErrors(values, transaction = {}) {
   const errors = {};
   const description = String(values.description || "").trim();
@@ -100,16 +123,25 @@ export function editFormErrors(values, transaction = {}) {
   return errors;
 }
 
-export function editPayload(transaction, values) {
+function fieldTouched(touched, name) {
+  if (touched instanceof Set) return touched.has(name);
+  if (Array.isArray(touched)) return touched.includes(name);
+  return Boolean(touched[name]);
+}
+
+export function editPayload(transaction, values, touched = null) {
   const fields = editableFields(transaction), body = {};
-  if (fields.category && (values.categoryId || null) !== (transaction.categoryId || null)) body.categoryId = values.categoryId || null;
-  if (fields.account && (values.accountId || null) !== (transaction.accountId || null)) body.accountId = values.accountId || null;
+  const allow = name => (touched == null ? true : fieldTouched(touched, name));
+  const categoryId = values.categoryId || null;
+  if (fields.category && allow("categoryId") && (touched != null || categoryId !== null) && categoryId !== (transaction.categoryId || null)) body.categoryId = categoryId;
+  const accountId = values.accountId || null;
+  if (fields.account && allow("accountId") && (touched != null || accountId !== null) && accountId !== (transaction.accountId || null)) body.accountId = accountId;
   const place = String(values.merchantName || "").trim().replace(/\s+/g, " ");
-  if (fields.place && place && place !== (transaction.merchantName || "")) body.merchantName = place;
+  if (fields.place && allow("merchantName") && place && place !== (transaction.merchantName || "")) body.merchantName = place;
   const description = String(values.description || "").trim();
-  if (description !== (transaction.description || "")) body.description = description;
+  if (allow("description") && description !== (transaction.description || "")) body.description = description;
   const note = String(values.note || "").trim() || null;
-  if (note !== (transaction.note || null)) body.note = note;
+  if (allow("note") && note !== (transaction.note || null)) body.note = note;
   return body;
 }
 
