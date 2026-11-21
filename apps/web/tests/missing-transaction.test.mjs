@@ -31,6 +31,13 @@ test("the inbox and the transaction form use the cycle handoff", () => {
   assert.match(text("app/inbox/page.js"), /CANONICAL_TRANSACTION_FLOW"\) \{ window\.location\.assign\(missingTransactionHref\(result\)\)/);
   const page = text("app/transactions/page.js");
   assert.match(page, /cycleEntryWindow\(window\.location\.search\)/);
-  assert.match(page, /required=\{Boolean\(missingWindow\)\} min=\{missingWindow\?\.min\} max=\{missingWindow\?\.max\} defaultValue=\{missingWindow\?\.value\}/);
-  assert.match(page, /withinCycleWindow\(values\.transactionAt, missingWindow\)/);
+  // Regression: on a cold load this page's effect runs before the provider attaches its window
+  // listener, so the handoff must call the provider's open() from context, never dispatch an event.
+  assert.match(page, /const \{ open: openQuickRecord \} = useQuickRecord\(\);/);
+  assert.doesNotMatch(page, /import \{ openQuickRecord \}/);
+  assert.match(page, /if \(window_\) openCreate\(window_\); \}, \[user, openQuickRecord\]\);/);
+  assert.match(page, /openQuickRecord\(\{ missingWindow: cycleWindow \}\)/, "the handoff opens the global sheet limited to the cycle");
+  const dialog = text("app/components/QuickRecordDialog.js");
+  assert.match(dialog, /required min=\{missingWindow\.min\} max=\{missingWindow\.max\} defaultValue=\{missingWindow\.value\}/);
+  assert.match(dialog, /withinCycleWindow\(time, missingWindow\)/);
 });

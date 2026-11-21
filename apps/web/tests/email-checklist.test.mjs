@@ -29,7 +29,7 @@ function component(filename) {
   return module.exports;
 }
 
-const { EmailOnboardingChecklist } = component("app/settings/page.js");
+const { EmailOnboardingChecklist } = component("app/components/SettingsPanels.js");
 const render = props => renderToStaticMarkup(React.createElement(EmailOnboardingChecklist, props));
 const states = html => Object.fromEntries([...html.matchAll(/data-step="(\w+)" data-state="(\w+)"/g)].map(match => [match[1], match[2]]));
 const ingress = (steps, extra = {}) => ({ address: "h_abc@richmod.link", status: "PROVISIONED", forwardingAction: null, steps, ...extra });
@@ -90,7 +90,7 @@ test("members see progress but no actions", () => {
 });
 
 test("rotation warns that forwarding rules must be redone; activation errors map to next steps", () => {
-  const source = fs.readFileSync("app/settings/page.js", "utf8");
+  const source = fs.readFileSync("app/components/SettingsPanels.js", "utf8");
   assert.match(source, /ROTATE_CONFIRM = "[^"]*[Aa]turan penerusan[^"]*dibuat ulang/);
   assert.match(source, /confirm\(ROTATE_CONFIRM,/);
   assert.match(source, /SENDER_REQUIRED: "Tambahkan minimal satu pengirim/);

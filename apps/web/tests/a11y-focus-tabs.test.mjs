@@ -25,15 +25,26 @@ test("nextTabIndex implements the tablist arrow/Home/End keys", () => {
   assert.equal(nextTabIndex("a", 0, 4), null);
 });
 
-test("mobile sheet uses the focus trap and returns focus to the trigger", () => {
-  const shell = read("app/components/AppShell.js");
-  assert.match(shell, /trapKeyDown\(event, morePanel\.current/);
-  assert.match(shell, /ref=\{morePanel\}/);
-  assert.match(shell, /moreButton\.current\?\.focus\(\)/);
+test("the + Catat sheet is a native modal with a focus trap that returns focus to its opener", () => {
+  const dialog = read("app/components/QuickRecordDialog.js");
+  assert.match(dialog, /showModal\(\)/);
+  assert.match(dialog, /trapTarget\(items, document\.activeElement, event\.shiftKey, dialog\)/);
+  assert.match(dialog, /onKeyDown=\{trapTab\}/);
+  assert.match(dialog, /role="dialog" aria-modal="true" aria-labelledby="quick-record-title"/);
+  const provider = read("app/components/QuickRecordProvider.js");
+  assert.match(provider, /if \(target\?\.isConnected\) target\.focus\(\)/);
+});
+
+test("the Keluarga tablist is a real roving tablist", () => {
+  const hub = read("app/household/page.js");
+  assert.match(hub, /role="tablist"/);
+  assert.match(hub, /nextTabIndex\(event\.key, index, tabs\.length\)/);
+  assert.match(hub, /aria-selected=\{tab === key\}/);
+  assert.match(hub, /role="tabpanel" id="settings-panel"/);
 });
 
 test("settings jump links point at ids that exist", () => {
-  const src = read("app/settings/page.js");
+  const src = read("app/components/SettingsPanels.js");
   const links = SETTINGS_SECTIONS.map(([id]) => id);
   assert.ok(links.includes("akun-kekayaan") && links.includes("status-pemrosesan"));
   assert.ok(!links.includes("akun-wealth"));

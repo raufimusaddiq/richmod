@@ -277,10 +277,10 @@ async function run() {
         assert.equal(await page.locator("aside[role='dialog'][aria-label='Detail transaksi']").count(), 1, `${name} transaction drawer is a modal dialog`);
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-transaction-drawer.png`, output)), fullPage: true });
         await page.getByRole("button", { name: "Tutup detail" }).click();
-        await page.getByRole("button", { name: /Tambah transaksi|Catat transaksi|Transaksi manual/i }).click();
+        await page.getByRole("button", { name: "Tambah transaksi", exact: true }).click();
         await page.locator("dialog[open]").waitFor();
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-transaction-dialog.png`, output)), fullPage: true });
-        await page.locator("dialog[open]").getByRole("button", { name: "Batal" }).click();
+        await page.locator("dialog[open]").getByRole("button", { name: "Tutup", exact: true }).click();
         await page.goto(`${baseURL}/documents`, { waitUntil: "networkidle" });
         const documentCard = page.locator(".document-card").first();
         await documentCard.hover();
@@ -293,9 +293,9 @@ async function run() {
         await page.screenshot({ path: fileURLToPath(new URL(`${name}-document-drawer.png`, output)), fullPage: true });
         if (name === "mobile") {
           await page.getByRole("button", { name: "Tutup detail" }).click();
-          await page.getByRole("button", { name: "Lainnya" }).click();
-          await page.getByRole("dialog", { name: "Menu lainnya" }).waitFor();
-          await page.screenshot({ path: fileURLToPath(new URL("mobile-more-menu.png", output)), fullPage: true });
+          await page.getByRole("button", { name: "Catat transaksi" }).click();
+          await page.locator("dialog[open]").waitFor();
+          await page.screenshot({ path: fileURLToPath(new URL("mobile-quick-record.png", output)), fullPage: true });
         }
         assert.deepEqual(errors, [], `${name} browser errors:\n${errors.join("\n")}`);
         await page.close();

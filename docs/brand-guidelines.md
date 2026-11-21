@@ -144,13 +144,43 @@ and PRDs; they never appear in user-facing copy.
 - Confirmations and text entry use `useDialogs` (a native `<dialog>`), never
   `window.confirm`/`window.prompt`. The one exception is the unsaved-draft guard
   in analytics, which must answer synchronously.
-- The app shell reads one shared pending-review count (`InboxCountProvider`):
-  loaded once per session, refreshed on tab focus (at most once a minute), and
-  set exactly by the inbox page whenever it holds both lists.
+- The app shell reads one shared count (`InboxCountProvider`): loaded once per
+  session, refreshed on tab focus (at most once a minute), and set exactly by the
+  inbox page whenever it holds both lists. It exposes `reviewCount` (money
+  decisions, "Perlu dicek") and `actionCount` (owner integration setup actions)
+  apart; only `reviewCount` drives the navigation, `actionCount` marks
+  Keluarga › Sumber otomatis.
 - Modal drawers (`aside[role="dialog"]`) use `useDrawerA11y`: focus moves in,
   Escape closes, Tab stays inside, and focus returns to the opener.
-- On mobile, the pending-review count appears on the "Lainnya" button whenever
-  Tinjauan is in the overflow panel.
+- Navigation has four permanent places: **Beranda** (`/`), **Transaksi**
+  (`/transactions`), **Laporan** (`/analytics`; `/wealth` highlights it) and
+  **Keluarga** (`/household`; `/settings` renders the same hub and highlights it).
+  There is no overflow menu. `/documents` stays reachable from the + Catat sheet
+  ("Lihat semua riwayat foto bukti ›"), not from the navigation.
+- **Perlu dicek** (`/inbox`) is conditional: a butter-highlighted sidebar link with
+  the count, and a compact "N perlu dicek ›" butter pill in the phone page header,
+  both rendered only while `reviewCount > 0`. The direct URL always works.
+- Desktop sidebar order: brand, **+ Catat**, conditional Perlu dicek, the four places,
+  then workspace, a quiet **Admin** link (super admins only) and the user.
+- Phone bottom bar: `Beranda · Transaksi · + · Laporan · Keluarga`. The centre **+**
+  is the one elevated control (52px, 2px ink border and offset shadow); every tab is
+  at least 44px and the bar clears `env(safe-area-inset-bottom)`.
+- **+ Catat** is one global sheet (modal on desktop, bottom sheet on a phone) that
+  opens straight onto the manual form: Pengeluaran | Pemasukan | Transfer, a live
+  thousands-grouped Rp amount, a description with a deterministic category
+  suggestion, the six most-used categories as 1-tap chips (+ "Lainnya…"), and
+  "Ulangi cepat" chips from `GET /api/v1/transactions/quick-suggestions` (Go only,
+  no AI). **Foto bukti** sits beside **Catat** and swaps the body for the multi-image
+  upload with live status and "Proses ulang". Inputs are 16px, the save bar is
+  sticky above the keyboard, and the sheet keeps the 2px ink border and offset
+  shadow. Saving closes it, shows "Tercatat · Urungkan" (void) and fires
+  `richmod:transaction-created` so open pages refresh.
+- **Keluarga** is one workspace with five deep-linkable tabs
+  (`?tab=anggota|akun|kategori|sumber|notifikasi`): Anggota, Akun & kekayaan,
+  Kategori & aturan, Sumber otomatis (with the owner's pending "Tindakan" and the
+  "Email masuk terakhir" log) and Notifikasi. A member sees Anggota (read-only)
+  and Notifikasi only. Every old `/settings?tab=…` and `/settings#<anchor>` link
+  opens the matching tab and scrolls to the anchor.
 
 ## Diagrams and charts
 

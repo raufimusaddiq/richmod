@@ -1,9 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthContext } from "./AuthProvider";
 
-const InboxCountContext = createContext(0);
+// reviewCount: money decisions ("Perlu dicek"). actionCount: owner integration setup
+// actions (e.g. email forwarding verification), shown under Keluarga > Sumber otomatis.
+const InboxCountContext = createContext({ reviewCount: 0, actionCount: 0, total: 0 });
 const INBOX_COUNT_EVENT = "richmod:inbox-count";
 
 // Publish the exact number of open items from a page that already holds both
@@ -32,7 +34,7 @@ export function applyBadge(target, count) {
 // (at most once a minute), and whenever the inbox publishes a new count.
 export default function InboxCountProvider({ children }) {
   const { user } = useAuthContext();
-  const [count, setCount] = useState(0);
+  const [counts, setCounts] = useState({ reviewCount: 0, actionCount: 0 });
   const lastLoad = useRef(0);
   const loading = useRef(false);
   const signedIn = Boolean(user);
@@ -51,7 +53,7 @@ export default function InboxCountProvider({ children }) {
       const header = Number.parseInt(responses[0].headers.get("X-Decision-Count") || "", 10);
       const reviews = Number.isFinite(header) ? header : (Array.isArray(items[0]) ? items[0].filter(item => item.presentation !== "NOTICE").length : null);
       if (reviews === null) return;
-      setCount(reviews + items[1].length);
+      setCounts({ reviewCount: reviews, actionCount: items[1].length });
       lastLoad.current = Date.now();
     } catch {
       // The badge is a convenience; the inbox page reports its own errors.
@@ -60,21 +62,35 @@ export default function InboxCountProvider({ children }) {
     }
   }, []);
 
-  useEffect(() => { applyBadge(typeof navigator === "undefined" ? null : navigator, signedIn ? count : 0); }, [count, signedIn]);
+  const total = counts.reviewCount + counts.actionCount;
+  // The installed-app icon badge covers everything waiting on a person.
+  useEffect(() => { applyBadge(typeof navigator === "undefined" ? null : navigator, signedIn ? total : 0); }, [total, signedIn]);
 
   useEffect(() => {
-    if (!signedIn) { setCount(0); return undefined; }
+    if (!signedIn) { setCounts({ reviewCount: 0, actionCount: 0 }); return undefined; }
     load();
     const onFocus = () => { if (Date.now() - lastLoad.current > 60000) load(); };
-    const onPublish = event => { if (Number.isFinite(event.detail)) { setCount(event.detail); lastLoad.current = Date.now(); } };
+    const onPublish = event => {
+      const next = event.detail || {};
+      if (!Number.isFinite(next.reviewCount) && !Number.isFinite(next.actionCount)) return;
+      setCounts(previous => ({ reviewCount: Number.isFinite(next.reviewCount) ? next.reviewCount : previous.reviewCount, actionCount: Number.isFinite(next.actionCount) ? next.actionCount : previous.actionCount }));
+      lastLoad.current = Date.now();
+    };
     window.addEventListener("focus", onFocus);
     window.addEventListener(INBOX_COUNT_EVENT, onPublish);
     return () => { window.removeEventListener("focus", onFocus); window.removeEventListener(INBOX_COUNT_EVENT, onPublish); };
   }, [signedIn, load]);
 
-  return <InboxCountContext.Provider value={count}>{children}</InboxCountContext.Provider>;
+  const value = useMemo(() => ({ ...counts, total }), [counts, total]);
+  return <InboxCountContext.Provider value={value}>{children}</InboxCountContext.Provider>;
 }
 
+// "Perlu dicek": money decisions only.
 export function useInboxCount() {
+  return useContext(InboxCountContext).reviewCount;
+}
+
+// reviewCount and actionCount apart; total is what the installed-app badge shows.
+export function useInboxCounts() {
   return useContext(InboxCountContext);
 }

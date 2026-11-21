@@ -53,11 +53,13 @@ test("add form validates required fields inline", () => {
 });
 
 test("the add dialog has dialog semantics and focus handling", () => {
-  assert.match(page, /role="dialog" aria-modal="true" aria-labelledby="create-transaction-title"/);
-  assert.match(page, /onKeyDown=\{trapCreateTab\}/);
-  assert.match(page, /opener\.focus\(\)/);
-  assert.match(page, /className="dialog-close"/);
-  assert.match(page, /aria-required="true"/);
+  assert.match(page, /openQuickRecord/, "the ledger's add button opens the global sheet");
+  assert.doesNotMatch(page, /create-transaction-title/, "the ledger no longer owns a second add form");
+  const dialog = readFileSync(new URL("../app/components/QuickRecordDialog.js", import.meta.url), "utf8");
+  assert.match(dialog, /role="dialog" aria-modal="true" aria-labelledby="quick-record-title"/);
+  assert.match(dialog, /onKeyDown=\{trapTab\}/);
+  assert.match(dialog, /className="dialog-close"/);
+  assert.match(dialog, /aria-required="true"/);
 });
 
 test("page size label describes a page, not a cap", () => {

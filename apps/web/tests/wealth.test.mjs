@@ -49,16 +49,17 @@ test("homepage reads canonical Net Worth and distinguishes uninitialized Wealth"
   assert.match(home, /Kekayaan belum diinisialisasi/);
   assert.match(home, /: "—"/);
 });
-test("Wealth navigation uses a distinct Vault icon", () => {
+test("Wealth lives under Laporan in the shell", () => {
   const shell = text("app/components/AppShell.js");
-  assert.match(shell, /wealth: Vault/);
-  assert.match(shell, /\["\/wealth", "Kekayaan", "wealth"\]/);
+  assert.match(shell, /"\/wealth": "\/analytics"/);
+  assert.match(shell, /\["\/analytics", "Laporan", "analytics"\]/);
 });
 test("manual transfer exposes purpose and wealth account", () => {
-  const transactions = text("app/transactions/page.js");
-  assert.match(transactions, /value=\"TRANSFER\"/);
-  assert.match(transactions, /name=\"purpose\"/);
+  const transactions = text("app/components/QuickRecordDialog.js");
+  assert.match(transactions, /\["TRANSFER", "Transfer"\]/);
+  assert.match(transactions, /name="purpose"/);
   assert.match(transactions, /relatedWealthAccountId/);
+  for (const purpose of ["INTERNAL_TRANSFER", "SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT"]) assert.match(transactions, new RegExp(purpose));
   const inbox = text("app/inbox/page.js");
   assert.match(inbox, /api\/v1\/reviews/);
   assert.match(reviewCards(), /Alokasikan saldo tersisa/);
@@ -66,5 +67,4 @@ test("manual transfer exposes purpose and wealth account", () => {
   assert.match(reviewCards(), /ASSET_PURCHASE/);
   assert.match(reviewCards(), /Beli aset/);
   assert.match(reviewCards(), /item\.type === "EXPENSE".*classification: "ASSET_PURCHASE"/s);
-  assert.match(text("app/components/AppShell.js"), /\["\/wealth", "Kekayaan"/);
 });

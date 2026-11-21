@@ -103,14 +103,20 @@ test("modal drawers share focus, Escape, and Tab handling", () => {
   }
 });
 
-test("mobile overflow button carries the pending-review badge", () => {
+test("the mobile bar is four tabs around one elevated add button, with no overflow menu", () => {
   const shell = text("app/components/AppShell.js");
-  assert.match(shell, /hiddenInboxCount/);
-  assert.match(shell, /<span>Lainnya<\/span>\{hiddenInboxCount > 0/);
+  assert.doesNotMatch(shell, /hiddenInboxCount|Lainnya|moreOpen/);
+  const bar = shell.slice(shell.indexOf('<nav className="mobile-nav"'));
+  const order = [...bar.matchAll(/item=\{(\w+)\}|className="mobile-add"/g)].map(match => match[1] || "add");
+  assert.deepEqual(order, ["homeLink", "ledgerLink", "add", "reportLink", "familyLink"], "Beranda · Transaksi · + · Laporan · Keluarga");
+  const css = text("app/styles/11-responsive.css");
+  assert.match(css, /\.mobile-nav \.mobile-add \{[^}]*min-width: 52px; min-height: 52px;[^}]*border: 2px solid var\(--ink\)/);
+  assert.match(css, /\.mobile-nav \{[^}]*calc\(7px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(css, /\.review-pill \{ display: inline-flex; min-height: 44px;/);
 });
 
 test("user-facing copy uses the shared Indonesian vocabulary", () => {
-  for (const file of ["app/admin/", "app/components/review/", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
+  for (const file of ["app/admin/", "app/components/review/", "app/components/SettingsPanels.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /Wealth Account|Review Inbox|Pemilik household|data household|alamat household|Antrean review|Joint \/ household/, `${file} avoids internal terms`);
   }
@@ -121,8 +127,20 @@ test("user-facing copy uses the shared Indonesian vocabulary", () => {
 test("inbox badges are decorative and the control carries the accessible name", () => {
   const shell = text("app/components/AppShell.js");
   assert.doesNotMatch(shell, /<b className="nav-badge" aria-label/);
-  assert.match(shell, /aria-label=\{pending \? `\$\{label\}, \$\{inboxCount\} item menunggu tinjauan`/);
-  assert.match(shell, /aria-label=\{hiddenInboxCount > 0 \? `Lainnya, \$\{hiddenInboxCount\} item menunggu tinjauan`/);
+  assert.match(shell, /aria-label=\{pending \? .\$\{label\}, \$\{inboxCount\} item menunggu keputusan./);
+});
+
+test("Perlu dicek is conditional: the link and the phone pill render only with decisions waiting", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.match(shell, /\{reviewCount > 0 && <NavLink item=\{inboxItem\}/);
+  assert.match(shell, /\{reviewCount > 0 && <Link className="review-pill" href="\/inbox">\{reviewCount\} perlu dicek ›<\/Link>\}/);
+  assert.doesNotMatch(shell, /^  \["\/inbox", "Perlu dicek", "inbox"\],$/m, "it is not one of the four permanent links");
+  assert.match(shell, /"\/wealth": "\/analytics"/, "Kekayaan highlights Laporan");
+  assert.match(shell, /"\/settings": "\/household"/, "Pengaturan highlights Keluarga");
+  assert.match(shell, /user\?\.isSuperAdmin && <Link className="admin-link" href="\/admin"/);
+  const provider = text("app/components/InboxCountProvider.js");
+  assert.match(provider, /reviewCount: reviews, actionCount: items\[1\]\.length/, "decisions and setup actions are counted apart");
+  assert.match(provider, /export function useInboxCounts/);
 });
 
 test("admin console uses the shared Tinjauan vocabulary", () => {
@@ -130,7 +148,7 @@ test("admin console uses the shared Tinjauan vocabulary", () => {
 });
 
 test("destructive and text-entry choices use the shared dialog, not window.confirm/prompt", () => {
-  for (const file of ["app/settings/page.js", "app/household/page.js", "app/admin/", "app/components/CycleDecisions.js"]) {
+  for (const file of ["app/components/SettingsPanels.js", "app/household/page.js", "app/admin/", "app/components/CycleDecisions.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /window\.(confirm|prompt)\(|if \(!confirm\(/, `${file} avoids native dialogs`);
     assert.match(source, /useDialogs/, `${file} uses the shared dialog hook`);
@@ -153,10 +171,10 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   const provider = text("app/components/InboxCountProvider.js");
   assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
   assert.match(provider, /INBOX_COUNT_EVENT/);
-  assert.match(text("app/layout.js"), /<InboxCountProvider>\{children\}<\/InboxCountProvider>/);
+  assert.match(text("app/layout.js"), /<InboxCountProvider><QuickRecordProvider>\{children\}<\/QuickRecordProvider><\/InboxCountProvider>/);
   // Notices are not decisions: the count is the server's needs-your-decision
   // count across every page (X-Decision-Count) plus pending actions.
-  assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(decisions \+ actions\.length\)/);
+  assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(\{ reviewCount: decisions, actionCount: actions\.length \}\)/);
   assert.match(provider, /X-Decision-Count/);
 });
 
@@ -171,7 +189,7 @@ test("navigation icons are keyed by name, not by glyph", () => {
   const shell = text("app/components/AppShell.js");
   assert.doesNotMatch(shell, /\["[^"]*", "[^"]*", "[⌂⌁✓▤⌾]"\]/);
   assert.doesNotMatch(shell, /"[⌂⌁✓▤⌾]": /);
-  for (const name of ["home", "analytics", "inbox", "documents", "household"]) {
+  for (const name of ["home", "analytics", "inbox", "household"]) {
     assert.match(shell, new RegExp(`${name}: \\w+`), `${name} maps to an icon`);
   }
 });
@@ -226,8 +244,8 @@ test("every dashboard section has a setter and every nav entry has an icon", () 
   const shell = text("app/components/AppShell.js");
   const navKeys = [...shell.matchAll(/^\s+\["\/[^"]*", "[^"]+", "(\w+)"\],$/gm)].map(match => match[1]);
   const iconMap = shell.match(/const icons = \{([^}]*)\}/)[1];
-  assert.ok(navKeys.length >= 8);
-  for (const key of [...navKeys, "admin"]) assert.match(iconMap, new RegExp(`\\b${key}: `), `nav icon "${key}" is mapped`);
+  assert.equal(navKeys.length, 4, "four permanent places");
+  for (const key of [...navKeys, "inbox", "admin"]) assert.match(iconMap, new RegExp(`\\b${key}: `), `nav icon "${key}" is mapped`);
 });
 
 test("one malformed inbox list does not hide the other", () => {
@@ -392,7 +410,7 @@ test("every document type the worker can assign has an Indonesian label", () => 
 });
 
 test("settings shows labels, not raw enum values", () => {
-  const settings = text("app/settings/page.js");
+  const settings = text("app/components/SettingsPanels.js");
   for (const raw of ["{item.accountType}", "{item.wealthType}", "{item.side}", "{item.usageRole}", "{item.relationship}", "{item.status}"]) {
     assert.ok(!settings.includes(raw), `settings still renders ${raw}`);
   }
@@ -406,7 +424,8 @@ test("transaction date inputs carry visible labels and the chosen date spelled o
   const page = text("app/transactions/page.js");
   assert.match(page, /<label className="filter-field filter-date"><span>Dari tanggal<\/span><DateInput name="from" type="date"/);
   assert.match(page, /<label className="filter-field filter-date"><span>Sampai tanggal<\/span><DateInput name="to" type="date"/);
-  assert.equal((page.match(/<DateInput /g) || []).length, 3);
+  assert.equal((page.match(/<DateInput /g) || []).length, 2, "the add form's date lives in the + Catat sheet");
+  assert.match(text("app/components/QuickRecordDialog.js"), /<DateInput name="transactionAt" type="datetime-local"/);
   const field = text("app/components/DateInput.js");
   assert.match(field, /displayDate\(day\)/);
   assert.match(field, /className="date-hint"/);

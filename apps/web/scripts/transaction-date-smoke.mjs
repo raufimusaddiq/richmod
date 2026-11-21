@@ -17,15 +17,31 @@ async function openFilters(page) {
   if (await toggle.isVisible()) await toggle.click();
 }
 
-async function fits(input) {  const box = await input.evaluate(element => {
+async function fits(input) {
+  // Layout can still be settling right after navigation or a viewport-sized reflow (seen on CI WebKit),
+  // so measure until the box is touch-sized, up to two seconds, then assert on the last reading.
+  let box;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    box = await measure(input);
+    if (box.height >= 44 && box.width >= 44) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return check(input, box);
+}
+
+async function measure(input) {
+  return input.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const parent = element.parentElement.getBoundingClientRect();
     const style = getComputedStyle(element);
     return { left: rect.left, right: rect.right, width: rect.width, height: rect.height, parentLeft: parent.left, parentRight: parent.right, overflow: element.scrollWidth > element.clientWidth + 1, fontSize: Number.parseFloat(style.fontSize) };
   });
+}
+
+async function check(input, box) {
   assert.ok(box.left >= box.parentLeft - 1 && box.right <= box.parentRight + 1, `input exceeds container: ${JSON.stringify(box)}`);
   assert.equal(box.overflow, false, `date text overflows: ${JSON.stringify(box)}`);
-  assert.ok(box.height >= 44 && box.width >= 44, "date input remains touch accessible");
+  assert.ok(box.height >= 44 && box.width >= 44, `date input remains touch accessible: ${JSON.stringify(box)}`);
   await input.focus();
   assert.notEqual(await input.evaluate(element => getComputedStyle(element).outlineStyle), "none", "date input has visible keyboard focus");
   return box;
@@ -62,6 +78,8 @@ try {
       await page.screenshot({ path: fileURLToPath(new URL(`${engine.name()}-${width}-filters.png`, output)), fullPage: true });
       await page.getByRole("button", { name: "Tambah transaksi", exact: true }).click();
       const dialog = page.locator("dialog[open]");
+      // Waktu, akun and notes sit behind one disclosure so the sheet stays a two-field entry.
+      await dialog.getByText("Waktu, akun, dan catatan", { exact: true }).click();
       const time = dialog.getByLabel("Waktu", { exact: true });
       await fits(time);
       await time.fill("2026-09-25T12:30");

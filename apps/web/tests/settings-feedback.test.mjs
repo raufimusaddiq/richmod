@@ -6,7 +6,7 @@ import test from "node:test";
 import { globalCss } from "./source.mjs";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const settings = read("app/settings/page.js");
+const settings = read("app/components/SettingsPanels.js");
 const household = read("app/household/page.js");
 
 test("every deactivate asks first and names the consequence", () => {
