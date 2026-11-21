@@ -182,11 +182,14 @@ and PRDs; they never appear in user-facing copy.
   is the one elevated control (52px, 2px ink border and offset shadow); every tab is
   at least 44px and the bar clears `env(safe-area-inset-bottom)`.
 - **+ Catat** is one global sheet (modal on desktop, bottom sheet on a phone) that
-  opens straight onto the manual form: Pengeluaran | Pemasukan | Transfer, a live
-  thousands-grouped Rp amount, a description with a deterministic category
-  suggestion, the six most-used categories as 1-tap chips (+ "Lainnya…"), and
-  "Ulangi cepat" chips from `GET /api/v1/transactions/quick-suggestions` (Go only,
-  no AI). **Foto bukti** sits beside **Catat** and swaps the body for the multi-image
+  opens straight onto the manual form: Pengeluaran | Pemasukan | Transfer, an empty
+  live thousands-grouped Rp amount input (example placeholder, never prefilled `0`),
+  a description with a deterministic category suggestion, the six most-used categories
+  as 1-tap chips (+ "Lainnya…"), and "Ulangi cepat" chips from
+  `GET /api/v1/transactions/quick-suggestions` (Go only, no AI; sourced from the
+  household's own `WEB_MANUAL` and `TELEGRAM_TEXT` entries, deduplicated by
+  type/description/amount, ranked most frequent then most recent, with short labels).
+  **Foto bukti** sits beside **Catat** and swaps the body for the multi-image
   upload with live status and "Proses ulang". Inputs are 16px, the save bar is
   sticky above the keyboard, and the sheet keeps the 2px ink border and offset
   shadow. Saving closes it, shows "Tercatat · Urungkan" (void) and fires
@@ -207,12 +210,17 @@ and PRDs; they never appear in user-facing copy.
   normal ("Sisa siklus ini" with spending share, the comparison against the previous
   cycle/month from `GET /api/v1/analytics/overview`, and four figures). All cards read
   the current period (`categories?period=current_cycle`); category rows and non-zero
-  day bars open `/transactions` filtered to that category/day. Daily bars are capped
-  at 3x the median day only when the largest day exceeds that and the median is above
-  zero, with a break slash and the real value labelled. Owners see a one-line butter
-  notice when `actionCount > 0`.
+  day bars open `/transactions` filtered to that category/day. Daily bars use
+  neutral ink (`--ink-soft`), reserving red for "spent more than last cycle", and
+  cap near the 90th-percentile day (snapped to a round axis top when the peak
+  exceeds twice that cap) so at most ~3 spikes are clipped with a break slash; the
+  y-axis uses round ticks labelled in `rb` below 1 jt (`0`, `250rb`, `500rb`) and
+  clipped bar labels stagger on nearby spikes (or show only the largest on narrow
+  widths). Owners see a one-line butter notice when `actionCount > 0`.
 - **Transaksi** is a quiet ledger grouped by Asia/Jakarta day with each day's net spend
-  in the header. Rows show a semantic Phosphor category icon (`categoryIcons.js`, six
+  in the header. Rows show a display name preferring merchant name → counterparty
+  name → description (and `Transfer ke <name>` for transfers with a counterparty,
+  display-only), a semantic Phosphor category icon (`categoryIcons.js`, six
   category tones, never letter boxes), one meta line and the signed amount; a badge
   appears only for exceptions (Perlu dicek, Dibatalkan). Voided rows are hidden through
   `exclude_voided=true` (response headers `X-Total-Count` and `X-Voided-Count`) unless

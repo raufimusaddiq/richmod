@@ -17,7 +17,7 @@ import (
 )
 
 func TestBuildQuickSuggestionsEmpty(t *testing.T) {
-	got := buildQuickSuggestions(nil)
+	got := buildQuickSuggestions(nil, nil)
 	encoded, _ := json.Marshal(got)
 	if string(encoded) != `{"frequent":[],"recentCategories":[],"descriptionMap":{}}` {
 		t.Fatalf("empty response must be explicit empty collections: %s", encoded)
@@ -25,18 +25,26 @@ func TestBuildQuickSuggestionsEmpty(t *testing.T) {
 }
 
 func TestBuildQuickSuggestionsRanksDeterministically(t *testing.T) {
-	rows := []quickRow{
+	manualRows := []quickRow{
 		{Description: "  Kopi   Pagi ", Amount: "25000", Type: "EXPENSE", CategoryID: "cat-food", AccountID: "acc-1"},
 		{Description: "Parkir", Amount: "5000", Type: "EXPENSE", CategoryID: "cat-transport"},
-		{Description: "kopi pagi", Amount: "25000", Type: "EXPENSE", CategoryID: "cat-food", AccountID: "acc-1"},
+		{Description: "kopi pagi", Amount: "25000.00", Type: "EXPENSE", CategoryID: "cat-food", AccountID: "acc-1"},
 		{Description: "Kopi pagi", Amount: "30000", Type: "EXPENSE", CategoryID: "cat-snack"},
 		{Description: "Gaji", Amount: "9000000", Type: "INCOME"},
 		{Description: "   ", Amount: "1", Type: "EXPENSE", CategoryID: "cat-blank"},
 	}
-	got := buildQuickSuggestions(rows)
+	historyRows := append([]quickRow{
+		{Description: "Transaksi menggunakan kartu debit Jago", Amount: "101500", Type: "EXPENSE", CategoryID: "cat-food"},
+	}, manualRows...)
+	got := buildQuickSuggestions(manualRows, historyRows)
 	first := got.Frequent[0]
-	if first.Description != "Kopi   Pagi" || first.Amount != "25000" || first.CategoryID == nil || *first.CategoryID != "cat-food" || first.AccountID == nil || *first.AccountID != "acc-1" {
-		t.Fatalf("the repeated entry ranks first with its newest values: %#v", first)
+	if first.Description != "Kopi Pagi" || first.Amount != "25000" || first.CategoryID == nil || *first.CategoryID != "cat-food" || first.AccountID == nil || *first.AccountID != "acc-1" {
+		t.Fatalf("the repeated entry ranks first with collapsed spaces and normalized amount: %#v", first)
+	}
+	for _, item := range got.Frequent {
+		if strings.Contains(item.Description, "kartu debit Jago") {
+			t.Fatalf("history-only bank email rows must not leak into frequent: %#v", got.Frequent)
+		}
 	}
 	var income *quickFrequent
 	for i := range got.Frequent {
@@ -63,7 +71,7 @@ func TestBuildQuickSuggestionsCaps(t *testing.T) {
 	for i := 0; i < 80; i++ {
 		rows = append(rows, quickRow{Description: fmt.Sprintf("toko %d", i), Amount: "1000", Type: "EXPENSE", CategoryID: fmt.Sprintf("cat-%d", i)})
 	}
-	got := buildQuickSuggestions(rows)
+	got := buildQuickSuggestions(rows, rows)
 	if len(got.Frequent) != 5 || len(got.RecentCategories) != 6 || len(got.DescriptionMap) != 50 {
 		t.Fatalf("caps: frequent=%d categories=%d map=%d", len(got.Frequent), len(got.RecentCategories), len(got.DescriptionMap))
 	}
@@ -72,6 +80,15 @@ func TestBuildQuickSuggestionsCaps(t *testing.T) {
 	}
 	if _, ok := got.DescriptionMap["toko 79"]; ok {
 		t.Fatal("the cap drops the oldest patterns")
+	}
+}
+
+func TestQuickFrequentQueryRestrictsToManualAndTelegramText(t *testing.T) {
+	if !strings.Contains(quickFrequentQuery, "e.source_type IN ('WEB_MANUAL', 'TELEGRAM_TEXT')") {
+		t.Fatalf("quickFrequentQuery must restrict frequent entries to WEB_MANUAL and TELEGRAM_TEXT: %s", quickFrequentQuery)
+	}
+	if !strings.Contains(quickFrequentQuery, "ORDER BY te.created_at, te.id") {
+		t.Fatalf("quickFrequentQuery must resolve the originating active source_event: %s", quickFrequentQuery)
 	}
 }
 
@@ -148,16 +165,43 @@ func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy,active) VALUES($1,'Lama','BANK','SPENDING_ONLY',false) RETURNING id`, householdA).Scan(&inactiveAccount); err != nil {
 		t.Fatal(err)
 	}
-	insert := func(household, status, kind, description string, category, account any, amount int) {
-		if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,account_id,category_id,type,status,amount,transaction_at,description,confirmed_at,voided_at) VALUES($1,$2,$3,$4,$5,$6,now(),$7,CASE WHEN $5 = $8 THEN now() END,CASE WHEN $5 = $9 THEN now() END)`, household, account, category, kind, status, amount, description, "CONFIRMED", "VOIDED"); err != nil {
+	seq := 0
+	insert := func(household, status, kind, sourceType, description string, category, account any, amount int) string {
+		seq++
+		var txID string
+		if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,category_id,type,status,amount,transaction_at,description,confirmed_at,voided_at) VALUES($1,$2,$3,$4,$5,$6,now(),$7,CASE WHEN $5 = $8 THEN now() END,CASE WHEN $5 = $9 THEN now() END) RETURNING id`, household, account, category, kind, status, amount, description, "CONFIRMED", "VOIDED").Scan(&txID); err != nil {
 			t.Fatal(err)
 		}
+		if sourceType != "" {
+			var srcID string
+			if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'PROCESSED') RETURNING id`, household, sourceType, fmt.Sprintf("quick-%d-%d", stamp, seq), []byte(fmt.Sprintf("q-%d-%d", stamp, seq))).Scan(&srcID); err != nil {
+				t.Fatal(err)
+			}
+			evidenceType := "MANUAL_ENTRY"
+			if sourceType == "BANK_EMAIL" {
+				evidenceType = "BANK_EMAIL"
+			} else if sourceType == "TELEGRAM_TEXT" {
+				evidenceType = "TELEGRAM_MESSAGE"
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,$3,'{}')`, txID, srcID, evidenceType); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return txID
 	}
-	insert(householdA, "CONFIRMED", "EXPENSE", "Nasi padang", active, activeAccount, 30000)
-	insert(householdA, "CONFIRMED", "EXPENSE", "Warung lama", inactive, inactiveAccount, 12000)
-	insert(householdA, "VOIDED", "EXPENSE", "Dibatalkan", active, nil, 99000)
-	insert(householdA, "CONFIRMED", "TRANSFER", "Pindah tabungan", nil, activeAccount, 500000)
-	insert(householdB, "CONFIRMED", "EXPENSE", "Punya tetangga", otherHousehold, nil, 77000)
+	insert(householdA, "CONFIRMED", "EXPENSE", "WEB_MANUAL", "Nasi padang", active, activeAccount, 30000)
+	insert(householdA, "CONFIRMED", "EXPENSE", "TELEGRAM_TEXT", "Warung lama", inactive, inactiveAccount, 12000)
+	bankTx := insert(householdA, "CONFIRMED", "EXPENSE", "BANK_EMAIL", "Transaksi menggunakan kartu debit Jago", active, activeAccount, 101500)
+	var replySrc string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now()+interval '1 second',$3,'PROCESSED') RETURNING id`, householdA, fmt.Sprintf("quick-reply-%d", stamp), []byte(fmt.Sprintf("qr-%d", stamp))).Scan(&replySrc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json,created_at) VALUES($1,$2,'TELEGRAM_MESSAGE','{}',now()+interval '1 second')`, bankTx, replySrc); err != nil {
+		t.Fatal(err)
+	}
+	insert(householdA, "VOIDED", "EXPENSE", "WEB_MANUAL", "Dibatalkan", active, nil, 99000)
+	insert(householdA, "CONFIRMED", "TRANSFER", "WEB_MANUAL", "Pindah tabungan", nil, activeAccount, 500000)
+	insert(householdB, "CONFIRMED", "EXPENSE", "WEB_MANUAL", "Punya tetangga", otherHousehold, nil, 77000)
 
 	got := call(householdA, userA)
 	descriptions := map[string]quickFrequent{}
@@ -173,10 +217,10 @@ func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
 	if !reflect.DeepEqual(got.RecentCategories, []string{active}) {
 		t.Fatalf("recentCategories=%v", got.RecentCategories)
 	}
-	if !reflect.DeepEqual(got.DescriptionMap, map[string]string{"nasi padang": active}) {
+	if got.DescriptionMap["nasi padang"] != active {
 		t.Fatalf("descriptionMap=%v", got.DescriptionMap)
 	}
-	for _, leak := range []string{"Dibatalkan", "Pindah tabungan", "Punya tetangga"} {
+	for _, leak := range []string{"Transaksi menggunakan kartu debit Jago", "Dibatalkan", "Pindah tabungan", "Punya tetangga"} {
 		if _, ok := descriptions[leak]; ok {
 			t.Fatalf("%q must not appear: %#v", leak, got.Frequent)
 		}

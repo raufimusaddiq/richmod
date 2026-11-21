@@ -5,6 +5,7 @@ import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/re
 import CategoryIcon from "./CategoryIcon";
 import { money, typeLabel } from "../lib/format";
 import { groupByDay, timeOfDay } from "../lib/ledgerDays";
+import { transactionDisplayName } from "../lib/transactionView";
 
 const shortDay = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short" });
 
@@ -14,7 +15,7 @@ function Row({ item, compact, onSelect, newId }) {
   const Glyph = incoming ? ArrowDownLeft : neutral ? ArrowsLeftRight : ArrowUpRight;
   const sign = incoming ? "+" : neutral ? "" : "−";
   const voided = item.status === "VOIDED", review = item.status === "NEEDS_REVIEW";
-  const merchant = item.merchantName || item.description || item.counterpartyName || typeLabel[item.type] || "Transaksi";
+  const merchant = transactionDisplayName(item);
   const category = item.categoryName || (item.type === "TRANSFER" ? "Transfer" : item.type === "INCOME" ? "Pemasukan" : "Belum dikategorikan");
   const when = compact ? `${shortDay.format(new Date(item.transactionAt))}, ${timeOfDay(item.transactionAt)}` : timeOfDay(item.transactionAt);
   const meta = [category, when, item.accountName, item.memberName && `oleh ${item.memberName}`].filter(Boolean).join(" · ");

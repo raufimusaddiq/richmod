@@ -1,5 +1,16 @@
 import { actorText, auditActionText, evidenceTypeText } from "./labels.js";
-import { dateTime } from "./format.js";
+import { dateTime, typeLabel } from "./format.js";
+
+export function transactionDisplayName(item) {
+  const clean = value => String(value ?? "").trim();
+  const merchant = clean(item?.merchantName);
+  const counterparty = clean(item?.counterpartyName);
+  const description = clean(item?.description);
+  if (item?.type === "TRANSFER" && counterparty) {
+    return /^transfer\s+ke\b/i.test(counterparty) ? counterparty : `Transfer ke ${counterparty}`;
+  }
+  return merchant || counterparty || description || typeLabel[item?.type] || "Transaksi";
+}
 
 export function withVoidedPolicy(search) {
   const query = new URLSearchParams(search);
