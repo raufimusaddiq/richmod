@@ -12,6 +12,9 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
+// RateLimitPerMinute is the per-client cap: ample for navigation plus bursts.
+const RateLimitPerMinute = 120
+
 const maxBody = 512
 
 var screens = map[string]bool{"home": true, "transactions": true, "analytics": true, "wealth": true, "inbox": true, "documents": true, "household": true, "settings": true, "admin": true}

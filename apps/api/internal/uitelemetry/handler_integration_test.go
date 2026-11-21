@@ -50,6 +50,9 @@ func TestUIEventsAreHouseholdScopedAndConstrainedByTheDatabase(t *testing.T) {
 			t.Fatalf("database accepted %v", bad)
 		}
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO product_telemetry_event(household_id,event_type,action) VALUES($1,'UI_EVENT','SCREEN_VIEW')`, a); err == nil {
+		t.Fatal("a UI_EVENT needs a screen")
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO product_telemetry_event(household_id,event_type,action,screen) VALUES($1,'REVIEW_TURN','IGNORE','home')`, a); err == nil {
 		t.Fatal("screen is only valid on UI_EVENT rows")
 	}

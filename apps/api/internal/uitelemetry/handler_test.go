@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 )
 
 type call struct{ household, screen, action string }
@@ -69,5 +71,26 @@ func TestUnknownOrUnboundedPayloadsAreRejected(t *testing.T) {
 				t.Fatalf("code=%d calls=%d", code, len(calls))
 			}
 		})
+	}
+}
+
+func TestTelemetryRouteIsRateLimitedPerClient(t *testing.T) {
+	h := &Handler{record: func(context.Context, string, string, string) error { return nil }}
+	limited := httpmw.NewLimiter(RateLimitPerMinute, time.Minute).Handler(http.HandlerFunc(h.Create))
+	send := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/events", strings.NewReader(`{"screen":"home","action":"SCREEN_VIEW"}`))
+		req.RemoteAddr = "192.0.2.7:4000"
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), *member("house-a")))
+		rec := httptest.NewRecorder()
+		limited.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 0; i < RateLimitPerMinute; i++ {
+		if code := send(); code != http.StatusNoContent {
+			t.Fatalf("request %d: %d", i+1, code)
+		}
+	}
+	if code := send(); code != http.StatusTooManyRequests {
+		t.Fatalf("over-limit request got %d", code)
 	}
 }

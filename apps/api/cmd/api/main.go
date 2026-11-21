@@ -85,6 +85,7 @@ func run(logger *slog.Logger) error {
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
+	uiTelemetryLimiter := httpmw.NewLimiter(uitelemetry.RateLimitPerMinute, time.Minute)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -137,7 +138,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
 	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))
-	mux.Handle("POST /api/v1/telemetry/events", authHandler.RequireSession(http.HandlerFunc(uiTelemetryHandler.Create)))
+	mux.Handle("POST /api/v1/telemetry/events", uiTelemetryLimiter.Handler(authHandler.RequireSession(http.HandlerFunc(uiTelemetryHandler.Create))))
 	mux.HandleFunc("GET /api/v1/push/public-key", pushHandler.PublicKey)
 	mux.Handle("GET /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.List)))
 	mux.Handle("POST /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.Subscribe)))
