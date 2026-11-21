@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const BASELINE_FILE = "scripts/comment-baseline.json";
 
-const GO_DIRECTIVE = /^\/\/(go:|line |nolint|export )/;
+const GO_DIRECTIVE = /^\/\/\s*(go:|line |nolint|export |(Unordered output|Output):)/;
 const GO_BLOCK_DIRECTIVE = /^\/\*(line )/;
 const JS_DIRECTIVE =
   /^(\/\/|\/\*)\s*(eslint-|@ts-|istanbul |c8 |#__PURE__|@vite-ignore|webpackChunkName)/;
@@ -360,10 +360,21 @@ export function scanComments(path, text) {
         : scanHash(text, lang);
   const starts = lineIndex(text);
   const out = [];
+  let outputRunEndLine = 0;
   for (const c of raw) {
     const body = text.slice(c.start, c.end);
+    const startLine = lineAt(starts, c.start);
+    if (lang === "go" && /^\/\/\s*(Unordered output|Output):/.test(body)) {
+      outputRunEndLine = startLine;
+      continue;
+    }
+    if (lang === "go" && outputRunEndLine > 0 && c.kind === "line" && startLine === outputRunEndLine + 1) {
+      outputRunEndLine = startLine;
+      continue;
+    }
+    outputRunEndLine = 0;
     if (isDirective(lang, body)) continue;
-    const line = lineAt(starts, c.start);
+    const line = startLine;
     const endLine = lineAt(starts, Math.max(c.start, c.end - 1));
     const before = text.slice(starts[line - 1], c.start);
     out.push({

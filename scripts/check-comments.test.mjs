@@ -14,6 +14,11 @@ test("go: tool directives are not counted", () => {
   assert.deepEqual(texts("a.go", source), ["// plain"]);
 });
 
+test("go: example output markers are directives, not comments", () => {
+  const source = ["func ExampleX() {", "\t// Output:", "\t// 1", "\t// 2", "}", "// real", ""].join("\n");
+  assert.deepEqual(texts("a.go", source), ["// real"]);
+});
+
 test("js: regex literals, template literals and JSX closing tags do not hide comments", () => {
   const source = [
     "const r = /\\/\\//g;",
