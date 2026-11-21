@@ -74,6 +74,7 @@
   .overview-cashflow-parts strong, .overview-allocation strong { font-size: clamp(16px, 5vw, 21px); }
   .overview-allocation { border-top: 1px solid var(--line); }
   .overview-lower { grid-template-columns: minmax(0, 1fr); }
+  .overview-trend, .overview-wealth, .home-lower-single { display: none; }
   .review-alert { grid-template-columns: 22px minmax(0, 1fr); }
   .review-alert strong { grid-column: 2; }
   .overview-trend, .overview-categories, .overview-activity, .overview-wealth, .analytics-chart, .ledger-panel, .panel, .settings-section, .admin-panel { padding: 17px; }

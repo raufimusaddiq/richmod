@@ -89,19 +89,21 @@ test("sections source: no money arithmetic, plain model text, fixed order", () =
   assert.match(styles, /\.decision-columns \{ display: grid/);
 });
 
-test("the five report sections share one card of compact disclosure rows", () => {
+test("the collapsed bottom list groups Obrolan keluarga into one uniform disclosure row", () => {
   const page = text("app/analytics/page.js");
   assert.match(page, /<div className="review-stack surface card">/, "one card wraps the detail sections");
-  for (const id of ["discussion"]) {
-    assert.match(page, new RegExp(`<section id="${id}" className="review-section"`), `${id} is a row, not its own card`);
-  }
+  assert.match(page, /<section id="family-talk" className="review-section"/, "Obrolan keluarga is one row in the bottom list");
+  assert.match(page, /Obrolan keluarga<\/h2>/);
+  assert.match(page, /<section id="discussion" className="family-talk-part"/, "Bahan pembahasan lives inside Obrolan keluarga");
   assert.doesNotMatch(page, /review-section surface card/, "no detail section keeps its own outline");
   assert.match(text("app/analytics/CycleWhere.js"), /<section id="daily" className="review-section"/);
-  assert.match(text("app/analytics/CycleSections.js"), /<section id="household" className="review-section"/);
-  assert.match(text("app/components/CycleDecisions.js"), /<section id="decisions" className="review-section"/);
+  assert.match(text("app/analytics/CycleSections.js"), /<section id="household" className="family-talk-part"/);
+  assert.match(text("app/components/CycleDecisions.js"), /<section id="decisions" className="family-talk-part"/);
   const styles = globalCss();
   assert.match(styles, /\.cycle-review \.review-stack > \.review-section \{[^}]*border-top: 1px solid var\(--line\);[^}]*\}/, "rows are separated by a hairline");
-  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary \{[^}]*min-height: 60px;[^}]*\}/, "a collapsed row is 60px tall");
+  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary \{[^}]*display: grid;[^}]*padding: 14px 16px;[^}]*\}/, "rows share equal padding and a 2-line grid");
+  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary h2 \{[^}]*color: var\(--ink\);[^}]*font-family: var\(--font-display\);[^}]*font-size: 17px;[^}]*\}/, "every row title is 17px Fraunces in ink");
+  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary > span \{[^}]*grid-row: 2;[^}]*color: var\(--muted\);[^}]*font-size: var\(--text-md\);[^}]*\}/, "every summary sits on its own 13px muted line below");
 });
 
 test("the pace row sizes its cards to content instead of stretching the shorter one", () => {

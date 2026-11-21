@@ -45,6 +45,20 @@ test("history columns carry the served expense and a real bar length", () => {
   assert.equal(buildLedger([], "").columns.length, 0);
 });
 
+test("history columns carry stacked category segments using the shared Where colour map", () => {
+  const facts = cycleFacts();
+  const colors = new Map(facts.categoryRanking.rows.map((row, index) => [row.id || "uncategorized", `var(--chart-category-${index + 1})`]));
+  const order = facts.categoryRanking.rows.map(row => row.id || "uncategorized");
+  const { columns } = buildLedger(facts.history, facts.period.start, facts.categoryHistory, { colors, order });
+  assert.equal(columns.length, facts.history.length);
+  const latest = columns.at(-1);
+  assert.deepEqual(latest.segments.map(seg => seg.key), order);
+  assert.deepEqual(latest.segments.map(seg => seg.color), order.map((_, index) => `var(--chart-category-${index + 1})`));
+  const earlier = columns[0];
+  assert.equal(earlier.segments.at(-1).key, "other");
+  assert.equal(earlier.segments.at(-1).color, "var(--chart-category-other)");
+});
+
 test("previous and next follow the served newest-first cycle list", () => {
   const cycles = [{ start: "2026-09-26" }, { start: "2026-08-26" }, { start: "2026-07-26" }];
   assert.deepEqual(adjacentCycles(cycles, "2026-09-26"), { older: "2026-08-26", newer: "" });

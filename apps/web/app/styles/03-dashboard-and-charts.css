@@ -41,14 +41,14 @@
 .overview-insights { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr); gap: 18px; margin-bottom: 18px; }
 .overview-trend, .overview-categories, .overview-activity, .analytics-chart, .ledger-panel { padding: var(--card-padding); }
 .overview-categories { background: var(--pastel-mint); }
-.overview-lower { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(250px, .45fr); gap: 18px; }
+.overview-lower { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(250px, .45fr); align-items: start; gap: 18px; }
 .overview-activity { min-width: 0; overflow: hidden; }
 .overview-wealth { display: flex; min-width: 0; flex-direction: column; justify-content: flex-start; padding: var(--card-padding); background: var(--accent-soft); color: var(--ink); text-decoration: none; }
 .overview-wealth:hover { border-color: var(--accent-border); background: var(--surface-muted); color: var(--ink); }
 .overview-wealth h2 { margin: 4px 0 0; font-size: var(--card-title-size); font-weight: var(--card-title-weight); letter-spacing: -.025em; }
 .overview-wealth > strong { margin-top: 10px; font-size: clamp(22px, 2vw, 30px); font-weight: 590; line-height: 1; letter-spacing: -.05em; white-space: nowrap; }
 .overview-wealth > small { margin-top: 8px; color: var(--muted); font-size: var(--text-xs); }
-.overview-wealth-link { display: inline-flex; align-items: center; gap: 5px; margin-top: auto; padding-top: 18px; color: var(--accent); font-size: var(--text-xs); font-weight: 700; }
+.overview-wealth-link { display: inline-flex; align-items: center; gap: 5px; margin-top: 14px; color: var(--accent); font-size: var(--text-xs); font-weight: 700; }
 .chart-wrap { width: 100%; min-width: 0; }
 .category-visual { display: grid; }
 .legend-list { display: grid; gap: 0; }
@@ -71,8 +71,7 @@
 .home-hero { margin-bottom: 18px; overflow: hidden; }
 .home-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px 0; }
 .home-hero-main { padding: 6px 24px 22px; }
-.home-hero-amount { display: block; font-size: clamp(38px, 5vw, 56px); font-weight: 590; letter-spacing: -.03em; line-height: 1.05; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.home-hero-amount.negative, .home-hero-amount.expense { color: var(--expense); }
+.home-hero-amount { display: block; color: var(--ink); font-size: clamp(38px, 5vw, 56px); font-weight: 590; letter-spacing: -.03em; line-height: 1.05; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .home-share { height: 10px; margin: 16px 0 8px; overflow: hidden; border: 1.5px solid var(--line-strong); border-radius: 999px; background: var(--surface-muted); }
 .home-share > span { display: block; height: 100%; background: var(--accent); }
 .home-share-label, .home-hero-prompt { margin: 0; color: var(--muted); font-size: var(--text-md); line-height: 1.5; }
@@ -86,9 +85,7 @@
 .home-figures > div { min-width: 0; padding: 14px 24px; }
 .home-figures > div + div { border-left: 1px solid var(--line); }
 .home-figures dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
-.home-figures dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 650; }
-.home-figures dd.income { color: var(--income); }
-.home-figures dd.expense { color: var(--expense); }
+.home-figures dd { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--ink); font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 650; }
 .home-welcome { padding: 28px; }
 .home-welcome h2 { margin: 6px 0 8px; font-size: var(--hero-title-size); letter-spacing: -.025em; }
 .home-welcome p { max-width: 56ch; margin: 0; color: var(--muted); line-height: 1.55; }

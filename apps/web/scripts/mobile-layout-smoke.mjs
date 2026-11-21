@@ -165,15 +165,63 @@ try {
     }
 
     await page.goto(`${baseURL}/`, { waitUntil: "networkidle" });
-    await page.getByText("Lihat nilai pengeluaran harian", { exact: true }).click();
-    await assertNoHorizontalOverflow(page, `${width}px / expanded daily table`);
+    const heroColors = await page.evaluate(() => {
+      const ink = getComputedStyle(document.body).color;
+      const amount = getComputedStyle(document.querySelector(".home-hero-amount")).color;
+      const figures = [...document.querySelectorAll(".home-figures dd")].map(el => getComputedStyle(el).color);
+      return { ink, amount, figures };
+    });
+    assert.equal(heroColors.amount, heroColors.ink, `${width}px Beranda hero Sisa must render in ink`);
+    assert.ok(heroColors.figures.every(color => color === heroColors.ink), `${width}px Beranda hero figures must render in ink: ${JSON.stringify(heroColors)}`);
     if (phone) {
-      const wrap = await page.locator(".review-table-wrap").first().evaluate(el => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
-      assert.ok(wrap.scrollWidth <= wrap.clientWidth, `${width}px Beranda daily table scrolls sideways: ${JSON.stringify(wrap)}`);
+      assert.equal(await page.locator(".overview-trend").isVisible(), false, `${width}px phone Beranda hides daily chart`);
+      assert.equal(await page.locator(".overview-wealth").isVisible(), false, `${width}px phone Beranda hides Kekayaan card`);
+    } else {
+      assert.equal(await page.locator(".overview-trend").isVisible(), true, `${width}px desktop Beranda shows daily chart`);
+      assert.equal(await page.locator(".overview-wealth").isVisible(), true, `${width}px desktop Beranda shows Kekayaan card`);
+      const lowerBoxes = await page.evaluate(() => ({
+        activity: document.querySelector(".overview-activity").getBoundingClientRect().height,
+        wealth: document.querySelector(".overview-wealth").getBoundingClientRect().height,
+      }));
+      assert.ok(lowerBoxes.wealth < lowerBoxes.activity - 40, `${width}px desktop Kekayaan card must not stretch to match Terbaru: ${JSON.stringify(lowerBoxes)}`);
+      await page.getByText("Lihat nilai pengeluaran harian", { exact: true }).click();
+      await assertNoHorizontalOverflow(page, `${width}px / expanded daily table`);
     }
 
     await page.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
+    assert.equal(await page.locator(".kpi-note").count(), 0, `${width}px Laporan omits Refund/Tentang posisi siklus line`);
+    assert.equal(await page.locator("#where .where-delta").count(), 0, `${width}px Ke mana uangnya omits delta column`);
+    assert.ok(await page.locator("#where .where-share").count() >= 1, `${width}px Ke mana uangnya shows share percentages`);
+    assert.ok(await page.locator("#history .history-bar .history-seg").count() >= 1, `${width}px Siklus ke siklus draws category-stacked bars`);
+    const stackRows = await page.evaluate(() => [...document.querySelectorAll(".review-stack .report-disclosure > summary")].map(summary => {
+      const style = getComputedStyle(summary);
+      const h2 = summary.querySelector("h2");
+      const h2Style = getComputedStyle(h2);
+      const h2Rect = h2.getBoundingClientRect();
+      const span = summary.querySelector(":scope > span");
+      const spanStyle = getComputedStyle(span);
+      const spanRect = span.getBoundingClientRect();
+      return {
+        title: h2.textContent,
+        pad: `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`,
+        titleSize: h2Style.fontSize,
+        titleColor: h2Style.color,
+        titleFont: h2Style.fontFamily,
+        summarySize: spanStyle.fontSize,
+        summaryBelow: spanRect.top >= h2Rect.bottom - 1,
+      };
+    }));
+    assert.ok(stackRows.length >= 2, `${width}px Laporan bottom list has uniform rows`);
+    const inkColor = await page.evaluate(() => getComputedStyle(document.body).color);
+    for (const row of stackRows) {
+      assert.equal(row.pad, "14px 16px 14px 16px", `${width}px ${row.title} equal padding`);
+      assert.equal(row.titleSize, "17px", `${width}px ${row.title} title 17px`);
+      assert.equal(row.titleColor, inkColor, `${width}px ${row.title} title colour matches ink`);
+      assert.match(row.titleFont, /Fraunces/, `${width}px ${row.title} uses Fraunces`);
+      assert.equal(row.summarySize, "13px", `${width}px ${row.title} summary 13px`);
+      assert.equal(row.summaryBelow, true, `${width}px ${row.title} summary sits on its own line below title`);
+    }
     await page.evaluate(() => {
       document.querySelectorAll("details").forEach(details => { details.open = true; });
     });
@@ -189,6 +237,15 @@ try {
       assert.deepEqual(wideTables, [], `${width}px Laporan tables still scroll sideways: ${JSON.stringify(wideTables)}`);
     }
     await page.screenshot({ path: fileURLToPath(new URL(`analytics-${width}.png`, output)), fullPage: true });
+
+    await page.goto(`${baseURL}/household?tab=anggota`, { waitUntil: "networkidle" });
+    await page.locator("#tambah-anggota").waitFor();
+    const anggotaOrder = await page.evaluate(() => {
+      const list = [...document.querySelectorAll(".admin-stack > section")].find(section => section.querySelector("h2")?.textContent === "Anggota");
+      const form = document.querySelector("#tambah-anggota");
+      return { listTop: list.getBoundingClientRect().top, formTop: form.getBoundingClientRect().top };
+    });
+    assert.ok(anggotaOrder.listTop < anggotaOrder.formTop, `${width}px Keluarga Anggota list must sit above Tambah anggota form: ${JSON.stringify(anggotaOrder)}`);
 
     await page.goto(`${baseURL}/household?tab=kategori`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Kategori keluarga", exact: true }).waitFor();

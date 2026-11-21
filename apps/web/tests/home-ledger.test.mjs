@@ -197,3 +197,14 @@ test("Asal-usul & bukti reads evidence and creation events oldest first; the res
   assert.deepEqual(changes.map(item => item.key), ["a-a2"]);
   for (const item of [...origin, ...changes]) assert.doesNotMatch(`${item.title} ${item.detail}`, /[A-Z]{3,}_[A-Z]{3,}/, "no raw enum is shown");
 });
+
+test("Beranda hero numbers stay in ink, desktop wealth aligns to content, phone hides daily chart and wealth card", () => {
+  const home = readFileSync(new URL("../app/page.js", import.meta.url), "utf8");
+  assert.doesNotMatch(home, /home-hero-amount (?:expense|\$\{amountTone)/, "Sisa/Keluar hero numbers stay in ink");
+  assert.doesNotMatch(home, /<dd className="(?:income|expense)">/, "hero figures stay in ink");
+  const dashCss = readFileSync(new URL("../app/styles/03-dashboard-and-charts.css", import.meta.url), "utf8");
+  assert.match(dashCss, /\.overview-lower \{[^}]*align-items: start;/, "desktop Kekayaan card hugs its content height");
+  assert.doesNotMatch(dashCss, /\.overview-wealth-link \{[^}]*margin-top: auto;/, "no empty space pushed above the wealth link");
+  const respCss = readFileSync(new URL("../app/styles/11-responsive.css", import.meta.url), "utf8");
+  assert.match(respCss, /@media \(max-width: 680px\)[\s\S]*\.overview-trend, \.overview-wealth, \.home-lower-single \{ display: none; \}/, "phone Beranda hides daily chart and Kekayaan card");
+});

@@ -73,7 +73,7 @@ export function ChangesTable({ items, comparison, selected, select }) {
   </table></div></>;
 }
 
-export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory }) {
+export function CategoryHeatmap({ facts, colors = null, selectedCategory = "", onSelectCategory }) {
   const sameDay = facts.categoryHistory?.sameDay;
   const [mode, setMode] = useState(sameDay ? "SAME_DAY" : "FULL");
   const heat = buildHeatmap(facts.categoryHistory, facts.history, mode, { selectedCategory, selectable: facts.categoryChanges.map(item => item.id || "uncategorized") });
@@ -96,22 +96,25 @@ export function CategoryHeatmap({ facts, selectedCategory = "", onSelectCategory
           <th scope="col" className="heat-delta-head">{deltaLabel}</th>
         </tr></thead>
         <tbody>
-          {heat.rows.map(row => <tr key={row.key} data-selected-row={row.selected || undefined}>
-            <th scope="row">
-              {row.selectable && onSelectCategory
-                ? <button type="button" className="heat-row-button" aria-pressed={row.selected} aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{row.name}</button>
-                : <span data-muted={row.muted || undefined}>{row.name}</span>}
-              <small className="heat-row-delta"><Delta value={row.delta} label={deltaLabel}/></small>
-            </th>
-            {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>
-              <span className="heat-cell" style={{ "--tint": row.tints[index] }}>{compactMillions(row.amounts[index])}</span>
-            </td>)}
-            <td className="heat-delta"><Delta value={row.delta}/></td>
-          </tr>)}
+          {heat.rows.map(row => {
+            const swatch = <i className="heat-swatch" aria-hidden="true" style={{ "--cat": row.muted ? "var(--chart-category-other)" : colors?.get(row.key) }}/>;
+            return <tr key={row.key} data-selected-row={row.selected || undefined}>
+              <th scope="row">
+                {row.selectable && onSelectCategory
+                  ? <button type="button" className="heat-row-button" aria-pressed={row.selected} aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{swatch}<span>{row.name}</span></button>
+                  : <span className="heat-name" data-muted={row.muted || undefined}>{swatch}{row.name}</span>}
+                <small className="heat-row-delta"><Delta value={row.delta} label={deltaLabel}/></small>
+              </th>
+              {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>
+                <span className="heat-cell" title={money(row.amounts[index])} style={{ "--tint": row.tints[index] }}>{compactMillions(row.amounts[index])}</span>
+              </td>)}
+              <td className="heat-delta"><Delta value={row.delta}/></td>
+            </tr>;
+          })}
         </tbody>
         <tfoot><tr>
           <th scope="row">Total pengeluaran bersih</th>
-          {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined}>{compactMillions(heat.total.amounts[index])}</td>)}
+          {heat.columns.map((column, index) => <td key={column.start} className="heat-amount" data-selected={column.selected || undefined} data-running={column.untinted || undefined} title={money(heat.total.amounts[index])}>{compactMillions(heat.total.amounts[index])}</td>)}
           <td className="heat-delta"><Delta value={heat.total.delta}/></td>
         </tr></tfoot>
       </table>
@@ -163,25 +166,23 @@ export function MerchantRanking({ ranking, period }) {
 
 export function HouseholdSection({ members = [] }) {
   const rows = householdRows(members);
-  return <section id="household" className="review-section" aria-labelledby="household-title">
-    <details className="report-disclosure">
-      <summary><h2 id="household-title">Catatan rumah tangga</h2><span>{rows.length ? `${rows.length} pencatat` : "Belum ada atribusi"}</span></summary>
-      <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
-      {rows.length ? <>
-        <div className="household-bar" role="img" aria-label="Porsi pengeluaran bersih menurut pencatat">
-          {rows.map(item => <i key={item.key} data-tint={item.tint} style={{ flexGrow: item.share ?? 0 }}/>)}
-        </div>
-        <ul className="household-list">
-          {rows.map(item => <li key={item.key}>
-            <span className="household-avatar" data-tint={item.tint} aria-hidden="true">{item.initial}</span>
-            <span className="household-name">{item.name}{item.automatic && <small>otomatis</small>}</span>
-            <span className="household-count">{item.count} transaksi</span>
-            <span className="household-amount">{money(item.amount)}</span>
-            <span className="household-share">{ratioLabel(item.shareOfExpense)}</span>
-          </li>)}
-        </ul>
-        <p className="heat-legend">Urutan tetap: otomatis dulu, lalu anggota menurut nama. Tanpa perbandingan antar siklus.</p>
-      </> : <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
-    </details>
+  return <section id="household" className="family-talk-part" aria-labelledby="household-title">
+    <h3 id="household-title">Catatan rumah tangga</h3>
+    <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
+    {rows.length ? <>
+      <div className="household-bar" role="img" aria-label="Porsi pengeluaran bersih menurut pencatat">
+        {rows.map(item => <i key={item.key} data-tint={item.tint} style={{ flexGrow: item.share ?? 0 }}/>)}
+      </div>
+      <ul className="household-list">
+        {rows.map(item => <li key={item.key}>
+          <span className="household-avatar" data-tint={item.tint} aria-hidden="true">{item.initial}</span>
+          <span className="household-name">{item.name}{item.automatic && <small>otomatis</small>}</span>
+          <span className="household-count">{item.count} transaksi</span>
+          <span className="household-amount">{money(item.amount)}</span>
+          <span className="household-share">{ratioLabel(item.shareOfExpense)}</span>
+        </li>)}
+      </ul>
+      <p className="heat-legend">Urutan tetap: otomatis dulu, lalu anggota menurut nama. Tanpa perbandingan antar siklus.</p>
+    </> : <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
   </section>;
 }

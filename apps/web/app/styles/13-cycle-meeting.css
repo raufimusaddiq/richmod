@@ -54,11 +54,19 @@
 }
 
 .cycle-review .review-section:not(.card) { display: block; min-width: 0; padding: var(--space-4) 0; border-top: 1px solid var(--line-strong); scroll-margin-top: var(--space-6); }
-.cycle-review .review-stack { padding: 0; }
-.cycle-review .review-stack > .review-section { padding: 0 var(--card-padding); border-top: 1px solid var(--line); }
+.cycle-review .review-stack { padding: 0; overflow: hidden; }
+.cycle-review .review-stack > .review-section { padding: 0; border-top: 1px solid var(--line); }
 .cycle-review .review-stack > .review-section:first-child { border-top: 0; }
-.cycle-review .review-stack .report-disclosure > summary { min-height: 60px; padding-block: 0; }
-.cycle-review .review-stack .report-disclosure[open] { padding-bottom: var(--space-4); }
+.cycle-review .review-stack .report-disclosure > summary { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: baseline; gap: 4px 12px; min-height: 60px; padding: 14px 16px; color: var(--ink); }
+.cycle-review .review-stack .report-disclosure > summary::before { grid-column: 1; grid-row: 1; color: var(--accent); font-family: var(--font-body); font-size: 17px; font-weight: var(--weight-semibold); line-height: 1.25; }
+.cycle-review .review-stack .report-disclosure > summary h2 { grid-column: 2; grid-row: 1; margin: 0; color: var(--ink); font-family: var(--font-display); font-size: 17px; font-weight: var(--weight-semibold); line-height: 1.25; }
+.cycle-review .review-stack .report-disclosure > summary > span { grid-column: 2; grid-row: 2; color: var(--muted); font-size: var(--text-md); line-height: 1.4; }
+.cycle-review .review-stack .report-disclosure[open] > summary { margin-bottom: 0; }
+.cycle-review .review-stack .report-disclosure-body { padding: 0 16px 16px; }
+.family-talk-sections { display: grid; gap: var(--space-5); }
+.family-talk-part { min-width: 0; padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.family-talk-part:first-child { padding-top: 0; border-top: 0; }
+.family-talk-part > h3 { margin: 0 0 var(--space-2); color: var(--ink); font-family: var(--font-display); font-size: 16px; font-weight: var(--weight-semibold); }
 .cycle-review .range-controls { display: flex; width: 100%; margin: 0 0 var(--space-4); padding: 0; border: 0; background: transparent; gap: var(--space-4); overflow: visible; }
 .cycle-review .range-controls button, .cycle-review select, .cycle-review summary, .cycle-review .review-quality a, .cycle-review .change-button { min-height: 44px; }
 .cycle-review .range-control-group { flex-wrap: wrap; }
@@ -78,11 +86,18 @@
 .cycle-review[data-meeting-step]:not([data-meeting-step="changes"]) #changes,
 .cycle-review[data-meeting-step]:not([data-meeting-step="drivers"]) #drivers,
 .cycle-review[data-meeting-step]:not([data-meeting-step="quality"]) section#quality,
+.cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]):not([data-meeting-step="decisions"]) #family-talk,
 .cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]) #discussion,
 .cycle-review[data-meeting-step]:not([data-meeting-step="decisions"]) #decisions,
 .cycle-review[data-meeting-step]:not([data-meeting-step="changes"]):not([data-meeting-step="drivers"]) #where,
 .cycle-review[data-meeting-step]:not([data-meeting-step="position"]) #history,
 .cycle-review[data-meeting-step] #household { display: none; }
+.cycle-review[data-meeting-step="discussion"] #family-talk > details > summary,
+.cycle-review[data-meeting-step="decisions"] #family-talk > details > summary { display: none; }
+.cycle-review[data-meeting-step="discussion"] .family-talk-part,
+.cycle-review[data-meeting-step="decisions"] .family-talk-part { padding-top: 0; border-top: 0; }
+.cycle-review[data-meeting-step="discussion"] #family-talk .report-disclosure-body,
+.cycle-review[data-meeting-step="decisions"] #family-talk .report-disclosure-body { padding: var(--space-4); }
 .cycle-review[data-meeting-step] .dash-row { display: contents; }
 .meeting-controls { margin-bottom: var(--space-6); }
 .meeting-controls ol { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0; list-style: none; }
@@ -90,9 +105,9 @@
 .meeting-controls [aria-current="step"] { background: var(--accent-soft); color: var(--accent); }
 .meeting-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .decision-columns { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: var(--space-6); margin-top: var(--space-4); align-items: start; }
-.decision-column h3 { margin: 0 0 var(--space-3); font-size: var(--text-base); }
+.decision-column h4 { margin: 0 0 var(--space-3); font-size: var(--text-base); }
 .decision-previous { padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-muted); }
-.decision-previous h3 { color: var(--muted); }
+.decision-previous h4 { color: var(--muted); }
 .decision-form { display: grid; max-width: 70ch; gap: var(--space-2); margin-top: var(--space-4); }
 .decision-form textarea { width: 100%; resize: vertical; min-height: 120px; font-size: var(--text-lg); }
 .decision-form-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
@@ -116,7 +131,7 @@
 }
 @media (max-width: 680px) {
   .cycle-review .review-section:not(.card) { padding: var(--space-6) 0; }
-  .cycle-review .review-stack > .review-section { padding: 0 var(--space-4); }
+  .cycle-review .review-stack > .review-section { padding: 0; }
   .cycle-review .review-split { gap: var(--space-6); }
   .cycle-review .cycle-outcome > div:not(.cycle-net) { border-left: 0; }
   .cycle-review select, .cycle-review input { font-size: var(--text-lg); }

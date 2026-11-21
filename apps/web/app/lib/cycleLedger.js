@@ -45,11 +45,34 @@ export function directionText(value) {
   return value == null ? "—" : `${directionMark(value)} ${signedMoney(value)}`.trim();
 }
 
-export function buildLedger(history = [], selectedStart = "") {
+function columnSegments(index, categoryHistory, colorMap) {
+  const starts = categoryHistory?.cycleStarts ?? [];
+  const rows = categoryHistory?.rows ?? [];
+  const other = categoryHistory?.other?.amounts ?? [];
+  if (!rows.length || index >= starts.length || rows.some(row => row.amounts?.length !== starts.length)) return [];
+  const byKey = new Map(rows.map(row => [row.id || "uncategorized", row]));
+  const orderedKeys = colorMap?.order?.length ? [...colorMap.order.filter(key => byKey.has(key)), ...rows.map(row => row.id || "uncategorized").filter(key => !colorMap.order.includes(key))] : rows.map(row => row.id || "uncategorized");
+  const segments = [];
+  for (const key of orderedKeys) {
+    const row = byKey.get(key);
+    const weight = Number(row?.amounts?.[index]);
+    if (Number.isFinite(weight) && weight > 0) {
+      segments.push({ key, name: row.name, weight, color: colorMap?.colors?.get(key) || "var(--chart-category-1)" });
+    }
+  }
+  const otherWeight = Number(other[index]);
+  if (Number.isFinite(otherWeight) && otherWeight > 0) {
+    segments.push({ key: "other", name: "Kategori lain", weight: otherWeight, color: "var(--chart-category-other)" });
+  }
+  return segments;
+}
+
+export function buildLedger(history = [], selectedStart = "", categoryHistory = null, colorMap = null) {
   const peak = Math.max(0, ...history.map(item => Number(item.expense)).filter(Number.isFinite));
   const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
+  const aligned = Boolean(categoryHistory?.cycleStarts?.length === history.length && categoryHistory.cycleStarts.every((start, index) => start === history[index].start));
   return {
-    columns: history.map(item => ({
+    columns: history.map((item, index) => ({
       start: item.start,
       label: dayMonth(item.start),
       until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
@@ -58,6 +81,7 @@ export function buildLedger(history = [], selectedStart = "") {
       expense: item.expense,
       expenseLength: length(item.expense),
       net: item.netCashflow,
+      segments: aligned ? columnSegments(index, categoryHistory, colorMap) : [],
     })),
   };
 }
