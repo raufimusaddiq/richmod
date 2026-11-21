@@ -13,7 +13,6 @@ type Cashflow struct {
 	Surplus    string
 }
 
-// Add, Subtract and Ratio consume validated integer IDR amounts from PostgreSQL.
 func Add(a, b string) string {
 	x, _ := new(big.Int).SetString(a, 10)
 	y, _ := new(big.Int).SetString(b, 10)

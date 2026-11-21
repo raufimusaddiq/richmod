@@ -15,25 +15,18 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// pendingConfirmationWindow is how long a staged correction or batch waits for confirmation; migration 00092
-// sets the same column default.
 const pendingConfirmationWindow = "30 minutes"
 
-// The batch lane follows the single-entry rules (ADR-033): uncategorized items are staged for review, each item
-// gets the duplicate checks, and confirmed items refresh cycle residuals and resolve the household merchant.
-
 type agentPendingBatchItem struct {
-	Type          string    `json:"Type"`
-	Amount        string    `json:"Amount"`
-	Merchant      string    `json:"Merchant"`
-	CategorySlug  string    `json:"CategorySlug"`
-	Description   string    `json:"Description"`
-	Note          string    `json:"Note"`
-	TransactionAt time.Time `json:"TransactionAt"`
-	// SimilarExisting is an existing transaction the item may repeat (same amount and merchant, last 7 days).
-	SimilarExisting string `json:"SimilarExisting,omitempty"`
-	// AlreadyRecorded marks an item a just-sent document already recorded; confirming never records it again.
-	AlreadyRecorded bool `json:"AlreadyRecorded,omitempty"`
+	Type            string    `json:"Type"`
+	Amount          string    `json:"Amount"`
+	Merchant        string    `json:"Merchant"`
+	CategorySlug    string    `json:"CategorySlug"`
+	Description     string    `json:"Description"`
+	Note            string    `json:"Note"`
+	TransactionAt   time.Time `json:"TransactionAt"`
+	SimilarExisting string    `json:"SimilarExisting,omitempty"`
+	AlreadyRecorded bool      `json:"AlreadyRecorded,omitempty"`
 }
 
 type pendingBatchPatch struct {
@@ -66,8 +59,6 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 				UserCopy: "Ada item di daftar yang belum lengkap, jadi belum ada yang dicatat. Sebutkan nominal dan tanggalnya, ya."}
 		}
 		item := agentPendingBatchItem{Type: v.Type, Amount: v.Amount, Merchant: v.Merchant, CategorySlug: v.CategorySlug, Description: v.Description, Note: v.Note, TransactionAt: v.TransactionAt}
-		// An unknown category slug is not guessed and does not reject the batch: the item is staged
-		// uncategorized for review.
 		if item.CategorySlug != "" && !contains(categories, item.CategorySlug) {
 			item.CategorySlug = ""
 		}
@@ -137,8 +128,6 @@ func (p *Processor) markBatchItemDuplicates(ctx context.Context, state *agentSta
 	return nil
 }
 
-// similarRecentExpense finds an expense with the same amount and a matching merchant or description, at a
-// different time in the last 7 days.
 func (p *Processor) similarRecentExpense(ctx context.Context, householdID, amount, merchant string, at time.Time) (string, time.Time, bool, error) {
 	if strings.TrimSpace(merchant) == "" {
 		return "", time.Time{}, false, nil
@@ -300,8 +289,6 @@ type batchConfirmOutcome struct {
 	Confirmed, NeedsReview, Skipped int
 }
 
-// confirmPendingBatchTx records a confirmed batch; structural checks and the category rule still apply.
-// A category-less expense becomes NEEDS_REVIEW with a card; an item a just-sent document recorded is skipped.
 func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, householdID, batchID string, items []agentPendingBatchItem, userID string, update telegramUpdate) (batchConfirmOutcome, error) {
 	var outcome batchConfirmOutcome
 	allowedCategories, err := p.categorySlugs(ctx, householdID)
@@ -418,8 +405,6 @@ func batchOutcomeMessage(recorded, needsReview, skipped int) string {
 	return strings.Join(parts, " ")
 }
 
-// batchStagedMessage lists staged items so the household sees which wait for a category and which look
-// already recorded.
 func batchStagedMessage(mutation map[string]any, header string) string {
 	items, _ := mutation["items"].([]map[string]any)
 	var b strings.Builder

@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// The derived capability list must keep every action the hand-kept list named
-// before the registry became its source; Admin coverage counts against it.
 func TestTelegramCompleteActionsKeepsEveryRegisteredLane(t *testing.T) {
 	got := TelegramCompleteActions()
 	for _, action := range []string{

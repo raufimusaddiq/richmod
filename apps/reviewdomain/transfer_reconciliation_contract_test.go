@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// The shared operation is the only place allowed to mutate a reconciliation
-// case or confirm its candidate. Adapters pass a candidate id/action; if a
-// surface relearns the case update it can drift from the shared policy again.
 func TestReconcileTransferOwnsCaseMutation(t *testing.T) {
 	source := sourceFile(t, "transfer_reconciliation.go")
 	if !strings.Contains(source, "FOR UPDATE OF ri,trc") {
@@ -22,10 +19,6 @@ func TestReconcileTransferOwnsCaseMutation(t *testing.T) {
 	}
 }
 
-// TestTransferIgnoreBypassesTheCandidateCap pins the regression where a
-// financial-email case with more than ten candidates rejected every action,
-// including IGNORE. The overflow now narrows to the ranked bounded set; only a
-// new transfer beside an overflowing set fails closed (ADR-036).
 func TestTransferIgnoreBypassesTheCandidateCap(t *testing.T) {
 	source := sourceFile(t, "transfer_reconciliation.go")
 	capAt := strings.Index(source, "len(candidates) > TransferCandidateLimit")

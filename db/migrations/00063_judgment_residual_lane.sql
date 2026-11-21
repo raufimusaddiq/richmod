@@ -1,8 +1,4 @@
 -- +goose Up
--- IR-04: record the residual bounded dimension a Telegram turn sent to Jev after
--- a generative extraction, and allow the third provenance lane
--- JEV_THEN_GENERATIVE_THEN_RESIDUAL_JEV (ADR-045 telemetry). Without this a valid
--- residual rescue and a redundant full replay are indistinguishable.
 ALTER TABLE judgment_turn_telemetry
     DROP CONSTRAINT IF EXISTS judgment_turn_telemetry_lane_check;
 ALTER TABLE judgment_turn_telemetry

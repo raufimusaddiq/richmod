@@ -29,8 +29,6 @@ func (g *invalidPayslipGateway) NativeToolCall(_ context.Context, _ string, _ st
 	}
 }
 
-// Quality-only concerns cannot manufacture human work; first-salary policy still requires the household, then
-// uses the same salary finalizer.
 func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
 	for _, first := range []bool{false, true} {
 		t.Run(map[bool]string{false: "existing-primary", true: "first-primary"}[first], func(t *testing.T) {

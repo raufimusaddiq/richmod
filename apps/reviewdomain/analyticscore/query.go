@@ -111,7 +111,7 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 			if typ == "REFUND" {
 				amount = financialmath.Subtract("0", amount)
 			}
-			prior := "0" // net expense per day, for every measured cycle: the pace curves read it
+			prior := "0"
 			if v, ok := m.dailyNet[day]; ok {
 				prior = v
 			}
@@ -235,16 +235,10 @@ func loadReviewQuality(ctx context.Context, tx pgx.Tx, household, currentSourceE
 }
 
 func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time.Time, facts *Facts) error {
-	// Reconcile for the actual observation interval, not an invented cycle-end balance;
-	// future observations never enter a past review.
 	end, _ := time.ParseInLocation("2006-01-02", facts.Period.MeasuredUntil, clock.HouseholdLocation())
 	if now.Before(end) {
 		end = now
 	}
-	// Boundary rule: current is the newest observation inside the cycle (after
-	// the start day, before the measured end); previous is the newest observation
-	// on or before the cycle start day. Both are household-day based so a snapshot
-	// taken just after midnight on the start date is still the opening baseline.
 	start, _ := time.ParseInLocation("2006-01-02", facts.Period.Start, clock.HouseholdLocation())
 	firstInside := start.AddDate(0, 0, 1)
 	rows, err := tx.Query(ctx, `WITH selected AS (
@@ -274,8 +268,6 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	}
 	rows.Close()
 	if picked[1] == nil {
-		// No observation inside the cycle: no delta. The newest earlier observation
-		// is still exposed as the latest observation, never as a comparison.
 		facts.Wealth.Previous = picked[2]
 		if picked[2] != nil {
 			facts.block("WEALTH_SNAPSHOT_BEFORE_CYCLE", 1, nil, "/wealth")

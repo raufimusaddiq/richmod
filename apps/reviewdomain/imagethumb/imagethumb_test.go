@@ -9,7 +9,6 @@ import (
 )
 
 func TestJPEGKeepsAspectRatioAndMaxEdge(t *testing.T) {
-	// Noise defeats PNG compression, so the original is genuinely large.
 	value := image.NewRGBA(image.Rect(0, 0, 600, 900))
 	for y := 0; y < 900; y++ {
 		for x := 0; x < 600; x++ {

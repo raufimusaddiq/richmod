@@ -9,50 +9,29 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// SalaryCommand records one confirmed salary event against a household salary
-// source. Web and both Telegram confirm lanes call it so salary_source promotion
-// and salary_event ordering stay identical (ADR-046).
-//
-// Callers pass already-validated facts: RecordSalaryEvent never parses user text or
-// creates a transaction, so bad input cannot fabricate income.
 type SalaryCommand struct {
 	HouseholdID string
-	// UserID owns the salary source. An empty value uses the household owner.
-	UserID string
-	// Employer is the raw counterparty/employer name.
-	Employer string
-	// Period is the payroll period as YYYY-MM.
-	Period string
-	// PayDate is a date-compatible argument (YYYY-MM-DD or a date/time value).
-	PayDate any
-	// NetPay is NUMERIC text, taken from the confirmed income transaction.
+	UserID      string
+	Employer    string
+	Period      string
+	PayDate     any
 	NetPay      string
 	Transaction string
 	SourceEvent string
-	// MakePrimary promotes this employer to the household's primary salary source,
-	// demoting any previous primary.
 	MakePrimary bool
 }
 
-// SalaryResult reports the salary source the event was recorded against.
 type SalaryResult struct {
 	SalarySourceID string
 	Primary        bool
-	// SalaryEventID is the newly inserted salary event, empty when a matching
-	// (source, period) event already existed and the insert was skipped.
-	SalaryEventID string
+	SalaryEventID  string
 }
 
 var (
-	// ErrSalaryEmployerRequired reports a salary record with no employer identity.
 	ErrSalaryEmployerRequired = errors.New("reviewdomain: salary employer is required")
-	// ErrSalaryPeriodRequired reports a salary record with no payroll period.
-	ErrSalaryPeriodRequired = errors.New("reviewdomain: salary payroll period is required")
+	ErrSalaryPeriodRequired   = errors.New("reviewdomain: salary payroll period is required")
 )
 
-// RecordSalaryEvent upserts the salary source for the employer and inserts the
-// confirmed salary event. With MakePrimary false the source still becomes primary
-// if the household has none yet, so the first recorded salary is primary.
 func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (SalaryResult, error) {
 	var result SalaryResult
 	employer := cleanText(cmd.Employer, 160)
@@ -92,30 +71,22 @@ func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (Salar
 			return result, err
 		}
 	}
-	// RETURNING id tells a real insert (or revival of a VOIDED event) from an ON
-	// CONFLICT skip, so a re-confirmation enqueues no duplicate residual review.
 	if err := tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,to_date($3,'YYYY-MM'),$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id,pay_date=EXCLUDED.pay_date,net_pay=EXCLUDED.net_pay,source_event_id=EXCLUDED.source_event_id,status='CONFIRMED' WHERE salary_event.status='VOIDED' RETURNING id`, result.SalarySourceID, cmd.HouseholdID, period, salaryPayDateArg(cmd.PayDate), cmd.NetPay, cmd.Transaction, cmd.SourceEvent).Scan(&result.SalaryEventID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return result, err
 	}
 	return result, nil
 }
 
-// PromoteEvidenceDocuments marks documents linked to one transaction's evidence as
-// extracted, after a confirmed document-backed review.
 func PromoteEvidenceDocuments(ctx context.Context, tx pgx.Tx, householdID, transactionID string) error {
 	return RefreshTransactionLifecycle(ctx, tx, householdID, transactionID)
 }
 
-// PayslipFacts reads the employer and payroll period from the payslip evidence
-// attached to one income transaction.
 type PayslipFacts struct {
 	Employer string
 	Period   string
 	NetPay   string
 }
 
-// LoadPayslipFacts returns the payslip facts for a transaction, or ok=false when
-// the transaction has no payslip evidence to complete.
 func LoadPayslipFacts(ctx context.Context, tx pgx.Tx, householdID, transactionID string) (PayslipFacts, bool, error) {
 	var facts PayslipFacts
 	err := tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period',''),t.amount::text
@@ -133,9 +104,6 @@ func LoadPayslipFacts(ctx context.Context, tx pgx.Tx, householdID, transactionID
 	return facts, true, nil
 }
 
-// salaryPayDateArg turns an instant into the household-local (Asia/Jakarta) civil
-// date before `$n::date`; casting a timestamptz directly would use the session or
-// process timezone and store a different pay_date under UTC.
 func salaryPayDateArg(v any) any {
 	var t time.Time
 	switch x := v.(type) {

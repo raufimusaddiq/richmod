@@ -1,6 +1,3 @@
--- PRD §22: bounded product events. Never persist prompt, message, or financial
--- values. The triggers capture review turns and corrections atomically with the
--- corresponding canonical write.
 -- +goose Up
 ALTER TABLE transaction ADD COLUMN auto_confirmed_at TIMESTAMPTZ;
 
@@ -70,9 +67,6 @@ BEGIN
     ) THEN
         RETURN NEW;
     END IF;
-    -- Telegram reply evidence is the per-turn record. The resolution row is the
-    -- terminal turn too; its bounded-choice marker comes only from the decision
-    -- contract so machine resolutions are not credited to a human control.
     SELECT te.source_event_id,se.source_type,
       te.metadata_json ? 'classification'
         OR te.metadata_json->>'detail_action' IN ('review:ignore','review:remember','review:once')
@@ -81,8 +75,6 @@ BEGIN
     WHERE te.transaction_id=NEW.transaction_id AND te.evidence_type='TELEGRAM_REVIEW_REPLY'
       AND te.metadata_json->>'review_request_id'=(SELECT id::text FROM review_request WHERE review_item_id=NEW.id)
     ORDER BY te.created_at DESC LIMIT 1;
-    -- The resolution row counts as the terminal review interaction. Prior
-    -- Telegram detail turns are counted individually from reply evidence.
     IF reply_source IS NULL THEN
         reply_source := NEW.source_event_id;
         SELECT source_type INTO source_kind FROM source_event WHERE id=reply_source;

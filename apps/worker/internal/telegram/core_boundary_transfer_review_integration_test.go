@@ -9,8 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Answers "itu sebenarnya aku masukin ke emas" with one typed resolve_review call carrying the action and the
-// freeform wealth hint.
 type assetHintGateway struct {
 	lastTools []gateway.ToolDefinition
 	calls     int
@@ -53,14 +51,11 @@ func createTransferClassificationReviewWithType(t *testing.T, ctx context.Contex
 	return reviewID, transactionID, itemID
 }
 
-// Resolves only against an ACTIVE account in the SAME household; the binding kind is TRANSACTION while the
-// vocabulary is the transfer set.
 func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-asset")
 	var goldID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,active) VALUES($1,'Emas','Antam','ASSET','GOLD','INVESTMENT',true) RETURNING id`, f.householdID).Scan(&goldID))
-	// A wrong-household gold account with the same hint must never be selected.
 	var otherHousehold, otherGoldID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('other household') RETURNING id`).Scan(&otherHousehold))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,active) VALUES($1,'Emas','Antam','ASSET','GOLD','INVESTMENT',true) RETURNING id`, otherHousehold).Scan(&otherGoldID))
@@ -127,8 +122,6 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 	_ = reviewID
 }
 
-// The model supplies a typed category slug; Go validates it against active categories (no phrase parser), and
-// an unknown slug is refused.
 func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-expense")

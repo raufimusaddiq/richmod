@@ -19,8 +19,6 @@ func TestStatusRequiresAuthentication(t *testing.T) {
 	}
 }
 
-// slowQueryer never answers within the probe budget, standing in for a slow or
-// unreachable dependency.
 type slowQueryer struct{ delay time.Duration }
 
 func (s slowQueryer) QueryRow(ctx context.Context, sql string, args ...any) rowScanner {
@@ -69,9 +67,6 @@ func (r *slowRows) Scan(dest ...any) error { return nil }
 func (r *slowRows) Err() error             { return r.ctx.Err() }
 func (r *slowRows) Close()                 {}
 
-// TestStatusDegradesWithinBudgetWhenDependencyIsSlow: a dependency that never
-// answers must not hold the response past its budget; the endpoint degrades to
-// a status value instead of blocking.
 func TestStatusDegradesWithinBudgetWhenDependencyIsSlow(t *testing.T) {
 	handler := &Handler{pool: slowQueryer{delay: time.Second}, probeSlots: make(chan struct{}, 32)}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations/status", nil)
@@ -87,8 +82,6 @@ func TestStatusDegradesWithinBudgetWhenDependencyIsSlow(t *testing.T) {
 	handler.Status(response, request)
 	elapsed := time.Since(start)
 
-	// A status read must finish within the request budget plus scheduler slack;
-	// a sequential or unbounded fan-out would spend several probe timeouts here.
 	slack := 50 * time.Millisecond
 	if elapsed > statusBudget+slack {
 		t.Fatalf("status took %v, budget %v (+%v)", elapsed, statusBudget, slack)

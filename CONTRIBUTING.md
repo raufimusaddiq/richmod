@@ -57,6 +57,9 @@ cd ../web
 npm test
 npm run build
 
+# Any change, from repository root: comments are banned
+node scripts/check-comments.mjs
+
 # Compose changes, from repository root
 docker compose config
 ```

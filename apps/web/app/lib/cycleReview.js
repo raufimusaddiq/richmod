@@ -27,8 +27,6 @@ export function ratioLabel(value) {
   return value == null ? "—" : minusSign(percentage.format(Number(value)));
 }
 
-// Only visual length: exact values/order remain server-owned. Equal largest
-// magnitudes share the same scale; no semantic importance threshold.
 export function changeWidth(item, items, field = "deltaVsPrevious") {
   const magnitude = row => Math.abs(Number(row[field] ?? row.amount));
   const max = Math.max(0, ...items.map(magnitude));
@@ -60,7 +58,7 @@ export function selectionHref(selection) {
   if (selection.view === "calendar") {
     params.set("range", selection.range);
     if (selection.from && selection.to) { params.set("from", selection.from); params.set("to", selection.to); }
-    if (selection.cycle) params.set("cycle", selection.cycle); // the reviewed cycle survives a Calendar visit
+    if (selection.cycle) params.set("cycle", selection.cycle);
   } else {
     if (selection.cycle) params.set("cycle", selection.cycle);
     if (selection.category) params.set("category", selection.category);

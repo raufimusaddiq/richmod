@@ -109,7 +109,6 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	}
 	issues := payslipValidationIssues(result)
 	if len(issues) > 0 {
-		// ADR-037: one field-restricted repair, revalidated by the same rules.
 		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", content, &result, &issues, func(value payslipExtraction) error {
 			if repairIssues := payslipValidationIssues(value); len(repairIssues) > 0 {
 				return fmt.Errorf("payslip still invalid: %s", repairIssues.String())
@@ -129,7 +128,7 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, err)
 	}
 	autoConfirm := result.PayDate != nil
-	period, _ := parsePayslipPeriod(result.Period) // The validator has already accepted this period.
+	period, _ := parsePayslipPeriod(result.Period)
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, period.Format("2006-01"), autoConfirm, arithmeticOK)
 }
 
@@ -297,8 +296,6 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	return tx.Commit(ctx)
 }
 
-// projectDocumentReview gives a document review the same Telegram projection as a transaction review, routed
-// to the chat that sent the image; non-Telegram sources stay Inbox-only.
 func (p *Processor) projectDocumentReview(ctx context.Context, tx pgx.Tx, householdID, sourceID, reviewItemID string) error {
 	if reviewItemID == "" {
 		return nil
@@ -325,8 +322,6 @@ func jakarta() *time.Location {
 	return location
 }
 
-// sanitizeEvidenceText strips control characters and caps user-provided evidence so captions or filenames
-// cannot inflate the prompt or smuggle terminal sequences.
 func sanitizeEvidenceText(value string) string {
 	value = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {

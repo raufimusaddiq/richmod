@@ -24,9 +24,7 @@ type agentContextState struct {
 	ActiveReviewCount   int
 	ReviewType          string
 	ReviewMode          string
-	// RecentTransactions lets a follow-up ("ibu kantin") bind to the pending row and a re-sent line be
-	// recognized as the same event.
-	RecentTransactions []map[string]any
+	RecentTransactions  []map[string]any
 }
 
 func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (agentContextState, error) {
@@ -66,8 +64,6 @@ func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sour
 	return state, nil
 }
 
-// recentAgentTransactions lists recent ledger rows, the sending member's first, as opaque turn refs; only
-// model-safe fields are exposed (no canonical UUIDs).
 func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) ([]map[string]any, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT t.id,t.type,t.status,t.amount::text,COALESCE(t.counterparty_name,''),
@@ -105,7 +101,6 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	for i, r := range loaded {
 		ids[i] = r.ID
 	}
-	// ref_key is constrained to the tx phase pattern, so recent rows use the phase-0 shape ("p0r0").
 	refs, err := p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, "p0r0", ids)
 	if err != nil {
 		return nil, fmt.Errorf("persist recent transaction references: %w", err)
@@ -113,24 +108,20 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	out := make([]map[string]any, 0, len(loaded))
 	for i, r := range loaded {
 		out = append(out, map[string]any{
-			"ref":        refs[i].Ref,
-			"type":       r.Type,
-			"status":     r.Status,
-			"amount_idr": r.Amount,
-			// Merchant and description are user-controlled text: wrap them in the untrusted-data boundary so
-			// stored text cannot read as instructions.
+			"ref":            refs[i].Ref,
+			"type":           r.Type,
+			"status":         r.Status,
+			"amount_idr":     r.Amount,
 			"merchant":       untrustedField(r.Merchant),
 			"category_slug":  r.CategorySlug,
 			"description":    untrustedField(r.Description),
 			"transaction_at": r.At.In(jakartaLocation()).Format(time.RFC3339),
-			// Own entries come first; another member's is marked so "yang tadi" is not bound to it.
 			"entered_by_you": r.Mine,
 		})
 	}
 	return out, nil
 }
 
-// untrustedField delimits a user-controlled string so the model treats it as data, like <untrusted_user_message>.
 func untrustedField(value string) string {
 	return wrapUntrusted(untrustedLedgerTag, value)
 }
@@ -216,8 +207,6 @@ func agentScopedRefPrefix(sourceEventID, prefix string) string {
 	return fmt.Sprintf("a%x_%s", sum[:4], prefix)
 }
 
-// persistAgentTransactionReferences stores opaque refs without exposing UUIDs; the source-event hash scopes
-// refs across turns and the phase/read suffix keeps parallel reads collision-free.
 func (p *Processor) persistAgentTransactionReferences(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, prefix string, ids []string) ([]agentPublicRef, error) {
 	if len(ids) == 0 {
 		return nil, nil

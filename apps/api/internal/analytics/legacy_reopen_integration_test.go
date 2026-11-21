@@ -19,8 +19,6 @@ import (
 
 const legacyReopenMigration = "00083_reopen_uncategorized_dispute_expense.sql"
 
-// migrationBody returns the DO block of the Up or Down section of the migration.
-// The test executes the real migration SQL, not a copy.
 func migrationBody(t *testing.T, section string) string {
 	t.Helper()
 	raw, err := os.ReadFile("../../../../db/migrations/" + legacyReopenMigration)
@@ -53,9 +51,6 @@ type ledgerCycleState struct {
 	disagreementsInHousehd int
 }
 
-// surfaces reads one record through both definitions: the ledger's completion
-// rule (transaction.status and active review_item, as in ledger/lifecycle.go)
-// and the served /analytics cycle review for the current cycle.
 func (f reviewFixture) surfaces(t *testing.T, id string) ledgerCycleState {
 	t.Helper()
 	var s ledgerCycleState
@@ -72,17 +67,12 @@ func (f reviewFixture) surfaces(t *testing.T, id string) ledgerCycleState {
 		}
 	}
 	s.cycleSaysUnfinished = s.cycleUncategorized+s.cycleOpenReviews > 0
-	// Blast-radius query for the legacy class: a review-flow expense that the
-	// ledger shows confirmed although the flow requires a category.
 	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM transaction t WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type='EXPENSE' AND t.category_id IS NULL AND EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.status='RESOLVED' AND ri.resolution_action='CONFIRM_EVIDENCE_DISPUTE')`, f.household).Scan(&s.disagreementsInHousehd); err != nil {
 		t.Fatal(err)
 	}
 	return s
 }
 
-// seedLegacyDisputeExpense builds the production shape: a CONFIRMED uncategorized
-// expense whose POSSIBLE_DUPLICATE review is RESOLVED by CONFIRM_EVIDENCE_DISPUTE,
-// and which still carries an ACTIVE evidence_link_dispute row.
 func (f reviewFixture) seedLegacyDisputeExpense(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -100,10 +90,6 @@ func (f reviewFixture) seedLegacyDisputeExpense(t *testing.T) string {
 	return legacy
 }
 
-// tryMigrate runs one migration section in a transaction scoped to the fixture
-// household through the richmod.repair_household setting, so rows other tests
-// left in the shared database cannot change the match count. A failing section
-// rolls back, as goose would.
 func (f reviewFixture) tryMigrate(t *testing.T, section string) error {
 	t.Helper()
 	ctx := context.Background()
@@ -128,7 +114,6 @@ func (f reviewFixture) migrate(t *testing.T, section string) {
 	}
 }
 
-// pointers counts the evidence rows of a transaction that still name migration 00083.
 func (f reviewFixture) pointers(t *testing.T, id string) int {
 	t.Helper()
 	var n int
@@ -138,7 +123,6 @@ func (f reviewFixture) pointers(t *testing.T, id string) int {
 	return n
 }
 
-// webConfirm drives the real Web Inbox confirm handler (POST /reviews/{id}/confirm).
 func (f reviewFixture) webConfirm(t *testing.T, id, categoryID string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+id+"/confirm", bytes.NewBufferString(fmt.Sprintf(`{"categoryId":%q}`, categoryID)))
@@ -149,17 +133,12 @@ func (f reviewFixture) webConfirm(t *testing.T, id, categoryID string) *httptest
 	return w
 }
 
-// TestLegacyUncategorizedDisputeExpenseAgreesAfterReopenMigration reproduces
-// ticket #353 (ledger says complete, cycle says unfinished), pins that after
-// migration 00083 both surfaces agree, and then completes the record through the
-// Web confirm handler to prove it is not a dead end. It fails without the
-// migration: the "after" assertions see a CONFIRMED record the cycle still flags.
 func TestLegacyUncategorizedDisputeExpenseAgreesAfterReopenMigration(t *testing.T) {
 	f := cycleReviewFixture(t)
 	ctx := context.Background()
 	f.anchor(t, "2026-09-01")
 	legacy := f.seedLegacyDisputeExpense(t)
-	manual := f.transaction(t, "2026-09-06", "EXPENSE", "CONFIRMED", "700", false) // legitimate manual uncategorized entry
+	manual := f.transaction(t, "2026-09-06", "EXPENSE", "CONFIRMED", "700", false)
 
 	before := f.surfaces(t, legacy)
 	if !before.ledgerComplete || before.cycleUncategorized != 2 || before.disagreementsInHousehd != 1 {
@@ -167,7 +146,7 @@ func TestLegacyUncategorizedDisputeExpenseAgreesAfterReopenMigration(t *testing.
 	}
 
 	f.migrate(t, "up")
-	f.migrate(t, "up") // idempotent: the second run must change nothing
+	f.migrate(t, "up")
 
 	after := f.surfaces(t, legacy)
 	if after.ledgerComplete || after.status != "NEEDS_REVIEW" || !after.openReview {
@@ -192,7 +171,6 @@ func TestLegacyUncategorizedDisputeExpenseAgreesAfterReopenMigration(t *testing.
 		t.Fatalf("migration must not touch other records: status=%q err=%v", manualStatus, err)
 	}
 
-	// Not a dead end: the household completes it through the real Web confirm.
 	if w := f.webConfirm(t, legacy, f.category); w.Code != http.StatusNoContent {
 		t.Fatalf("web confirm of the reopened record: status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -204,7 +182,7 @@ func TestLegacyUncategorizedDisputeExpenseAgreesAfterReopenMigration(t *testing.
 	if err := f.pool.QueryRow(ctx, `SELECT category_id::text FROM transaction WHERE id=$1`, legacy).Scan(&category); err != nil || category == nil || *category != f.category {
 		t.Fatalf("category not recorded: %v err=%v", category, err)
 	}
-	f.migrate(t, "down") // the household acted, so Down must not undo their work
+	f.migrate(t, "down")
 	if again := f.surfaces(t, legacy); !again.ledgerComplete {
 		t.Fatalf("down must not touch a record the household completed: %+v", again)
 	}
@@ -224,13 +202,13 @@ func TestLegacyReopenMigrationRollbackRestoresUntouchedRecord(t *testing.T) {
 	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json->>'evidence_link_dispute'='true' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE'`, legacy).Scan(&active); err != nil || active != 1 {
 		t.Fatalf("down must reactivate the dispute row: %d err=%v", active, err)
 	}
-	f.migrate(t, "down") // no-op once restored
+	f.migrate(t, "down")
 }
 
 func TestLegacyReopenMigrationIsNoOpWhenNothingMatches(t *testing.T) {
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-01")
-	manual := f.transaction(t, "2026-09-06", "EXPENSE", "CONFIRMED", "700", false) // uncategorized, but no dispute review
+	manual := f.transaction(t, "2026-09-06", "EXPENSE", "CONFIRMED", "700", false)
 	if err := f.tryMigrate(t, "up"); err != nil {
 		t.Fatalf("zero matches must be a no-op, not an error: %v", err)
 	}
@@ -254,9 +232,6 @@ func TestLegacyReopenMigrationRefusesMultipleMatches(t *testing.T) {
 	}
 }
 
-// TestLegacyReopenMigrationUsesSharedAmbiguousCategoryContract pins the SQL
-// decision to reviewdec.Preset so a reopened item cannot advertise a different
-// contract from a freshly created AMBIGUOUS_CATEGORY review.
 func TestLegacyReopenMigrationUsesSharedAmbiguousCategoryContract(t *testing.T) {
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-01")
@@ -284,14 +259,12 @@ func TestLegacyReopenMigrationUsesSharedAmbiguousCategoryContract(t *testing.T) 
 	if got["decisionProvenance"] == nil {
 		t.Fatal("migration provenance missing")
 	}
-	delete(got, "decisionProvenance") // the only field the preset does not own
+	delete(got, "decisionProvenance")
 	if !reflect.DeepEqual(got, expected) {
 		t.Fatalf("migration decision drifted from reviewdec.Preset:\n got  %v\n want %v", got, expected)
 	}
 }
 
-// TestLegacyReopenMigrationCycleLeavesNoDanglingPointer covers Up -> Down -> Up
-// both for an untouched record and for one the household completed in between.
 func TestLegacyReopenMigrationCycleLeavesNoDanglingPointer(t *testing.T) {
 	t.Run("untouched", func(t *testing.T) {
 		f := cycleReviewFixture(t)
@@ -322,7 +295,7 @@ func TestLegacyReopenMigrationCycleLeavesNoDanglingPointer(t *testing.T) {
 		if f.pointers(t, legacy) != 0 {
 			t.Fatal("down must clear the pointer even when the household already acted")
 		}
-		f.migrate(t, "up") // nothing matches any more: must not resurrect the record
+		f.migrate(t, "up")
 		f.migrate(t, "down")
 		if s := f.surfaces(t, legacy); !s.ledgerComplete || s.disagreementsInHousehd != 0 || f.pointers(t, legacy) != 0 {
 			t.Fatalf("the completed record must stay completed with no pointer: %+v", s)

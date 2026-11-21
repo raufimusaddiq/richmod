@@ -1,7 +1,4 @@
 -- +goose Up
--- Record every job retry attempt so retry history survives container
--- restarts and Docker log rotation. Each row captures the error class
--- (no payload/message content) plus lifecycle timing.
 CREATE TABLE IF NOT EXISTS job_retry_log (
   id           BIGSERIAL PRIMARY KEY,
   job_id       UUID NOT NULL,

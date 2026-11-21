@@ -27,7 +27,6 @@ esac
 EOF
 chmod +x "$tmp/curl" "$tmp/docker"
 
-# Without an environment file the webhook check cannot run and only warns.
 env -u WEB_ORIGIN -u TELEGRAM_BOT_TOKEN -u TELEGRAM_WEBHOOK_SECRET \
 RICHMOD_ENV_FILE="$tmp/missing.env" \
 CURL_LOG="$tmp/curl.log" RM_LOG="$tmp/rm.log" PATH="$tmp:$PATH" \
@@ -41,8 +40,6 @@ grep -q 'telegram webhook --check failed' "$tmp/stderr.log"
 [ "$(wc -l <"$tmp/rm.log")" -eq 3 ]
 ! grep -Eq 'sha-current|sha-previous' "$tmp/rm.log"
 
-# With the deployment environment file, the check reads WEB_ORIGIN and the bot
-# credentials from it (as literal values, never shell-evaluated) and passes.
 cat >"$tmp/finance.env" <<'EOF'
 POSTGRES_PASSWORD=$(touch should-not-run)
 WEB_ORIGIN=https://finance.example.test

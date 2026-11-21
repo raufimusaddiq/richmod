@@ -8,9 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// Quick suggestions feed the global "+ Catat" sheet. Everything here is a
-// deterministic read over the household's own confirmed history: no AI, no
-// writes, and only active categories/accounts are ever suggested.
 const (
 	quickScanLimit       = 300
 	quickFrequentLimit   = 5
@@ -40,8 +37,6 @@ type quickSuggestions struct {
 	DescriptionMap   map[string]string `json:"descriptionMap"`
 }
 
-// normalizeDescription is the key shared with the web client: lower-case with
-// whitespace collapsed.
 func normalizeDescription(value string) string {
 	return strings.Join(strings.Fields(strings.ToLower(value)), " ")
 }
@@ -53,7 +48,6 @@ func nonEmpty(value string) *string {
 	return &value
 }
 
-// buildQuickSuggestions aggregates rows that are already ordered newest first.
 func buildQuickSuggestions(rows []quickRow) quickSuggestions {
 	result := quickSuggestions{Frequent: []quickFrequent{}, RecentCategories: []string{}, DescriptionMap: map[string]string{}}
 
@@ -123,14 +117,12 @@ func buildQuickSuggestions(rows []quickRow) quickSuggestions {
 	}
 	result.RecentCategories = append(result.RecentCategories, categoryOrder...)
 
-	// keyOrder is newest first, so the cap keeps the most recent patterns.
 	if len(keyOrder) > quickDescriptionKeys {
 		keyOrder = keyOrder[:quickDescriptionKeys]
 	}
 	for _, key := range keyOrder {
 		best, bestCount := "", 0
 		for _, row := range rows {
-			// Walk newest first so a tie goes to the most recent category.
 			if normalizeDescription(row.Description) != key || row.CategoryID == "" {
 				continue
 			}

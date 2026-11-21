@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Pins Go's lane table to the enforce_job_lane trigger that decides the claim lane; they drifted once.
 func TestClassifyLaneMatchesDatabase(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -43,8 +42,6 @@ func TestClassifyLaneMatchesDatabase(t *testing.T) {
 	}
 }
 
-// Runs the real claim statement on a session-local job table: household B's newer job is claimed before A's
-// next one, and A's own jobs keep their order.
 func TestClaimSharesALaneFairlyAcrossHouseholds(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -61,7 +58,6 @@ func TestClaimSharesALaneFairlyAcrossHouseholds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	// pg_temp precedes public in the search path, so claimSQL reads this table.
 	if _, err := tx.Exec(ctx, `CREATE TEMP TABLE job (LIKE public.job INCLUDING DEFAULTS) ON COMMIT DROP`); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +71,6 @@ func TestClaimSharesALaneFairlyAcrossHouseholds(t *testing.T) {
 		('10000000-0000-4000-8000-000000000006','PROCESS_DOCUMENT','BACKGROUND',NULL,'PENDING','{}',now()-interval '3 hours',NULL,now()-interval '3 hours')`, householdA, householdB); err != nil {
 		t.Fatal(err)
 	}
-	// B never ran; A ran a minute ago; the platform group ran 30 seconds ago, so its old job waits its turn.
 	want := []struct{ id, household string }{
 		{"10000000-0000-4000-8000-000000000004", householdB},
 		{"10000000-0000-4000-8000-000000000002", householdA},
@@ -93,7 +88,6 @@ func TestClaimSharesALaneFairlyAcrossHouseholds(t *testing.T) {
 	}
 }
 
-// Pins migration 00087's enqueue trigger: payload-only jobs still get an owner.
 func TestJobHouseholdIsDerivedFromPayloadAnchor(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -130,7 +124,6 @@ func TestJobHouseholdIsDerivedFromPayloadAnchor(t *testing.T) {
 	if owner != nil {
 		t.Fatalf("unanchored job household = %s, want NULL", *owner)
 	}
-	// A 19-digit chat ID overflows bigint; derivation must yield NULL, not abort the enqueue.
 	if err := tx.QueryRow(ctx, `INSERT INTO job(type,payload_json,run_after) VALUES('SEND_TELEGRAM_MESSAGE','{"chat_id":"9999999999999999999"}',now()+interval '1 day') RETURNING household_id::text`).Scan(&owner); err != nil {
 		t.Fatalf("overflowing chat_id aborted the enqueue: %v", err)
 	}

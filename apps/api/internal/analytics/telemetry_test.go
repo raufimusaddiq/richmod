@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// These tests are intentionally non-parallel: slog's default is process-wide.
 func captureProductEvents(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var output bytes.Buffer

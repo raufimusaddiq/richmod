@@ -137,7 +137,6 @@ func TestMergeRefusesRefsThatAreNotTheReviewsCurrentCandidates(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-refuse")
 	s := seedDuplicateEvidence(t, ctx, f, "a", 101, 301)
-	// A confirmed transaction of another amount is not a candidate, even with a valid unexpired model ref.
 	var otherID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',99000,'IDR',now(),'Other',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&otherID))
 	p := NewProcessor(f.pool, nil)
@@ -206,7 +205,6 @@ func TestMergeExistingIsOnlyAvailableForPossibleDuplicateReviews(t *testing.T) {
 	}
 }
 
-// A merge and a refused merge read differently even when the model call that would word them fails.
 func TestMergeOutcomesHaveDistinctDeterministicMessages(t *testing.T) {
 	merged := agentMutationFallback(agentToolResult{Status: "RESOLVED", Mutation: map[string]any{"action": "DUPLICATE_MERGED"}})
 	refused := agentMutationFallback(agentToolResult{Status: "INVALID_CANDIDATE"})

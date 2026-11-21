@@ -107,8 +107,6 @@ func TestOwnerCannotDeactivateCrossHouseholdMember(t *testing.T) {
 	}
 }
 
-// A household created without a Telegram ID must not strand its owner: the
-// owner links through the same one-time invite members use (ADR-059).
 func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -141,7 +139,6 @@ func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, telegramID, householdID).Scan(&boundUser); err != nil || boundUser != ownerID {
 		t.Fatalf("bound=%s err=%v", boundUser, err)
 	}
-	// Linked is final: the 1:1 rule still refuses a second invite.
 	if response = invite(); response.Code != http.StatusConflict {
 		t.Fatalf("second invite status=%d body=%s", response.Code, response.Body.String())
 	}

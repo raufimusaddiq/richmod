@@ -14,9 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestHouseholdDiagnosticsSurfaceComesFromResolution pins the household
-// completion split to the resolving surface, not the resolver's identity: a
-// Telegram-linked member who resolves on Web counts as Web.
 func TestHouseholdDiagnosticsSurfaceComesFromResolution(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

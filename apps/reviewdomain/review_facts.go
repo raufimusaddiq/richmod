@@ -15,8 +15,6 @@ type ReviewFacts struct {
 	TransactionAt                                        *time.Time
 }
 
-// ApplyTransactionReviewFacts persists accepted facts and the remaining contract
-// together. A relationship answer never substitutes for a category or date.
 func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFacts) ([]string, error) {
 	var kind string
 	var category *string
@@ -29,7 +27,6 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 	}
 	if slices.Contains([]string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "ASSET_PURCHASE"}, facts.Relationship) {
 		kind = "TRANSFER"
-		// The classifier already validated the replacement; it writes it after this call.
 		categoryValid, wealthValid = true, true
 	}
 	var categorySlug string
@@ -103,8 +100,6 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 	for _, value := range items {
 		missing := []string{}
 		for _, fact := range value.decision.MissingFacts {
-			// An incoming transaction confirmed as income has no expense category to
-			// supply, so the income answer settles a stored category question.
 			if fact == "category" && (facts.CategoryID != "" || kind == "TRANSFER" && categoryValid || kind == "INCOME" && facts.Relationship == "INCOME") || fact == "wealth_account" && wealthValid || fact == "transaction_at" && facts.TransactionAt != nil || fact == "duplicate_relationship" && (facts.Relationship == "DISTINCT" || facts.Relationship == "INCOME") || fact == "transfer_relationship" && facts.Relationship != "" && facts.Relationship != "DISTINCT" {
 				continue
 			}
@@ -136,7 +131,6 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 			known["relationship_choice"] = facts.Relationship
 		}
 		patch := map[string]any{"missingFacts": missing}
-		// Once relationship ambiguity is answered, render the residual contract.
 		if (facts.Relationship != "" || !categoryValid || !wealthValid) && len(missing) > 0 {
 			reason := "TRANSACTION_FACTS_MISSING"
 			switch {

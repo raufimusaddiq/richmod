@@ -1,29 +1,12 @@
 -- +goose Up
--- A review_request is the Telegram projection of a canonical review_item; one
--- request can be delivered as one card per household recipient. When the
--- request leaves its active state, every delivered card must lose its buttons
--- so no recipient can tap a dead card. The database enqueues one
--- RETIRE_TELEGRAM_REVIEW_CARD job per delivered card in the same transaction
--- as the terminal transition; the worker re-checks the request and edits the
--- card. The trigger stays dumb: the closure wording is chosen by the worker
--- from the request status when the job runs.
 
--- The last text Telegram shows on each delivered card (written when the card is
--- bound and after each successful edit), so retirement can append a closure note
--- with editMessageText. Without it the worker only strips the keyboard.
 ALTER TABLE review_request_recipient ADD COLUMN delivered_text TEXT;
 
--- The separate merchant-learning question ("remember this category?") sent after
--- a Telegram confirmation. It is its own message so retiring the review card
--- cannot remove the learning buttons; its callbacks bind through this id.
 ALTER TABLE review_request_recipient ADD COLUMN merchant_learning_message_id BIGINT;
 CREATE UNIQUE INDEX review_request_recipient_learning_message_unique
     ON review_request_recipient(telegram_chat_id, merchant_learning_message_id)
     WHERE merchant_learning_message_id IS NOT NULL;
 
--- At most one queued or running retirement per delivered card. A finished job
--- does not block a later one: an EXPIRED request renewed to OPEN and closed
--- again must be able to retire the same card a second time.
 CREATE UNIQUE INDEX job_retire_review_card_active_unique
     ON job((payload_json->>'recipient_id'), (payload_json->>'message_id'))
     WHERE type = 'RETIRE_TELEGRAM_REVIEW_CARD' AND status IN ('PENDING','RUNNING');
@@ -81,13 +64,6 @@ BEGIN
 END $$;
 -- +goose StatementEnd
 
--- Repair: bank-email processing used to settle source-bound review_items
--- (EMAIL_RECEIVED_AT_FALLBACK) without closing their Telegram projection, so a
--- request could stay OPEN with live buttons after its canonical item was
--- already terminal. That is not ambiguous: the canonical item decides. Close
--- such requests and their conversations; the trigger above then queues
--- retirement of every delivered card. Not reversed by Down (the item was
--- already terminal; reopening the projection would recreate the defect).
 UPDATE review_conversation SET state='RESOLVED',updated_at=now()
 WHERE state <> 'RESOLVED' AND review_request_id IN (
     SELECT r.id FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
@@ -113,8 +89,6 @@ END $$;
 DROP TRIGGER IF EXISTS review_request_retire_telegram_cards ON review_request;
 DROP FUNCTION IF EXISTS review_request_retire_telegram_cards();
 DROP FUNCTION IF EXISTS enqueue_review_card_retirement(UUID, UUID);
--- A worker without the handler cannot run queued retirements; close them
--- instead of leaving them to fail as an unsupported type.
 UPDATE job SET status='FAILED',locked_at=NULL,locked_by=NULL,last_error='migration 00079 rolled back',finished_at=now(),updated_at=now()
 WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND status IN ('PENDING','RUNNING');
 DROP INDEX IF EXISTS job_retire_review_card_active_unique;

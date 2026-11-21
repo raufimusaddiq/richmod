@@ -10,7 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
 )
 
-// Validation runs before any database access, so a nil pool proves the 400 path.
 func TestCycleReviewRejectsInvalidHistory(t *testing.T) {
 	h := NewCycleHandler(nil, func() time.Time { return time.Date(2026, 9, 10, 12, 0, 0, 0, clock.HouseholdLocation()) })
 	for _, value := range []string{"0", "13", "-1", "abc", "1.5", "999"} {

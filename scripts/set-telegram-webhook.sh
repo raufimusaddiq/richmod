@@ -1,14 +1,4 @@
 #!/bin/sh
-# Register or verify this deployment's Telegram webhook.
-#
-#   WEB_ORIGIN=https://finance.example.com \
-#   TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... \
-#   scripts/set-telegram-webhook.sh [--check]
-#
-# Telegram does not follow redirects, so a stale registered URL silently drops
-# every inbound update while /healthz and /readyz stay green. `--check` exits
-# non-zero when the registered URL differs from ${WEB_ORIGIN}/webhooks/telegram.
-# Never echoes the token or the secret.
 set -eu
 
 mode=set
@@ -28,7 +18,6 @@ esac
 webhook_url=${WEB_ORIGIN%/}/webhooks/telegram
 api_url=https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}
 
-# The bot token is part of the API URL, so curl's error text is filtered too.
 redact() {
 	sed -e "s|${TELEGRAM_BOT_TOKEN}|<redacted>|g" -e "s|${TELEGRAM_WEBHOOK_SECRET}|<redacted>|g"
 }

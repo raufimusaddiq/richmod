@@ -1,6 +1,3 @@
-// Package pushsupport holds the VAPID configuration predicate and the subscription
-// upsert shared by the API and worker, keeping the enabled decision in one place so
-// the API never advertises a state the sender will not run in.
 package pushsupport
 
 import (
@@ -18,10 +15,8 @@ import (
 	"time"
 )
 
-// ErrDisabled is returned when the VAPID configuration is absent or invalid.
 var ErrDisabled = errors.New("push disabled: VAPID_PRIVATE_KEY or VAPID_SUBJECT is not configured")
 
-// VAPID holds the parsed signing key and public key.
 type VAPID struct {
 	Private   *ecdh.PrivateKey
 	Signing   *ecdsa.PrivateKey
@@ -30,8 +25,6 @@ type VAPID struct {
 	Subject   string
 }
 
-// Parse validates the private scalar and subject exactly once. Both the API's
-// enabled state and the worker's sender construction go through this function.
 func Parse(privateKey, subject string) (*VAPID, error) {
 	privateKey = strings.TrimSpace(privateKey)
 	subject = strings.TrimSpace(subject)
@@ -61,8 +54,6 @@ func Parse(privateKey, subject string) (*VAPID, error) {
 	}, nil
 }
 
-// PublicKey derives the advertised key. It returns empty when the private key
-// is invalid; callers must gate on Parse before trusting it.
 func PublicKey(privateKey string) string {
 	config, err := Parse(privateKey, "https://richmod.invalid")
 	if err != nil {
@@ -71,7 +62,6 @@ func PublicKey(privateKey string) string {
 	return config.PublicKey
 }
 
-// Authorization builds the VAPID Authorization header for one endpoint.
 func (v *VAPID) Authorization(endpoint string) (string, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {

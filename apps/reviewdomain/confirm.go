@@ -9,64 +9,41 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ConfirmCommand carries the bounded residual facts one confirm collects. Zero
-// values mean "not supplied this turn" and never overwrite stored state.
 type ConfirmCommand struct {
-	HouseholdID   string
-	ActorUserID   string
-	TransactionID string
-	// ReviewItemID pins the exact canonical item. Empty completes every open item
-	// for the transaction, which is the Web behavior.
-	ReviewItemID string
-	// RequestID is the exact Telegram projection identity; never substitute the
-	// review_item ID here.
-	RequestID string
-	Action    string
-	// CategorySupplied distinguishes an explicit choice from "unchanged".
+	HouseholdID      string
+	ActorUserID      string
+	TransactionID    string
+	ReviewItemID     string
+	RequestID        string
+	Action           string
 	CategorySupplied bool
 	CategoryID       string
 	Description      string
 	Note             string
 	MerchantName     string
 	RememberMerchant bool
-	// TransactionAt is nil when no date was supplied; adapters normalize dates.
-	TransactionAt *time.Time
-	// Blocked lists stored residual facts the caller did not supply this turn.
-	Blocked []string
-	// ResolveReview selects the terminal completion. Telegram keeps the review open
-	// while it asks whether to remember the merchant, then completes on the answer.
-	ResolveReview bool
+	TransactionAt    *time.Time
+	Blocked          []string
+	ResolveReview    bool
 }
 
-// ConfirmResult reports what the canonical confirm recorded so each surface can
-// map it to its own response shape.
 type ConfirmResult struct {
 	CategoryID string
 	MerchantID string
 }
 
 var (
-	// ErrMissingCategory reports an expense confirm that supplied no category.
-	ErrMissingCategory = errors.New("reviewdomain: expense category is required")
-	// ErrTransferClassificationRequired reports a confirm on an unclassified
-	// transfer, which must use transfer classification instead.
+	ErrMissingCategory                = errors.New("reviewdomain: expense category is required")
 	ErrTransferClassificationRequired = errors.New("reviewdomain: transfer classification required")
-	// ErrMerchantRequiredForLearning reports a remember request with no merchant.
-	ErrMerchantRequiredForLearning = errors.New("reviewdomain: merchant is required to remember a category")
+	ErrMerchantRequiredForLearning    = errors.New("reviewdomain: merchant is required to remember a category")
 )
 
-// ErrMissingFacts reports a confirm whose stored decision still requires
-// residual facts the caller did not supply this turn.
 type ErrMissingFacts struct{ Facts []string }
 
 func (e *ErrMissingFacts) Error() string {
 	return "reviewdomain: unresolved residual facts: " + strings.Join(e.Facts, ",")
 }
 
-// ConfirmTransactionReview performs the canonical transaction-review confirm: it
-// locks the subject, revalidates candidates, mutates the transaction and proposal,
-// keeps source-event status current, and optionally completes the review item(s) and
-// Telegram projection. Web and Telegram both call it (ADR-046).
 func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand) (ConfirmResult, error) {
 	var result ConfirmResult
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
@@ -114,7 +91,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		relationship = "INCOME"
 	}
 	if kind == "TRANSFER" {
-		// A date/category continuation must not replace the accepted transfer choice.
 		relationship = ""
 	}
 	facts := ReviewFacts{HouseholdID: cmd.HouseholdID, TransactionID: cmd.TransactionID, TransactionAt: cmd.TransactionAt, Relationship: relationship}
@@ -155,7 +131,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 			return result, err
 		}
 	}
-	// Only overwrite the stored candidate when this turn supplied a category.
 	if cmd.CategorySupplied {
 		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, categoryID); err != nil {
 			return result, err
@@ -197,7 +172,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	return result, nil
 }
 
-// cleanText trims and truncates surface input to its stored ceiling.
 func cleanText(value string, limit int) string {
 	runes := []rune(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 	if len(runes) > limit {

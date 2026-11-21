@@ -72,7 +72,6 @@ func TestReplyBindingIsScopedToTheChat(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "reply-chat")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	b := seedEvidence(t, ctx, f, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan", messageID: 101})
-	// Another member's private chat reuses message id 101.
 	otherChat := f.chatID + 11
 	_, err := f.pool.Exec(ctx, `UPDATE source_event SET telegram_chat_id=$2 WHERE id=$1`, b.sourceID, otherChat)
 	mustAgentTest(t, err)
@@ -101,7 +100,6 @@ func TestAlbumMemberReplyResolvesToTheAlbumDocument(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-album")
 	first := seedEvidence(t, ctx, f, "first", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 201})
-	// A later album image has its own source event and only a document_page row.
 	var secondSource string
 	stamp := time.Now().UnixNano()
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id,telegram_media_group_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED',202,$4,'album-1') RETURNING id`,
@@ -260,7 +258,6 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 			t.Fatalf("evidence with no linked transaction exposes mutation tool %s", tool.Name)
 		}
 	}
-	// With mutation authority unavailable the correction tool is absent, so even linked evidence is bound read-only.
 	readOnlyGeneral := readOnlyAgentTools(general)
 	degraded, scope := applyEvidenceToolPolicy(readOnlyGeneral, filtered, agentWorkflowExplicitUnbound, linked)
 	if scope != agentWorkflowEvidenceReadOnly {
@@ -279,8 +276,6 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 	}
 }
 
-// The reply router trusts the (chat, message) key, so the database must refuse rows pointing at a missing or
-// foreign-household document.
 func TestMessageBindingRejectsDanglingAndCrossHouseholdDocuments(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "binding-fk")

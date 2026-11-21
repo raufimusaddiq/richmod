@@ -1,8 +1,4 @@
 -- +goose Up
--- Bounded evidence verification for bank email (PRD §20). Additive only: it
--- records what the judgment plane claimed about an already-extracted
--- notification so the extractor's self-reported confidence is no longer the
--- sole semantic gate. No canonical financial state is written here.
 CREATE TABLE bank_email_evidence_verification (
     source_event_id UUID PRIMARY KEY REFERENCES source_event(id),
     listener_id UUID REFERENCES bank_email_listener(id),

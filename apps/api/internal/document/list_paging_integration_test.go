@@ -16,7 +16,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
 )
 
-// N19: the list pages with a cursor instead of silently stopping at a fixed cap.
 func TestDocumentListPagesWithCursor(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -48,7 +47,6 @@ func TestDocumentListPagesWithCursor(t *testing.T) {
 		if err = pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, householdID, []byte(fmt.Sprintf("paging-att-%d-%d", stamp, i)), fmt.Sprintf("%s/%d.png", householdID, i)).Scan(&attachmentID); err != nil {
 			t.Fatal(err)
 		}
-		// Two documents share a timestamp so the id tiebreak is exercised.
 		if _, err = pool.Exec(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status,created_at) VALUES($1,$2,$3,'RECEIPT','EXTRACTED',now()-make_interval(mins => $4))`, householdID, sourceID, attachmentID, i/2); err != nil {
 			t.Fatal(err)
 		}

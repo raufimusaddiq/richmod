@@ -12,39 +12,26 @@ import (
 )
 
 type PublicTurn struct {
-	Role    string         `json:"role"`
-	Text    string         `json:"text,omitempty"`
-	Tool    string         `json:"tool,omitempty"`
-	Context map[string]any `json:"context,omitempty"`
-	// At is when the user sent the message (USER rows), so "yang tadi pagi" can be placed in time.
-	At string `json:"at,omitempty"`
-	// Failure marks an assistant failure notice (TIMEOUT, UNAVAILABLE, ERROR, in-turn refusal): the question
-	// before it was unanswered and nothing was recorded.
-	Failure string `json:"failure,omitempty"`
-	// Compacted marks an older turn with shortened text and dropped tool data, so the model does not treat it
-	// as the original.
-	Compacted bool `json:"compacted,omitempty"`
+	Role      string         `json:"role"`
+	Text      string         `json:"text,omitempty"`
+	Tool      string         `json:"tool,omitempty"`
+	Context   map[string]any `json:"context,omitempty"`
+	At        string         `json:"at,omitempty"`
+	Failure   string         `json:"failure,omitempty"`
+	Compacted bool           `json:"compacted,omitempty"`
 }
 
-// Turns in a window, trimmed deterministically; a model summary would put untrusted numbers in prompts.
-// Bookkeeping rows (agentBookkeepingTools) give opaque refs a durable owner and are never replayed.
 const (
-	conversationWindow   = 24 * time.Hour
-	conversationScanRows = 40
-	// verbatimExchanges: the newest user exchanges (a USER row plus the rows up to the next) kept whole with
-	// tool results; counted as exchanges so tool rows cannot crowd the window.
-	verbatimExchanges   = 3
-	olderUserChars      = 200
-	olderAssistantChars = 300
-	// conversationCharBudget caps replayed memory (text plus tool JSON): older verbatim tool data goes first,
-	// then the oldest compacted turns; the newest exchange is never trimmed.
+	conversationWindow     = 24 * time.Hour
+	conversationScanRows   = 40
+	verbatimExchanges      = 3
+	olderUserChars         = 200
+	olderAssistantChars    = 300
 	conversationCharBudget = 6000
 )
 
 var agentBookkeepingTools = []string{"agent_transaction_refs", gatewayDeferredTool}
 
-// persistTurn saves USER and ASSISTANT rows once per source event; TOOL and event-less rows always insert.
-// "Once" holds under concurrency via an advisory lock on event and role; a unique index needs a migration.
 func (p *Processor) persistTurn(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, role, text, tool string, public map[string]any) error {
 	if p.pool == nil {
 		return nil
@@ -60,8 +47,6 @@ func (p *Processor) persistTurn(ctx context.Context, householdID, sourceEventID 
 	return tx.Commit(ctx)
 }
 
-// insertTurnTx stores a turn in the caller's transaction with persistTurn's once-per-event rule, so a reply
-// and its turn row commit together.
 func insertTurnTx(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, update telegramUpdate, role, text, tool string, public map[string]any) error {
 	encoded, _ := json.Marshal(public)
 	if sourceEventID != "" && (role == "USER" || role == "ASSISTANT") {
@@ -97,7 +82,6 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 		}
 		_ = json.Unmarshal(raw, &turn.Context)
 		if turn.Role != "TOOL" {
-			// USER/ASSISTANT context is bookkeeping; only what a follow-up needs is lifted out.
 			turn.At, _ = turn.Context["current_jakarta_datetime"].(string)
 			turn.Failure, _ = turn.Context["failure"].(string)
 			turn.Context = nil
@@ -115,11 +99,8 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 	return compactConversation(chronological), nil
 }
 
-// expiredAnalyticsRef matches opaque analytics refs ("category.3") that must not be replayed across turns.
-// Transaction and review refs (tx_1, review_2) are bound server-side and stay.
 var expiredAnalyticsRef = regexp.MustCompile(`^category\.[0-9]+(\.[a-z_]+\.[0-9]+)*$`)
 
-// Removes analytics refs from a stored tool context in place; the names and figures beside them stay.
 func dropExpiredAnalyticsRefs(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
@@ -144,8 +125,6 @@ func dropExpiredAnalyticsRefs(value any) any {
 	return value
 }
 
-// compactConversation keeps the newest verbatimExchanges whole; older turns keep clipped text only.
-// Then conversationCharBudget trims older verbatim tool results first, then the oldest compacted turns.
 func compactConversation(turns []PublicTurn) []PublicTurn {
 	cut := 0
 	seen := 0
@@ -184,7 +163,6 @@ func compactConversation(turns []PublicTurn) []PublicTurn {
 	for _, turn := range older {
 		total += turnMemorySize(turn)
 	}
-	// Tool results of older verbatim exchanges are the heaviest and least needed.
 	if total > conversationCharBudget {
 		kept := make([]PublicTurn, 0, len(verbatim))
 		for index, turn := range verbatim {
@@ -203,8 +181,6 @@ func compactConversation(turns []PublicTurn) []PublicTurn {
 	return append(older, verbatim...)
 }
 
-// turnMemorySize is a turn's prompt cost in characters (text plus tool JSON), not bytes, so non-ASCII text is
-// not penalized.
 func turnMemorySize(turn PublicTurn) int {
 	size := utf8.RuneCountInString(turn.Text)
 	if len(turn.Context) > 0 {

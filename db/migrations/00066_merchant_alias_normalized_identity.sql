@@ -1,9 +1,4 @@
 -- +goose Up
--- One raw merchant spelling must resolve to exactly one learning rule. Keep the
--- oldest alias per (household, case/space-normalized raw name); a group whose
--- rows disagree on merchant or category collapses to a single rule with
--- auto_apply disabled so nothing is guessed. Transaction and evidence rows are
--- never touched; removed alias values are retained in the audit log below.
 WITH grouped AS (
     SELECT household_id, lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g')) AS normalized_name,
            bool_or(auto_apply) AS group_auto, bool_and(created_from_user_confirmation) AS group_confirmed,

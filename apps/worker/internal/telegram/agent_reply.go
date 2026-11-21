@@ -11,21 +11,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Deterministic replies (ADR-033): a mutation result Go fully knows is answered from it with no second model call;
-// only a result without a deterministic copy is worded by the model.
-
 const genericMutationReply = "Permintaan keuanganmu sudah diproses."
 
 const sourceEvidenceFixesAmountMessage = "Nominal dan merchant transaksi ini berasal dari bukti sumbernya (email bank, bukti penyedia, atau dokumen), jadi tidak bisa diubah dari chat. Kalau memang salah, buka transaksinya di web atau kirim bukti yang benar. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
 
-// agentMutationFallback always answers: the deterministic copy, or a generic acknowledgement.
 func agentMutationFallback(result agentToolResult) string {
 	message, _ := agentMutationReply(result)
 	return message
 }
 
-// queueTurnReplyTx queues the reply and ASSISTANT turn in the mutation's own transaction, so a retry finds
-// the event final and answered.
 func (p *Processor) queueTurnReplyTx(ctx context.Context, tx pgx.Tx, state *agentState, result agentToolResult) error {
 	message := clean(agentMutationFallback(result), 4000)
 	var err error
@@ -56,8 +50,6 @@ func mutationInt(mutation map[string]any, key string) int {
 	return 0
 }
 
-// friendlyWhen renders a time relative to today ("hari ini 14:05", "kemarin 09:00", else "02 Agu 2026
-// 15:04"); an approximate time names the part of the day.
 func friendlyWhen(at time.Time, precision, period string) string {
 	local := at.In(jakartaLocation())
 	today := time.Now().In(jakartaLocation())
@@ -74,8 +66,6 @@ func friendlyWhen(at time.Time, precision, period string) string {
 	return day + " " + local.Format("15:04")
 }
 
-// transactionRecordedMessage shows what was written; a transaction left for review points at the card below,
-// not the Inbox.
 func transactionRecordedMessage(result agentToolResult) string {
 	m := result.Mutation
 	amount, _ := m["amount_idr"].(string)
@@ -116,7 +106,6 @@ func transactionRecordedMessage(result agentToolResult) string {
 	return "✅ Tercatat: " + line + detail
 }
 
-// approximatePeriodName names the part of the day (PAGI/SIANG/SORE/MALAM) an approximate time stands for.
 func approximatePeriodName(at time.Time) string {
 	hour := at.In(jakartaLocation()).Hour()
 	for _, value := range approximateLocalTimes {
@@ -175,8 +164,6 @@ func correctionStagedMessage(m map[string]any) string {
 	return header + ":" + body + "\n\nPilih tombol konfirmasi kalau sudah benar. Perubahan ini menunggu 30 menit."
 }
 
-// recoverUnansweredTurn re-queues the reply of a turn whose mutation committed but was never answered.
-// A turn is answered if it has an ASSISTANT row or non-progress reply job; else rebuild it once, locked.
 func (p *Processor) recoverUnansweredTurn(ctx context.Context, sourceEventID, householdID, payloadText, parserName string) error {
 	if !strings.HasPrefix(parserName, "telegram") || !strings.Contains(parserName, "agent") {
 		return nil
@@ -234,11 +221,9 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid.", true
 	}
 	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
-		// A refusal, not a recording: the user must tell them apart even if the model call fails.
 		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda.", true
 	}
 	if result.Status == "INVALID_CANDIDATE" {
-		// A refused merge, not a merge: said deterministically so a failed model call cannot read as success.
 		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud.", true
 	}
 	if result.Mutation != nil {
@@ -394,7 +379,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	return genericMutationReply, false
 }
 
-// missingFields reads missing_fields whether live ([]string) or rebuilt from stored JSON ([]any).
 func missingFields(review map[string]any) ([]string, bool) {
 	switch value := review["missing_fields"].(type) {
 	case []string:

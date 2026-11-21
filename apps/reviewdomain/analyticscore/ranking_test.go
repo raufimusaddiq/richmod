@@ -16,7 +16,6 @@ func rankingMeasure(expense string, categories map[string]reviewValue) cycleMeas
 }
 
 func TestCategoryRankingOrdersNumericallyAndReconcilesToExpense(t *testing.T) {
-	// String order differs from numeric order: "9000" > "20000" > "100000" as strings.
 	cats := map[string]reviewValue{}
 	total := "0"
 	for i, amount := range []string{"9000", "20000", "100000", "5", "700", "3000", "45000", "800", "60", "1000000"} {

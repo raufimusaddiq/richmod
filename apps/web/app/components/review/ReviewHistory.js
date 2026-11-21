@@ -11,8 +11,6 @@ const outcomes = {
 };
 export function outcomeLabel(action) { return outcomes[action] || "Selesai"; }
 
-// One quiet line per decision: what it was, how it ended, when; the reopen
-// button only exists where a reopen is actually possible.
 export default function ReviewHistory({ items, busy, reopen }) {
   const [all, setAll] = useState(false);
   const shown = all ? items : items.slice(0, PREVIEW);

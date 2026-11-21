@@ -18,11 +18,8 @@ type pageCursor struct {
 	ID   string
 }
 
-// errInvalidCursor marks a cursor that was supplied but cannot be decoded to a
-// usable keyset position. Callers turn it into 400 instead of page one.
 var errInvalidCursor = errors.New("invalid cursor")
 
-// cursorIDKind is the shape the endpoint's SQL casts the cursor id to.
 type cursorIDKind int
 
 const (
@@ -31,9 +28,6 @@ const (
 	cursorText
 )
 
-// parseCursor decodes the shared (created_at, id) keyset cursor. An absent
-// cursor is (zero, false, nil); a malformed one is an error, never a fallback
-// to the first page.
 func parseCursor(value string, kind cursorIDKind) (pageCursor, bool, error) {
 	if value == "" {
 		return pageCursor{}, false, nil

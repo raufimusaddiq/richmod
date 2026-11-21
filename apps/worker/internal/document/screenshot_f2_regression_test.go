@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// F2 regression: a distinct payment (same merchant and amount, 10 minutes after a confirmed transaction)
-// must never reach the strong auto-link threshold (>= .90).
 func TestScreenshotF2DisputedPairMustNotAutoLink(t *testing.T) {
 	at := screenshotRowTime()
 	for _, tc := range []struct {

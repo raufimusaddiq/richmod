@@ -1,6 +1,3 @@
-// Runs the real service worker in a VM. There is no caching path left to test: a chunk
-// request is never intercepted, and a push with a valid, empty or malformed body shows a
-// notification.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -65,8 +62,6 @@ test("a chunk fetch is never intercepted and respondWith is never called", () =>
   const worker = createWorker();
   assert.equal(worker.listeners.fetch, undefined, "the worker registers no fetch handler");
   let intercepted = false;
-  // If a fetch event were dispatched anyway, nothing would answer it; the
-  // browser's own network request proceeds unchanged.
   worker.listeners.fetch?.({
     request: new Request("https://richmod.test/_next/static/chunks/app.js"),
     respondWith() { intercepted = true; },

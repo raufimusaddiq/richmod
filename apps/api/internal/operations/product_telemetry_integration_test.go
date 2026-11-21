@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// The append-only telemetry table must capture review turns and
-// post-auto-confirm corrections atomically with the canonical write, and the
-// aggregate must surface them without persisting any financial value or text.
 func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -41,12 +38,9 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A saved Telegram detail is one turn while the review is still open; the
-	// web review below exercises the resolution-fallback path.
 	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','description'))`, txID, eventID, requestID); err != nil {
 		t.Fatal(err)
 	}
-	// A web resolution with no Telegram reply evidence takes the fallback turn path.
 	var webTxID, webEventID, webReviewID string
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',15000,'IDR',now(),now()) RETURNING id`, householdID).Scan(&webTxID); err != nil {
 		t.Fatal(err)
@@ -63,13 +57,9 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values=jsonb_build_object('category_id',gen_random_uuid()) WHERE id=$1`, webReviewID); err != nil {
 		t.Fatal(err)
 	}
-	// This web-style review has no bound Telegram reply, so resolution itself is
-	// the single recorded turn.
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values=jsonb_build_object('category_id',gen_random_uuid()) WHERE id=$1`, reviewID); err != nil {
 		t.Fatal(err)
 	}
-	// A delayed callback can persist its bound reply after the canonical review
-	// has resolved; it is still one review turn and must not be dropped.
 	var lateEventID, lateTxID, lateReviewID, lateRequestID string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode(md5($2),'hex'),'PROCESSED') RETURNING id`, householdID, fmt.Sprintf("telemetry-late-%d", stamp)).Scan(&lateEventID); err != nil {
 		t.Fatal(err)
@@ -94,11 +84,9 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if turns != 3 {
 		t.Fatalf("expected Telegram detail, web resolution, and late Telegram reply turns, got %d", turns)
 	}
-	// Telegram category and web resolution are bounded choices; detail entry is not.
 	if bounded != 2 {
 		t.Fatalf("bounded-choice turns must be counted per turn, got %d", bounded)
 	}
-	// No financial value or free text may be persisted: only field names.
 	var leaked int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM product_telemetry_event e CROSS JOIN LATERAL unnest(e.changed_fields) f WHERE e.household_id=$1 AND f NOT IN ('merchant','category','description','note','transaction_at','purpose','wealth_account','account','amount','type','status')`, householdID).Scan(&leaked); err != nil {
 		t.Fatal(err)
@@ -107,7 +95,6 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 		t.Fatalf("telemetry changed_fields must be a bounded field-name allow-list, leaked=%d", leaked)
 	}
 
-	// A later correction to the auto-confirmed transaction records the correction.
 	if _, err := pool.Exec(ctx, `UPDATE transaction SET description='corrected later' WHERE id=$1`, txID); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +117,6 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if aggregate.AutoConfirmCorrectionSource["TELEGRAM_TEXT"] != 1 {
 		t.Fatalf("correction source breakdown missing: %+v", aggregate.AutoConfirmCorrectionSource)
 	}
-	// One detail field, one bounded web choice, one Telegram classification.
 	if aggregate.CanonicalEvents != 3 {
 		t.Fatalf("canonical cohort must be the confirmed in-window transactions: %+v", aggregate)
 	}

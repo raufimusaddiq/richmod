@@ -1,15 +1,8 @@
 package reviewdec
 
-// Kind is the single declaration of one review kind (ADR-054); every surface
-// reads this table instead of keeping its own copy.
-//
-// The three action lists stay separate fields because the surface projections
-// already differ per kind (vocabulary, capability, taxonomy), pinned by golden tests.
 type Kind struct {
 	Reason string
 
-	// Stored contract. A kind with no Actions has no producer preset: it exists
-	// only as a surface key (an Inbox or agent kind that is not a stored reason).
 	Class       string
 	Missing     []string
 	Actions     []string
@@ -17,30 +10,17 @@ type Kind struct {
 	Why         string
 	Consequence Consequence
 	Affected    []string
-	// KnownNil names known facts that are present but unknown (stored as null).
-	KnownNil []string
-	// Choices are server-owned bounded answers stored as boundedChoices.
-	Choices []Choice
+	KnownNil    []string
+	Choices     []Choice
 
-	// Inbox is what the Review Inbox offers when an item carries no stored
-	// actions. Empty means IGNORE only.
 	Inbox []string
-	// Agent is the resolve_review enum for the agent. Empty means CONFIRM, IGNORE.
 	Agent []string
 
-	// Telegram reports that a Telegram review card can complete this kind, so the
-	// shared projection may send it. A kind without it stays in the Review Inbox.
-	Telegram bool
-	// TelegramActions overrides the actions a Telegram card may offer when they
-	// differ from the stored Actions (a surface-only kind has no stored Actions).
+	Telegram        bool
 	TelegramActions []string
-	// WhyID is the short Indonesian reason line a Telegram card shows for why the
-	// review was not confirmed automatically. It renders Why for a household.
-	WhyID string
+	WhyID           string
 }
 
-// transactionDateChoices are the one-tap SET_TRANSACTION_DATE answers; Go maps
-// each key to a Jakarta date at resolution time (reviewdomain.DateChoice).
 var transactionDateChoices = []Choice{{Key: "TODAY", Label: "Hari ini"}, {Key: "YESTERDAY", Label: "Kemarin"}, {Key: "MESSAGE_DATE", Label: "Tanggal pesan"}}
 
 var kinds = []Kind{
@@ -56,16 +36,13 @@ var kinds = []Kind{
 		Agent:    []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"},
 	},
 	{
-		// PREPARE_SNAPSHOT is navigation, not a canonical completion; listing it as allowed
-		// would make the remaining actions look unavailable.
 		Reason: "WEALTH_OBSERVATION_CONFIRMATION", Class: ClassEvidenceGap,
-		Missing:  []string{"wealth_snapshot_confirmation"},
-		Actions:  []string{"SET_WEALTH_ACCOUNT", "IGNORE"},
-		Mode:     ModeBoundedChoice,
-		Why:      "a wealth value is an observation; the complete active account set must be confirmed",
-		WhyID:    "Nilai kekayaan hanya observasi; akunnya perlu dipastikan.",
-		Telegram: true,
-		// The bound typed reply can also turn the observation into an asset purchase.
+		Missing:         []string{"wealth_snapshot_confirmation"},
+		Actions:         []string{"SET_WEALTH_ACCOUNT", "IGNORE"},
+		Mode:            ModeBoundedChoice,
+		Why:             "a wealth value is an observation; the complete active account set must be confirmed",
+		WhyID:           "Nilai kekayaan hanya observasi; akunnya perlu dipastikan.",
+		Telegram:        true,
 		TelegramActions: []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"},
 		Inbox:           []string{"SET_WEALTH_ACCOUNT", "IGNORE"},
 	},
@@ -125,10 +102,6 @@ var kinds = []Kind{
 		Agent:    []string{"SET_PAY_DATE", "IGNORE"},
 	},
 	{
-		// A source fact that is genuinely absent; the received-at fallback is provenance,
-		// not a known transaction time. SET_PAY_DATE stays the payslip-only answer (rows
-		// migrated by 00096); when the source printed no date the household picks a bounded
-		// one-tap date.
 		Reason: "MISSING_TRANSACTION_DATE", Class: ClassEvidenceGap,
 		Missing:  []string{"transaction_at"},
 		Actions:  []string{"SET_TRANSACTION_DATE", "IGNORE"},
@@ -139,8 +112,6 @@ var kinds = []Kind{
 		Telegram: true,
 	},
 	{
-		// Compound residual: category plus date. One reason code must not hide
-		// either dimension, so the contract names both explicitly.
 		Reason: "TRANSACTION_FACTS_MISSING", Class: ClassEvidenceGap,
 		Missing:  []string{"category", "transaction_at"},
 		Actions:  []string{"CONFIRM_REVIEW", "SET_TRANSACTION_DATE", "IGNORE"},
@@ -151,9 +122,6 @@ var kinds = []Kind{
 		Telegram: true,
 	},
 	{
-		// Completion vocabulary is what the shared classifier accepts. MERGE_EXISTING and
-		// CONFIRM_NEW_TRANSFER belong to the reconciliation chooser, added only when the
-		// case carries candidates.
 		Reason: "TRANSFER_CLASSIFICATION", Class: ClassEvidenceGap,
 		Missing:  []string{"transfer_relationship"},
 		Actions:  []string{"CLASSIFY_TRANSFER", "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE", "IGNORE"},
@@ -164,8 +132,6 @@ var kinds = []Kind{
 		Agent:    []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"},
 	},
 	{
-		// Producers normally name only the unresolved entity; this is the fallback when no
-		// narrower decision exists.
 		Reason: "FINANCIAL_EMAIL_RESOLUTION", Class: ClassEvidenceGap,
 		Missing:  []string{"funding_account", "wealth_account"},
 		Actions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
@@ -177,8 +143,6 @@ var kinds = []Kind{
 		Agent:    []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
 	},
 	{
-		// The producer overrides Missing/Affected/Consequence with the failed predicate.
-		// No canonical transaction was written, so the only action is to acknowledge.
 		Reason: "FINANCIAL_EMAIL_FACTS", Class: ClassEvidenceGap,
 		Missing:  []string{"evidence_support"},
 		Actions:  []string{"IGNORE"},
@@ -237,8 +201,6 @@ var kinds = []Kind{
 		Telegram: true,
 	},
 	{
-		// A possible repeat can merge into a server-computed candidate (opaque ref), be
-		// kept as a separate event, or be dismissed.
 		Reason: "POSSIBLE_DUPLICATE", Class: ClassDuplicateAmbiguity,
 		Missing:  []string{"duplicate_relationship"},
 		Actions:  []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"},
@@ -249,8 +211,6 @@ var kinds = []Kind{
 		Agent:    []string{"MERGE_EXISTING", "CONFIRM", "IGNORE"},
 	},
 	{
-		// The receipt's own total, date, and category may all be known; only the
-		// line arithmetic disagrees, and that cannot prove the printed total wrong.
 		Reason: "RECEIPT_MISMATCH", Class: ClassCorrectionConfirmation,
 		Consequence: QualitySignal, Affected: []string{"receipt_arithmetic"},
 		Actions:  []string{"CONFIRM_REVIEW", "IGNORE"},
@@ -260,8 +220,6 @@ var kinds = []Kind{
 		Telegram: true,
 	},
 
-	// Surface-only kinds: no producer preset. They are keys one surface uses for a
-	// review that is not stored under this name.
 	{
 		Reason: "MISSING_AMOUNT", Inbox: []string{"SET_AMOUNT", "IGNORE"},
 		Telegram: true, TelegramActions: []string{"SET_AMOUNT", "IGNORE"},
@@ -287,7 +245,6 @@ func cloneStrings(values []string) []string {
 	return append([]string(nil), values...)
 }
 
-// ActiveReasons returns a copy of the reasons with a live producer, in table order.
 func ActiveReasons() []string {
 	reasons := make([]string, 0, len(kinds))
 	for i := range kinds {
@@ -298,8 +255,6 @@ func ActiveReasons() []string {
 	return reasons
 }
 
-// InboxActions returns the actions the Review Inbox offers for a kind that
-// carries no stored actions. An unknown kind may only be ignored.
 func InboxActions(reason string) []string {
 	if kind, ok := kindByReason[reason]; ok && len(kind.Inbox) > 0 {
 		return cloneStrings(kind.Inbox)
@@ -307,8 +262,6 @@ func InboxActions(reason string) []string {
 	return []string{"IGNORE"}
 }
 
-// AgentActions returns the resolve_review action enum for an agent review kind.
-// An unlisted kind may be confirmed or ignored.
 func AgentActions(reason string) []string {
 	if kind, ok := kindByReason[reason]; ok && len(kind.Agent) > 0 {
 		return cloneStrings(kind.Agent)
@@ -316,8 +269,6 @@ func AgentActions(reason string) []string {
 	return []string{"CONFIRM", "IGNORE"}
 }
 
-// AllAgentActions returns every action any agent review kind can offer, derived
-// from the table; the native-call validator uses it as the closed vocabulary.
 func AllAgentActions() []string {
 	seen := map[string]bool{}
 	var all []string
@@ -336,15 +287,11 @@ func AllAgentActions() []string {
 	return all
 }
 
-// TelegramProjectable reports whether a review kind may be projected to a
-// Telegram card: the registry declares that a Telegram lane can complete it.
-// An unknown kind fails closed.
 func TelegramProjectable(reason string) bool {
 	kind, ok := kindByReason[reason]
 	return ok && kind.Telegram
 }
 
-// TelegramReasons returns every kind a Telegram card can complete, in table order.
 func TelegramReasons() []string {
 	var reasons []string
 	for i := range kinds {
@@ -355,9 +302,6 @@ func TelegramReasons() []string {
 	return reasons
 }
 
-// TelegramActions returns the actions a Telegram card may offer for a kind when
-// the stored decision carries none. It is empty for a kind Telegram cannot
-// complete.
 func TelegramActions(reason string) []string {
 	kind, ok := kindByReason[reason]
 	if !ok || !kind.Telegram {
@@ -369,8 +313,6 @@ func TelegramActions(reason string) []string {
 	return cloneStrings(kind.Actions)
 }
 
-// TelegramCompleteActions returns every ordinary action some Telegram card can
-// complete, excluding IGNORE (every surface can ignore).
 func TelegramCompleteActions() []string {
 	seen := map[string]bool{"IGNORE": true}
 	var all []string
@@ -385,8 +327,6 @@ func TelegramCompleteActions() []string {
 	return all
 }
 
-// whyTranslations maps bespoke stored why-not-auto-confirm reasons (English
-// contract) to the Indonesian card line.
 var whyTranslations = map[string]string{
 	"the bounded category decision did not reach a confident, well-separated choice":                       "Kategori belum cukup yakin untuk dipilih otomatis.",
 	"no supported merchant-to-category mapping or decisive category ruling was available":                  "Belum ada kategori tersimpan untuk merchant ini.",
@@ -400,9 +340,6 @@ var whyTranslations = map[string]string{
 	"pay date is absent and the first salary source requires household classification":                     "Tanggal pembayaran tidak ada dan jenis gaji pertama perlu dipilih.",
 }
 
-// WhyLine returns the Indonesian reason a Telegram card shows for why a review was
-// not auto-confirmed: the translated bespoke reason when known, else the kind's own
-// line. It never invents a reason for an unknown kind.
 func WhyLine(decision Decision) string {
 	if line, ok := whyTranslations[decision.WhyNotAuto]; ok {
 		return line

@@ -12,7 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// typedReplyGateway proposes the card's value through resolve_review once.
 type typedReplyGateway struct {
 	arguments string
 	calls     int
@@ -54,8 +53,6 @@ func sendTypedReviewReply(t *testing.T, ctx context.Context, f agentIntegrationF
 	mustAgentTest(t, p.ProcessAgent(ctx, f.sourceID))
 }
 
-// A purpose or correction typed in answer to a card is stored and completes the review when nothing else is
-// asked and the category exists.
 func TestTypedDetailReplyCompletesReview(t *testing.T) {
 	for _, reviewType := range []string{"UNKNOWN_PURPOSE", "MANUAL_CORRECTION"} {
 		for _, mode := range typedReplyModes {
@@ -91,8 +88,6 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 	}
 }
 
-// A bank email with unverified facts asks for amount and time; the model extracts them, Go validates and
-// queues the Web's completion job.
 func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 	for _, mode := range typedReplyModes {
 		t.Run(mode.name, func(t *testing.T) {
@@ -131,7 +126,6 @@ func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 	}
 }
 
-// A compound card (date and category) stores the typed date, then moves to the category chooser.
 func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 	for _, mode := range typedReplyModes {
 		t.Run(mode.name, func(t *testing.T) {
@@ -160,7 +154,6 @@ func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 	}
 }
 
-// A purpose typed for an uncategorized expense is stored, then the category chooser completes the review.
 func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "typed-purpose-chooser")
@@ -193,7 +186,6 @@ func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 	}
 }
 
-// A typed amount answering an unreadable-amount screenshot row (a proposal-keyed review) records the transaction.
 func TestTypedAmountReplyRecordsScreenshotRow(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "typed-amount")

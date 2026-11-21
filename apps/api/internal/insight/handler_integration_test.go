@@ -90,7 +90,6 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if retry.Code != http.StatusOK {
 		t.Fatalf("retry status=%d body=%s", retry.Code, retry.Body.String())
 	}
-	// A pending old contract must not be reused as new full-cycle commentary.
 	if _, err := pool.Exec(ctx, `UPDATE insight SET prompt_version='cycle-analyst-v4' WHERE id=$1`, generated["id"]); err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +109,6 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if retryFailed.Code != http.StatusAccepted {
 		t.Fatalf("failed retry status=%d body=%s", retryFailed.Code, retryFailed.Body.String())
 	}
-	// More than twelve newer rows must not hide the selected older cycle. Large
-	// audit records stay stored, but are excluded from the browser projection.
 	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=input_metrics_json || '{"facts_snapshot":{"private":"fixture"},"tool_reads":[{"private":"fixture"}]}'::jsonb WHERE id=$1`, generated["id"]); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +153,6 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if err := json.Unmarshal(retryFailed.Body.Bytes(), &pending); err != nil {
 		t.Fatal(err)
 	}
-	// A pending request from an older cutoff must never be returned as current.
 	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=jsonb_set(input_metrics_json,'{period_end}','"2026-08-31"'::jsonb) WHERE id=$1`, pending["id"]); err != nil {
 		t.Fatal(err)
 	}

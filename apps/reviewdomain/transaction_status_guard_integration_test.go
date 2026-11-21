@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The database owns the transaction status machine (migration 00097): a voided
-// transaction cannot be confirmed again, nothing returns to PENDING, and a salary event follows its transaction's status.
 func TestTransactionStatusMachineAndSalaryEventSync(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -29,7 +27,6 @@ func TestTransactionStatusMachineAndSalaryEventSync(t *testing.T) {
 		}
 	}
 	f := seedMergedScreenshot(t, ctx, pool, "status-machine")
-	// Nothing moves back to PENDING.
 	if _, err := pool.Exec(ctx, `UPDATE transaction SET status='PENDING',confirmed_at=NULL WHERE id=$1`, f.original); err == nil {
 		t.Fatal("a confirmed transaction went back to pending")
 	}
@@ -45,11 +42,9 @@ func TestTransactionStatusMachineAndSalaryEventSync(t *testing.T) {
 	if status != "VOIDED" {
 		t.Fatalf("salary event status = %s after its transaction was voided", status)
 	}
-	// A voided transaction is never confirmed again.
 	if _, err := pool.Exec(ctx, `UPDATE transaction SET status='CONFIRMED',confirmed_at=now(),voided_at=NULL WHERE id=$1`, f.original); err == nil {
 		t.Fatal("a voided transaction was confirmed again")
 	}
-	// A reversed merge may reopen it, and confirming it then revives the event.
 	_, err = pool.Exec(ctx, `UPDATE transaction SET status='NEEDS_REVIEW',voided_at=NULL WHERE id=$1`, f.original)
 	must(err)
 	_, err = pool.Exec(ctx, `UPDATE transaction SET status='CONFIRMED',confirmed_at=now() WHERE id=$1`, f.original)

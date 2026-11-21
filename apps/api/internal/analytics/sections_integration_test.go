@@ -13,7 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 )
 
-// spend inserts a confirmed expense at 10:00 Jakarta time on date.
 func (f reviewFixture) spend(t *testing.T, date, amount string, merchant, counterparty, user *string) {
 	t.Helper()
 	if _, err := f.pool.Exec(context.Background(), `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at,merchant_id,counterparty_name,created_by_user_id,purpose) VALUES($1,'EXPENSE','CONFIRMED',$2::numeric,($3::date::timestamp AT TIME ZONE 'Asia/Jakarta')+interval '10 hours',now(),$4,$5,$6,'GENERAL')`, f.household, amount, date, merchant, counterparty, user); err != nil {
@@ -21,15 +20,6 @@ func (f reviewFixture) spend(t *testing.T, date, amount string, merchant, counte
 	}
 }
 
-// sectionsScenario builds four salary cycles and the active September cycle
-// (measured to 2026-09-10, so ten elapsed days). Every earlier cycle has spending
-// both inside and after day 10, so a wrong cut shows in the amounts.
-//
-//	Dining (merchant "Fixture cafe"): Jun 500|3000  Jul 700|4000  Aug 1000+2000|5000  Sep 800+1200|9999 (after cutoff)
-//	uncategorized, no merchant:        Jun 0|200     Aug 100|0     (day 25 / day 2)
-//
-// September also holds an unresolved counterparty (700), an unattributed
-// no-merchant row (300), and nine small merchants (10..90).
 func sectionsScenario(t *testing.T) reviewFixture {
 	t.Helper()
 	f := cycleReviewFixture(t)
@@ -61,7 +51,6 @@ func sectionsScenario(t *testing.T) reviewFixture {
 
 func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *testing.T) {
 	f := sectionsScenario(t)
-	// Another household with heavy spending on the same dates must never leak in.
 	other := cycleReviewFixture(t)
 	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
 		other.anchor(t, date)
@@ -95,7 +84,6 @@ func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *tes
 	if strings.Join(h.SameDay.CycleStarts, ",") != "2026-06-01,2026-07-01,2026-08-01,2026-09-01" || strings.Join(h.CycleStarts, ",") != strings.Join(h.SameDay.CycleStarts, ",") {
 		t.Fatalf("columns: %v / %v", h.CycleStarts, h.SameDay.CycleStarts)
 	}
-	// Same-day: day 1..10 of every cycle; the 09-12 spending is after the cutoff.
 	dining, diningDelta := rowOf("Dining", true)
 	uncategorized, uncategorizedDelta := rowOf("Belum dikategorikan", true)
 	if fmt.Sprint(dining) != "[500 700 3000 2000]" || fmt.Sprint(uncategorized) != "[0 0 100 1450]" {
@@ -107,7 +95,6 @@ func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *tes
 	if *diningDelta != "-1000" || *uncategorizedDelta != "1350" || *h.SameDay.TotalDeltaVsPrevious != "350" {
 		t.Fatalf("same-day deltas: %s %s %s", *diningDelta, *uncategorizedDelta, *h.SameDay.TotalDeltaVsPrevious)
 	}
-	// Full-cycle matrix: whole earlier cycles, the active one to its cutoff.
 	fullDining, fullDiningDelta := rowOf("Dining", false)
 	fullUncategorized, _ := rowOf("Belum dikategorikan", false)
 	if fmt.Sprint(fullDining) != "[3500 4700 8000 2000]" || fmt.Sprint(fullUncategorized) != "[200 0 100 1450]" || *fullDiningDelta != "-6000" {
@@ -116,12 +103,10 @@ func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *tes
 	if strings.Join(h.Totals, ",") != "3700,4700,8100,3450" || *h.TotalDeltaVsPrevious != "-4650" {
 		t.Fatalf("full totals=%v delta=%s", h.Totals, *h.TotalDeltaVsPrevious)
 	}
-	// The ranking's total delta is the same-day delta the KPI lead shows.
 	if review.MerchantRanking.Total.Delta == nil || *review.MerchantRanking.Total.Delta != *h.SameDay.TotalDeltaVsPrevious {
 		t.Fatalf("ranking total delta %v must equal the same-day total delta %s", review.MerchantRanking.Total.Delta, *h.SameDay.TotalDeltaVsPrevious)
 	}
 
-	// Every column reconciles to the rupiah: rows + other = totals = history expense.
 	for name, m := range map[string]struct {
 		rows   [][]string
 		other  []string
@@ -158,23 +143,20 @@ func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *tes
 		t.Fatalf("selected column must equal cashflow.expense=%s", review.Cashflow.Expense)
 	}
 
-	// A closed cycle has no same-day view and compares full cycles only.
 	closed := f.review(t, "?cycle_start=2026-08-01")
 	if closed.CategoryHistory.SameDay != nil || closed.CategoryHistory.SelectedIndex == nil || *closed.CategoryHistory.SelectedIndex != 2 {
 		t.Fatalf("closed cycle: sameDay=%+v selected=%v", closed.CategoryHistory.SameDay, closed.CategoryHistory.SelectedIndex)
 	}
-	if *closed.CategoryHistory.TotalDeltaVsPrevious != "3400" { // Aug 8100 - Jul 4700
+	if *closed.CategoryHistory.TotalDeltaVsPrevious != "3400" {
 		t.Fatalf("closed total delta=%s", *closed.CategoryHistory.TotalDeltaVsPrevious)
 	}
 	raw, err := json.Marshal(closed.CategoryHistory)
 	if err != nil || !strings.Contains(string(raw), `"sameDay":null`) {
 		t.Fatalf("closed cycle must serve sameDay:null: %s %v", raw, err)
 	}
-	// history=1 has no earlier column, so no deltas.
 	if one := f.review(t, "?history=1").CategoryHistory; one.TotalDeltaVsPrevious != nil || one.Rows[0].DeltaVsPrevious != nil || one.SameDay == nil || one.SameDay.TotalDeltaVsPrevious != nil {
 		t.Fatalf("a single column has nothing to compare: %+v", one)
 	}
-	// Household scoping: the other household's own totals are its own.
 	if got := other.review(t, "").CategoryHistory.SameDay.Totals; strings.Join(got, ",") != "777777,777777,777777,777777" {
 		t.Fatalf("other household same-day totals=%v", got)
 	}
@@ -190,7 +172,7 @@ func expenses(review cycleReview) []string {
 
 func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T) {
 	f := sectionsScenario(t)
-	other := cycleReviewFixture(t) // same dates, other household
+	other := cycleReviewFixture(t)
 	other.anchor(t, "2026-08-01")
 	other.anchor(t, "2026-09-01")
 	other.transaction(t, "2026-09-03", "EXPENSE", "CONFIRMED", "555555", false)
@@ -201,7 +183,6 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 	if r.Mode != "ELAPSED_DAYS" || len(r.Rows) != 10 {
 		t.Fatalf("mode=%s rows=%d", r.Mode, len(r.Rows))
 	}
-	// Largest first, numerically: 2000, 700, 300, then 90, 80, ... 30 (nine below ten, not lexical).
 	want := []string{"Fixture cafe", "Warung Baru", "Tanpa merchant", "Small merchant 9", "Small merchant 8", "Small merchant 7", "Small merchant 6", "Small merchant 5", "Small merchant 4", "Small merchant 3"}
 	for i, name := range want {
 		if r.Rows[i].Name != name {
@@ -225,7 +206,6 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 	if r.Total.Amount != "3450" || r.Total.Count != 13 || *r.Total.Previous != "3100" || *r.Total.Delta != "350" {
 		t.Fatalf("total=%+v", r.Total)
 	}
-	// Rows + other = total = net expense, now and a rupiah-exact one for the previous side.
 	listed, listedPrevious, listedCount := "0", "0", 0
 	for _, row := range r.Rows {
 		listed, listedPrevious, listedCount = add(listed, row.Amount), add(listedPrevious, *row.Previous), listedCount+row.Count
@@ -237,7 +217,6 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 		t.Fatalf("previous side must reconcile: %s + %s vs %s / comparison %s", listedPrevious, *r.Other.Previous, *r.Total.Previous, *review.Comparison.Expense.Previous)
 	}
 
-	// A closed cycle compares against the previous FULL cycle.
 	closed := f.review(t, "?cycle_start=2026-08-01").MerchantRanking
 	if closed.Mode != "FULL_CYCLE" || closed.Rows[0].Name != "Fixture cafe" || closed.Rows[0].Amount != "8000" || *closed.Rows[0].Previous != "4700" || *closed.Total.Previous != "4700" || closed.Total.Amount != "8100" {
 		t.Fatalf("closed ranking=%+v", closed)
@@ -250,7 +229,6 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 		t.Fatalf("other household ranking=%+v", got)
 	}
 
-	// The "Tanpa merchant" row links through: merchantId=none reaches exactly its transactions.
 	list := func(query string) (total string, count int) {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?type=SPENDING&from=2026-09-01&to=2026-09-10&"+query, nil)
 		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
@@ -289,7 +267,6 @@ func TestCycleReviewMemberAttributionServesKindShareAndFixedOrder(t *testing.T) 
 	if members[0].Amount != "1000" || members[0].Count != 2 || members[1].Amount != "2450" {
 		t.Fatalf("amounts=%+v", members)
 	}
-	// 1000/3450 = 28.9855% and 2450/3450 = 71.0145%: largest remainder keeps the sum at 100%.
 	if *members[0].Share != "0.2899" || *members[1].Share != "0.7101" {
 		t.Fatalf("shares=%s %s", *members[0].Share, *members[1].Share)
 	}

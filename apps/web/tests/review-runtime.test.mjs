@@ -136,10 +136,6 @@ test("without a proposed purpose only classified transfers can be merged into", 
 });
 
 test("a merge button is enabled only for a candidate the server marked mergeable", () => {
-  // A classified transfer the resolver would still refuse (other account, incompatible
-  // Wealth target) arrives with mergeable=false, so no button can only return 400. A case
-  // with a proposed purpose shows no purpose choices, and an unmarked (legacy) candidate
-  // stays disabled.
   const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
     item: { id: "synthetic", reviewType: "TRANSFER_CLASSIFICATION", subjectType: "source_event", presentation: "DECISION", amount: "100", proposedPurpose: "INTERNAL_TRANSFER", allowedActions: ["MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"], transferCandidates: [{ id: "a", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Refused transfer", mergeable: false }, { id: "b", type: "UNCLASSIFIED", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Accepted row", mergeable: true }, { id: "c", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Unmarked row" }] },
     categories: [], accounts: [], wealthAccounts: [], action() {},

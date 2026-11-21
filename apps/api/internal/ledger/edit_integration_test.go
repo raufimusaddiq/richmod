@@ -93,7 +93,6 @@ func TestEditTransactionDetails(t *testing.T) {
 		if strings.Contains(before, "note\":\"enak") || !strings.Contains(after, `"note": "enak"`) || !strings.Contains(before, `"description": "Awal"`) || !strings.Contains(before, `"categoryId": null`) {
 			t.Fatalf("audit before=%s after=%s", before, after)
 		}
-		// Clear category and note: only changed fields are audited.
 		rec = patch(id, stamp(id), `{"categoryId":null,"note":null,"description":"Makan siang"}`, principal)
 		if rec.Code != 200 {
 			t.Fatalf("clear: %d %s", rec.Code, rec.Body)

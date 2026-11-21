@@ -24,8 +24,6 @@ func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID st
 	return open, nil
 }
 
-// A member's typed reply to its exact old card renews the projection and that member's copy; no new review_item
-// is created. Locks follow the migration 00094 pacing order: request row, chat lock, recipient row.
 func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -63,8 +61,6 @@ func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdI
 	return tx.Commit(ctx)
 }
 
-// BindReviewMessage locks the request row first so a bind and a terminal transition serialize.
-// A card arriving after close is still recorded and retired; a follow-up supersedes the prior card.
 func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64, text string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -88,8 +84,6 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 	if err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
-	// The copy's seven-day window starts at first delivery; a late follow-up never revives an EXPIRED copy
-	// (only renewExpiredReviewProjection does) and is retired.
 	firstDelivery := deliveryStatus != "SENT" && deliveryStatus != "EXPIRED"
 	expiredCopy := deliveryStatus == "EXPIRED"
 	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status=CASE WHEN delivery_status='EXPIRED' THEN 'EXPIRED' ELSE 'SENT' END,queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL,
@@ -98,7 +92,6 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
 	if firstDelivery && !terminal {
-		// The shared projection lasts at least as long as every delivered copy.
 		if _, err := tx.Exec(ctx, `UPDATE review_request SET expires_at=GREATEST(expires_at,now()+interval '7 days') WHERE id=$1`, reviewRequestID); err != nil {
 			return fmt.Errorf("extend Telegram review projection: %w", err)
 		}
@@ -147,8 +140,6 @@ func enqueueSupersededCardRetirement(ctx context.Context, tx pgx.Tx, reviewReque
 	return nil
 }
 
-// CreateTransactionReviewItem inserts the active review_item with a ReviewDecision that must pass validation.
-// An existing active item is returned untouched; status is "OPEN" or "PENDING_SEND".
 func CreateTransactionReviewItem(ctx context.Context, tx pgx.Tx, transactionID, reviewType, status string, decisions ...reviewdec.Decision) (string, error) {
 	if status != "OPEN" && status != "PENDING_SEND" {
 		return "", fmt.Errorf("review item status %q is not an active status", status)
@@ -162,12 +153,10 @@ func CreateTransactionReviewItem(ctx context.Context, tx pgx.Tx, transactionID, 
 			return "", err
 		}
 	}
-	// JSON validates the contract, so an incomplete decision fails here (the 00078 trigger refuses it too).
 	encoded, err := decision.JSON()
 	if err != nil {
 		return "", fmt.Errorf("%s review decision: %w", reviewType, err)
 	}
-	// review_item_active_transaction_unique allows one active item per transaction; a retry reuses it.
 	var itemID string
 	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id,decision)
 		SELECT household_id,id,$2,$3,created_by_user_id,$4::jsonb FROM transaction WHERE id=$1
@@ -185,13 +174,11 @@ func CreateTransactionReviewItem(ctx context.Context, tx pgx.Tx, transactionID, 
 	return itemID, nil
 }
 
-// EnqueueReviewRequest creates the transaction review_item and its review_request projection, then renders the card.
 func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string, decisions ...reviewdec.Decision) error {
 	itemID, err := CreateTransactionReviewItem(ctx, tx, transactionID, reviewType, "PENDING_SEND", decisions...)
 	if err != nil {
 		return err
 	}
-	// A reused item is projected with the type and contract it already carries: the first open question wins.
 	var itemType string
 	var decisionJSON []byte
 	if err := tx.QueryRow(ctx, `SELECT review_type,decision FROM review_item WHERE id=$1`, itemID).Scan(&itemType, &decisionJSON); err != nil {
@@ -204,8 +191,6 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
 		return err
 	}
-	// One review_item has one projection (review_request_review_item_unique); a reused item reuses its
-	// request and cards, and an unrendered request is rendered now.
 	var reviewID, requestStatus string
 	var rendered bool
 	err = tx.QueryRow(ctx, `SELECT r.id,r.status,EXISTS(SELECT 1 FROM review_conversation c WHERE c.review_request_id=r.id) FROM review_request r WHERE r.review_item_id=$1`, itemID).Scan(&reviewID, &requestStatus, &rendered)
@@ -215,7 +200,6 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 			return nil
 		}
 	case errors.Is(err, pgx.ErrNoRows):
-		// reviewID is the review_request id; itemID is the review_item carrying the ReviewDecision.
 		if err := tx.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT id,household_id,transaction_id,review_type,NULLIF($2::bigint,0),'PENDING_SEND' FROM review_item WHERE id=$1 RETURNING id`, itemID, chatID).Scan(&reviewID); err != nil {
 			return err
 		}
@@ -225,8 +209,6 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	return projectReviewRequest(ctx, tx, reviewID, itemID, itemType, decision, replyTo, message, chatID)
 }
 
-// projectReviewRequest is the one place a review_item becomes a Telegram message, for every producer; a
-// review with no eligible recipient produces no projection.
 func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, reviewType string, decision reviewdec.Decision, replyTo int64, message string, originatingChatID int64) error {
 	subject, err := loadReviewSubject(ctx, tx, reviewID)
 	if err != nil {
@@ -237,13 +219,10 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
-	// The keyboard comes from the same builder a re-render uses (review_render.go).
 	markup, err := reviewCardMarkup(ctx, tx, reviewID, reviewType, decision, card, subject)
 	if err != nil {
 		return err
 	}
-	// Every authorized member gets the card; only the originating member's copy threads to their message.
-	// Others get a line naming that member; a household-level source (email, cycle residual) has no origin.
 	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
 		FROM telegram_identity ti
 		JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
@@ -269,8 +248,6 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		return err
 	}
 	rows.Close()
-	// With no eligible recipient at creation, project to the supplied originating chat, but only while it is
-	// an authorized member of the review's household.
 	if len(recipients) == 0 && originatingChatID != 0 {
 		var reviewHousehold string
 		if err := tx.QueryRow(ctx, `SELECT household_id::text FROM review_request WHERE id=$1`, reviewID).Scan(&reviewHousehold); err != nil {
@@ -289,8 +266,6 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	if err != nil {
 		return err
 	}
-	// The transaction keeps every chat lock until commit, so take them all now in chat order to avoid
-	// opposite-order locking across projections.
 	if err := lockReviewCardChats(ctx, tx, recipients); err != nil {
 		return err
 	}
@@ -310,7 +285,6 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	return nil
 }
 
-// lockReviewCardChats takes the pacing locks of chats in ascending chat order.
 func lockReviewCardChats(ctx context.Context, tx pgx.Tx, chats []int64) error {
 	sorted := slices.Clone(chats)
 	slices.Sort(sorted)
@@ -322,16 +296,12 @@ func lockReviewCardChats(ctx context.Context, tx pgx.Tx, chats []int64) error {
 	return nil
 }
 
-// reviewCardOrigin is the member whose own message or upload raised a review; a zero chat means a household-
-// level source.
 type reviewCardOrigin struct {
 	chatID    int64
 	messageID int64
 	name      string
 }
 
-// reviewOrigin prefers the producer's member chat, else the earliest source event decides.
-// The origin must be a recipient, so a removed member is never named.
 func reviewOrigin(ctx context.Context, tx pgx.Tx, reviewID string, originatingChatID, replyTo int64, recipients []int64) (reviewCardOrigin, error) {
 	origin := reviewCardOrigin{}
 	if originatingChatID != 0 && replyTo != 0 {
@@ -372,10 +342,7 @@ func reviewOrigin(ctx context.Context, tx pgx.Tx, reviewID string, originatingCh
 	return origin, nil
 }
 
-// admitReviewCard records a recipient and sends now, or holds it QUEUED while the chat shows three live cards
-// (migration 00094).
 func admitReviewCard(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string, markup *InlineKeyboardMarkup) error {
-	// The chat's pacing lock comes before any recipient row (migration 00094).
 	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, chatID); err != nil {
 		return err
 	}
@@ -396,8 +363,6 @@ func admitReviewCard(ctx context.Context, tx pgx.Tx, reviewID string, chatID, re
 	return tx.QueryRow(ctx, `SELECT admit_review_card($1::uuid,$2::jsonb)`, recipientID, string(encoded)).Scan(&admitted)
 }
 
-// ProjectReviewItem creates the single projection for an already inserted review_item of any subject.
-// Idempotent: an open projection with a delivered message is reused; one without a message is rendered now.
 func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID string, replyTo int64, message string, originatingChatID int64) error {
 	var reviewID, reviewType, transactionID, documentID, status string
 	var observationBacked bool
@@ -407,21 +372,15 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	if status != "OPEN" && status != "PENDING_SEND" {
 		return nil
 	}
-	// This observation resolver exists in Web, not the transaction-bound callbacks.
 	if observationBacked && reviewType == "TRANSFER_CLASSIFICATION" && transactionID == "" {
 		return nil
 	}
-	// The document action handler needs a real document binding; bank emails reusing the extraction-failure
-	// reason have none and stay in the Web Inbox.
 	if (reviewType == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" || reviewType == "DOCUMENT_CLASSIFICATION") && documentID == "" {
 		return nil
 	}
-	// Fail closed: never send a card whose buttons cannot complete the review.
 	if !TelegramCompletableReviewType(reviewType) {
 		return nil
 	}
-	// Reuse an open request, rendering it only when its conversation row does not exist yet.
-	// Never replace an expired or closed request: the unique index would abort the producer's transaction.
 	var alreadyRendered bool
 	var requestStatus string
 	err := tx.QueryRow(ctx, `SELECT r.id, r.status, EXISTS(SELECT 1 FROM review_conversation c WHERE c.review_request_id=r.id)
@@ -448,7 +407,6 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
 		return err
 	}
-	// Document, email, cycle and wealth producers send no summary, so describe the subject from canonical state.
 	if strings.TrimSpace(message) == "" {
 		if message, err = reviewItemSummary(ctx, tx, householdID, itemID); err != nil {
 			return err
@@ -475,10 +433,6 @@ func transactionReviewSummary(ctx context.Context, tx pgx.Tx, householdID, trans
 	return summary, nil
 }
 
-// ProjectReviewMessage is the message-free convenience: the renderer derives the prompt from the decision.
 func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID string, chatID, replyTo int64) error {
 	return ProjectReviewItem(ctx, tx, householdID, itemID, replyTo, "", chatID)
 }
-
-// TelegramCompletableReviewType reports whether Telegram can resolve a subject to completion; families whose
-// completion lives only in the Review Inbox must not be projected.

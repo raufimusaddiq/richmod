@@ -12,8 +12,6 @@ type authorizationQuerier interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
-// Authorized means an active identity linked to an active user who is an active member of the household.
-// An empty household matches the identity's own; chat ID equals Telegram user ID (private chats only).
 const memberAuthorizedSQL = `
 	SELECT EXISTS(
 	  SELECT 1 FROM telegram_identity ti
@@ -22,7 +20,6 @@ const memberAuthorizedSQL = `
 	  WHERE ti.telegram_user_id=$1 AND ti.active
 	    AND (NULLIF($2,'') IS NULL OR ti.household_id=NULLIF($2,'')::uuid))`
 
-// Re-checks at the moment of use: a member removed while work waits in the queue must not be served.
 func telegramMemberAuthorized(ctx context.Context, db authorizationQuerier, telegramUserID int64, householdID string) (bool, error) {
 	if telegramUserID == 0 {
 		return false, nil
@@ -36,7 +33,6 @@ func (p *Processor) RecipientAuthorized(ctx context.Context, chatID int64, house
 	return telegramMemberAuthorized(ctx, p.pool, chatID, householdID)
 }
 
-// Nothing is replied: the chat no longer belongs to a member, so no household content may be sent to it.
 func ignoreUnauthorizedSender(ctx context.Context, db authorizationQuerier, sourceEventID string) error {
 	_, err := db.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name=COALESCE(parser_name,'telegram-access'),parser_version=COALESCE(parser_version,'1') WHERE id=$1 AND processing_status IN ('RECEIVED','PROCESSING')`, sourceEventID)
 	return err

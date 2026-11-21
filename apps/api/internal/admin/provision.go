@@ -13,11 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/provision"
 )
 
-// CreateHousehold provisions a new tenant from the Super Admin console
-// (ADR-059). The owner is a new user without a usable password; the response
-// carries a single-use, 24-hour invite link the Super Admin hands to the owner,
-// so no password ever passes through this API. Creating a household grants the
-// Super Admin no access to it (ADR-021).
 func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	principal, _ := auth.PrincipalFromContext(r.Context())
 	var body struct {
@@ -81,7 +76,6 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
 	}
-	// The body carries a bearer invite token; it must never be cached.
 	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"household": map[string]any{"id": created.ID, "name": in.HouseholdName},
@@ -90,17 +84,9 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ReissueOwnerInvite replaces a household owner's invite while the owner has
-// not enrolled yet, or (with reset) issues a password-reset link to an owner
-// who has. Owners can invite members but nobody else can invite an
-// owner, so without this an expired owner invite would strand the household.
-// The link is a bearer credential: until the owner enrolls, whoever holds it
-// can become that owner, which is why every reissue is platform-audited.
 func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 	principal, _ := auth.PrincipalFromContext(r.Context())
 	householdID := r.PathValue("householdId")
-	// An empty body re-invites an owner who has not enrolled. {"reset":true}
-	// is the explicit request to also replace an enrolled owner's password.
 	var in struct {
 		Reset bool `json:"reset"`
 	}
@@ -144,8 +130,6 @@ func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"link": "/invite#" + invite.Token, "expiresAt": invite.ExpiresAt})
 }
 
-// unusablePasswordHash hashes a random secret nobody knows. Login also refuses
-// any user whose password is not initialized, so this is defense in depth.
 func unusablePasswordHash() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

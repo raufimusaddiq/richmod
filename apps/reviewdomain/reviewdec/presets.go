@@ -1,12 +1,5 @@
 package reviewdec
 
-// Preset returns the ReviewDecision contract for a review reason whose unresolved
-// dimension is fixed by product policy rather than per-event evidence. Review-creating
-// paths call it instead of hand-rolling a Decision, so every review explains itself
-// the same way; the contract is declared once in the kind table (kinds.go).
-//
-// It reports false for an unknown reason or one that is only a surface key; callers
-// treat that as no-contract rather than storing the zero decision.
 func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 	kind, ok := kindByReason[reason]
 	if !ok || len(kind.Actions) == 0 {

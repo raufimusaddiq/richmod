@@ -12,13 +12,6 @@ docker_bin=${DOCKER_BIN:-docker}
 curl --fail --silent --show-error "$health_url" >/dev/null
 curl --fail --silent --show-error "$ready_url" >/dev/null
 
-# Telegram does not follow redirects, so a stale registered webhook URL drops
-# every inbound update while the health checks above stay green. Warn only: a
-# webhook mismatch must not roll back an otherwise healthy deploy.
-# The check needs WEB_ORIGIN and the bot credentials, which live only in the
-# deployment environment file. Read just those three keys as literal KEY=value
-# lines (the Docker env-file format, not shell), so the rest of the file is
-# never evaluated; values already in the environment win.
 env_file=${RICHMOD_ENV_FILE:-/opt/family-finance/finance.env}
 env_value() {
 	[ -r "$env_file" ] || return 0

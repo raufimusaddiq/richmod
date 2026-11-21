@@ -9,9 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The three semantic-authority closure metrics must be measurable from stored state,
-// must ignore missing provenance instead of counting it as zero, and must not
-// treat an independent evidence check as a semantic re-decision.
 func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -23,17 +20,12 @@ func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),decode(md5($2),'hex'),'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("savr-closure-%d", stamp)).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
-	// Eligible and validator-induced: the validation re-asks `amount_idr`, which it
-	// already accepted at the boundary.
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','RESOLVED',now(),$3::jsonb)`, household, source, `{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"],"decisionClass":"EVIDENCE_GAP","validationConsequence":"BOUNDED_RESIDUAL","whyNotAutoConfirm":"x","knownFacts":{},"missingFacts":["amount_idr"],"affectedFacts":["amount_idr"],"decisionProvenance":{"accepted_dimensions_at_validation":["amount_idr"]}}`); err != nil {
 		t.Fatal(err)
 	}
-	// Eligible and faithful: validation asks for a fact it did not accept,
-	// explained by the bounded-residual consequence.
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','RESOLVED',now(),$3::jsonb)`, household, source, `{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"],"decisionClass":"EVIDENCE_GAP","validationConsequence":"BOUNDED_RESIDUAL","whyNotAutoConfirm":"x","knownFacts":{"amount_idr":"54000"},"missingFacts":["transaction_semantics"],"affectedFacts":["transaction_semantics"],"decisionProvenance":{"accepted_dimensions_at_validation":["amount_idr"]}}`); err != nil {
 		t.Fatal(err)
 	}
-	// Historical row with no contract: unknown, must not enter either denominator.
 	insertLegacyReviewItem(t, pool, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','RESOLVED',now())`, household, source)
 	if _, err := pool.Exec(ctx, `INSERT INTO intelligence_phase_telemetry(household_id,capability,purpose,semantic_dimensions,answered_dimensions,latency_ms,outcome,accepted_dimensions_at_entry) VALUES
 		($1,'JEV','RESIDUAL_CATEGORY',ARRAY['category'],ARRAY['category'],5,'SUCCEEDED',ARRAY[]::text[]),
@@ -99,12 +91,6 @@ func TestResidualContractFidelityFlagsUndeclaredHumanWork(t *testing.T) {
 	}
 }
 
-// insertLegacyReviewItem seeds a historical review_item with decision IS NULL,
-// the shape of rows created before the ReviewDecision contract existed. The
-// 00078 trigger refuses such an INSERT from every producer, so the fixture
-// skips triggers for this one statement with a transaction-local
-// session_replication_role=replica (the test role owns the database). Every
-// other fixture must go through the trigger.
 func insertLegacyReviewItem(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 	t.Helper()
 	ctx := context.Background()

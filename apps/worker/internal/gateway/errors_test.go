@@ -10,7 +10,6 @@ import (
 )
 
 func TestGatewayFailureClasses(t *testing.T) {
-	// A refused connection is unavailability, not a timeout and not a rejection.
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := server.URL
 	server.Close()
@@ -29,7 +28,6 @@ func TestGatewayFailureClasses(t *testing.T) {
 	if _, err := New("", "", "").AgentTurn(context.Background(), "r", AgentRequest{}); !IsUnavailable(err) {
 		t.Fatalf("an unconfigured gateway is unavailable, got %v", err)
 	}
-	// The caller's own deadline is a timeout, never unavailability.
 	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { time.Sleep(200 * time.Millisecond) }))
 	defer slow.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)

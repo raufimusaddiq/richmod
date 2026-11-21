@@ -293,9 +293,6 @@ func (h *Handler) Observation(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 200, map[string]any{"id": id, "resolvedWealthAccountId": accountID, "institution": institution, "accountHint": hint, "observedValueIdr": value, "quantity": quantity, "unit": unit, "unitPriceIdr": unitPrice, "observedDate": observedDate})
 }
 
-// Observations returns accepted per-account observations. They are canonical
-// current-account evidence but never a synthetic snapshot: snapshot totals stay
-// derived from complete wealth snapshots only.
 func (h *Handler) Observations(w http.ResponseWriter, r *http.Request) {
 	p, ok := principal(w, r)
 	if !ok {
@@ -842,8 +839,6 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observati
 	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id IN (SELECT id FROM review_item WHERE wealth_observation_id=$1) AND status IN ('OPEN','PENDING_SEND')`, observationID); err != nil {
 		return false
 	}
-	// Every observation source (document or provider email) settles through the
-	// one shared lifecycle, after the review item above is resolved (ADR-046).
 	return reviewdomain.RefreshWealthObservationSource(r.Context(), tx, householdID, observationID) == nil
 }
 

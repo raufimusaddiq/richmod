@@ -15,8 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
 )
 
-// Amounts of different digit lengths: ordering them as text would put 96900
-// above 799240 and 5850000 below both, dropping the real top payees from LIMIT.
 func TestMerchantRankingOrdersByNumericAmountAndGroupsCounterparties(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -49,7 +47,6 @@ func TestMerchantRankingOrdersByNumericAmountAndGroupsCounterparties(t *testing.
 	if _, err = pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'ORANG  TUA payee',$2)`, householdID, parents); err != nil {
 		t.Fatal(err)
 	}
-	// Twelve small payees (more than LIMIT 10 can hold alongside the big ones).
 	for i := 0; i < 12; i++ {
 		if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose,counterparty_name) VALUES($1,'EXPENSE','CONFIRMED',$2,'2026-08-10 10:00+07','small',now(),'GENERAL',$3)`, householdID, 96900+i, fmt.Sprintf("Small %d", i)); err != nil {
 			t.Fatal(err)
@@ -61,20 +58,17 @@ func TestMerchantRankingOrdersByNumericAmountAndGroupsCounterparties(t *testing.
 	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose,merchant_id) VALUES($1,'EXPENSE','CONFIRMED',5850000,'2026-08-12 10:00+07','rent',now(),'GENERAL',$2)`, householdID, rent); err != nil {
 		t.Fatal(err)
 	}
-	// One payee: bound merchant id on one row, alias-resolvable counterparty on others.
 	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose,merchant_id) VALUES($1,'EXPENSE','CONFIRMED',3000000,'2026-07-12 10:00+07','parents old',now(),'GENERAL',$2)`, householdID, parents); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose,counterparty_name) VALUES($1,'EXPENSE','CONFIRMED',2500000,'2026-08-13 10:00+07','parents email',now(),'GENERAL','orang tua  PAYEE')`, householdID); err != nil {
 		t.Fatal(err)
 	}
-	// Unresolvable counterparty written with different case/spacing: one row.
 	for _, name := range []string{"Warung  Baru", "warung baru"} {
 		if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose,counterparty_name) VALUES($1,'EXPENSE','CONFIRMED',1000000,'2026-08-14 10:00+07','warung',now(),'GENERAL',$2)`, householdID, name); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Neither merchant nor counterparty: explicit row, not dropped.
 	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose) VALUES($1,'EXPENSE','CONFIRMED',1586492,'2026-08-15 10:00+07','anon',now(),'GENERAL')`, householdID); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +97,6 @@ func TestMerchantRankingOrdersByNumericAmountAndGroupsCounterparties(t *testing.
 	}
 	for i, w := range want {
 		if rows[i].Name != w.name && !(w.name == "Warung  Baru" && rows[i].Name == "warung baru") {
-			// whitespace is collapsed, so accept the collapsed spelling of either case variant
 			if rows[i].Name != "Warung Baru" && rows[i].Name != "warung baru" {
 				t.Fatalf("row %d name=%q want %q; rows=%#v", i, rows[i].Name, w.name, rows)
 			}

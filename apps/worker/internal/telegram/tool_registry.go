@@ -19,8 +19,6 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	localTime := map[string]any{"type": []string{"string", "null"}, "description": "Exact local HH:MM (24-hour), or PAGI, SIANG, SORE, MALAM when the user named a time of day. Null when no time was stated."}
 	dateRef := map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}}
 	period := map[string]any{"type": "string", "enum": []string{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM"}}
-	// The household's category list is sent once, in turn_context allowed_category_slugs, not as an enum in
-	// every schema; Go validates the slug (INVALID_CATEGORY).
 	category := categorySchema()
 	_ = categories
 	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": stringType, "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "date_provenance": map[string]any{"type": []string{"string", "null"}, "enum": []any{"USER_STATED", "NOT_USER_STATED", nil}}, "explicit_date": nullString, "local_time": localTime, "ambiguous": map[string]any{"type": "boolean"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "date_provenance", "explicit_date", "local_time", "ambiguous", "confidence", "category_confidence"})
@@ -54,14 +52,12 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	if hasMerchantLearning {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_merchant_learning", Description: "Confirm whether to remember this merchant category rule.", Parameters: objectSchema(map[string]any{"remember": map[string]any{"type": "boolean"}}, []string{"remember"})})
 	}
-	// Read-only analytical tools over the same fact engine as the analytics API.
 	for _, tool := range analyticscore.Tools() {
 		tools = append(tools, gateway.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	return tools
 }
 
-// Nullable category slug; allowed values are listed once in turn_context.allowed_category_slugs.
 func categorySchema() map[string]any {
 	return map[string]any{"type": []string{"string", "null"}, "description": "A slug from turn_context.allowed_category_slugs, or null when no listed category clearly fits."}
 }
@@ -220,7 +216,6 @@ type transferArgs struct {
 	Description                  *string `json:"description"`
 }
 
-// evidenceArgs carries only an opaque evidence ref; the model never names a document by database id.
 type evidenceArgs struct {
 	EvidenceRef string `json:"evidence_ref"`
 }
@@ -278,8 +273,6 @@ type merchantLearningArgs struct {
 	Remember bool `json:"remember"`
 }
 
-// validateCreate rejects a proposal Go cannot interpret as an argument error the model can repair in-turn
-// (ADR-055), applying every date/time rule nativeValidatedExtraction does.
 func validateCreate(v createArgs) error {
 	if v.Type != "INCOME" && v.Type != "EXPENSE" {
 		return fmt.Errorf("type must be INCOME or EXPENSE")
@@ -310,7 +303,6 @@ func validateCreate(v createArgs) error {
 	return nil
 }
 
-// validateDateFields checks the shared date arguments exactly as resolveTransactionTime will read them.
 func validateDateFields(dateReference string, explicitDate, localTime *string) error {
 	if dateReference == "EXPLICIT" {
 		if explicitDate == nil || strings.TrimSpace(*explicitDate) == "" {
@@ -347,8 +339,6 @@ func validateTypedArgs(value any) error {
 		}
 	case *transferArgs:
 		n, ok := new(big.Int).SetString(v.Amount, 10)
-		// Purpose is absent: the model does not assert it; a missing destination hint is fine since
-		// INTERNAL_TRANSFER has none.
 		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
 		}

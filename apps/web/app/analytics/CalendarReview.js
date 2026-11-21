@@ -9,11 +9,11 @@ import { money, monthLabel } from "../lib/format";
 import { SectionTitle, Metric } from "./shared";
 
 export function CalendarReview({ selection, navigate }) {
-  const fallback = defaultRange(selection); // the fields open on the range already shown
+  const fallback = defaultRange(selection);
   const [from, setFrom] = useState(fallback.from);
   const [to, setTo] = useState(fallback.to);
   const [rangeError, setRangeError] = useState("");
-  const now = new Date(); // labels and picker bounds only; the API decides which months exist
+  const now = new Date();
   const running = currentMonthKey(now);
   const selectedFrom = selection.from;
   const selectedTo = selection.to;
@@ -25,7 +25,6 @@ export function CalendarReview({ selection, navigate }) {
   const query = new URLSearchParams({ period: selection.from && selection.to ? "custom" : "calendar", range: selection.range });
   if (selection.from && selection.to) { query.set("from", selection.from); query.set("to", selection.to); }
   const queryString = query.toString();
-  // Each section loads, fails and retries on its own: one failing request no longer blanks the view.
   const cashflow = useCalendarSection("cashflow", queryString);
   const categories = useCalendarSection("categories", queryString);
   const merchants = useCalendarSection("merchants", queryString);
@@ -34,8 +33,6 @@ export function CalendarReview({ selection, navigate }) {
   const allFailed = sections.every(section => section.error);
   const refreshing = sections.some(section => section.loading && section.data);
   const custom = Boolean(selection.from && selection.to);
-  // The fields open on the range already shown; "Terapkan" only exists while the two
-  // differ, so there is never a second click that does nothing.
   const draft = from !== fallback.from || to !== fallback.to;
   const latest = nextMonthKey(now);
   function submitRange(event) {
@@ -65,8 +62,6 @@ export function CalendarReview({ selection, navigate }) {
   </>;
 }
 
-// One analytics request. A new range keeps the previous data (dimmed) until it
-// arrives; a failure clears that section only and is retried from its own notice.
 function useCalendarSection(name, queryString) {
   const [state, setState] = useState({ data: null, error: "", loading: true });
   const [attempt, setAttempt] = useState(0);
@@ -99,10 +94,6 @@ function ValueList({ items }) {
   return items.length ? <dl className="review-values">{items.map((item, index) => <Metric key={item.id || `${item.name}:${index}`} label={item.name} value={money(item.amount)}/>)}</dl> : <p className="empty compact">Belum ada data pada rentang ini.</p>;
 }
 
-// The monthly table. Months before the household's first transaction collapse into one
-// "Data mulai" line instead of a "belum ada transaksi" row each, the refund column only
-// appears when the range has a refund, and below 680px the rows stack (styles 11) so no
-// column is clipped.
 function MonthlyTable({ items, now, cycle }) {
   const start = firstActiveMonth(items);
   const showRefund = hasRefunds(items);

@@ -213,10 +213,6 @@ func TestAnalyticalToolsNeverExposeCycleHistory(t *testing.T) {
 	}
 }
 
-// A ref from an earlier turn is not valid in a new session: refs are list
-// positions, so reusing one could point at a different category if the data
-// changed. The error is a sentinel, so the agent can tell the model to fetch the
-// refs again instead of failing the turn.
 func TestUnissuedCategoryRefIsASentinelError(t *testing.T) {
 	session := NewSession(nil, "household", time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC), "")
 	session.facts[""] = Facts{}

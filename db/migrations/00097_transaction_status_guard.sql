@@ -1,17 +1,4 @@
 -- +goose Up
--- Transaction status is a state machine whose legal moves lived only in scattered
--- guarded UPDATEs. Encode it once, in the database, so no writer (web, Telegram,
--- a future script) can resurrect a voided transaction or move one back to PENDING.
---
---   PENDING      -> CONFIRMED | NEEDS_REVIEW | VOIDED
---   NEEDS_REVIEW -> CONFIRMED | VOIDED
---   CONFIRMED    -> VOIDED | NEEDS_REVIEW   (a disputed confirmation is reopened)
---   VOIDED       -> NEEDS_REVIEW   (only a reversed merge reopens a voided source)
---
--- salary_event.status is a denormalised copy of its transaction's status; it
--- stayed CONFIRMED after the payslip transaction was voided, so a voided salary
--- still anchored salary cycles and swallowed a re-sent payslip as a duplicate.
--- A trigger now keeps it in step.
 
 -- +goose StatementBegin
 CREATE FUNCTION enforce_transaction_status_transition() RETURNS trigger

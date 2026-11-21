@@ -1,9 +1,5 @@
 import { inclusiveEnd, signedMoney } from "./cycleReview.js";
 
-// Cycle ledger helpers. Every amount, delta, median and total is served by the API
-// (cycle-review-v1); this module only formats, maps amounts to visual lengths, and
-// picks served fields. It never derives a total, delta, median or share.
-
 const millions = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const shortDay = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -13,7 +9,6 @@ function dayMonth(iso) {
   return Number.isNaN(date.getTime()) ? "" : shortDay.format(date);
 }
 
-// Display only: "12,5" for Rp12.500.000. Never feed this back into arithmetic.
 export function compactMillions(value) {
   if (value == null) return "—";
   const number = Number(value) / 1e6;
@@ -27,8 +22,6 @@ export function signedMillions(value) {
   return `+${text}`;
 }
 
-// Axis ticks in Rp juta. The decimals follow the tick step, so a small series
-// (0,025 juta steps) never prints "0,0 0,0 0,1 0,1 0,1".
 export function millionTickFormatter(maxValue) {
   const max = Number(maxValue);
   const step = Number.isFinite(max) && max > 0 ? max / 5 : 0;
@@ -41,7 +34,6 @@ export function millionTickFormatter(maxValue) {
   };
 }
 
-// Direction is a neutral marker beside the signed value, never a colour alone.
 export function directionMark(value) {
   if (value == null) return "";
   const text = String(value);
@@ -53,8 +45,6 @@ export function directionText(value) {
   return value == null ? "—" : `${directionMark(value)} ${signedMoney(value)}`.trim();
 }
 
-// History columns: the cycle's range, served net expense and net cashflow, plus a
-// bar length that is a fraction of the largest served expense (visual mapping only).
 export function buildLedger(history = [], selectedStart = "") {
   const peak = Math.max(0, ...history.map(item => Number(item.expense)).filter(Number.isFinite));
   const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
@@ -72,10 +62,6 @@ export function buildLedger(history = [], selectedStart = "") {
   };
 }
 
-// The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"
-// remainder are served and reconcile to each cycle's net expense; the browser only
-// sizes the tint relative to the largest positive value in its row. A series that does
-// not line up with history[] is not drawn.
 export function buildMatrix(categoryHistory, history = [], selectedCategory = "", selectable = []) {
   const starts = history.map(item => item.start);
   const served = categoryHistory?.cycleStarts ?? [];
@@ -96,15 +82,12 @@ export function buildMatrix(categoryHistory, history = [], selectedCategory = ""
   return matrix;
 }
 
-// `cycles` is newest first, as served. Older is the next entry, newer the one before.
 export function adjacentCycles(cycles = [], start = "") {
   const index = cycles.findIndex(item => item.start === start);
   if (index < 0) return { older: "", newer: "" };
   return { older: cycles[index + 1]?.start || "", newer: index > 0 ? cycles[index - 1].start : "" };
 }
 
-// Pace references are the served comparison totals. Equal-day values are totals over
-// the same elapsed days, so they are markers at the latest day; full-cycle values are levels.
 export function paceReferences({ comparison, period }) {
   const expense = comparison?.expense;
   if (!expense || !period) return [];
@@ -126,15 +109,11 @@ export function hasPace(items = []) {
   return items.length > 0 && items.every(item => item.cumulativeExpense != null && Number.isFinite(Number(item.cumulativeExpense)));
 }
 
-// Served day-by-day curves (index i is day i+1). A curve is used only when every
-// point is a number, so a partial series is never drawn.
 export function paceCurves(pace) {
   const usable = series => Array.isArray(series) && series.length > 0 && series.every(value => value != null && Number.isFinite(Number(value)));
   return { previous: usable(pace?.previousFullCycle) ? pace.previousFullCycle : null, median: usable(pace?.median3) ? pace.median3 : null };
 }
 
-// `runningTotal` is the served cumulative net expense, converted for plotting only.
-// The previous-cycle and median curves share the day axis; each ends where it ends.
 export function mapPace(items = [], pace) {
   const { previous, median } = paceCurves(pace);
   const length = Math.max(items.length, previous?.length ?? 0, median?.length ?? 0);
@@ -149,8 +128,6 @@ export function mapPace(items = [], pace) {
   }));
 }
 
-// Calendar date of cycle day `day` (1-based), continuing past the measured days for the
-// previous-cycle tail. Date labelling only.
 export function paceDate(items = [], day) {
   const first = items[0]?.period;
   if (!first || !(day >= 1)) return "";
@@ -162,8 +139,6 @@ export function paceDateLabel(items, day) {
   return dayMonth(paceDate(items, day));
 }
 
-// Three or four x ticks whatever the cycle length: a phone cannot fit a weekly label
-// on a 30-day axis, and four dates read the same on a wide card.
 export function paceTicks(length, step) {
   const stride = step || Math.max(1, Math.ceil(length / 4));
   const ticks = [];
@@ -171,15 +146,10 @@ export function paceTicks(length, step) {
   return ticks;
 }
 
-// The today marker's label is drawn above the plot area, never inside it: the end-value
-// labels share the last day's x, so an in-plot label would sit on top of one of them at
-// some day of the cycle. Outside the plot it cannot overlap at any day or width.
 export function paceMarkerNote(period, last) {
   return `${period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"} · hari ke-${last.day}`;
 }
 
-// The visual ceiling of the pace plot: the highest served point of any drawn series or
-// reference. Tick positions only; the values themselves stay served.
 export function paceCeiling({ data = [], levels = [], markers = [], last = null } = {}) {
   let top = Number(last) || 0;
   for (const row of data) {
@@ -195,9 +165,6 @@ export function paceCeiling({ data = [], levels = [], markers = [], last = null 
   return top;
 }
 
-// A round upper bound and its five evenly spaced ticks, for an axis whose top is
-// pushed by a reference level rather than by the series. Tick positions are visual
-// mapping only; the plotted values stay served.
 export function paceAxis(maxValue) {
   const number = Number(maxValue);
   if (!Number.isFinite(number) || number <= 0) return { domain: [0, 1], ticks: [0, 1] };

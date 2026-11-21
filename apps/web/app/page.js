@@ -18,9 +18,6 @@ import { cycleRangeLabel } from "./lib/cycleDates";
 import { comparisonLine, dayLedgerHref, homeState, spendingShare } from "./lib/home";
 import LandingPage from "./components/LandingPage";
 
-// Each dashboard section and the endpoint that feeds it. The response order is
-// the order here, and a failed section is reported by this name. The category
-// window is the current period, so its total agrees with the hero card.
 const sections = [
   ["ringkasan", "/api/v1/analytics/overview"],
   ["pengeluaran harian", "/api/v1/analytics/cycle/daily"],
@@ -51,8 +48,6 @@ export default function Home() {
     setLoading(true);
     try {
       const responses = await Promise.all(sections.map(([, url]) => fetch(url)));
-      // Setters are looked up by section name, so reordering `sections` cannot
-      // bind a response to the wrong state.
       const apply = {
         "ringkasan": setOverview,
         "pengeluaran harian": data => setCashflow(elapsedDaily(data.daily || [], data.daysElapsed)),
@@ -77,7 +72,6 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
-  // A transaction recorded (or undone) from the global "+ Catat" sheet refreshes the figures in place.
   useEffect(() => { window.addEventListener("richmod:transaction-created", load); return () => window.removeEventListener("richmod:transaction-created", load); }, [load]);
 
   if (user === null) return <Loading />;

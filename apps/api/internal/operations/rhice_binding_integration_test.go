@@ -7,11 +7,6 @@ import (
 	"time"
 )
 
-// TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold pins
-// the RHICE rewrite: a MERGE_REVIEW binding (resolution_values->>'transaction_id')
-// and a financial-email-observation binding (feo.transaction_id=te.transaction_id)
-// both count, and a second household with identical data never bleeds in. The
-// old UNION-of-three-bindings query is run inline and must agree.
 func TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -53,12 +48,10 @@ func TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold(t 
 
 	seed := func(label string) string {
 		householdID := seedHousehold(label)
-		// MERGE_REVIEW binding: resolution_values->>'transaction_id' points at an in-window transaction.
 		mergeEvent := seedEvent(householdID, label+"-merge")
 		mergeTx := seedTransaction(householdID)
 		mergeReview := seedReview(householdID, mergeEvent, "POSSIBLE_DUPLICATE", "MERGE_REVIEW", fmt.Sprintf(`{"transaction_id":%q}`, mergeTx), nil)
 		seedTurn(householdID, mergeReview)
-		// Financial-email-observation binding: feo.transaction_id = te.transaction_id.
 		feoEvent := seedEvent(householdID, label+"-feo")
 		feoTx := seedTransaction(householdID)
 		var feoID string
@@ -84,7 +77,6 @@ func TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold(t 
 		t.Fatalf("household 1 RHICE = inputs %d, typed %d, events %d; want 2, 2, 2", aggregate.ExplicitInputs, aggregate.TypedFields, aggregate.CanonicalEvents)
 	}
 
-	// The old UNION-of-three-bindings query must agree with the rewrite.
 	var oldInputs, oldTyped, oldOpen, oldAccepted int
 	if err := pool.QueryRow(ctx, `
 		WITH recent_transactions AS (

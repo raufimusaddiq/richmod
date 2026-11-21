@@ -1,19 +1,4 @@
 -- +goose Up
--- N5 (audit v2): a document row can stay status='NEEDS_REVIEW' after the last
--- thing waiting on it was settled (its transaction confirmed, its review item
--- resolved by a path that did not refresh the document). The card then reads
--- "Perlu ditinjau" with nothing to act on. The API now derives the badge from
--- actionable pending work; this migration settles the stored status of rows in
--- that state: NEEDS_REVIEW with nothing actionable reachable from the document or
--- any of its album page sources (open review item, NEEDS_REVIEW transaction or
--- proposal, pending provider-email observation, open transfer case, pending
--- wealth observation). The predicate is the same text as documentPendingSQL in
--- apps/api/internal/document/handler.go; a test keeps the two equal.
---
--- No row id is named. Each changed document gets one audit_log row holding its
--- prior status, which Down uses. Evidence, transactions and review items are not
--- touched. Re-running is a no-op (the rows no longer match). The optional session
--- setting richmod.repair_household narrows the repair to one household.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -42,7 +27,6 @@ $$;
 -- +goose StatementEnd
 
 -- +goose Down
--- Restores only documents this migration settled and that are still EXTRACTED.
 -- +goose StatementBegin
 DO $$
 DECLARE

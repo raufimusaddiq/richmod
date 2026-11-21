@@ -11,9 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestLoginCannotOutliveAPasswordReset forces the interleaving where a login
-// verified the old password and is about to create its session while a reset
-// holds the user row: the reset must win, leaving no session behind.
 func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -43,7 +40,6 @@ func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The reset has locked the user row but not committed yet.
 	reset, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +55,6 @@ func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
 		loginErr <- err
 	}()
 
-	// Wait until the login has verified the old password and is blocked on the lock.
 	blocked := false
 	for i := 0; i < 100 && !blocked; i++ {
 		_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'INSERT INTO session%')`).Scan(&blocked)

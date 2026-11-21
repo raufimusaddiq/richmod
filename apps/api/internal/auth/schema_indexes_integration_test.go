@@ -9,17 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// redundantIndexesSQL lists every public index another index on the same
-// table already implies (migration 00089):
-//   - a non-unique btree whose key columns are a leading prefix of (or equal
-//     to) another btree's, with the same predicate, opclasses, collations and
-//     sort options and no expressions; for two plain duplicates the
-//     lower-named one is reported;
-//   - a unique btree implied by a non-partial unique btree on a subset of its
-//     columns, unless it is a foreign-key target or the primary key.
-//
-// The composite (household_id, id) keys are foreign-key targets and so are
-// excluded by design.
 const redundantIndexesSQL = `
 WITH ix AS (
   SELECT i.indexrelid, i.indrelid, c.relname idx, am.amname,
@@ -53,8 +42,6 @@ WHERE d.noexpr AND k.noexpr AND NOT d.pk AND (
 )
 ORDER BY 1`
 
-// TestSchemaHasNoRedundantIndexes keeps indexes that another index already
-// implies from being added again: each one slows every write for no read.
 func TestSchemaHasNoRedundantIndexes(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

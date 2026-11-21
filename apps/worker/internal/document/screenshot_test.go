@@ -77,8 +77,6 @@ func TestIncomingScreenshotRowsRemainIncomeCandidates(t *testing.T) {
 	}
 }
 
-// A genuinely invisible amount is null and reaches review, never a sentinel "0"; a still-invalid amount (non-
-// digits) is rejected.
 func TestMissingScreenshotAmountIsRepresentable(t *testing.T) {
 	date := "2026-08-25T10:00:00+07:00"
 	rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &date, Merchant: "Warung", Confidence: .95}}}, time.Now().In(jakarta()), nil, "")

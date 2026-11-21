@@ -1,12 +1,5 @@
-// Detail-section helpers. Every amount, delta, total and share is served by the
-// API; this module picks fields, orders nothing by money, and maps values to
-// visual lengths only. No arithmetic on money lives here.
-
 const amount = value => (value == null || value === "" ? null : Number(value));
 
-// A column is tinted only when it covers the same span as the others. In full mode
-// a running cycle is left out of the tint and flagged instead, so a partial cycle
-// never looks smaller next to completed ones.
 export function buildHeatmap(categoryHistory, history = [], mode = "FULL", { selectedCategory = "", selectable = [] } = {}) {
   const sameDay = mode === "SAME_DAY";
   const source = sameDay ? categoryHistory?.sameDay : categoryHistory;
@@ -38,15 +31,11 @@ export function buildHeatmap(categoryHistory, history = [], mode = "FULL", { sel
   return { mode: sameDay ? "SAME_DAY" : "FULL", columns, rows: categories, total: { amounts: totals, delta: source.totalDeltaVsPrevious } };
 }
 
-// A served amount is "present" only when it is a non-zero number; the API always
-// serves the remainder row, so the UI must not print "Merchant lain · 0".
 export function nonZeroAmount(value) {
   const number = amount(value);
   return number != null && Number.isFinite(number) && number !== 0;
 }
 
-// Bar length is a fraction of the largest served amount in the list; the served
-// order is kept. Merchant "lain" is part of the same scale so the bars compare.
 export function merchantBars(ranking) {
   if (!ranking || !Array.isArray(ranking.rows)) return null;
   const amounts = [...ranking.rows, ranking.other].map(item => amount(item?.amount));
@@ -63,8 +52,6 @@ export function merchantBars(ranking) {
   };
 }
 
-// Order comes from the server and is never re-sorted: automatic bucket first, then
-// members by name. The 100% bar uses the served share, so the web divides nothing.
 export function householdRows(members = []) {
   return members.map((member, index) => ({
     ...member,
@@ -76,7 +63,6 @@ export function householdRows(members = []) {
   }));
 }
 
-// Lower spending is the good direction; the marker is always shown beside a value.
 export function deltaTone(value) {
   if (value == null || value === "") return "none";
   const number = amount(value);
@@ -84,7 +70,6 @@ export function deltaTone(value) {
   return number < 0 ? "good" : "bad";
 }
 
-// Characters, not bytes: the server's 1–2000 rule counts code points.
 export function decisionCount(body) {
   return [...String(body ?? "")].length;
 }

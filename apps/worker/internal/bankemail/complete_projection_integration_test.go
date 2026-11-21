@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Completing bank facts resolves the Telegram projection with the item: delivered cards are queued for
-// retirement and the conversation stops waiting.
 func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -63,8 +61,6 @@ func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 	if retirements != 2 || notices != 1 {
 		t.Fatalf("retirements=%d notices=%d, want one retirement per delivered card and one outcome notice", retirements, notices)
 	}
-	// The completer gets the credit: the item records the completion and the same transaction writes a
-	// TELEGRAM audit row (what admin attribution reads).
 	var resolution string
 	var telegramAudits int
 	must(pool.QueryRow(ctx, `SELECT ri.resolution_action,(SELECT count(*) FROM audit_log a WHERE a.household_id=ri.household_id AND a.created_at=ri.resolved_at AND a.actor_type='TELEGRAM') FROM review_item ri WHERE ri.id=$1`, itemID).Scan(&resolution, &telegramAudits))

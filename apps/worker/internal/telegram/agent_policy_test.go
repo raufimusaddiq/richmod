@@ -96,7 +96,6 @@ func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t
 	if !seen["query_spending"] || !seen["search_transactions"] || !seen["record_transaction"] {
 		t.Fatalf("required finance capabilities missing: %#v", seen)
 	}
-	// The merged-away reads are gone and no schema repeats the category list (sent once in allowed_category_slugs).
 	for _, gone := range []string{"get_category_breakdown", "get_finance_insight", "get_largest_transactions", "confirm_pending_batch", "cancel_pending_batch", "update_pending_batch"} {
 		if seen[gone] {
 			t.Fatalf("%s should have been merged away", gone)
@@ -151,8 +150,6 @@ func TestSpecializedMutationFallbacksAreSpecific(t *testing.T) {
 }
 
 func TestAgentFinalStatusPreservationContract(t *testing.T) {
-	// The final response must not turn an explicit IGNORED or NEEDS_REVIEW source event into PROCESSED merely
-	// because text was sent.
 	for _, status := range []string{"IGNORED", "NEEDS_REVIEW"} {
 		if status != "IGNORED" && status != "NEEDS_REVIEW" {
 			t.Fatalf("unexpected preservation fixture %q", status)

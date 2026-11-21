@@ -1,5 +1,3 @@
-// The onboarding checklist is a pure view of the server's step states, so every
-// state combination it can show is rendered here.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";

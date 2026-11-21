@@ -14,8 +14,6 @@ import (
 
 func TestAgentTimeoutsCoverTheWholePhaseChain(t *testing.T) {
 	limits := defaultAgentLimits
-	// Long-form analytics output measured 9 to 11 s and a first call 6 s; the cap needs real headroom over
-	// the slowest seen.
 	if limits.ModelCallTimeout < 20*time.Second {
 		t.Fatalf("model call cap %s leaves no headroom over a 10.7 s measured call", limits.ModelCallTimeout)
 	}
@@ -35,7 +33,6 @@ func TestAgentTimeoutsCoverTheWholePhaseChain(t *testing.T) {
 }
 
 func TestProgressNoticeWaitsLongEnoughToStaySilentForFastTurnsButNotMuchLonger(t *testing.T) {
-	// Single-phase turns measured p90 about 6 s; a notice before that is noise.
 	if ProgressNoticeDelay < 8*time.Second {
 		t.Fatalf("notice delay %s would fire on ordinary turns", ProgressNoticeDelay)
 	}
@@ -60,7 +57,6 @@ func TestIsModelTimeoutKeysOnTheTypedSentinelNotMessageText(t *testing.T) {
 		fmt.Errorf("%w: %w", errModelPhase, errors.New("connection refused")),
 		fmt.Errorf("conversational read batch: %w", context.DeadlineExceeded),
 		context.DeadlineExceeded,
-		// Message text alone is not enough: rewording a wrap must not change the retry rule.
 		errors.New("conversational model phase: context deadline exceeded"),
 	} {
 		if IsModelTimeout(err) {
@@ -75,8 +71,6 @@ func (timingOutModel) AgentTurn(context.Context, string, gateway.AgentRequest) (
 	return gateway.AgentResponse{}, fmt.Errorf("call chat completion gateway: %w", context.DeadlineExceeded)
 }
 
-// The error the loop returns must satisfy the worker's check, so a wrap refactor cannot bring back five
-// identical retries.
 func TestAgentLoopReturnsARecognizableModelTimeout(t *testing.T) {
 	err := (&Processor{}).runAgentLoop(context.Background(), timingOutModel{}, &agentState{})
 	if err == nil {

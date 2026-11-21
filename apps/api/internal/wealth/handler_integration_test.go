@@ -114,8 +114,6 @@ func TestActiveFinancialSourceBlocksWealthDeactivation(t *testing.T) {
 	}
 }
 
-// Accepted per-account observations are readable evidence and never become a
-// synthetic complete snapshot or change snapshot-derived totals (T24/T25).
 func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -167,8 +165,6 @@ func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
 	}
 }
 
-// A document-sourced observation confirmed through a snapshot resolves its review
-// item, so the shared lifecycle must settle the source event (#360).
 func TestDocumentObservationSnapshotSettlesSourceEvent(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

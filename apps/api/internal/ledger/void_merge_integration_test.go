@@ -18,10 +18,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// A merge folds a duplicate (the SOURCE, voided BY the merge) into a live TARGET. Voiding the
-// target while the merge is ACTIVE would leave the real event with no live transaction, so every
-// void path refuses it (migration 00100 + reviewdomain.ErrMergeTargetActive), and the household
-// can still reverse the merge and then void.
 func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -46,7 +42,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 	h, rh := NewHandler(pool), review.NewHandler(pool)
 	as := func(r *http.Request) *http.Request { return r.WithContext(auth.ContextWithPrincipal(r.Context(), principal)) }
 
-	// A live CONFIRMED target, and a NEEDS_REVIEW duplicate with its own evidence and review item.
 	newTarget := func() string {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -70,7 +65,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 		}
 		return id, item
 	}
-	// Production merge: MergeDuplicateReview voids the SOURCE and leaves an ACTIVE merge.
 	mergeInto := func(source, item, target string) string {
 		t.Helper()
 		tx, err := pool.Begin(ctx)
@@ -113,7 +107,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 		rh.Unmerge(w, as(r))
 		return w.Code
 	}
-	// A bare UPDATE is what every non-endpoint path boils down to.
 	rawVoid := func(id string) error {
 		tx, err := pool.Begin(ctx)
 		must(err)
@@ -129,7 +122,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 		if status(source) != "VOIDED" || status(target) != "CONFIRMED" {
 			t.Fatalf("after merge source=%s target=%s", status(source), status(target))
 		}
-		// The drawer is told about the merge on both sides.
 		onTarget := detail(target).ActiveMerges
 		if len(onTarget) != 1 || onTarget[0].ID != mergeID || onTarget[0].Role != "TARGET" || onTarget[0].OtherTransactionID != source || onTarget[0].OtherLabel != "Kopi dobel" || onTarget[0].OtherAmount != "25000.00" && onTarget[0].OtherAmount != "25000" {
 			t.Fatalf("target merges: %+v", onTarget)
@@ -147,15 +139,12 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 		if status(target) != "CONFIRMED" || audits != 0 {
 			t.Fatalf("refused void mutated: %s audits=%d", status(target), audits)
 		}
-		// The state machine reaches only these outcomes: the database refuses a bare void too ...
 		if err := rawVoid(target); !errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
 			t.Fatalf("bare void must hit the guard, got %v", err)
 		}
-		// ... and the merged-away source is already voided (VOIDED -> VOIDED is not a transition).
 		if status(source) != "VOIDED" {
 			t.Fatalf("source=%s", status(source))
 		}
-		// Reversing the merge reopens the source and releases the target.
 		if code := unmerge(mergeID); code != http.StatusNoContent {
 			t.Fatalf("unmerge=%d", code)
 		}
@@ -168,7 +157,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 	})
 
 	t.Run("review_reject_of_a_review_held_target_is_refused", func(t *testing.T) {
-		// A cross-lane candidate: the TARGET is itself NEEDS_REVIEW and named by the source's review.
 		target, targetItem := newDuplicate("NEEDS_REVIEW")
 		source, item := newDuplicate("NEEDS_REVIEW")
 		_, err := pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{knownFacts}',jsonb_build_object('prior_match_transaction_ids',jsonb_build_array($2::text))) WHERE id=$1`, item, target)
@@ -189,7 +177,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 	})
 
 	t.Run("chained_merge_voids_the_middle_transaction_and_protects_the_final_target", func(t *testing.T) {
-		// X -> A (A is a review-held target), then A -> B. A is voided by its own merge; B is protected.
 		a, aItem := newDuplicate("NEEDS_REVIEW")
 		x, xItem := newDuplicate("NEEDS_REVIEW")
 		_, err := pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{knownFacts}',jsonb_build_object('prior_match_transaction_ids',jsonb_build_array($2::text))) WHERE id=$1`, xItem, a)
@@ -203,7 +190,6 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 		if w := void(b); w.Code != http.StatusConflict {
 			t.Fatalf("final target must stay protected: %d", w.Code)
 		}
-		// Reversing newest-first restores each step.
 		if code := unmerge(second); code != http.StatusNoContent {
 			t.Fatalf("unmerge second=%d", code)
 		}

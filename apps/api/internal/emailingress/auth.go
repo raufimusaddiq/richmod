@@ -84,14 +84,6 @@ func parseAddress(value string) (string, error) {
 	return strings.ToLower(strings.TrimSpace(address.Address)), nil
 }
 
-// authTrusted decides whether a forwarded message's sender authentication can
-// be relied on. Only the topmost Authentication-Results header counts: the
-// receiving MTA prepends its own, so every header below it may be
-// sender-written (RFC 8601 section 5). That header must come from a trusted
-// authserv-id and report dkim=pass and dmarc=pass as method results, and a
-// DMARC header.from, when present, must be the From domain Richmod routes on.
-// ARC-Authentication-Results is never trusted: without validating the ARC-Seal
-// chain (RFC 8617) it is just another sender-writable header.
 func authTrusted(email ParsedEmail, trusted []string) bool {
 	if len(email.AuthenticationResultsHeaders) == 0 {
 		return false
@@ -104,7 +96,6 @@ func authHeaderTrusted(value string, sender string, trusted []string) bool {
 	if len(parts) < 2 {
 		return false
 	}
-	// authserv-id may be followed by a version number.
 	fields := strings.Fields(parts[0])
 	if len(fields) == 0 || !trustedAuthserv(fields[0], trusted) {
 		return false
@@ -149,8 +140,6 @@ func trustedAuthserv(id string, trusted []string) bool {
 	return false
 }
 
-// stripHeaderComments removes RFC 5322 comments, which may contain any text,
-// including look-alike "dkim=pass" fragments.
 func stripHeaderComments(value string) string {
 	var out strings.Builder
 	depth := 0

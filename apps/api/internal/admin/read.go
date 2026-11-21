@@ -402,16 +402,12 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 			"resolvedSystem":                  reviewDiag.ResolvedSystem,
 			"latestDeliveryFailureAt":         reviewDiag.LatestFailureAt,
 			"latestDeliveryFailureErrorClass": reviewDiag.LatestFailureError,
-			// Open reviews whose Telegram card could not be delivered (still
-			// actionable on the web) and cards waiting for a pacing slot.
-			"undeliveredReviewCards": reviewDiag.UndeliveredCards,
-			"queuedReviewCards":      reviewDiag.QueuedCards,
+			"undeliveredReviewCards":          reviewDiag.UndeliveredCards,
+			"queuedReviewCards":               reviewDiag.QueuedCards,
 		}
 		writeJSON(w, 200, householdOverviewPayload(id, name, timezone, created, members, transactions, reviews, last, listeners, telegram, primary, memberItems, jobs, llmCalls, failedSources, audits, reviewDiagOut))
 		return
 	}
-	// Diagnostics are best-effort; a query error omits them rather than failing
-	// the whole household overview.
 	writeJSON(w, 200, householdOverviewPayload(id, name, timezone, created, members, transactions, reviews, last, listeners, telegram, primary, memberItems, jobs, llmCalls, failedSources, audits, nil))
 }
 
@@ -517,8 +513,6 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
 }
 
-// AllAudit gives Super Admin one useful, bounded audit feed when platform_audit_log
-// is empty. It keeps platform and household audit scopes explicit in metadata.
 func (h *Handler) AllAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := pageLimit(r, 50, 100)

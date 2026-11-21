@@ -1,6 +1,3 @@
-// Runtime test of the shared load helpers. There is no DOM in this suite, so a
-// minimal hook dispatcher stands in for the renderer: state, refs, memoised
-// callbacks and effects with cleanup, re-rendering synchronously on a change.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Household A's settled cycle (SUCCEEDED no-op job) must not block enqueueing household B's cycle.
 func TestResidualCatchUpIsNotBlockedByAnotherHouseholdsSettledCycle(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

@@ -1,4 +1,3 @@
-// Copies the Next static export into the Go module that embeds it.
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 
 const from = new URL("../out/", import.meta.url);

@@ -1,8 +1,5 @@
 package residual
 
-// Regression: recording the missing transaction through Telegram intake must recompute the open cycle review
-// in the same canonical transaction.
-
 import (
 	"context"
 	"fmt"
@@ -95,8 +92,6 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if refreshed != "7000000" || status != "PENDING_SEND" && status != "OPEN" {
 		t.Fatalf("unrelated confirmed transaction changed the review: residual=%s status=%s", refreshed, status)
 	}
-	// A partial offset keeps the review open and re-renders the card with the new basis; repeating the
-	// refresh sends no duplicate update.
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)

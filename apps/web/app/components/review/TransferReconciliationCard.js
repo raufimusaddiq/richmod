@@ -3,13 +3,8 @@ import { dateTime, money } from "../../lib/format";
 import { ProposalFacts } from "./shared";
 
 const purposeLabels = { INTERNAL_TRANSFER: "Rekening sendiri", SAVINGS_TRANSFER: "Tabungan", INVESTMENT_CONTRIBUTION: "Investasi", ASSET_PURCHASE: "Beli aset", DEBT_PRINCIPAL_PAYMENT: "Bayar pokok utang" };
-// Which akun kekayaan side/role each purpose needs (transfer_wealth_compatible).
 const purposeAccounts = { SAVINGS_TRANSFER: account => account.side === "ASSET" && account.usageRole === "SAVINGS", INVESTMENT_CONTRIBUTION: account => account.side === "ASSET" && account.usageRole === "INVESTMENT", ASSET_PURCHASE: account => account.side === "ASSET", DEBT_PRINCIPAL_PAYMENT: account => account.side === "LIABILITY" };
 
-// Merging keeps the matched transfer's own purpose; when the case proposes none, only an
-// already-classified transfer can be merged into (ReconcileTransfer). The server marks
-// each candidate with that rule (candidate.mergeable), so a merge button is enabled only
-// where the merge will be accepted.
 export default function TransferReconciliationCard({ item, wealthAccounts = [], disabled, resolve }) {
   const canMerge = item.allowedActions?.includes("MERGE_EXISTING"); const canCreate = item.allowedActions?.includes("CONFIRM_NEW_TRANSFER");
   const choices = item.purposeChoices || [];

@@ -35,8 +35,6 @@ type decisionInput struct {
 	Body       string `json:"body"`
 }
 
-// Decisions includes the selected cycle and its immediate predecessor. Dates
-// and the predecessor are resolved through the same server-owned review engine.
 func (h *Handler) Decisions(w http.ResponseWriter, r *http.Request) {
 	household, ok := analyticsHousehold(w, r)
 	if !ok {
@@ -71,8 +69,6 @@ func (h *Handler) CreateDecision(w http.ResponseWriter, r *http.Request) {
 		decisionError(w, err)
 		return
 	}
-	// createDecision has committed before this acknowledgement. Canonical text
-	// and authorship remain only in cycle_decision, never generic telemetry.
 	slog.InfoContext(r.Context(), "CYCLE_DECISION_SAVED")
 	writeJSON(w, 201, created)
 }
@@ -166,8 +162,6 @@ func (h *Handler) listDecisions(ctx context.Context, household, start string) (d
 	return result, rows.Err()
 }
 
-// createDecision writes only the human-authored note and audit record in one
-// transaction. Financial facts are read, never mutated.
 func (h *Handler) createDecision(ctx context.Context, p auth.Principal, in decisionInput) (cycleDecision, error) {
 	in.Body = strings.TrimSpace(in.Body)
 	if _, err := time.Parse("2006-01-02", in.CycleStart); err != nil {
@@ -189,7 +183,6 @@ func (h *Handler) createDecision(ctx context.Context, p auth.Principal, in decis
 	}
 	defer tx.Rollback(ctx)
 	var id string
-	// Recheck membership at the write boundary; no client-supplied household or author.
 	if err := tx.QueryRow(ctx, `INSERT INTO cycle_decision(household_id,cycle_start,body,created_by_user_id) SELECT $1,$2,$3,$4 WHERE EXISTS(SELECT 1 FROM household_member WHERE household_id=$1 AND user_id=$4 AND active) RETURNING id`, p.HouseholdID, in.CycleStart, in.Body, p.UserID).Scan(&id); err != nil {
 		return cycleDecision{}, err
 	}
@@ -209,7 +202,6 @@ func (h *Handler) revokeDecision(ctx context.Context, p auth.Principal, id strin
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Shared household decisions may be revoked by any active household member.
 	result, err := tx.Exec(ctx, `UPDATE cycle_decision SET deleted_at=now() WHERE id=$1 AND household_id=$2 AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM household_member WHERE household_id=$2 AND user_id=$3 AND active)`, id, p.HouseholdID, p.UserID)
 	if err != nil {
 		return err

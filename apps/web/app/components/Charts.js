@@ -10,7 +10,6 @@ import { transactionHref } from "../lib/cycleReview";
 
 const colors = ["var(--chart-category-1)", "var(--chart-category-2)", "var(--chart-category-3)", "var(--chart-category-4)", "var(--chart-category-5)", "var(--chart-category-6)"];
 const defaultTooltipStyle = { border: "2px solid var(--ink)", borderRadius: 12, background: "var(--surface-strong)", boxShadow: "var(--shadow)", fontSize: 12 };
-// Retro Ledger chart style: ink outlines, 2px strokes, sparse grid, direct values.
 const axisTick = { fontFamily: "var(--font-body)", fontSize: 12 };
 const bar = { stroke: "var(--ink)", strokeWidth: 2, radius: [4, 4, 0, 0], maxBarSize: 24 };
 
@@ -23,16 +22,12 @@ function DailyTooltip({ active, payload, label }) {
 function MonthlyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const item = payload[0]?.payload;
-  // Served strings, printed as they arrive: the browser never rounds money.
   return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}{item?.partial && " · berjalan"}</b>
     <div className="chart-tooltip-row"><span>Pemasukan</span><strong>{money(item?.income)}</strong></div>
     <div className="chart-tooltip-row"><span>Pengeluaran</span><strong>{money(item?.expense)}</strong></div>
     <div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(item?.netCashflow)}</strong></div></div>;
 }
 
-// Beranda's daily spend: bars (a day is a quantity, not a trend), a dashed daily average, and an outlier
-// cap so one large day cannot flatten the rest. A capped bar carries a break slash and its real value.
-// Clicking a day with spend opens the ledger for that day; the value table below links the same way.
 function DailyBarShape({ x, y, width, height, payload }) {
   if (!(height > 0)) return null;
   const slashY = y + 7;
@@ -57,7 +52,6 @@ export function DashboardDailySpendingChart({ items, height = 240 }) {
   </div>;
 }
 
-// Day tick: the running day of an active cycle says it is not complete yet.
 function DayTick({ x, y, payload, partialLabel, last }) {
   const partial = payload.value === partialLabel;
   return <text x={x} y={y + 12} textAnchor={partial && last ? "end" : "middle"} fill="var(--chart-axis)" fontFamily="var(--font-body)" fontSize={12}>{payload.value}{partial && <tspan x={x} dy={14}>belum penuh</tspan>}</text>;
@@ -65,20 +59,17 @@ function DayTick({ x, y, payload, partialLabel, last }) {
 
 export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, partialDay = "", height = 190 }) {
   const data = mapDailySpending(items);
-  const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage); // served figure, plotted as a line only; absent means no line
+  const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage);
   if (!data.length || data.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
   const max = Math.max(...data.map(item => item.expenseValue), Number.isFinite(average) ? average : 0, 0);
   const lastIndex = data.length - 1;
-  // Every third day, plus the running day; the tick before it is dropped so "belum penuh" never collides.
   const partialLabel = partialDay ? partialDay.slice(8) : "";
   const ticks = data.filter((_, index) => (index % 3 === 0 && !(partialLabel && lastIndex - index < 3 && index !== lastIndex)) || (partialLabel && index === lastIndex)).map(item => item.label);
   const dayBar = ({ x, y, width, height, payload, fill, radius }) => {
     const partial = partialDay && payload.period === partialDay;
     const rectangle = <Rectangle {...{ x, y, width, height, radius }} fill={partial ? "var(--chart-expense-soft)" : fill}/>;
     if (!period || payload.expenseValue === 0) return rectangle;
-    // The link covers the whole day band and the full plot height, so a thin bar is
-    // still a large target; the drawn bar keeps its own width.
-    const band = width / 0.9; // barCategoryGap="10%"
+    const band = width / 0.9;
     return <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>
       <rect x={x - (band - width) / 2} y={0} width={band} height={y + height} fill="transparent"/>
       {rectangle}
@@ -97,8 +88,6 @@ function PaceTooltip({ active, payload }) {
   </div>;
 }
 
-// Single series on its own scale (never mixed with the daily bars): "are we on pace?".
-// Served curves and totals only; the line stops at the latest measured day (no projection).
 export function CyclePaceChart({ items, references = [], pace, period, height = 200 }) {
   if (!items?.length) return null;
   if (!hasPace(items)) return <p className="empty compact">Total pengeluaran sampai hari ini belum tersedia.</p>;
@@ -108,22 +97,14 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   const tail = curves.previous ? data[curves.previous.length - 1] : null;
   const sameDay = references.find(reference => reference.key === "previous-same-day");
   const tone = reference => (reference.tone === "median" ? "var(--chart-reference)" : "var(--line-strong)");
-  // A level that a served curve already draws would only repeat it; equal-day markers sit on the curve.
   const levels = references.filter(reference => reference.shape === "line" && !(reference.tone === "previous" && curves.previous) && !(reference.tone === "median" && curves.median));
   const endLabel = (value, position, fill = "var(--chart-axis)") => ({ value: compactMillions(value), position, fill, fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600 });
-  // A reference level or a comparison curve can push the top of the plot past the series;
-  // a round axis keeps the ticks readable. Curve points are served values, read only for
-  // the visual ceiling — never written back into a money figure.
   const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
-  // End-value labels sit on the same x at the last day; when their values are close,
-  // push the comparison label away from the current one so the two never overlap.
   const span = axis.domain[1] - axis.domain[0];
   const closeToLast = value => Math.abs(Number(value) - Number(last.exact)) < span * 0.12;
   const sameDayLabel = sameDay ? endLabel(sameDay.value, Number(sameDay.value) < Number(last.exact) ? "bottom" : "top") : null;
-  if (sameDayLabel) sameDayLabel.dx = -10; // the marker sits on the today line; keep the value off it
+  if (sameDayLabel) sameDayLabel.dx = -10;
   if (sameDayLabel && closeToLast(sameDay.value)) sameDayLabel.dy = Number(sameDay.value) < Number(last.exact) ? 14 : -14;
-  // The previous full-cycle tail is the same point as the same-day marker on a full
-  // cycle; one label is enough.
   const tailLabel = tail && !(sameDay && tail.day === last.day) ? endLabel(tail.previousExact, "right") : null;
   if (tailLabel && tail.day === last.day && closeToLast(tail.previousTotal)) tailLabel.dy = Number(tail.previousTotal) < Number(last.exact) ? 14 : -14;
   return <div className="cycle-pace">
@@ -154,7 +135,6 @@ export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }
   const data = mapMonthlyCashflow(items, partialPeriod);
   if (!data.length) return <p className="empty compact">Belum ada data bulanan pada periode ini.</p>;
   const max = Math.max(...data.flatMap(item => [item.incomeValue, item.expenseValue]), 0);
-  // Legend in bar order (income, then expense), not Recharts' reversed payload order.
   const legend = () => <ul className="dash-legend" data-shape="bar" aria-label="Keterangan grafik"><li data-series="income"><i aria-hidden="true"/>Pemasukan</li><li data-series="expense"><i aria-hidden="true"/>Pengeluaran</li></ul>;
   return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }
@@ -166,7 +146,6 @@ export function CategoryDonutChart({ items, height = 260 }) {
 }
 
 export function CategoryRankingChart({ items, height = 320 }) {
-  // Server order, always: the API already ranks by amount, and the browser never sorts money.
   const data = items.map(item => ({ ...item, amountValue: Number(item.amount || 0), amountLabel: compactMillions(item.amount) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi.</p>;
   return <div className="category-ranking">
@@ -177,7 +156,6 @@ export function CategoryRankingChart({ items, height = 320 }) {
 
 export function NetWorthHistoryChart({ items, height = 260 }) {
   const data = netWorthHistoryRows(items);
-  // Defensive: the wealth page only mounts this with two or more snapshots.
   if (!data.length) return null;
   const max = Math.max(...data.map(row => row.value), 0);
   const summary = netWorthHistorySummary(data);

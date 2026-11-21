@@ -14,7 +14,6 @@ import { ErrorNotice, Skeleton, Toast } from "./Feedback";
 const capabilityCheckStyle = { display: "flex", minHeight: 42, alignItems: "center", gap: 8, color: "var(--ink-soft)", whiteSpace: "nowrap", cursor: "pointer" };
 const capabilityInputStyle = { width: 24, height: 24, minHeight: 24, padding: 0, margin: 0, flex: "0 0 auto", accentColor: "var(--accent)", boxShadow: "none", cursor: "pointer" };
 
-// Server messages that deserve plain-language copy. Unknown messages pass through.
 const SERVER_ERROR_TEXT = {
   "active sender already exists": "Alamat pengirim ini sudah dipakai oleh sumber aktif lain.",
   "unable to create category": "Kategori belum dapat dibuat. Nama ini mungkin sudah dipakai.",
@@ -25,29 +24,19 @@ const ACTIVATE_ERROR_TEXT = {
   SENDER_REQUIRED: "Tambahkan minimal satu pengirim bank atau provider yang aktif sebelum mengaktifkan email.",
 };
 const ROTATE_CONFIRM = "Alamat lama akan dinonaktifkan dan alamat baru dibuat. Aturan penerusan di Gmail atau penyedia email Anda harus dibuat ulang dengan alamat baru, lalu email perlu diaktifkan lagi. Lanjutkan?";
-// Every fixed key a <RowError> renders. Row errors use the item id, and the provider edit
-// form uses `edit-<id>`. A key outside this set is shown at the top instead of vanishing.
 const SECTION_ERROR_KEYS = new Set(["account-new", "wealth-new", "known-new", "listener-new", "financial-source-new", "category-new", "salary-source", "email-ingress", "forwarding-resolve"]);
 
-// The owner-facing settings sections of the Keluarga hub. The hub owns the page frame and the
-// tab bar; this renders the sections of the active tab and loads its own data.
 export default function SettingsPanels({ user, tab, anchor = "", onAnchorHandled }) {
   const { confirm, prompt, dialogs } = useDialogs();
   const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], financialSources: [], emailIngress: null });
-  // A mutation error belongs to the form or row that failed: { key, field, message }.
-  // The top notice is reserved for page-load failures.
   const [error, setError] = useState(null), [loadNotice, setLoadNotice] = useState(""); const { busy, run: runBusy, isBusy } = useBusyMap(); const [financialPreview, setFinancialPreview] = useState(null); const [editingFinancialSource, setEditingFinancialSource] = useState(null);
   const [toast, setToast] = useState(""), [highlight, setHighlight] = useState("");
   const closeToast = useCallback(() => setToast(""), []);
   useEffect(() => { if (!highlight) return undefined; const timer = window.setTimeout(() => setHighlight(""), 2000); return () => window.clearTimeout(timer); }, [highlight]);
-  // The field the server rejects is known per form; anything else lands on the form itself.
   const fieldError = (key, field) => (error?.key === key && error.field === field ? { "aria-invalid": "true", "aria-describedby": `${key}-error` } : {});
   const owner = user?.household?.role === "OWNER";
-  // A key no <RowError> renders still reaches the user, at the top, instead of vanishing.
   const rowIds = new Set([...data.accounts, ...data.wealthAccounts, ...data.known, ...data.listeners, ...data.financialSources, ...data.categories, ...data.aliases].map(item => item.id));
   const unrendered = error && !SECTION_ERROR_KEYS.has(error.key) && !rowIds.has(error.key) && !String(error.key).startsWith("edit-") ? error.message : "";
-  // Each endpoint stands alone. A 403/404 means "not available to this role" (an empty
-  // section); a 5xx, 401 or dropped connection means "unknown" and is reported.
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
     const settled = await Promise.all(endpoints.map(async value => {
@@ -68,20 +57,13 @@ export default function SettingsPanels({ user, tab, anchor = "", onAnchorHandled
     setLoadNotice(failed.length ? `Sebagian pengaturan belum termuat (${failed.join(", ")}). Coba lagi.` : "");
   }, { fallback: "Pengaturan belum dapat dimuat. Periksa koneksi lalu coba lagi." });
   const load = loader.run;
-  // Only the owner manages settings; a member sees notifications alone, so nothing is loaded for them.
   useEffect(() => { if (user && owner) load(); }, [user, owner, load]);
-  // Scroll to an old #anchor once its tab has rendered, and keep the active tab
-  // in view when the bar is wider than the screen.
   useEffect(() => {
     if (!anchor) return;
     const target = document.getElementById(anchor);
     if (target) { target.scrollIntoView({ block: "start" }); onAnchorHandled?.(); }
   }, [anchor, tab, loader.hasLoaded, onAnchorHandled]);
 
-  // One busy flag per key; a failed or dropped request releases it in finally and says so.
-  // `success` is the toast for a completed change, `highlight` the row id to flash, and
-  // `field` the input the server rejected (aria-invalid + aria-describedby). The parsed
-  // body is returned so a create can flash the row it just made.
   function request(key, url, options, { field, success, highlight: id, errorKey = key } = {}) {
     return runBusy(key, async () => {
       setError(null);
@@ -99,8 +81,6 @@ export default function SettingsPanels({ user, tab, anchor = "", onAnchorHandled
       }
     });
   }
-  // Deactivating is consequential, so it asks first and names the consequence; activating
-  // never asks. Focus returns to the button that was used once it is enabled again.
   async function toggle(key, path, body, { active, message, success, highlight: id, button }) {
     if (active && !(await confirm(message, { confirmLabel: "Nonaktifkan", danger: true }))) return false;
     const done = await request(key, `/api/v1/${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, { success, highlight: id });
@@ -139,7 +119,6 @@ export default function SettingsPanels({ user, tab, anchor = "", onAnchorHandled
     });
   }
   const emailIngressAction = (action = "") => request(`email-ingress-${action || "create"}`, `/api/v1/integrations/email-ingress${action ? `/${action}` : ""}`, { method: "POST" }, { errorKey: "email-ingress", success: action === "rotate" ? "Alamat email baru dibuat. Aturan penerusan perlu dibuat ulang." : "Alamat email dibuat." });
-  // Activation has prerequisites, so its 409s carry a code that maps to a next step.
   const activateEmailIngress = () => runBusy("email-ingress-activate", async () => {
     setError(null);
     try {
@@ -162,9 +141,7 @@ export default function SettingsPanels({ user, tab, anchor = "", onAnchorHandled
   const patch = (key, path, body, options) => request(key, `/api/v1/${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, options);
   async function rename(item, kind) { const result = await prompt(`Ganti nama ${kind}`, [{ name: "name", label: `Nama ${kind} baru`, defaultValue: item.name, required: true }]); const name = result?.name?.trim(); if (name && name !== item.name) patch(item.id, `${kind === "rekening" ? "accounts" : "categories"}/${item.id}`, { name }, { field: "name", success: `Nama diubah menjadi ${name}.`, highlight: item.id }); }
   if (!user) return null;
-  // A member has no settings to manage: only their own device notifications.
   if (!owner) return <NotificationsSection tab="notifikasi" active={tab} />;
-  // Until one load has succeeded the lists are unknown, not empty.
   if (!loader.hasLoaded) return <>{dialogs}<ErrorNotice message={loader.error} retry={() => load()}/>{!loader.failed && <Skeleton cards={2} rows={4}/>}</>;
   return <>
     {dialogs}
@@ -220,8 +197,6 @@ export default function SettingsPanels({ user, tab, anchor = "", onAnchorHandled
 
 const CHECKLIST_STATE_TEXT = { done: "Selesai", current: "Langkah berikutnya", blocked: "Menunggu langkah sebelumnya" };
 
-// Guided onboarding for email ingestion. A pure view of the server's step
-// states: the server decides done/current/blocked, this only presents them.
 export function EmailOnboardingChecklist({ ingress, owner = false, isBusy = () => false, onCreate, onActivate, onCopy, onResolveForwarding }) {
   const steps = ingress?.steps;
   if (!steps) return null;
@@ -253,27 +228,11 @@ export function EmailOnboardingChecklist({ ingress, owner = false, isBusy = () =
   </div>;
 }
 
-// The state model. Three independent facts, each possibly unknown (unknown is not false).
-//
-//   B — does this browser hold a push endpoint?  true | false
-//   S — what does the server say about this endpoint for this session's
-//       user+household?  live | retired | absent | unknown
-//   E — is push enabled on the server?  enabled | disabled | unknown
-//
-// Every branch below is one of four rules:
-//
-//   1. Opt-out is available whenever B is true, even with an unreachable or disabled
-//      server, a stale row or a wrong account. This is a safety property.
-//   2. The endpoint is discarded only on a definitive answer about it: a subscription
-//      created in this call and a definitive 4xx. A 5xx, 429, timeout, thrown request,
-//      or any 4xx on a pre-existing endpoint is unknown, so the endpoint is kept.
-//   3. "Aktif" is painted only when B is true and S is live.
-//   4. E == disabled means new registrations will not work; it never removes the opt-out.
 export function notificationState({ supported, ios, installed, permission, browserEndpoint, serverState, serverEnabled }) {
-  if (!supported || (ios && !installed)) return "unsupported"; // platform cannot hold an endpoint
+  if (!supported || (ios && !installed)) return "unsupported";
   if (permission === "denied") return "denied";
-  if (browserEndpoint && serverState === "live") return "subscribed"; // rule 3
-  if (serverEnabled === "disabled" && !browserEndpoint) return "unsupported"; // rule 4, and nothing to opt out of
+  if (browserEndpoint && serverState === "live") return "subscribed";
+  if (serverEnabled === "disabled" && !browserEndpoint) return "unsupported";
   if (permission === "granted") return "granted";
   return "not-asked";
 }
@@ -283,9 +242,6 @@ function base64Key(value) {
   return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
 }
 
-// S for this endpoint. An endpoint the server does not know belongs to another account
-// (or was pruned); a retired row is not live. With no list S is unknown. `canDisable`
-// is exactly B (rule 1).
 export function reconcileSubscription({ browserEndpoint = null, serverSubscriptions = null }) {
   if (!browserEndpoint) return { serverState: "absent", canDisable: false, issue: "" };
   if (!Array.isArray(serverSubscriptions)) return { serverState: "unknown", canDisable: true, issue: "unknown" };
@@ -296,9 +252,6 @@ export function reconcileSubscription({ browserEndpoint = null, serverSubscripti
     : { serverState: "retired", canDisable: true, issue: "retired" };
 }
 
-// Three outcomes, never collapsed: `ok`, `definitive` (the server answered no) and
-// `unavailable` (5xx/429, thrown, unreadable). Only a definitive answer may change
-// what the user is offered.
 async function requestOutcome(request, url) {
   let response;
   try {
@@ -321,11 +274,8 @@ export async function loadPushView({ supported, ios, installed, permission, serv
       const registration = await serviceWorker.getRegistration();
       browserEndpoint = (await registration?.pushManager.getSubscription())?.endpoint || null;
     } catch {
-      // No registration means no browser subscription; the server list decides.
     }
   }
-  // Ask for this endpoint, not a page of rows: a truncated list must never make a live
-  // endpoint look absent.
   const endpointQuery = browserEndpoint ? `/api/v1/push/subscriptions?endpoint=${encodeURIComponent(browserEndpoint)}` : null;
   const [key, listed] = await Promise.all([
     requestOutcome(request, "/api/v1/push/public-key"),
@@ -345,10 +295,6 @@ export async function loadPushView({ supported, ios, installed, permission, serv
   };
 }
 
-// Rule 2: only a subscription created in this call may be discarded, and only on a
-// definitive 4xx. A pre-existing endpoint is kept on rejection because the server may
-// hold a live row for it; anything else is unknown and the next refresh decides.
-// Re-registering the same endpoint is an upsert.
 export async function registerSubscription(serviceWorker, publicKey, request = fetch) {
   const registration = await serviceWorker.getRegistration() || await serviceWorker.register("/sw.js", { scope: "/" });
   let subscription = await registration.pushManager.getSubscription();
@@ -367,9 +313,6 @@ export async function registerSubscription(serviceWorker, publicKey, request = f
     }
     let replacedEndpoint = "";
     if (!response.ok && response.status === 409 && body?.code === "ENDPOINT_OWNED_BY_ANOTHER_USER") {
-      // Another account registered this browser endpoint. Never repoint that row; replace
-      // the browser subscription with a new endpoint. The old endpoint is returned for the
-      // log line, never its keys.
       replacedEndpoint = subscription.endpoint;
       await subscription.unsubscribe();
       subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
@@ -389,9 +332,6 @@ export async function registerSubscription(serviceWorker, publicKey, request = f
   }
 }
 
-// Unsubscribing locally and deleting the server row are one action; either alone
-// leaves a subscription the sender keeps trying to reach. The endpoint stays until
-// the server confirms, so a failed delete can be retried.
 export async function disableNotifications(serviceWorker, request = fetch) {
   const registration = await serviceWorker.getRegistration();
   const subscription = await registration?.pushManager?.getSubscription();
@@ -419,7 +359,6 @@ const PUSH_COPY = {
   subscribed: ["Aktif", "Notifikasi aktif di perangkat ini. Pemberitahuan muncul saat ada tinjauan atau tindakan baru."],
 };
 
-// Adornment inside `granted`; these are not additional states.
 const PUSH_ISSUE = {
   unregistered: ["Belum terdaftar untuk akun ini", "Perangkat ini masih menyimpan langganan lama yang tidak terdaftar untuk akun yang sedang masuk. Coba lagi untuk mendaftarkannya kembali."],
   retired: ["Dinonaktifkan server", "Server menonaktifkan langganan perangkat ini, mungkin karena rumah tangga berubah. Coba lagi untuk mendaftarkannya kembali."],
@@ -434,9 +373,8 @@ export function NotificationsView({ state, issue = "", canDisable = false, serve
     : state === "unsupported" && serverDisabled
       ? "Server ini belum mengaktifkan notifikasi push, jadi perangkat belum dapat mendaftar."
       : fallbackBody;
-  // Rule 4: a disabled server stops new registrations, not this device's opt-out.
   const body = `${baseBody}${serverDisabled && canDisable ? " Server tidak menerima pendaftaran baru, tetapi perangkat ini tetap dapat dimatikan." : ""}`;
-  const showDisable = canDisable; // Rule 1: B alone.
+  const showDisable = canDisable;
   const showEnable = (state === "not-asked" || state === "granted") && !serverDisabled;
   const note = status || (serverUnavailable ? "Server tidak dapat dihubungi. Status langganan belum dapat dikonfirmasi." : "");
   return <>
@@ -517,22 +455,16 @@ function NotificationsSection({ tab, active }) {
   </SettingsSection>;
 }
 
-// A failed change is announced where it happened: inside the form or the row. An empty
-// message renders nothing, so an alert never appears blank.
 function RowError({ k, error }) {
   if (!error?.message || error.key !== k) return null;
   return <p className="field-error" id={`${k}-error`} role="alert">{error.message}</p>;
 }
 
-// One line under a field that explains a term the family may not know. The field
-// points at it with aria-describedby, so a screen reader hears the explanation.
 function FieldHint({ id, children }) {
   return <small className="field-hint" id={id}>{children}</small>;
 }
 
 function SettingsSection({ title, description, tab, active, children }) {
-  // Only the active tab's sections are mounted, so a hidden section never
-  // competes for an anchor or a screen reader's attention.
   if (tab && tab !== active) return null;
   const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return <section id={id} aria-labelledby={`${id}-title`} className="surface settings-section"><div className="settings-heading"><div><h2 id={`${id}-title`}>{title}</h2><p>{description}</p></div></div>{children}</section>;
@@ -540,7 +472,6 @@ function SettingsSection({ title, description, tab, active, children }) {
 
 function BoundedList({ items, limit = 8, renderItem, emptyMessage, emptyClassName = "empty compact" }) {
   const [page, setPage] = useState(0), [query, setQuery] = useState("");
-  // A long list gets a search box; a short one does not need one.
   const searchable = items.length > 10;
   const filtered = filterItems(items, query);
   const pageCount = Math.ceil(filtered.length / limit);
@@ -557,8 +488,6 @@ function BoundedList({ items, limit = 8, renderItem, emptyMessage, emptyClassNam
 
 const ACTION_KINDS = { EMAIL_FORWARDING: "Email", SOURCE_PROCESSING: "Sumber" };
 
-// Pending setup actions for the connected sources (e.g. the email forwarding verification
-// code). The owner resolves them here; the count is shared with the rest of the shell.
 function IntegrationActionsSection({ tab, active, onToast, onError }) {
   const open = tab === active;
   const [state, setState] = useState({ status: "idle", items: [] });
@@ -596,7 +525,6 @@ function IntegrationActionsSection({ tab, active, onToast, onError }) {
   </SettingsSection>;
 }
 
-// The newest forwarded emails, newest first, paged by the server.
 function DeliveryLogSection({ tab, active }) {
   const open = tab === active;
   const [state, setState] = useState({ status: "idle", items: [], next: "", more: false });

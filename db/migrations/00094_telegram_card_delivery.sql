@@ -1,16 +1,4 @@
 -- +goose Up
--- Telegram review card delivery, binding and hygiene (ADR-046 amendment
--- 2026-11-05).
---
--- 1. review_request_recipient.delivery_status records where each card is:
---    QUEUED (held back by the per-chat pacing limit, its rendered send payload
---    kept in queued_payload), PENDING (a send job exists), SENT (bound to a
---    message), EXPIRED (this copy's own seven-day window passed and its buttons
---    were removed), FAILED (the send job gave up; delivery_error says why), or
---    SKIPPED (the request closed or the recipient lost access before it was
---    sent). card_expires_at is the copy's own window, which starts when
---    Telegram delivers the copy (its first bind), so a copy that waited in the
---    pacing queue or behind send retries gets its full window. The canonical review_item is never changed by any of these.
 ALTER TABLE review_request_recipient
     ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'PENDING'
         CHECK (delivery_status IN ('QUEUED','PENDING','SENT','EXPIRED','FAILED','SKIPPED')),
@@ -21,8 +9,6 @@ ALTER TABLE review_request_recipient
 
 UPDATE review_request_recipient rr SET delivery_status='SENT',card_expires_at=r.expires_at
 FROM review_request r WHERE r.id=rr.review_request_id AND rr.telegram_message_id IS NOT NULL;
--- An undelivered card whose send jobs all failed is a failed delivery, not a
--- pending one.
 UPDATE review_request_recipient rr
 SET delivery_status='FAILED',delivery_failed_at=now(),delivery_error='send job failed before migration 00094'
 WHERE rr.telegram_message_id IS NULL
@@ -40,10 +26,6 @@ CREATE INDEX review_request_recipient_live_chat_idx
     ON review_request_recipient(telegram_chat_id)
     WHERE delivery_status IN ('PENDING','SENT');
 
--- 2. Every Telegram message that belongs to a review, per recipient. The
--- recipient row keeps the one current card (the message taps and replies bind
--- to); an older message that a follow-up replaced stays here with
--- superseded_at set so its buttons are removed and it is retired on close.
 CREATE TABLE review_request_message (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     household_id UUID NOT NULL REFERENCES household(id),
@@ -64,9 +46,6 @@ FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request
 WHERE rr.telegram_message_id IS NOT NULL
 ON CONFLICT DO NOTHING;
 
--- 3. The message id of every successful sendMessage, recorded right after
--- Telegram accepts it and before any binding, keyed by the job. A retry of the
--- same job binds this message instead of sending a second card.
 CREATE TABLE telegram_outbound_delivery (
     job_id UUID PRIMARY KEY REFERENCES job(id) ON DELETE CASCADE,
     household_id UUID REFERENCES household(id),
@@ -75,7 +54,6 @@ CREATE TABLE telegram_outbound_delivery (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 4. Retirement covers every message of the request, current and superseded.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enqueue_review_card_retirement(p_review_request_id UUID, p_recipient_id UUID) RETURNS INTEGER LANGUAGE plpgsql AS $$
 DECLARE
@@ -107,18 +85,6 @@ END;
 $$;
 -- +goose StatementEnd
 
--- 5. Pacing: at most three live review cards per chat. A card past the limit
--- waits as QUEUED and is released oldest-first when a live card closes,
--- expires, fails, or is skipped.
---
--- Lock order. Every path that changes pacing state takes the chat's
--- transaction-scoped advisory lock before it waits for any recipient row, and
--- a release, which runs while other transactions may hold request rows, claims
--- every row it touches with SKIP LOCKED, so it never waits while holding the
--- chat lock. A close (or projection expiry) holds its request row, then takes
--- its chats' advisory locks in chat order, then touches recipients. A request
--- skipped by a release because it is being closed is released by that close's
--- own trigger.
 -- +goose StatementBegin
 CREATE FUNCTION lock_review_card_chat(p_chat BIGINT) RETURNS VOID LANGUAGE sql AS $$
     SELECT pg_advisory_xact_lock(hashtextextended('review_card_pacing:' || p_chat::text, 0))
@@ -136,10 +102,6 @@ CREATE FUNCTION review_card_live_count(p_chat BIGINT, p_except UUID DEFAULT NULL
 $$;
 -- +goose StatementEnd
 
--- A queued copy is releasable while its review_item is open, even when the
--- request's projection expired: the other copies expired (they stay EXPIRED,
--- retired and uncounted), this copy has not been shown yet. Releasing it
--- reopens the request and starts this copy's own window.
 -- +goose StatementBegin
 CREATE FUNCTION release_review_cards(p_chat BIGINT) RETURNS INTEGER LANGUAGE plpgsql AS $$
 DECLARE
@@ -193,8 +155,6 @@ BEGIN
     END IF;
     PERFORM lock_review_card_chat(chat);
     SELECT delivery_status INTO current_status FROM review_request_recipient WHERE id = p_recipient_id FOR UPDATE;
-    -- A card that was already admitted (a re-run of the same projection) is not
-    -- admitted twice.
     IF current_status IN ('QUEUED','SENT','EXPIRED') OR EXISTS (
         SELECT 1 FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status IN ('PENDING','RUNNING')
           AND j.payload_json->>'review_request_id' = p_payload->>'review_request_id'
@@ -218,11 +178,6 @@ END;
 $$;
 -- +goose StatementEnd
 
--- One copy's window passed: it becomes EXPIRED, every message of it loses its
--- buttons (the note says the review is still in the Review Inbox), and its slot
--- is released. The request closes as EXPIRED only when no copy is still live
--- or waiting. Returns false when the copy is not due or is being changed by
--- another transaction (the next sweep retries it).
 -- +goose StatementBegin
 CREATE FUNCTION expire_review_card_recipient(p_recipient_id UUID) RETURNS BOOLEAN LANGUAGE plpgsql AS $$
 DECLARE
@@ -230,8 +185,6 @@ DECLARE
     request UUID;
     chat BIGINT;
 BEGIN
-    -- Chat locks first, in chat order, for every chat of the request (the same
-    -- set its close trigger takes), then the rows, without waiting.
     SELECT review_request_id INTO request FROM review_request_recipient WHERE id = p_recipient_id;
     IF NOT FOUND THEN
         RETURN FALSE;
@@ -251,8 +204,6 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM review_request_recipient x
                    WHERE x.review_request_id = due.review_request_id AND x.id <> due.id
                      AND x.delivery_status IN ('QUEUED','PENDING','SENT')) THEN
-        -- The last copy: the projection expires; the request triggers retire
-        -- every message and release the chats.
         UPDATE review_request SET status='EXPIRED' WHERE id = due.review_request_id;
         RETURN TRUE;
     END IF;
@@ -271,11 +222,6 @@ END;
 $$;
 -- +goose StatementEnd
 
--- A closed or expired request frees its slots in every chat it was delivered
--- to. The chats' advisory locks are taken first, in chat order, before any
--- recipient row is touched. Live copies of an expired projection become
--- EXPIRED (retired, uncounted); queued copies of a resolved or cancelled
--- review are dropped; a queued copy of an expired projection stays queued.
 -- +goose StatementBegin
 CREATE FUNCTION review_request_release_paced_cards() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -338,8 +284,6 @@ BEGIN
 END;
 $$;
 -- +goose StatementEnd
--- Cards held back by pacing would never be sent by an older worker; send them
--- now rather than lose them.
 INSERT INTO job(type, payload_json, max_attempts)
 SELECT 'SEND_TELEGRAM_MESSAGE', rr.queued_payload, 8
 FROM review_request_recipient rr JOIN review_request r ON r.id = rr.review_request_id

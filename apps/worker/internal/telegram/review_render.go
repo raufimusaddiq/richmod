@@ -1,8 +1,5 @@
 package telegram
 
-// review_render.go renders the stored ReviewDecision for Telegram, following missing_facts/allowed_actions.
-// One card shape (ADR-046): title, facts, one Indonesian reason line, and an instruction matching buttons.
-
 import (
 	"context"
 	"encoding/json"
@@ -31,8 +28,7 @@ func (c reviewCard) Text() string {
 
 type reviewSubject struct {
 	TransactionType string
-	// Reconciliation reports a source-bound transfer with an open case, whose chooser is built from its candidates.
-	Reconciliation bool
+	Reconciliation  bool
 }
 
 func (s reviewSubject) transactionType(decision reviewdec.Decision) string {
@@ -58,8 +54,6 @@ func loadReviewSubject(ctx context.Context, tx pgx.Tx, reviewID string) (reviewS
 	return subject, err
 }
 
-// Re-renders a live card after a partial answer with the first send's builder, so every kind keeps its
-// remaining actions (including Abaikan).
 func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, request string, update telegramUpdate) error {
 	var raw []byte
 	var reason, itemID string
@@ -92,8 +86,6 @@ func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, req
 	return enqueueReviewUpdateWithMarkup(ctx, tx, request, update, card.Text(), markup)
 }
 
-// unknownReviewPrompt is the honest fallback: with no decision contract Go asks for detail instead of
-// inventing a category prompt.
 const unknownReviewPrompt = "🟡 Perlu detail transaksi"
 
 func renderReviewPresentation(decision reviewdec.Decision, reviewType, context string) (state, reviewMessage, markupMode string) {
@@ -101,8 +93,6 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	return card.State, card.Text(), card.Mode
 }
 
-// buildReviewCard never introduces a fact the decision did not name: the missing fact decides the question,
-// the allowed actions the buttons.
 func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) reviewCard {
 	card := reviewCard{State: "AWAITING_DETAIL", Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
 	kind := subject.transactionType(decision)
@@ -117,7 +107,6 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 		card.Mode, card.Title = "receipt_quality", "🧾 Rincian struk berbeda dari total yang tercetak"
 		card.Instruction = "Cek totalnya dulu. Pilih Terima total untuk mencatat total yang tercetak."
 	case decision.ReasonCode == "FINANCIAL_EMAIL_FACTS":
-		// No transaction was written; the only bounded action is to acknowledge, so no fact is needed.
 		card.Mode, card.Title = "financial_email_facts", "🟡 Bukti email belum pasti"
 		card.Instruction = "Bukti email ini belum didukung. Pilih Abaikan atau buka Kotak Tinjauan untuk memeriksanya."
 	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
@@ -139,11 +128,9 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 		card.State, card.Mode, card.Title = "AWAITING_DATE", "reply", promptTitle(decision)
 		card.Instruction = dateInstruction(decision)
 	case isCategoryOnly(decision) && kind == "INCOME":
-		// An income has no expense category; the bounded question is whether it is income at all (Benar/Ubah).
 		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "income", "🟡 Pemasukan perlu dicek"
 		card.Instruction = "Pilih Benar jika ini penghasilan, atau Ubah jika ini transfer."
 	case isCategoryOnly(decision):
-		// Category is the single unresolved fact with bounded values, so the chooser is the whole interaction.
 		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "category", "🟡 Kategori belum pasti"
 		card.Instruction = "Pilih kategori di bawah, atau balas pesan ini (Reply) dengan tujuan pengeluaran."
 	case contains(decision.MissingFacts, "transfer_relationship"):
@@ -194,12 +181,10 @@ func transferInstruction(transactionType string, reconciliation bool) string {
 	return "Pilih jenis transfer di bawah, atau balas pesan ini (Reply) dengan tujuan transfer."
 }
 
-// Only a transaction-bound unknown-merchant review can be reclassified as an asset purchase.
 func merchantAssetOption(decision reviewdec.Decision, reviewType string) bool {
 	return reviewType == "UNKNOWN_MERCHANT" && decision.Subject.Type == "transaction"
 }
 
-// cardActions returns the stored allowed actions, or the registry's Telegram actions for a legacy item.
 func cardActions(decision reviewdec.Decision, reviewType string) []string {
 	if len(decision.AllowedActions) > 0 {
 		return decision.AllowedActions
@@ -207,7 +192,6 @@ func cardActions(decision reviewdec.Decision, reviewType string) []string {
 	return reviewdec.TelegramActions(reviewType)
 }
 
-// Abaikan appears only when the stored contract allows IGNORE, so a button never answers stale.
 func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject) (*InlineKeyboardMarkup, error) {
 	actions := cardActions(decision, reviewType)
 	ignore := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
@@ -223,8 +207,6 @@ func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType strin
 			markup, err = transferReconciliationMarkup(ctx, tx, reviewID)
 			break
 		}
-		// The transfer chooser follows the transaction type whatever the review kind (an incoming duplicate
-		// asks Penghasilan / Rekening sendiri / Household, never Benar/Ubah).
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0)
 	case "reply":
 		row := ignore
@@ -259,13 +241,11 @@ func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType strin
 		return nil, err
 	}
 	if markup == nil && card.Mode != "cycle" {
-		// No chooser could be built (e.g. a transfer with no subject); the card still offers dismissal when allowed.
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{ignore}}
 	}
 	return keepExecutableButtons(markup, actions), nil
 }
 
-// Drops Abaikan when the contract disallows IGNORE, then empty rows; a keyboard with no button is nil.
 func keepExecutableButtons(markup *InlineKeyboardMarkup, actions []string) *InlineKeyboardMarkup {
 	if markup == nil {
 		return nil
@@ -290,7 +270,6 @@ func keepExecutableButtons(markup *InlineKeyboardMarkup, actions []string) *Inli
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
-// incomeConfirmMarkup answers "is this income?": Benar confirms, Ubah offers income/transfer classification.
 func incomeConfirmMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Benar", CallbackData: "review:confirm"}, {Text: "Ubah", CallbackData: "review:change"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 }
@@ -299,8 +278,6 @@ func incomeClassificationMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Penghasilan", CallbackData: "review:income"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 }
 
-// transferReconciliationMarkup builds the transfer chooser: a merge button per accepted candidate.
-// Adds record-as-new when the case proposes a purpose, and dismiss; over ten candidates leaves only dismiss.
 func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID string) (*InlineKeyboardMarkup, error) {
 	set, err := transferReconciliationSet(ctx, tx, reviewID)
 	if err != nil {
@@ -318,7 +295,6 @@ func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID strin
 	if err != nil {
 		return nil, err
 	}
-	// Merge buttons carry a list position; the server-owned list they resolve against is stored with the card.
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('transfer_candidates',$2::jsonb),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded)); err != nil {
 		return nil, err
 	}
@@ -338,7 +314,6 @@ func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID strin
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}, nil
 }
 
-// Reads the open source-bound case behind a request through the shared merge rule, in every surface's ranking order.
 func transferReconciliationSet(ctx context.Context, tx pgx.Tx, reviewID string) (reviewdomain.TransferMergeSet, error) {
 	var household, caseID string
 	err := tx.QueryRow(ctx, `SELECT ri.household_id::text,trc.id::text
@@ -354,7 +329,6 @@ func transferReconciliationSet(ctx context.Context, tx pgx.Tx, reviewID string) 
 	return reviewdomain.LoadTransferMergeSet(ctx, tx, household, caseID)
 }
 
-// reviewItemSummary names the subject of any review item from canonical state, never from model output.
 func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID string) (string, error) {
 	var transactionID, residualCase, wealthObservation, proposalID, sourceID string
 	err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),COALESCE(cycle_residual_case_id::text,''),COALESCE(wealth_observation_id::text,''),COALESCE(proposal_id::text,''),COALESCE(source_event_id::text,'')
@@ -421,20 +395,14 @@ func ignoreNoRows(err error) error {
 	return err
 }
 
-// A compound residual (category plus date) does not qualify as category-only: it needs a bound reply so no
-// dimension is dropped.
 func isCategoryOnly(decision reviewdec.Decision) bool {
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "category" {
 		return false
 	}
-	// A transfer review also carries CONFIRM_REVIEW, so the decision class must agree category is unresolved
-	// before using the chooser.
 	return decision.DecisionClass == reviewdec.ClassEvidenceGap &&
 		(contains(decision.AllowedActions, "CONFIRM_REVIEW") || contains(decision.AllowedActions, "SET_CATEGORY"))
 }
 
-// requiresBoundReply: the unresolved dimension is a free-form value the user types (single-field or
-// correction review, not a bounded category choice).
 func requiresBoundReply(decision reviewdec.Decision) bool {
 	if len(decision.MissingFacts) == 0 {
 		return false
@@ -471,7 +439,6 @@ func promptTitle(decision reviewdec.Decision) string {
 	return unknownReviewPrompt
 }
 
-// dateInstruction asks for the missing date in the format the date resolver parses.
 func dateInstruction(decision reviewdec.Decision) string {
 	if decision.ReasonCode == "MISSING_PAY_DATE" {
 		return "Balas pesan ini (Reply) dengan tanggal pembayaran. Contoh: 25 September 2026, 25/9, atau kemarin."
@@ -492,8 +459,6 @@ func replyInstruction(decision reviewdec.Decision) string {
 	return "Balas pesan ini (Reply) dengan keterangan atau tujuan transaksi."
 }
 
-// categoryPageText keeps the card's facts on screen while paging, so a chooser edit never replaces what the
-// card is about.
 func categoryPageText(ctx context.Context, tx pgx.Tx, householdID, reviewID string, page int) string {
 	instruction := "Pilih kategori pengeluaran di bawah."
 	if page > 0 {
@@ -502,8 +467,6 @@ func categoryPageText(ctx context.Context, tx pgx.Tx, householdID, reviewID stri
 	return reviewFollowUpText(ctx, tx, reviewID, "🟡 Kategori belum pasti", instruction)
 }
 
-// reviewFollowUpText wraps a follow-up chooser's own title and instruction around the subject facts from
-// canonical state.
 func reviewFollowUpText(ctx context.Context, tx pgx.Tx, reviewID, title, instruction string) string {
 	var householdID, transactionID string
 	_ = tx.QueryRow(ctx, `SELECT household_id::text,COALESCE(transaction_id::text,'') FROM review_request WHERE id=$1`, reviewID).Scan(&householdID, &transactionID)

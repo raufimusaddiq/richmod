@@ -75,7 +75,6 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A remembered merchant resolves the one open review via merchant memory without asking for a category.
 	model := &typedReplyGateway{arguments: `{"action":"CONFIRM","merchant":"ShopeeFood"}`}
 	processor := NewProcessor(pool, model)
 	if err = processor.ProcessAgent(ctx, sourceID); err != nil {

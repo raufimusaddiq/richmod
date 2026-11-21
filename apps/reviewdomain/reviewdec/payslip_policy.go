@@ -2,15 +2,6 @@ package reviewdec
 
 import "slices"
 
-// PayslipPolicy adjusts a payslip review's policy-dependent fields for whether the
-// household already has a primary salary source. The stored decision snapshots that
-// policy, so the creating worker and the Review Inbox both apply this one function
-// (ADR-054).
-//
-//   - MISSING_PAY_DATE with no primary salary also needs the first-salary choice.
-//   - MISSING_PAY_DATE with a primary salary asks for the date only.
-//   - PAYSLIP_CONFIRMATION with a primary salary cannot promote this slip, so the
-//     dead PRIMARY_SALARY action is dropped rather than advertised.
 func PayslipPolicy(decision Decision, reason string, hasPrimary bool) Decision {
 	switch {
 	case reason == "MISSING_PAY_DATE" && !hasPrimary:

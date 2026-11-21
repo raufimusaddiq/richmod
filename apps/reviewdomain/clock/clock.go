@@ -1,4 +1,3 @@
-// Package clock defines the household operating timezone used by all finance logic.
 package clock
 
 import (

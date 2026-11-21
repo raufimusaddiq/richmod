@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// A re-ask answers a message, not a review, so the reply event must end PROCESSED or it can never get an item.
 func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -28,7 +27,7 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 	defer pool.Close()
 	for _, tc := range []struct {
 		name, text string
-		unlinked   bool // a bank source with no bound account and no active account to offer
+		unlinked   bool
 	}{
 		{"missing amount and time", "halo", false},
 		{"time without a zone", "54000 2026-09-23 13:45", false},
@@ -87,8 +86,6 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 	}
 }
 
-// No production path may park a chat reply or tap as NEEDS_REVIEW; agentStageTransferReview is the exception.
-// Scans this package only (filepath.Glob is not recursive).
 func TestNoTelegramReplyEventIsParkedAsNeedsReview(t *testing.T) {
 	calls := regexp.MustCompile(`finishWithoutTransaction\([^)]*"NEEDS_REVIEW"|SET\s+processing_status\s*=\s*'NEEDS_REVIEW'`)
 	allowed := map[string]bool{"agent_specialized_mutations.go": true}

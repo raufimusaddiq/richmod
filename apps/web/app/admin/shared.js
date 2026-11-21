@@ -59,7 +59,6 @@ export function useDrawerA11y(close) {
   return ref;
 }
 
-// A request that failed must say so: "Memuat…" forever hides a dead endpoint.
 export function Pending({ state, retry, children }) {
   if (state?.error) {
     return (
@@ -72,10 +71,6 @@ export function Pending({ state, retry, children }) {
   return <Empty>{children}</Empty>;
 }
 
-// Loads `url` with a staleness guard: data belongs to the url it was fetched for, so
-// while another url loads (a different household's drawer) the previous data is never
-// handed back (keepPrevious opts in while a filter reloads in place). Returns
-// [data, reload, state]. Starting a load clears the page banner; a failure sets it.
 export function useLoad(url, setError, { keepPrevious = false } = {}) {
   const [result, setResult] = useState({ url: null, data: null });
   const [state, setState] = useState({ error: "", loading: true });
@@ -105,9 +100,6 @@ export function useLoad(url, setError, { keepPrevious = false } = {}) {
   return [keepPrevious || result.url === url ? result.data : null, load, state];
 }
 
-// Paged admin list. A filter change starts a new generation: a "load more" in flight for
-// the old filter is discarded, and a second click while one is in flight does nothing.
-// Returns [data, reload, more, state].
 export function useAdminList(path, filters, setError) {
   const query = useMemo(() => new URLSearchParams(filters).toString(), [filters]);
   const [data, setData] = useState(null);

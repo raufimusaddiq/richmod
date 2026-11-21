@@ -9,8 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Pending corrections and batches are confirmed with buttons; each callback binds the displayed revision and
-// edits rotate the token.
 const (
 	callbackPendingActionYes = "pending:action:yes"
 	callbackPendingActionNo  = "pending:action:no"
@@ -79,7 +77,6 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 	if !handled {
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 	}
-	// Best effort: the decision above is already committed and idempotent.
 	outcome := "Dikonfirmasi."
 	if strings.HasSuffix(choice, ":no") {
 		outcome = "Dibatalkan."
@@ -96,7 +93,6 @@ type jobExecer interface {
 
 type callbackQuestionKey struct{}
 
-// Tests hand-build Telegram updates, so the text is read from the raw stored payload.
 func withCallbackQuestion(ctx context.Context, rawPayload string) context.Context {
 	var payload struct {
 		CallbackQuery struct {
@@ -121,7 +117,6 @@ func retiredMessageText(original, outcome string) string {
 	if original == "" {
 		return ""
 	}
-	// Telegram caps messages at 4096 and clean() at 4000 runes; trim the question, never the outcome.
 	suffix := "\n\n" + outcome
 	if room := 4000 - len([]rune(suffix)); len([]rune(original)) > room {
 		original = string([]rune(original)[:room-1]) + "…"
@@ -129,7 +124,6 @@ func retiredMessageText(original, outcome string) string {
 	return original + suffix
 }
 
-// Telegram can only edit text it can resend, so a message with unknown text is left alone.
 func enqueueRetireButtons(ctx context.Context, db jobExecer, update telegramUpdate, outcome string) error {
 	if update.CallbackQuery == nil {
 		return nil
@@ -142,8 +136,6 @@ func enqueueRetireButtons(ctx context.Context, db jobExecer, update telegramUpda
 	if err != nil {
 		return err
 	}
-	// A card settled in place (ADR-046) is never retired by a stale tap; a revision-0 retirement is dropped
-	// once an outcome lands.
 	_, err = db.Exec(ctx, `INSERT INTO job(type,lane,payload_json)
 		SELECT 'EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_strip_nulls(jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'outcome_request_id',card.request_id,'outcome_revision',CASE WHEN card.request_id IS NULL THEN NULL ELSE 0 END))
 		FROM (SELECT (SELECT c.review_request_id::text FROM review_request_recipient rr JOIN review_conversation c ON c.review_request_id=rr.review_request_id

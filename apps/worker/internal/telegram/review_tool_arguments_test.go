@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// Offered resolve_review arguments are the ones the bound card's actions read.
 func TestReviewToolArgumentsFollowTheCard(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -45,7 +44,6 @@ func TestReviewToolArgumentsFollowTheCard(t *testing.T) {
 	}
 }
 
-// A binding the focus does not understand keeps the full argument set.
 func TestReviewToolArgumentsUnchangedForOtherBindings(t *testing.T) {
 	tools := NativeFinanceTools([]string{"dining"}, false, false, true, "WEALTH_OBSERVATION", false, false, "WEALTH_OBSERVATION")
 	focusReviewArguments(tools, &agentReviewBinding{Kind: "WEALTH_OBSERVATION", ReviewType: "WEALTH_OBSERVATION"})

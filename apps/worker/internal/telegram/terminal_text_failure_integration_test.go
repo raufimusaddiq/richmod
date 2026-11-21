@@ -93,8 +93,6 @@ func timeoutError() error {
 	return TerminalError(fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded))
 }
 
-// A typed message that will not be retried again must not end in silence; the notice is atomic with marking
-// the job FAILED.
 func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -143,7 +141,6 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 	}
 }
 
-// A hook that cannot succeed must not wedge the job: it is still marked FAILED.
 func TestFailingTerminalHookStillFailsTheJobWithoutPartialState(t *testing.T) {
 	f := newTerminalFixture(t)
 	jobs := queue.New(f.pool)
@@ -189,7 +186,6 @@ func TestTerminalHookDoesNotRunForAJobThisWorkerNoLongerOwns(t *testing.T) {
 	}
 }
 
-// A malformed or empty source event ID is a no-op, never an SQL error aborting the FAILED transaction.
 func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -200,8 +196,6 @@ func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
 	}
 }
 
-// The notice follows the cause: a timeout may say slow, an unreachable gateway says the AI cannot be reached,
-// anything else blames neither wording nor slowness; all say nothing was recorded.
 func TestTerminalNoticeNamesTheCause(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -237,7 +231,6 @@ func TestTerminalNoticeNamesTheCause(t *testing.T) {
 	}
 }
 
-// testTimeoutCause is a model-phase timeout as runAgentLoop reports it.
 var testTimeoutCause = fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)
 
 func (p *Processor) HandleTerminalTextFailure(ctx context.Context, sourceEventID string, cause error) error {

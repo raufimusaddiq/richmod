@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Household scoping and the database CHECK are the second line of defence
-// behind the Go allow-list.
 func TestUIEventsAreHouseholdScopedAndConstrainedByTheDatabase(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

@@ -5,7 +5,7 @@ import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, firs
 import { globalCss, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const october = new Date("2026-10-02T05:00:00Z"); // 12:00 in Jakarta
+const october = new Date("2026-10-02T05:00:00Z");
 
 test("the running month follows Jakarta time, including across the UTC date line", () => {
   assert.equal(currentMonthKey(october), "2026-10");

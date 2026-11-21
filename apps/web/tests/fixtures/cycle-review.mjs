@@ -1,5 +1,3 @@
-// Synthetic only. Mirrors cycle-review-v1; no household/provider evidence.
-// Mirrors the API's amount-ranked categoryRanking (top 7 + remainder); fixtures only.
 function rankingFor(facts) {
   const rows = facts.categoryChanges.filter(item => BigInt(item.amount) !== 0n).sort((a, b) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : 0)).slice(0, 7)
     .map(item => ({ id: item.id || null, name: item.name, amount: item.amount, count: item.count ?? 0, shareOfExpense: item.shareOfExpense ?? null, baselineAmount: item.previous ?? null, deltaVsBaseline: item.deltaVsPrevious ?? null, relativeDeltaVsBaseline: item.relativeDeltaVsPrevious ?? null }));
@@ -8,8 +6,6 @@ function rankingFor(facts) {
     other: { name: "Kategori lain", amount: String(BigInt(facts.cashflow.expense) - listed), count: 0, categoryCount: 0, shareOfExpense: null, baselineAmount: null, deltaVsBaseline: null, relativeDeltaVsBaseline: null } };
 }
 
-// Synthetic merchant ranking: the payees carried by categoryChanges, largest first,
-// with the exact remainder as "Merchant lain" so rows + other = net expense.
 function merchantRankingFor(facts) {
   const payees = new Map();
   for (const change of facts.categoryChanges) for (const merchant of change.merchants || []) {
@@ -62,7 +58,7 @@ export function cycleFacts(start = "2026-09-01") {
     return { period: date.toISOString().slice(0, 10), expense, grossExpense: index ? expense : "1200000", refund: index ? "0" : "300000", income: index ? "0" : "12000000" };
   });
   if (september25) daily.push({ period: "2026-10-01", expense: "1950000", grossExpense: "1950000", refund: "0", income: "0" });
-  let runningTotal = 0n; // the API serves cumulativeExpense on every daily row
+  let runningTotal = 0n;
   for (const row of daily) { runningTotal += BigInt(row.expense); row.cumulativeExpense = String(runningTotal); }
   const facts = {
     version: "cycle-review-v1", generatedAt: "2026-09-06T12:00:00+07:00", period,
@@ -90,18 +86,13 @@ export function cycleFacts(start = "2026-09-01") {
     groceries.shareOfExpense = "0.3853"; dining.shareOfExpense = "0.2569"; transport.shareOfExpense = "0.3578";
     groceries.contributionToExpenseChange = "0.2154"; dining.contributionToExpenseChange = "0.1846"; transport.contributionToExpenseChange = "0.6000";
   }
-  // Ledger series (history[]), oldest first, as the API serves it: whole-cycle totals
-  // plus the server-computed change from the preceding entry.
   const earlier = [["2026-04-26", "2026-05-26", "12000000", "7400000"], ["2026-05-26", "2026-06-26", "12000000", "8100000"], ["2026-06-26", "2026-07-26", "12500000", "7900000"], ["2026-07-26", "2026-08-26", "12500000", "7200000"]].filter(([, end]) => end <= previous.start);
   const rows = [...earlier.map(([start, end, income, expense]) => ({ start, end, state: "CLOSED", income, expense })),
     { start: previous.start, end: previous.end, state: "CLOSED", income: "12000000", expense: facts.comparison.expense.previousFullCycle },
     { start: facts.period.start, end: facts.period.end, state: facts.period.state, income: facts.cashflow.income, expense: facts.cashflow.expense }];
   facts.history = rows.map((row, index) => ({ start: row.start, end: row.end, measuredUntil: row.end ?? facts.period.measuredUntil, state: row.state, income: row.income, grossExpense: row.expense, refund: "0", expense: row.expense,
     netCashflow: String(BigInt(row.income) - BigInt(row.expense)), savingsAllocated: "0", expenseDelta: index ? String(BigInt(row.expense) - BigInt(rows[index - 1].expense)) : null }));
-  // Pace curves, as served: the previous cycle in full and the 3-cycle median over the shared days.
   facts.pace = { previousFullCycle: Array.from({ length: 30 }, (_, index) => String((index + 1) * 100000)), median3: Array.from({ length: facts.daily.length }, (_, index) => String((index + 1) * 120000)) };
-  // Category x cycle matrix: the selected cycle uses the served category amounts; earlier
-  // cycles split their expense by fixed shares. "Lainnya" is the exact remainder, as served.
   const last = facts.history.length - 1;
   const columns = facts.history.map((item, index) => index === last ? facts.categoryChanges.map(change => change.amount) : [50n, 30n, 15n].map(percent => String(BigInt(item.expense) * percent / 100n)));
   facts.categoryHistory = {
@@ -109,14 +100,11 @@ export function cycleFacts(start = "2026-09-01") {
     rows: facts.categoryChanges.map((change, row) => ({ id: change.id, name: change.name, amounts: columns.map(column => column[row]) })),
     other: { amounts: facts.history.map((item, index) => String(BigInt(item.expense) - columns[index].reduce((sum, value) => sum + BigInt(value), 0n))) },
   };
-  // Totals are the served net expense; only the selected column is compared with the one before it.
   const matrixTotals = facts.history.map(item => item.expense);
   const matrixDeltas = values => values.length > 1 ? String(BigInt(values.at(-1)) - BigInt(values.at(-2))) : null;
   facts.categoryHistory.totals = matrixTotals;
   facts.categoryHistory.totalDeltaVsPrevious = matrixDeltas(matrixTotals);
   for (const row of [...facts.categoryHistory.rows, facts.categoryHistory.other]) row.deltaVsPrevious = matrixDeltas(row.amounts);
-  // Same-day matrix: every column cut at the elapsed day, so the running cycle is not
-  // compared with full ones. Fixture amounts are scaled by elapsed/total days.
   if (facts.period.state === "ACTIVE") {
     const elapsed = facts.spendingShape.days;
     const span = item => { const start = new Date(`${item.start}T00:00:00Z`); const end = new Date(`${item.end || item.measuredUntil}T00:00:00Z`); return Math.max(1, Math.round((end - start) / 86400000)); };
@@ -139,9 +127,6 @@ export const cycleCommentary = {
   metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01", period_end: "2026-09-07" }, completedAt: "2026-09-06T12:00:00+07:00",
 };
 
-// §3.7 states, each a small step from the default cycle facts:
-// the first cycle (nothing to compare against), no wealth snapshot at all, and a
-// cycle whose confirmed spending is still zero.
 export function firstCycleFacts(start = "2026-09-01") {
   const facts = cycleFacts(start);
   facts.cycles = [facts.period];
@@ -174,8 +159,6 @@ export function noSpendingFacts() {
   return facts;
 }
 
-// A full 30-day cycle measured to its last day: the pace marker sits at the right
-// edge, and the current and previous end labels are close enough to collide.
 export function fullCycleFacts(start = "2026-09-01") {
   const facts = cycleFacts(start);
   const days = 30;
@@ -207,9 +190,9 @@ export function stableCycleFacts() {
   facts.comparison.expense = { ...category, id: "", name: "" };
   facts.cashflow = { income: "1400000", grossExpense: "1400000", refund: "0", expense: "1400000", netCashflow: "0", savingsAllocated: "0", unallocatedSurplus: "0" };
   facts.daily = facts.daily.map((day, index) => ({ ...day, expense: index < 4 ? "200000" : "300000", grossExpense: index < 4 ? "200000" : "300000", refund: "0", income: index === 0 ? "1400000" : "0" }));
-  let stableTotal = 0n; // keep the served running total consistent with the rewritten days
+  let stableTotal = 0n;
   for (const day of facts.daily) { stableTotal += BigInt(day.expense); day.cumulativeExpense = String(stableTotal); }
-  const last = facts.history.at(-1); // and the ledger's selected column with the rewritten cashflow
+  const last = facts.history.at(-1);
   Object.assign(last, { income: "1400000", grossExpense: "1400000", expense: "1400000", netCashflow: "0" });
   last.expenseDelta = String(BigInt(last.expense) - BigInt(facts.history.at(-2).expense));
   facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [{ id: category.id, name: category.name, amounts: facts.history.map(item => item.expense) }], other: { amounts: facts.history.map(() => "0") }, totals: facts.history.map(item => item.expense) };

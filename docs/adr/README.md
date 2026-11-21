@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-060**, in the heading form `## ADR-060: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-111**, in the heading form `## ADR-111: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -71,6 +71,56 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-058](#adr-058-multi-household-tenancy-hardening) | Multi-household tenancy hardening | Accepted, extends ADR-035 and ADR-003 |
 | [ADR-059](#adr-059-super-admin-household-provisioning) | Super Admin household provisioning | Accepted, extends ADR-058 and ADR-021 |
 | [ADR-060](#adr-060-an-active-merge-target-cannot-be-voided) | An active merge target cannot be voided | Accepted, extends ADR-039 |
+| [ADR-061](#adr-061-document-grid-loads-derived-thumbnails) | Document grid loads derived thumbnails | Accepted, extends ADR-056 |
+| [ADR-062](#adr-062-privacy-safe-ui-telemetry-and-whole-cycle-comparison-base) | Privacy-safe UI telemetry and whole-cycle comparison base | Accepted |
+| [ADR-063](#adr-063-four-place-navigation-one-global--catat-sheet-one-keluarga-hub) | Four-place navigation, one global + Catat sheet, one Keluarga hub | Accepted |
+| [ADR-064](#adr-064-telegram-agent-turn-lifecycle-timeouts-and-failure-replies) | Telegram agent turn lifecycle, timeouts and failure replies | Accepted |
+| [ADR-065](#adr-065-telegram-review-card-answer-binding-and-mutation-invariants) | Telegram review-card answer binding and mutation invariants | Accepted |
+| [ADR-066](#adr-066-telegram-wealth-purchase-and-residual-mutations) | Telegram Wealth purchase and residual mutations | Accepted |
+| [ADR-067](#adr-067-evidence-refs-document-linking-and-duplicate-guards) | Evidence refs, document linking and duplicate guards | Accepted |
+| [ADR-068](#adr-068-telegram-delivery-idempotency-lock-order-and-bot-api-errors) | Telegram delivery idempotency, lock order and Bot API errors | Accepted |
+| [ADR-069](#adr-069-telegram-review-card-lifecycle-locking-and-retirement) | Telegram review card lifecycle, locking and retirement | Accepted |
+| [ADR-070](#adr-070-telegram-review-reply-and-button-handling) | Telegram review reply and button handling | Accepted |
+| [ADR-071](#adr-071-telegram-transaction-acceptance-gate-and-agent-input-boundaries) | Telegram transaction acceptance gate and agent input boundaries | Accepted |
+| [ADR-072](#adr-072-telegram-worker-job-and-sql-safety-invariants) | Telegram worker job and SQL safety invariants | Accepted |
+| [ADR-073](#adr-073-review-completion-operations-and-exact-binding) | Review completion operations and exact binding | Accepted |
+| [ADR-074](#adr-074-source-lifecycle-ordering-and-failed-source-actions) | Source lifecycle ordering and failed-source actions | Accepted |
+| [ADR-075](#adr-075-cycle-residual-refresh-and-card-editing) | Cycle residual refresh and card editing | Accepted |
+| [ADR-076](#adr-076-cross-lane-ledger-matching-locked-recheck-and-merge-safety) | Cross-lane ledger matching, locked recheck and merge safety | Accepted |
+| [ADR-077](#adr-077-source-lifecycle-and-review-state-cascade-invariants) | Source lifecycle and review state cascade invariants | Accepted |
+| [ADR-078](#adr-078-review-resolution-reopen-and-telegram-binding-invariants) | Review resolution, reopen and Telegram binding invariants | Accepted |
+| [ADR-079](#adr-079-transfer-classification-and-reconciliation-invariants) | Transfer classification and reconciliation invariants | Accepted |
+| [ADR-080](#adr-080-salary-missing-amount-and-wealth-review-correctness-rules) | Salary, missing-amount and wealth review correctness rules | Accepted |
+| [ADR-081](#adr-081-migration-repair-and-rollback-rules) | Migration repair and rollback rules | Accepted |
+| [ADR-082](#adr-082-review-ledger-and-wealth-data-invariants) | Review, ledger and wealth data invariants | Accepted |
+| [ADR-083](#adr-083-telegram-review-card-binding-and-job-lane-invariants) | Telegram review card, binding and job-lane invariants | Accepted |
+| [ADR-084](#adr-084-telemetry-stores-no-financial-content) | Telemetry stores no financial content | Accepted |
+| [ADR-085](#adr-085-web-push-outbox-transport) | Web Push outbox transport | Accepted |
+| [ADR-086](#adr-086-operations-scripts-ci-guards-and-compose-safety) | Operations scripts, CI guards and Compose safety | Accepted |
+| [ADR-087](#adr-087-bank-email-verification-residuals-and-category-kill-switch) | Bank email verification, residuals and category kill-switch | Accepted |
+| [ADR-088](#adr-088-bank-email-review-completion-and-cross-lane-dedup) | Bank email review completion and cross-lane dedup | Accepted |
+| [ADR-089](#adr-089-financial-provider-email-bounded-claim-gating) | Financial provider email bounded-claim gating | Accepted |
+| [ADR-090](#adr-090-gateway-protocol-fallback-failure-classes-and-telemetry) | Gateway protocol fallback, failure classes and telemetry | Accepted |
+| [ADR-091](#adr-091-worker-runtime-job-queue-and-cycle-job-operating-invariants) | Worker runtime, job queue and cycle-job operating invariants | Accepted |
+| [ADR-092](#adr-092-web-push-outbox-delivery-lease-and-endpoint-safety) | Web Push outbox delivery, lease and endpoint safety | Accepted |
+| [ADR-093](#adr-093-document-pipeline-cross-lane-write-serialization-and-reprocess-safety) | Document pipeline cross-lane write serialization and reprocess safety | Accepted |
+| [ADR-094](#adr-094-document-intake-untrusted-text-notices-and-review-idempotency) | Document intake: untrusted text, notices and review idempotency | Accepted |
+| [ADR-095](#adr-095-super-admin-and-operations-status-endpoint-safeguards) | Super Admin and operations status endpoint safeguards | Accepted |
+| [ADR-096](#adr-096-tarc-coverage-and-web-escape-metric-definitions) | TARC coverage and web-escape metric definitions | Accepted |
+| [ADR-097](#adr-097-operations-scoreboard-derivation-and-metric-cohorts) | Operations scoreboard derivation and metric cohorts | Accepted |
+| [ADR-098](#adr-098-review-inbox-and-canonical-resolution-invariants) | Review Inbox and canonical resolution invariants | Accepted |
+| [ADR-099](#adr-099-household-creation-session-and-telegram-intake-ordering) | Household creation, session and Telegram intake ordering | Accepted |
+| [ADR-100](#adr-100-inbound-email-authentication-and-forwarding-verification) | Inbound email authentication and forwarding verification | Accepted |
+| [ADR-101](#adr-101-web-push-safety-and-static-ui-serving-details) | Web push safety and static UI serving details | Accepted |
+| [ADR-102](#adr-102-ledger-edit-void-and-document-pending-rules) | Ledger edit, void and document-pending rules | Accepted |
+| [ADR-103](#adr-103-analytics-windows-cycle-decisions-and-model-projections) | Analytics windows, cycle decisions and model projections | Accepted |
+| [ADR-104](#adr-104-reviewdecision-action-and-encoding-invariants) | ReviewDecision action and encoding invariants | Accepted |
+| [ADR-105](#adr-105-web-client-load-state-session-and-one-time-secret-handling) | Web client load-state, session and one-time secret handling | Accepted |
+| [ADR-106](#adr-106-web-money-date-and-cycle-display-rules) | Web money, date and cycle display rules | Accepted |
+| [ADR-107](#adr-107-review-card-and-transaction-form-contracts-with-the-server) | Review card and transaction form contracts with the server | Accepted |
+| [ADR-108](#adr-108-transactions-page-interaction-invariants) | Transactions page interaction invariants | Accepted |
+| [ADR-109](#adr-109-static-frontend-build-service-worker-and-css-invariants) | Static frontend build, service worker and CSS invariants | Accepted |
+| [ADR-110](#adr-110-source-comments-are-banned-decisions-live-in-the-adr-log) | Source comments are banned; decisions live in the ADR log | Accepted |
 
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
@@ -392,3 +442,690 @@ A reconciliation merge voids the duplicate (the source) and keeps the target liv
 *Accepted · 2026-11-21*
 
 The shell had eight destinations plus a mobile overflow panel, two add-transaction forms and a second upload form, and Settings and Household were separate pages. The shell now has four permanent places (Beranda, Transaksi, Laporan, Keluarga) with a conditional Perlu dicek link/pill shown only while `reviewCount > 0`; `/wealth` and `/settings` stay live and highlight Laporan and Keluarga. One global `+ Catat` sheet (provider mounted in the root layout) replaces the ledger-owned add form and hosts multi-image upload. `GET /api/v1/transactions/quick-suggestions` is a read-only, household-scoped Go query over the last 300 confirmed income/expense rows (no AI, no schema change) returning up to 5 frequent entries, 6 recent active categories and a capped description-to-category map. `/household` is now the Keluarga hub with five `?tab=` tabs and `/settings` renders the same page, so no link or `#anchor` breaks; a member sees only Anggota and Notifikasi. Consequence: `InboxCountProvider` exposes `reviewCount` (decisions) and `actionCount` (owner setup actions) separately.
+
+## ADR-064: Telegram agent turn lifecycle, timeouts and failure replies
+*Accepted · 2026-11-21*
+
+Scope: how a conversational Telegram turn is bounded, how interim and failure notices are queued, and how the worker words refusals and failures. Extends ADR-033. These decisions were previously recorded only as source comments.
+
+- **Per-call cap bounds a hang, not slowness**: `ModelCallTimeout` caps every model call in a turn to stop a hung call, so it needs real headroom over measured slow calls (long analytics output 9 to 11 s, first call 6 s). `TotalTurnTimeout` is only a backstop that must cover every phase at the call cap. `MaxModelTimeoutAttempts` is 2 because a retry reuses the same prompt and cap, so more attempts only delay the answer. (`ModelCallTimeout`, `TotalTurnTimeout`, `MaxModelTimeoutAttempts`)
+- **Notice delay above single-phase p90**: `ProgressNoticeDelay` must exceed the measured single-phase p90 (about 6 s); an earlier notice fires on ordinary turns and is noise. (`ProgressNoticeDelay`)
+- **Retry keys on error identity**: `errModelPhase` marks a conversational model failure so the retry rule matches the error value, never message text that can be reworded. (`errModelPhase`)
+- **A progress notice never follows the answer**: `startProgressNotice` sends at most once and never after `stop` returns; `enqueueProgressNotice` queues a reply only if none was queued within the lookback, so retries are idempotent. The final answer is queued unconditionally. `progressNoticeTexts` lists every interim text so a recovery check does not mistake one for the answer. (`startProgressNotice`, `enqueueProgressNotice`, `progressNoticeTexts`)
+- **Notice existence check is time-bounded**: `progressNoticeLookback` limits the check to this turn and its retry because the job table has no index on the reply target, so an unbounded check would scan the chat's history. (`progressNoticeLookback`)
+- **Terminal failure runs inside the failing job's transaction**: `TerminalTextFailureTx` marks the source event FAILED (claiming it, so only an unanswered message gets the notice and two workers cannot both send it) and issues only statements that cannot abort the transaction. Each failure class has its own copy, and every copy says nothing was recorded because this step runs only for events no mutation finalized. (`TerminalTextFailureTx`, `agent_terminal.go`)
+- **Failure notice is never suppressed**: the failure reply is enqueued unconditionally so an earlier progress notice cannot swallow it and leave the household with no outcome. (`TerminalTextFailureTx`)
+- **Refusals are worded deterministically**: a refused duplicate recording and a refused merge are stated by Go text, not model prose, so a failed model call cannot make a refusal read as a recording or a merge. (`agent_reply.go`)
+- **Transaction refs commit with the mutation**: model-safe transaction refs are persisted in the mutation's own transaction, so a committed ledger row never lacks a durable reference. (`persistAgentTransactionReferencesTx`)
+- **Amounts are never guessed**: `parseAmountToken` treats dots and commas as thousands separators unless a unit follows (`1,5jt`), and refuses a bare number under 500, since "25" probably means 25 ribu and Go does not guess. (`parseAmountToken`)
+
+## ADR-065: Telegram review-card answer binding and mutation invariants
+*Accepted · 2026-11-21*
+
+Scope: how typed replies and button taps are bound to review cards and pending actions, and which mutations the conversational lane may or may not perform. Extends ADR-031, ADR-046 and ADR-050. These decisions were previously recorded only as source comments.
+
+- **Review mode is not review type**: `review_mode` is the bound canonical subject/executor (`binding.Kind`); the action vocabulary is keyed by semantic `review_type`. A TRANSACTION binding with a TRANSFER_CLASSIFICATION review gets the transfer action set. Conflating them once exposed generic actions for a typed review. (`agent_binding_context.go`)
+- **Merchant learning binds first**: a pending merchant-learning question is recognised before the generic transaction-review binder, which would otherwise claim the reply. Without a reply it owns the turn only for a plain yes/no. (`agent.go`)
+- **Typed value beats detail, ambiguity binds nothing**: `matchTypedCardAnswer` lets a typed value (category, date, amount) win over a free-text detail, never both. If the text would read as different answers on different live cards, nothing is bound. (`matchTypedCardAnswer`)
+- **Claim the card choice before applying**: the choice read takes no lock, so two quick taps could land one answer on two cards. Whoever flips PENDING to RESOLVED first applies it; a failure before applying, or a failed commit of reply and source finalization, hands the choice back for retry. (`agent_card_answer.go`)
+- **Pending confirmations are revision-bound**: pending corrections and batches are confirmed by buttons, each callback binds the displayed revision, and edits rotate the token, so a stale tap cannot confirm a changed proposal. (`pending_confirm.go`)
+- **Evidence-link disputes close only through their own buttons**: a typed reply may cancel (IGNORE) but never confirm, merge or edit, and the dispute category keyboard drops the generic asset-purchase/detail/ignore row, which would bypass the dispute contract. (`agent_bound_mutations.go`, `evidence_dispute.go`)
+- **Stale binding rejects nothing**: if a review was resolved elsewhere (for example the dashboard) after the card was bound, reject nothing, and never reject proposals of an already confirmed transaction. (`agent_review_mutations.go`)
+- **Review completes before the merchant answer**: the review item completes at confirm time and `AWAITING_MERCHANT_DECISION` marks the optional pending question, so an unsent or unanswered follow-up cannot strand the item open. (`agent_review_mutations.go`)
+- **Create never becomes a correction**: creating a transaction must not silently turn into a correction of a similar recent one; corrections need the dedicated tool and a uniquely resolved target. (`agent_mutations.go`)
+- **Self-entered rule is rechecked under the lock**: `selfEnteredTransaction` runs in the caller's transaction, and `applyPendingCorrectionTx` rechecks it under the lock, so a receipt merged after staging wins over the correction. (`selfEnteredTransaction`, `applyPendingCorrectionTx`)
+- **Own entries first**: `recentAgentTransactions` lists the sending member's rows first and marks another member's, so "yang tadi" is not bound to a transaction someone else entered. (`recentAgentTransactions`)
+- **Scope string must match the real catalog**: the workflow scope string reaches the model, so `EVIDENCE_READ_ONLY` must describe the tools actually offered; promising a mutation lane the catalog lacks would mislead it. (`evidence_binding.go`)
+- **Audit SQL types every parameter**: `jsonb_build_object` takes "any", so an untyped parameter fails to prepare (SQLSTATE 42P18); `cycleResidualAuditSQL` and the resolve_review audit statement must type them all; an untyped one failed in production. (`cycleResidualAuditSQL`)
+
+## ADR-066: Telegram Wealth purchase and residual mutations
+*Accepted · 2026-11-21*
+
+Scope: transitions the bound Telegram lane performs on Wealth observations and salary-cycle residuals. Extends ADR-036. These decisions were previously recorded only as source comments.
+
+- **Asset purchase is one transaction**: `agentResolveBoundWealthAssetPurchaseAtomic` runs the Wealth to ASSET_PURCHASE transition in one transaction, with the bound review/observation locked while the derived transfer is recorded, so no transfer commits before the review is resolved. A retry after a second-phase failure is safe because `agentRecordTransfer` is source-event idempotent; a test with a nonexistent `source_event` FK proves the whole side effect rolls back. (`agentResolveBoundWealthAssetPurchaseAtomic`, `agentRecordTransfer`)
+- **Transfer reuse needs exact semantics**: a confirmed transfer is reused only if it already has exact ASSET_PURCHASE semantics for the same Wealth account. A savings, internal or investment transfer is never overwritten because amount and time happen to match. (`agent_wealth_asset_purchase_tx.go`)
+- **Residual actions need a concrete review message**: a residual mutation must be tied to the Telegram review message; an unsent or unbound review is not actionable from free text. (`agent_bound_workflow_strict.go`)
+- **Both lanes enforce the residual contract**: the conversational lane reaches the same canonical confirm as the reply lane, so the residual contract applies there too, and only an explicitly supplied date satisfies the residual date. (`agent_review_mutations.go`)
+
+## ADR-067: Evidence refs, document linking and duplicate guards
+*Accepted · 2026-11-21*
+
+Scope: model-safe evidence references and how screenshots and documents are linked to ledger rows without duplicates. Extends ADR-050. These decisions were previously recorded only as source comments.
+
+- **Evidence ref keys are stable and disjoint**: the key depends only on the source event and document, never position, so loading more documents later in a turn cannot re-point a held ref. The `_ev` suffix keeps the key space disjoint from transaction refs (`_tx`), and issuing refs is idempotent because a retried turn reuses the same TOOL turn and re-upserts the same keys. (`evidence_ref.go`)
+- **Linked-transaction refs use their own phase**: they are written in one batch under phase `p9r0` because refs are keyed by position within a TOOL turn and separate calls would overwrite each other. `recentAgentTransactions` owns `p0r0_tx<n>` for the same source event, and sharing it could re-point an earlier ref; `p9` cannot collide (`MaxModelPhases`). (`evidence_ref.go`, `evidence_context.go`)
+- **Invalid refs are indistinguishable**: not-found and out-of-scope refs return the same invalid outcome on purpose, so probing reveals nothing about other scopes. (`evidence_ref.go`)
+- **Album members count as linked**: an album's later images keep their own source event, so a transaction linked through any member counts as linked to the document. (`evidence_context.go`)
+- **Albums are serialized per media group**: album images arrive as separate updates, so a per-household media-group advisory lock serializes them and concurrent workers converge on one document. (`image.go`)
+- **Merge target is server-validated**: the model supplies only an opaque transaction ref and Go requires it to be one of the review's current server-computed candidates, drawn from the same query as the Telegram callback flow so both surfaces agree on what a document may merge into. (`evidence_candidates.go`)
+- **Ledger backstop is narrow and fails open**: a second transaction for one document is blocked when type and amount match and merchant is absent or equal; a different merchant is allowed so a genuine second purchase is not blocked. Only fresh evidence is considered, so older evidence never slows an ordinary expense, and any context failure yields none rather than aborting the message. (`evidence_recent.go`)
+- **Recent evidence scope**: scoped to household, chat and sending user, with older rows lacking a sender falling back to the chat id; one row beyond the carry limit is read to tell "more than" from "exactly". (`evidence_recent.go`)
+- **Authorization never reads `source_event.telegram_chat_id`**: production text intake leaves it NULL, so dispute authorization must not depend on it. (`evidence_dispute.go`)
+
+## ADR-068: Telegram delivery idempotency, lock order and Bot API errors
+*Accepted · 2026-11-21*
+
+Scope: sending and editing review cards, the locks those paths take, and handling of Bot API errors. Extends ADR-046 (card projections, migration `00094`) and ADR-058. These decisions were previously recorded only as source comments.
+
+- **Send is made idempotent by recording first**: Telegram has no idempotency key, so the returned message id is recorded before binding and retried in place; a lost record would make a job retry send a second card. If a sent message cannot be remembered, its buttons are stripped best-effort and the job stops. (`delivery.go`)
+- **Edit retry redoes only the binding**: a retry after a re-send redoes the binding before any guard that could drop the job, keeping the already-sent card bound. (`delivery.go`)
+- **Edit bookkeeping is best-effort**: failing to remember the edited text only costs a later retirement its closure note, so it must not retry the edit; the pending-confirmation outcome edit is likewise best-effort because the decision is already committed and idempotent. (`delivery.go`, `pending_confirm.go`)
+- **One lock order**: the chat pacing lock (`lock_review_card_chat`) is taken before any `review_request_recipient` row (migration `00094`). Send, failure, skip, copy expiry and projections with differing preferred users all follow it, and a pacing release never waits on a request another transaction is closing, so none can deadlock. (`delivery.go`)
+- **Bot token never reaches an error**: the request URL contains the bot token and a transport error stringifies it, so `APIError` omits the URL and the send, edit and `setMyCommands` paths never wrap the transport error and return a generic one. (`APIError`, `bot.go`, `help.go`)
+- **Retry classification**: only 400 and 403 are permanent because the same request can never pass. 429, 401/404 (rotated token, operator-fixable), 5xx and transport failures keep retrying. (`bot.go`)
+- **Unchanged edit is success**: Telegram refuses an unchanged edit (for example a double tap) with "message is not modified"; the goal state is already reached, so it is treated as success rather than retried. (`bot.go`)
+- **Unauthorized sender gets silence**: when a queued sender is no longer an authorized member, nothing is replied, because the chat no longer belongs to a member and no household content may be sent to it. (`authorized.go`)
+
+## ADR-069: Telegram review card lifecycle, locking and retirement
+*Accepted · 2026-11-21*
+
+Scope: how a `review_item` is projected to Telegram cards, how those cards are bound, locked, edited, expired and retired, and the database guards behind them. Extends ADR-046. These decisions were previously recorded only as source comments.
+
+- **Projection lock order**: a projection locks the request row first, then every chat pacing lock in chat order, then the recipient rows (migration 00094). Locks are held to commit, so any other order across concurrent projections can deadlock. Renewing an expired copy uses the same order. (`review_binding.go`)
+- **Bind versus terminal transition**: `BindReviewMessage` locks the request row first so a bind and a terminal transition serialize. A card that arrives after close is still recorded and then retired, and a follow-up supersedes the prior card. (`BindReviewMessage`)
+- **Expiry and renewal**: a copy's seven-day window starts at first delivery. A late follow-up never revives an EXPIRED copy and is retired; only `renewExpiredReviewProjection` renews, for that member's own copy, and creates no new `review_item`. (`renewExpiredReviewProjection`)
+- **Expired copies keep text, not buttons**: an expired or superseded card copy keeps its outcome text but must never regain buttons, or a stale tap could act on a closed review (migration 00094). (`ApplyCardOutcomeEdit`)
+- **One item, one projection**: `review_item_active_transaction_unique` allows one active item per transaction and `review_request_review_item_unique` one projection per item. A retry reuses the item, request and cards, projected with the type and contract the item already carries, so the first open question wins. (`review_binding.go`)
+- **Never replace a closed request**: an open request is reused and rendered only if its conversation row is missing. An expired or closed request is never replaced, because the unique index would abort the producer's transaction. (`review_binding.go`)
+- **Recipient fallback**: with no eligible recipient, the card goes to the supplied originating chat only while that chat is an authorized member of the review's household. The origin is the producer's member chat, else the earliest source event, and must be a recipient so a removed member is never named. (`reviewOrigin`)
+- **Fail closed on unsupported review families**: never send a card whose buttons cannot complete the review. Observation-backed TRANSFER_CLASSIFICATION reviews (resolver exists only in Web) and document kinds with no real document binding, such as bank emails reusing the extraction-failure reason, stay in the Web Inbox. (`TelegramCompletableReviewType`)
+- **Retirement re-reads state**: `RetireReviewCard` re-reads state before editing; a renewed copy keeps its card; gone or unreachable cards count as finished; transient Telegram failures are returned so the job retries. A message with unknown text is left alone, since Telegram can only edit text it can resend. (`RetireReviewCard`)
+- **Queued edits die with the request**: review updates carry `review_request_id`, and `ReviewCardLive` lets a queued edit apply only while the request is non-terminal. Once terminal, the card belongs to retirement and an old keyboard must not return. (`ReviewCardLive`)
+- **Only the newest outcome edit applies**: each card outcome bumps a revision and `ApplyCardOutcomeEdit` applies an edit only while it is newest, whatever order jobs run or retry in. The `review_conversation` row stays locked across the Telegram edit because a check before and after the call cannot undo it. (`ApplyCardOutcomeEdit`)
+- **Supersede before settling**: `settleReviewCardInPlace` marks the delivered card superseded before its single outcome edit; otherwise the migration 00079 retirement job could race and strip the inline remember choice. The card that asked the merchant question settles to its final result so remember buttons never outlive the answer. (`settleReviewCardInPlace`)
+- **ReviewDecision trigger**: the migration 00078 trigger enforces `reviewdec.Validate` on `review_item`: no item without a complete decision, no degrading a stored one. Historical NULL-decision rows stay updatable but must never be reopened, which would put a contract-less review back in the Inbox and Telegram. (`review_item_contract_integration_test.go`)
+
+## ADR-070: Telegram review reply and button handling
+*Accepted · 2026-11-21*
+
+Scope: how typed replies and button taps on review cards are validated, rendered and applied. Extends ADR-046 and ADR-039. These decisions were previously recorded only as source comments.
+
+- **Card content comes from the decision**: `buildReviewCard` never introduces a fact the ReviewDecision did not name: the missing fact decides the question, the allowed actions decide the buttons (Abaikan only when IGNORE is allowed). With no contract it asks for detail rather than inventing a prompt, and outcome and subject text derive from canonical state, never model output or unseen amounts. (`buildReviewCard`)
+- **Compound residuals are not category-only**: the category chooser is used only when category is the sole open dimension and the decision class agrees (a transfer review also carries CONFIRM_REVIEW). A category-plus-date residual needs a bound reply so no dimension is dropped; type, amount and date stay accepted when only category is open. (`review_render.go`)
+- **Transfer chooser follows the transaction type**: the chooser follows the transaction type whatever the review kind, since the canonical classifier accepts only classifications valid for that type; an invalid button only yields a stale reply. An incoming duplicate asks Penghasilan / Rekening sendiri / Household, and a Pengeluaran choice leads to the category chooser. (`review_render.go`)
+- **Confirm guard follows stored residual facts**: a tap must not confirm while the ReviewDecision reports a required residual fact, even if a legacy card or client omitted the field. Null or malformed `missingFacts` fails closed, and the internal received-at fallback timestamp never satisfies the date requirement. (`reviewRequiresFact`)
+- **Uncategorized expense**: a date-only save of an uncategorized EXPENSE continues to the category chooser instead of failing the expense-category invariant. (`review_duplicate.go`)
+- **Category buttons are bounded**: a category tap never becomes user text or reaches the conversational model, and the category UUID is checked against the review's household in the same lookup. (`review_native.go`)
+- **Chooser failures are retried, not reported as state**: a failed category query, chooser build or reply extraction is returned as a machine retry. A household with categories is never told it has none, and is never asked to restate meaning because of a system failure. (`review_native.go`)
+- **Income reply matching is exact**: `incomeReviewChoice` accepts only an exact normalized answer ("penghasilan", "transfer sendiri"); anything else is unclear and repeats the prompt, because the answer changes financial state. (`incomeReviewChoice`)
+- **Generic Abaikan audit type**: the generic ignore voids the transaction and completes the review, auditing the card's own review type because the button appears on transfer, expense and income cards. (`review.go`)
+- **Card actions revalidate under their own lock**: income Benar, cycle LEAVE_UNALLOCATED and transfer merge/record read the card only to bind it. The shared operation takes its own lock and revalidates (income state, cycle basis, stored candidate), so a stale card refreshes instead of mutating on old data. (`review_card_actions.go`)
+- **Duplicate buttons carry a list position only**: transaction IDs never travel through Telegram. The server-owned candidate list is stored with the card conversation and the shared merge revalidates IDs, so a stale button cannot select another transaction. (`duplicateChoicesMarkup`)
+- **Duplicate candidate set**: candidates are the amount/time window rule plus transactions already linked from a reprocessed document (`prior_match_transaction_ids`), offered first even after they drift outside the window. (`review_duplicate.go`)
+- **Financial-email card binding**: card binding runs inside the transaction with liveness guards so an expired card cannot resolve and taps cannot race. It uses the observation's `source_event_id`, not the callback's, or the provider email stays NEEDS_REVIEW; bounded taps never enter the conversational pipeline. (`review_email.go`)
+- **Payslip pay date**: a user-supplied pay date completes only a payslip-backed income review, with evidence and period from the shared payslip reader and never an inferred payday. An unusable amount re-asks the one missing fact and leaves the review open. (`review_native.go`, `review_payslip.go`)
+- **Merchant learning prompt**: learning is skipped when a rule exists or the merchant was confirmed with another category (it sells several kinds of things; its history row answers in one tap). The optional history shortcut runs in a savepoint so a failure is logged and the plain chooser still renders. (`review_native.go`)
+- **Learning question is its own message**: the "remember this category" question is a separate message bound to the recipient row via `merchant_learning_message_id`, so its replies and buttons reach the pending decision rather than the original card. (`review.go`)
+- **Complete before asking to remember**: the review item completes at confirm time and the learning question is tracked by conversation state, so an unanswered question cannot leave it open. Completing an already-resolved review is success, and the residual contract advances in the same transaction as the merchant write. (`review_native.go`)
+
+## ADR-071: Telegram transaction acceptance gate and agent input boundaries
+*Accepted · 2026-11-21*
+
+Scope: the deterministic gate before a model-extracted transaction may be CONFIRMED, reply parsing, and what the conversational agent is shown and may supply. Extends ADR-033 and ADR-038. These decisions were previously recorded only as source comments.
+
+- **Acceptance gate**: `directAcceptanceDecision` is the deterministic gate before a generative result may be persisted CONFIRMED. It re-asserts schema, type and amount format because it is what skips the model. Only a complete, unambiguous extraction passes, model self-reported confidence neither authorizes nor rejects, and anything unresolved goes to review. (`directAcceptanceDecision`)
+- **Category acceptance**: an EXPENSE needs an accepted active household category slug. An absent or inactive slug becomes a residual and is never guessed; category acceptance, not model confidence, decides confirmation (ADR-038). (`transaction_decision.go`)
+- **Ambiguity gate**: only an affirmative negative clears the inverted ambiguity question. An exact merchant-category match, decided by deterministic policy without asking the plane, is exempt. (`transaction_decision.go`)
+- **Unstated dates**: a user-stated date always qualifies; otherwise only the message's own send time does, and a model-supplied date is never promoted. (`acceptableTransactionTime`)
+- **Send time survives retry**: `turnTime` prefers the message timestamp over the processing clock, so a retried turn keeps the household-local day the household actually sent it. (`turnTime`)
+- **Reply parsing refuses to guess**: `parseBankFactsReply` rejects any amount containing `.` or `,` (ambiguous IDR) rather than reshaping it. `parseReplyDate` rejects dates whose day or month changed, since `time.Date` normalizes 31/02 into March. (`parseBankFactsReply`, `parseReplyDate`)
+- **Category list sent once**: the household category list goes in `turn_context` `allowed_category_slugs`, not as an enum in every tool schema. Go validates the slug (`INVALID_CATEGORY`). (`tool_registry.go`)
+- **Transfer purpose is Go-owned**: the transfer tool contract omits purpose, so the model supplies only arbitrary facts. A missing destination hint is valid because INTERNAL_TRANSFER has none. (`tool_registry.go`)
+- **Stored turns and refs**: bookkeeping rows (`agentBookkeepingTools`) give opaque refs a durable owner and are never replayed. Analytics refs like `category.3` are turn-scoped and not replayed across turns, while server-bound transaction and review refs stay. (`turn_store.go`, `expiredAnalyticsRef`)
+- **Untrusted text wrapping**: user-, ledger- and evidence-controlled text is wrapped in named data-boundary tags so the model reads it as data. `wrapUntrusted` defangs tags already inside the value so hostile text cannot close the wrapper early; it is defense in depth beside the tool catalog, resolved refs and Go validation. (`wrapUntrusted`)
+
+## ADR-072: Telegram worker job and SQL safety invariants
+*Accepted · 2026-11-21*
+
+Scope: how the Telegram worker settles jobs and source events, and a guard against a pgx statement quirk. Extends ADR-026. These decisions were previously recorded only as source comments.
+
+- **No second callback acknowledgement**: the API webhook already answers `answerCallbackQuery`; a second acknowledgement is rejected by Telegram with HTTP 400, so the worker does not send one. (`processor.go`)
+- **Stale callbacks are not retried**: a generic callback can never resolve a staged screenshot-link dispute, so it is refused as stale and the job is not retried. (`processor.go`)
+- **Reply events end PROCESSED**: a re-ask answers a message, not a review, so its source event must end PROCESSED or it can never get an item. No production path may park a chat reply or tap as NEEDS_REVIEW except `agentStageTransferReview`; the guard test scans one package because `filepath.Glob` is not recursive. (`reply_event_settled_integration_test.go`)
+- **Terminal text failure is never silent**: a typed message that will not be retried again gets a failure notice written atomically with marking the job FAILED. A hook that cannot succeed must not wedge the job; it is still marked FAILED with no partial state. (`terminal_text_failure_integration_test.go`)
+- **Single-statement SQL guard**: pgx prepares each Exec/Query as one statement and PostgreSQL refuses more than one command (SQLSTATE 42601). The test scans every SQL literal in worker and API across lines, unlike CI's single-line ripgrep guard. (`sql_guard_test.go`)
+
+## ADR-073: Review completion operations and exact binding
+*Accepted · 2026-11-21*
+
+Scope: the `reviewdomain` operations that complete a review for Web, the Telegram reply lane and worker jobs, and what each caller must and must not supply. Extends ADR-028 and ADR-039. These decisions were previously recorded only as source comments.
+
+- **One operation per completion family**: bank-fact completion, financial-email entity resolution, transaction confirm and cycle-residual resolution each live in one shared operation owning validation, linkage and completion, so Web, Telegram and the worker cannot diverge on basis, stale or allocation rules; contract tests refuse adapter-local copies. (`bank_facts.go`, `financial_email.go`, `confirm.go`, `cycle.go`)
+- **Caller authenticates before the command**: `IgnoreCommand` does not re-authenticate; the caller must already have authenticated the actor and bound the interaction (for Telegram, the stored card message) before entering the transaction. (`IgnoreCommand`)
+- **Exact item binding**: a command carrying `ReviewItemID` completes exactly that item, which keeps a Telegram reply from closing sibling reviews; an empty value completes every open item of the transaction, which is the Web behavior. (`duplicate.go`)
+- **Request ID is not the review item ID**: `RequestID` is the Telegram projection identity and must never be filled with the `review_item` ID, since the two address different rows. (`ConfirmCommand`)
+- **Zero values mean not supplied**: a zero field in `ConfirmCommand` never overwrites stored state, and a date or category continuation must not replace the transfer relationship choice the household already accepted. (`ConfirmCommand`)
+- **Bank facts come from the source, not the caller**: the user supplies only amount and date; account and canonical linkage are reloaded from the source event, and offered account choices are bounded and keyed by real account ID so a reply cannot invent one. (`BankFactCommand`, `ListBankSourceAccountChoices`)
+- **Bank source validation is fail-fast only**: `ValidateBankSourceAccount` checks the open `UNKNOWN_BANK_TEMPLATE` item and live funding account before queueing, but never resolves the review or touches the source; the `COMPLETE_BANK_REVIEW` job alone links, persists the transaction and resolves the item. (`ValidateBankSourceAccount`)
+- **Wealth binding needs both checks**: a provider-email wealth review binds both a wealth observation and a financial-email observation (migration `00052`), so the subject discriminator alone cannot say whether a wealth observation is bound. (`HasWealthObservation`)
+- **Human attribution is server-derived**: `HumanSupplied` lists the entities supplied by this request and drives RHICE attribution; claims in client telemetry are never trusted for it. (`HumanSupplied`)
+- **Only a vanished binding means already resolved**: `notFoundAsResolved` maps just the no-rows case to an already-resolved review; any other error returns unchanged so a transient failure retries instead of closing the card. (`notFoundAsResolved`)
+- **Alias keys fold NFKC everywhere**: every surface normalizes alias keys with NFKC; without it a full-width hint and its ASCII spelling would store two keys for one household account and break lookup. (`financial_email_contract_test.go`)
+- **Empty entity IDs never reach alias SQL**: a partial resolution turn leaves the other entity unbound, and an empty ID must not be inserted as `''::uuid`. (`LearnEntityAlias`)
+
+## ADR-074: Source lifecycle ordering and failed-source actions
+*Accepted · 2026-11-21*
+
+Scope: the order of review resolution against source settlement, the locking that serializes sibling completion, and the Tindakan item for sources that stopped processing. Extends ADR-046 and ADR-049. These decisions were previously recorded only as source comments.
+
+- **Resolve the review before settling the source**: ignore and acknowledge paths resolve the review first, then call `RefreshSourceLifecycle` (or `MarkSourceIgnored`), so the lifecycle sees no open item and the document leaves `NEEDS_REVIEW`. The source stays `IGNORED` unless a sibling review or accepted work says otherwise. (`MarkSourceIgnored`, `ignore.go`)
+- **`document.status` has no IGNORED value**: ignoring marks the source event `IGNORED` and `RefreshSourceLifecycle` settles the document. Acknowledging a review on a final transaction also refreshes the lifecycle, because that item may have been the last thing holding its sources in review. (`document.go`, `ignore.go`)
+- **Sibling sources lock in id order**: sibling source events of one document are locked `FOR UPDATE` in id order before the aggregate snapshot is read, so concurrent sibling completions serialize and cannot both settle from a stale snapshot. (`lifecycle.go`)
+- **Malformed IDs never reach SQL in a shared transaction**: `IsSourceEventID` lets callers skip a malformed source event ID first, because an unparseable UUID raises a Postgres error that aborts the surrounding transaction. (`IsSourceEventID`, `RecordFailedSourceAction`)
+- **Malformed identifiers are client errors**: where input is parsed by Postgres, the 22P02 error is wrapped as `invalidEntityIDError` so callers answer HTTP 400, not a server error. (`invalidEntityIDError`)
+- **Dismissal only moves unfinished sources**: `IgnoreFailedSource` updates only an event still unfinished, so a message that was answered in the meantime keeps `PROCESSED`. (`IgnoreFailedSource`)
+- **Failed-source items are idempotent and shared**: `RecordFailedSourceAction` and `SweepFailedSources` dedupe per source event, and a missing household or malformed ID is a no-op. The sweep covers sources terminal hooks miss (documents, images, financial email, failed hooks) with no queued or running job and `FAILED` status or a `FAILED` job. Analytics, API and worker share the constants so count, link and item cannot drift. (`failed_source.go`)
+
+## ADR-075: Cycle residual refresh and card editing
+*Accepted · 2026-11-21*
+
+Scope: how open cycle-residual reviews are kept current when transactions land, and how their Telegram cards follow. Extends ADR-036. These decisions were previously recorded only as source comments.
+
+- **Every CONFIRMED writer refreshes residuals**: each lane that writes a `CONFIRMED` transaction must call `RefreshOpenCycleResiduals` inside that transaction's commit boundary (empty actor for worker writes), so open cycle reviews never go stale. (`RefreshOpenCycleResiduals`)
+- **Exhausted residual reopens nothing**: `basis_residual_idr` is positive-only, so a residual at or below zero asks no question; the case keeps its last positive basis as history and no review reopens. (`reopenCycleResidual`)
+- **Residual allocation is never silently dismissed**: allocation is a policy choice with its own "leave unallocated" answer, so it is not offered a plain `IGNORE`. (`inbox.go`)
+- **Card edits ride the same commit**: bound Telegram cards are edited by an `EDIT_TELEGRAM_MESSAGE` job inserted in the same transaction as the refreshed residual, so card and canonical state cannot disagree; the sender falls back to a new message when Telegram can no longer edit. (`cycle.go`)
+
+## ADR-076: Cross-lane ledger matching, locked recheck and merge safety
+*Accepted · 2026-11-21*
+
+Scope: how receipt, screenshot and bank-email lanes find, link and enrich an existing transaction, and when a merge target is acceptable. Extends ADR-012, ADR-036, ADR-042 and ADR-060. These decisions were previously recorded only as source comments.
+
+- **Match exclusions**: `FindLedgerMatches` skips transactions the same source already evidences, since a reprocess is not a duplicate of itself, and transactions already carrying active evidence of the same type, since two bank emails are two bank events. (`LedgerMatchQuery`)
+- **Plausibility, not ordering, defines candidates**: a candidate is plausible if its merchant is compatible or it lies within an hour; a different merchant days apart is not ambiguity. All plausible candidates are returned so a strong match is judged against every one, never a time-ordered prefix. (`FindLedgerMatches`)
+- **Bounded scan fails closed**: `ledgerMatchScanLimit` caps rows read for recurring round amounts; reaching it, or finding too many plausible events to call one the same purchase, means no strong match. (`ledgerMatchScanLimit`, `StrongLedgerMatch`)
+- **Strong match needs a clear winner**: `StrongLedgerMatch` links without asking only for one candidate with a compatible merchant within a day and no runner-up scoring above 0.80; otherwise the caller asks via `POSSIBLE_DUPLICATE` whenever any candidate exists. (`StrongLedgerMatch`)
+- **Recheck under the lock, in both directions**: `LockLedgerEvent` serializes lanes per household and IDR amount, and the result re-read under it must equal the candidate set the lane decided on. Vanished candidates (voided or merged) count as changes. Any difference raises `ErrLedgerRaced`, so the job retries and decides again. (`LockLedgerEvent`, `SameLedgerCandidates`, `ErrLedgerRaced`)
+- **Enrichment only fills gaps**: a newly linked source writes only facts the transaction lacks, never overwriting an existing one, and updates an open review's decision so it stops asking for a fact the evidence now supplies; filled fields go to the audit row. (`EnrichLinkedTransaction`)
+- **Fixed column names in enrichment SQL**: the enrichment `UPDATE` concatenates column names only from a fixed internal list, never input; that is why string-built SQL is acceptable there. (`EnrichLinkedTransaction`)
+- **Merge target eligibility**: a target still awaiting its own review is accepted only when Go named it as this review's cross-lane candidate in `prior_match_transaction_ids`, and that target's own review stays open. (`duplicate.go`)
+- **Carried prior match bypasses drift rules**: a reprocessed document may merge into the transaction it was already linked to even after amount or date drifted; only that carried target is exempt from the amount and window checks. (`duplicate.go`, `duplicate_prior_match_integration_test.go`)
+- **Evidence dispute is its own path**: `ResolveEvidenceDispute` locks the original observation, not a model-selected ledger target, never guesses identity for legacy extractions, and fails closed on missing amount or date or multirow documents. It is separate from generic duplicate merge so the original proposal stays `MERGED`, and only expense evidence qualifies because an incoming row may be an own-account transfer. (`evidence_dispute.go`)
+
+## ADR-077: Source lifecycle and review state cascade invariants
+*Accepted · 2026-11-21*
+
+Scope: how a source event's status is derived from its review items, and how review items, requests and conversations close together. Extends ADR-046. These decisions were previously recorded only as source comments.
+
+- **One derivation of source status**: `RefreshSourceLifecycle` (with `MarkSourceIgnored` for dismissals) is the only place that derives `processing_status`. Any other `CASE` is a second rule, including the agent finalization and card-choice paths, which delegate through `finalizeAgentSource`. Lanes that recomputed it inline drifted and left events stuck (migrations 00083/00084). (`RefreshSourceLifecycle`, `finalizeAgentSource`)
+- **Dismissal is recorded first, then derived**: `MarkSourceIgnored` records that the household dismissed one source's evidence and then calls the shared refresh. An accepted sibling therefore still wins, an open sibling review keeps the source `NEEDS_REVIEW`, and a dismissed transfer can stay `IGNORED`. (`MarkSourceIgnored`)
+- **No hand-settling of review-parked sources**: setting `PROCESSED` where the source was `NEEDS_REVIEW` hides its open work, so only the shared refresh decides that transition. (`RefreshSourceLifecycle`)
+- **Reopen never writes status**: reopening a dismissed source-, document- or transaction-bound review only opens a new item. The new open item is what makes the shared refresh return the source to `NEEDS_REVIEW`. (`reopen.go`)
+- **Resolvers do not park documents**: a resolver must not set a document `NEEDS_REVIEW` unconditionally, because the shared lifecycle settles documents. Only worker document intake sets it, and only when it opens a review itself. (`RefreshSourceLifecycle`)
+- **Dismissed wealth observation is rejected evidence from any origin**: a dismissed observation counts as rejected evidence whether it came from a document or a provider email, mirroring accepted evidence, so a provider-email observation settles its source exactly as a document one does. (`RefreshSourceLifecycle`)
+- **Lifecycle aggregate stays household-scoped**: the source aggregate must not expand across households even when a `document_page` link is inconsistent, so a bad link cannot leak or settle another tenant's source. (`RefreshSourceLifecycle`)
+- **Item to request to conversation cascade**: resolving a review item closes its request and closing a request resolves its conversation, whichever resolver did the work (migration 00098). An expired request alone leaves the conversation awaiting because an expired card can be reopened. The merchant-learning question is asked after the request is `RESOLVED`, so its conversation must survive both the trigger and the repair. (`review_item_close_request`, `review_request_close_conversation`)
+
+## ADR-078: Review resolution, reopen and Telegram binding invariants
+*Accepted · 2026-11-21*
+
+Scope: the shared `reviewdomain` operations that Web and Telegram call to resolve, reject and reopen review items, and the Telegram callback boundary. Extends ADR-046 and ADR-054. These decisions were previously recorded only as source comments.
+
+- **Exact binding versus whole-transaction completion**: a reject or resolve with a `ReviewItemID` pins one exact item and its bound request (Telegram), and must never close sibling reviews that only share the transaction. With the ID empty, every open item for the transaction completes, which is the Web behaviour. (`ResolveByID`, `resolveRequestByItemSQL`)
+- **Transaction-wide completion must not narrow**: the shared transaction resolution keeps completing every open canonical item, as the old API helper did. It owns only the terminal transition (lock, verify active, record actor/action/values, resolve the Telegram projection in one transaction); fact validation stays with the caller. (`ResolveByTransaction`)
+- **Reopen after unmerge**: `ReopenTransactionReview` gives a transaction returned to `NEEDS_REVIEW` a fresh active `POSSIBLE_DUPLICATE` item and keeps resolved items as history. Other residuals (category, received-time-only date, unclassified transfer) are recomputed from current canonical state, never copied from an old snapshot, so supplied facts are not asked again. (`ReopenTransactionReview`, `reopenedResiduals`)
+- **Reopened decision is rebuilt, not replayed**: for non-transaction subjects the decision comes from the kind preset, else from the producer's own decision over immutable source evidence with resolution-time state cleared; payslip policy is re-applied against the current salary policy. (`insertReopened`)
+- **Reopen is idempotent and race-safe**: a subject that already has active work never gets a second open review, backed by the partial unique indexes. The Telegram projection runs through a `PROJECT_TELEGRAM_REVIEW` job (idempotent per item), so the API, which cannot render a card, does not project twice. (`EnqueueReviewProjection`)
+- **Only a vanished binding reads as resolved**: a missing review binding maps to `ErrAlreadyResolved`, but a transient error must surface so the callback retries instead of closing the card. (`notFoundAsResolved`)
+- **Facts and remaining contract persist together**: accepted facts and the remaining contract are written in one step. The classifier has already validated the replacement category or wealth values and writes them after this call, so the contract treats them as satisfied. (`ApplyTransactionReviewFacts`)
+- **Income answer settles a category question**: an incoming transaction confirmed as income has no expense category to supply, so the income answer settles a stored category question. (`ApplyTransactionReviewFacts`)
+- **Shared validation, never adapter-local**: Web and Telegram both call `ValidateCategoryForHousehold` (category active and household-owned) and `ValidateTransactionReview` (locks the subject `FOR UPDATE`, rechecks the household, returns `ErrAlreadyResolved`). Callback payloads therefore never trust stale canonical IDs, and a contract test forbids adapter-local candidate validation. (`ValidateTransactionReview`)
+- **Callback data carries no authority**: callback data is a bounded literal or a literal prefix plus an opaque server-issued token or small page/index. None carries a canonical identifier that authorizes a mutation; the worker re-derives household, user, chat and pending state and re-validates the choice per callback. Telegram rejects `callback_data` over 64 bytes. (`telegram_callback.go`)
+- **Resolution channel recorded on the item**: the acting surface (`USER` or `TELEGRAM`) is stored on the canonical review item so Admin can count resolutions by channel. Per-surface audit rows key off a transaction or source event and cannot be joined back to a case. (`ReconcileTransfer`)
+
+## ADR-079: Transfer classification and reconciliation invariants
+*Accepted · 2026-11-21*
+
+Scope: the shared operations that classify a transfer review and reconcile a transfer case against merge candidates. Extends ADR-046, ADR-036 and ADR-060. These decisions were previously recorded only as source comments.
+
+- **One classification operation for every surface**: `ClassifyTransferReview` locks the subject, resolves Wealth Account and category candidates deterministically, mutates transaction and proposal and completes the review items. No adapter may keep its own mutation SQL, and the terminal transition lives in `FinalizeTransferReviewLifecycle`; contract tests enforce both, because surface-local copies drifted from policy. (`ClassifyTransferReview`, `FinalizeTransferReviewLifecycle`)
+- **Partial answers can commit a pending classification**: `ErrMissingFacts` leaves a validated classification pending inside the transaction, so a partial-answer adapter may commit it without completing the review. (`ClassifyTransferReview`)
+- **Purpose is never silently changed**: a retained transfer may replace its Wealth account but not its purpose; only a same-purpose `ASSET_PURCHASE` or `INVESTMENT_CONTRIBUTION` reclassification counts as account replacement. (`ClassifyTransferReview`)
+- **Explicit account choice is revalidated**: an explicit chooser selection bypasses ambiguous hint matching, but only while the account is still active, compatible with the classification and in this household. (`ClassifyTransferReview`)
+- **Classification must fit the current type**: an unclassified transfer accepts every classification and an expense can only become an asset purchase. An incoming row typed `INCOME` (a screenshot "dana masuk") may only be recognised as own-account movement or ignored, since expense, asset and investment contribution describe money leaving. (`transferClassificationApplies`)
+- **Purpose vocabulary mirrors the database**: `TransferPurposes`, the bounded set a household may pick when a case proposes none, must stay in step with the SQL function `transfer_wealth_compatible`. (`TransferPurposes`)
+- **Caller owns authentication, callee owns mutation**: `ReconcileTransfer` owns the financial mutation and canonical review lifecycle, but callers must authenticate the actor and bind the interaction before entering its transaction. Only this operation may mutate a reconciliation case or confirm its candidate; surfaces pass a candidate id and action. (`ReconcileTransfer`)
+- **Lock the chosen transaction first**: the chosen candidate is locked `FOR UPDATE` before the merge rule runs, so the rule judges committed state. (`ReconcileTransfer`)
+- **Offered merges equal accepted merges**: the Web list and dispatcher, the Telegram chooser and the resolver all read `LoadTransferMergeSet` and `TransferMergeable` (ranked bounded set, writable candidate only), so a merge button is never offered that the resolver would refuse. (`LoadTransferMergeSet`, `TransferMergeable`)
+- **Dismissed transfer stays parked**: a dismissed case keeps the historical `IGNORED` marker because the Inbox and the agent lane both read it as parked, not reconciled. (`ReconcileTransfer`)
+
+## ADR-080: Salary, missing-amount and wealth review correctness rules
+*Accepted · 2026-11-21*
+
+Scope: payslip finalization, missing-amount screenshots and wealth-observation resolution inside `reviewdomain`. Extends ADR-036, ADR-042 and ADR-048. These decisions were previously recorded only as source comments.
+
+- **One household salary lock**: payslip finalization takes a single household-wide salary advisory lock rather than per-employer locks, accepting coarser locking; per-employer locks are the planned change if salary throughput grows. (`FinalizePayslip`)
+- **Salary insert reports whether it inserted**: the salary event insert uses `RETURNING id` to tell a real insert, or revival of a `VOIDED` event, from an `ON CONFLICT` skip, so a re-confirmation enqueues no duplicate residual review. (`salary.go`)
+- **Pay date is a Jakarta civil date**: `salaryPayDateArg` converts the instant to the household-local `Asia/Jakarta` date before `$n::date`. Casting a `timestamptz` directly uses the session or process timezone and stores a different `pay_date` under UTC. (`salaryPayDateArg`)
+- **Missing amount never materializes early**: `ResolveMissingAmountProposal` accepts one household-provided amount but creates no canonical row until every required fact is present, and any plausible same-amount transaction stays in duplicate review instead of being guessed. (`ResolveMissingAmountProposal`)
+- **Second duplicate-probe anchor**: the extracted or fallback instant is kept as an extra probe anchor, because a day-only user-entered date can miss the same event at the edge of the 72-hour duplicate window. (`ResolveMissingAmountProposal`)
+- **Reprocess carries prior links as duplicate signal**: transactions a source event was already linked to count as duplicates regardless of amount and window, since the drift that hid them from the matcher is what review must not miss. Only live same-household rows survive; any survivor blocks auto-confirm, but only same type and currency are offered because `MergeDuplicateReview` waives amount and time for a carried target, never type or currency. (`ResolveMissingAmountProposal`)
+- **Review-applied wealth value applies its provider email**: when review resolves a wealth observation, the financial email behind the value is marked `APPLIED` as if its account had resolved deterministically. (`wealth.go`)
+- **Dismissal scope for the email observation**: `DismissWealthObservation` also ignores the financial email observation only for the Review Inbox `IGNORE`. The asset-purchase reclassification keeps it because the evidence became a transaction. A concurrent close returns `ErrWealthObservationNotFound`. (`DismissWealthObservation`)
+- **Wealth mutation only through shared operations**: Web and the live Telegram wealth paths mutate a `wealth_observation` only through the shared `reviewdomain` dismiss, resolve and evidence operations, so their behaviour cannot drift; a contract test forbids adapter-local SQL. (`wealth.go`)
+
+## ADR-081: Migration repair and rollback rules
+*Accepted · 2026-11-21*
+
+Governs how SQL migrations repair legacy data and how their Down sections behave. Extends ADR-004. These decisions were previously recorded only as source comments.
+
+- **Downs never destroy or reverse financial facts**: a Down that would collapse valid screenshot rows into one proposal is guarded; account consolidation, canonical review resolution and the Gmail runtime removal are not reversed. Reversing them would destroy evidence or break transaction attribution. (`00009_multi_proposal_source`, `00027_merge_bank_listener_accounts`, `00034`, `00037`, `00044_gmail_runtime_sunset`)
+- **Evidence hash index stays non-unique**: uniqueness cannot be restored without deleting valid duplicate evidence, and dedup links evidence rather than deleting it. (`00008_document_intake`)
+- **Repairs match a state signature, never a named row**: `00083` repairs only the record carrying the legacy `CONFIRM_EVIDENCE_DISPUTE` signature. It does not sweep all uncategorized confirmed expenses, because a NULL category is legitimate for manual ledger entries and categories are never guessed. More than one match aborts; zero matches is a notice, so fresh databases still migrate. `richmod.repair_household` optionally narrows it. (`00083_reopen_uncategorized_dispute_expense`)
+- **`00083` makes the reopened row completable on the Web**: Up marks the already-decided dispute evidence row `SUPERSEDED`, because Web confirm is refused while an active dispute row exists and only a Telegram card could resolve it. (`00083_reopen_uncategorized_dispute_expense`)
+- **`00084` refuses to run on a database that differs from the inspected one**: each stuck-source group (A 6, B 3, C 1, D 5) must have exactly its expected size or be empty, and all groups must match or none, otherwise the migration raises instead of half-repairing. Events settled by an earlier run count toward group size so Down then Up stays runnable. (`00084_settle_stuck_source_events`)
+- **Transfer-proof events are not settled by migration**: reprocessing can write a second CONFIRMED transaction for an already recorded transfer, which is money rather than a status change, so the runbook settles them by hand with a before/after check. (`00084_settle_stuck_source_events`)
+- **Repair Downs restore only unchanged rows**: each Down restores the prior state held in the repair's `audit_log` row, and only while the row is still in the state Up left it, so household or worker progress is never undone. Each rollback writes its own audit row, making a second Down a no-op. Groups A and C also require the `parser_name` stamp Up wrote, and group B removes the failed-source item only if the migration created it. (`00083`, `00084`)
+- **Stale document status repair must match the API predicate**: `00099` settles a document left `NEEDS_REVIEW` only when nothing actionable is reachable, using the same text as `documentPendingSQL`; a test keeps the two equal so the stored status and the derived badge cannot disagree. (`00099_settle_stale_needs_review_documents`, `documentPendingSQL`)
+- **Canonical review item decides over its Telegram projection**: legacy transaction replies and bank-email processing could terminate a transaction or source without closing the canonical `review_item` or its `review_request`. The repairs close only items whose financial subject is already terminal and never rewrite the record; the retirement trigger then removes card buttons. (`00034`, `00037`, `00079_retire_telegram_review_cards`)
+- **Merchant alias repair guesses nothing**: one raw spelling (case and space normalized, per household) maps to exactly one learning rule. The oldest alias is kept, and groups that disagree on merchant or category collapse to one rule with `auto_apply` disabled. Transactions and evidence are untouched; removed values stay in the audit log. (`00066_merchant_alias_normalized_identity`)
+- **Duplicate open reviews are closed, not deleted**: before the one-open-review-per-observation unique index is built, newer duplicates get a status change with an audit row, so no record is hard-deleted. (`00096_transaction_date_action`)
+- **Action renames respect rolling deploys and history**: `00096` rewrites only active reviews to `SET_TRANSACTION_DATE`, so resolved history keeps the action actually answered. The app still accepts `SET_PAY_DATE` on transaction-bound reviews during the rolling window, and Down leaves the added choices because older code ignores them. (`00096_transaction_date_action`, `reviewdomain.Executable`)
+- **Widen CHECK constraints in the same change as the code that writes new values**: `llm_call_kind_check` never allowed `JUDGMENT`/`DECISION` and the protocol check never allowed `systemone`, so metric writes were rejected and only logged, leaving review-rate and Jev latency empty in production. `review_request.review_type` likewise must accept every `review_item` reason or the projection insert fails with `23514` and the review never reaches Telegram. (`00059_llm_call_kind_judgment`, `00069_review_request_projected_types`)
+- **Rollback closes queued jobs an older worker cannot run**: on Down, queued retirement jobs are closed, and cards held back by pacing are re-enqueued as send jobs, because an older worker would fail the first as an unsupported type and never send the second. (`00079_retire_telegram_review_cards`, `00094_telegram_card_delivery`)
+- **Redundant-index drops keep composite-FK targets**: indexes implied by another index or constraint are dropped to save write amplification, but the `(household_id, id)` unique keys from `00087` stay because composite household foreign keys reference them. No code names the dropped indexes or uses them as `ON CONFLICT` arbiters. (`00089_drop_redundant_indexes`)
+- **PL/pgSQL `IF` ends its condition at the first `THEN`**: a `CASE ... THEN` guard that keeps `jsonb_array_length` off non-arrays cannot sit inside the `IF`, so it is evaluated in an assignment first. (`00078_review_decision_required`)
+
+## ADR-082: Review, ledger and wealth data invariants
+*Accepted · 2026-11-21*
+
+Database-level rules for review items, transaction status and wealth observations. Extends ADR-039 and ADR-060. These decisions were previously recorded only as source comments.
+
+- **Transaction status transitions live in one trigger**: legal moves were scattered across guarded UPDATEs, so the database now allows PENDING to CONFIRMED, NEEDS_REVIEW or VOIDED; NEEDS_REVIEW to CONFIRMED or VOIDED; CONFIRMED to VOIDED or NEEDS_REVIEW; VOIDED only to NEEDS_REVIEW (reversed merge). No writer can resurrect a voided transaction or return one to PENDING. (`00097_transaction_status_guard`)
+- **`salary_event.status` is kept in step by a trigger**: it is a denormalised copy that stayed CONFIRMED after the payslip was voided, so a voided salary still anchored cycles and swallowed a re-sent payslip as a duplicate. (`00097_transaction_status_guard`)
+- **A complete ReviewDecision is enforced by trigger, not NOT NULL**: new `review_item` rows need a non-empty `reasonCode` and `allowedActions`. Legacy NULL-decision rows stay readable and editable but can never become active again, and a decision cannot be erased or degraded. The migration holds a `SHARE ROW EXCLUSIVE` lock so no unguarded row slips in, and fails rather than guessing a decision for an invalid active row. (`00078_review_decision_required`)
+- **The optional merchant-learning question never keeps a review open**: the review completes at confirm time and the pending question has its own conversation state, so `review_request.status` can be `RESOLVED` safely. (`00067_review_conversation_merchant_decision_state`)
+- **A screenshot row with no visible amount keeps a NULL amount**: it reaches review rather than being coerced to a sentinel `0`, so no invented amount enters the ledger. (`00070_review_missing_amount_type`)
+- **Telegram eligibility is snapshotted at review creation**: `telegram_eligible_at_creation` records whether the household had an active Telegram recipient, so later linking or unlinking cannot move a review into or out of the TARC denominator. Older rows stay NULL because no backfill is possible. (`00080_review_telegram_eligibility_snapshot`)
+- **Account keys are no longer sender-derived**: historical sender-derived system keys are kept for traceability but listener edits stop mutating them; new logical account keys derive from IDs. (`00030_v4_finalization_hardening`)
+- **Accepted wealth observations are independent of snapshots**: they are visible without a complete snapshot and never imply one or change snapshot-derived net worth, keeping observations distinct from transactions and snapshots. (`00073_accepted_wealth_observations`)
+
+## ADR-083: Telegram review card, binding and job-lane invariants
+*Accepted · 2026-11-21*
+
+Schema-level rules behind Telegram review projections, reply binding and job lanes. Extends ADR-046, ADR-050 and ADR-026. These decisions were previously recorded only as source comments.
+
+- **Source-review completion has its own lane**: it is a user action and must not queue behind bank or document extraction, so the durable lane classifier stays authoritative for it. (`00031_bank_review_completion_lane`)
+- **Turn refs must be collision-safe across parallel READ tools**: ref keys accept legacy `tx_N`/`review_N`, early phase-scoped refs and source-event-hash scoped refs such as `a1b2c3d4_p1r2_tx1`, so parallel tools collide neither within a turn nor across bounded follow-up turns. Canonical UUIDs stay server-private. (`00055_conversational_agent_state`)
+- **Conversation turns are context, not evidence**: the durable bounded public Telegram context table must never be treated as financial evidence. (`00039_conversational_native_tool_v2`)
+- **Evidence notices and review cards bind through different tables**: plain evidence notices bind through `telegram_message_binding`, review cards through `review_request_recipient`. `entity_id` carries a composite key to a document of the same household, because the reply router trusts this table and a cross-tenant row would be a mis-binding. (`00076_ceu_reply_binding`, `00077_ceu_review_hardening`)
+- **One notice per document is owned by a durable marker on the document**: disposable job rows are pruned, so they cannot enforce it. Documents with a queued or sent notice are marked so a retry never announces them twice. (`00077_ceu_review_hardening`)
+- **Card retirement is enqueued by the database in the closing transaction**: when a `review_request` leaves its active state, one `RETIRE_TELEGRAM_REVIEW_CARD` job is enqueued per delivered card, so no recipient can tap a dead card. The worker re-checks the request and picks the closure wording; superseded messages stay in `review_request_message` so they are retired too. (`00079_retire_telegram_review_cards`, `00094_telegram_card_delivery`)
+- **The merchant-learning question is a separate message**: retiring the review card cannot remove the learning buttons, and its callbacks bind through its own message id. (`00079_retire_telegram_review_cards`)
+- **Retirement uniqueness covers only queued or running jobs**: a finished job must not block a later one, because an `EXPIRED` request renewed to `OPEN` and closed again has to retire the same card a second time. (`00079_retire_telegram_review_cards`)
+- **Closing a request locks chats in a fixed order**: slots are freed in every chat the request was delivered to, taking each chat's advisory lock in chat order before touching any recipient row, which avoids lock-order deadlocks. Live copies of an expired projection become `EXPIRED`, queued copies of resolved or cancelled reviews are dropped, and queued copies of an expired projection stay queued. (`00094_telegram_card_delivery`)
+- **Staged corrections and batches expire after 30 minutes, not 5**: people answer later than five minutes. Go sets the same interval explicitly, so the database default and the Go value must be changed together. (`00092_telegram_agent_loop`)
+
+## ADR-084: Telemetry stores no financial content
+*Accepted · 2026-11-21*
+
+Rules for the telemetry and attribution tables written by triggers and the judgment plane. Extends ADR-038 and ADR-062. These decisions were previously recorded only as source comments.
+
+- **Telemetry and provenance rows carry no content**: product events, turn telemetry, judgment provenance and the job retry log store only allow-listed names, lane, timing, error class or which policy consumed a bounded answer. They never store prompts, answers, household messages, payload or message text, or financial values. (`judgment_turn_telemetry`, `judgment_decision`, `job_retry_log`, `product_telemetry_event`)
+- **Review turns and corrections are captured by triggers**: this makes capture atomic with the canonical write that caused it, so an event cannot exist without its write or the reverse. (`00061_product_telemetry_events`)
+- **Review telemetry credits human controls only from the decision contract**: Telegram reply evidence is the per-turn record and the resolution row is the terminal turn, but its bounded-choice marker comes only from the stored decision, so machine resolutions are not credited to a human control. (`00061_product_telemetry_events`)
+- **`accepted_dimensions_at_entry` distinguishes NULL from `'{}'`**: NULL means the accepted set was not captured, while an empty array means explicitly none; collapsing them would misstate closure telemetry. (`00072_savr_closure_phase_provenance`)
+
+## ADR-085: Web Push outbox transport
+*Accepted · 2026-11-21*
+
+Delivery model for installable-PWA notifications. Extends ADR-057 and ADR-035. These decisions were previously recorded only as source comments.
+
+- **The outbox is written by AFTER INSERT triggers**: this shares the creating transaction, so every existing review and integration-action creation path in the worker and domain packages is covered without per-path code. `enqueue_push_outbox` writes one row per active household member. (`00086_push_notifications`)
+- **Subscriptions belong to the user's single active household**: re-subscribing moves `household_id` and retires the old household's `PENDING` deliveries, and the trigger enqueues only for a subscription whose household matches the event. (`00086_push_notifications`)
+- **`active_since` marks the current active period**: re-subscribe resets it so events created while the device was disabled are not replayed. (`push_subscriptions`)
+- **An outbox row finishes only when every per-device delivery is terminal**: `SENT`, `DEAD` or `FAILED` after its own attempts, so one failing device is retried rather than hidden by another device's success. (`push_outbox`, `push_outbox_delivery`)
+- **`available_at` is deliberately delayed**: a burst from one email or document batches into a single notification at the sender. (`enqueue_push_outbox`)
+
+## ADR-086: Operations scripts, CI guards and Compose safety
+*Accepted · 2026-11-21*
+
+Safety rules in backup, deploy, Compose and guard scripts. Extends ADR-016 and ADR-034. These decisions were previously recorded only as source comments.
+
+- **Backups run one at a time**: the staging path is fixed and shared by any run on the same filesystem, so `backup.sh` takes a `flock` and a second run cannot clear the dump the first is backing up. (`infra/backup/backup.sh`)
+- **Backup staging removes only its own files**: the path is predictable, so a symlink or foreign file there is refused rather than followed. (`infra/backup/backup.sh`)
+- **`restic unlock` runs before the repository check**: a run killed mid-prune leaves an exclusive lock that blocks every later command, and `unlock` removes only stale locks. It is non-fatal because it also exits non-zero for a missing or unreachable repository, which the following check classifies. (`infra/backup/backup.sh`)
+- **A stale Telegram webhook URL is detected explicitly**: Telegram does not follow redirects, so a stale registered URL silently drops every inbound update while `/healthz` and `/readyz` stay green. `set-telegram-webhook.sh --check` exits non-zero on a mismatch. The script never echoes the token or secret and filters curl error text, because the token is part of the API URL. (`scripts/set-telegram-webhook.sh`)
+- **Post-deploy webhook mismatch warns but never rolls back**: a mismatch must not undo an otherwise healthy deploy. The check reads only `WEB_ORIGIN` and the bot credentials as literal `KEY=value` lines (Docker env-file format, not shell), so the rest of the deployment file is never evaluated; values already in the environment win. (`infra/deploy/post-deploy.sh`)
+- **Compose keeps at least one non-internal API network**: the API publishes on loopback but still makes outbound requests (OSS uploads, the LLM gateway), so with only internal networks `docker compose up` has no egress. (`infra/compose/compose_network_test.sh`)
+- **Auto-confirm kill-switches fail open**: only an explicit negative (`0`, `false`, `off`, `no`, `disabled`) turns a source off, and any other value keeps it on, so an unset or mistyped variable never silently changes behaviour. (`compose.yaml`)
+- **Analytics stays native-only and read-only, enforced by a grep guard**: insight prose may come only from native rendering arguments, never a text parser, retired recommendation DTO or Go pseudo-analyst fallback. The shared analytical engine must not acquire a financial write capability. (`scripts/check_native_only_llm.sh`)
+
+## ADR-087: Bank email verification, residuals and category kill-switch
+*Accepted · 2026-11-21*
+
+Scope: how the `bankemail` worker verifies extracted facts through the bounded plane, names what is still missing, and gates category auto-confirm. Extends ADR-040. These decisions were previously recorded only as source comments.
+
+- **Verifier is mandatory and its absence is a machine failure**: the bank processor requires the bounded verifier (`errVerifierUnconfigured`); a nil verifier or a provider failure is a RETRY failure that keeps the source event recoverable. It never becomes a household question or a semantic approval, and extractor confidence alone never confirms. (`Processor`, `verification.go`)
+- **Only material residuals are named**: `materialResidual` reports only the bounded predicate that failed and matters to the attempted decision, and `verificationReviewDecision` keeps every supported fact. Non-material metadata, such as an uncertain payment mechanism, never blocks an otherwise safe expense. (`materialResidual`, `verificationReviewDecision`)
+- **SemanticGrounded checks the spend-vs-transfer class, not the channel**: the email wording must support the class the policy acts on; the payment mechanism is metadata only. (`verification.go`)
+- **`supported()` checks concrete support only**: every bounded claim must be decided in the extractor's favour and undecided fails, but negatives such as "not ambiguous" are not checked, because that would force needless reviews. (`supported`)
+- **Unsupported with no failed material claim is an error**: this is an inconsistent ruling, so `Process` returns an error rather than inventing a human fact to ask for. (`Process`)
+- **Protective footers are neutral**: security boilerplate such as "Jika kamu tidak melakukan transaksi ini..." once made a real Jago email unsupported; it must neither deny that the transaction completed nor count as a competing amount. (`verification_boilerplate_test.go`)
+- **Ruling is persisted before any review branch**: the bounded ruling is stored next to the extraction, without the email body, before routing, because the audit row is the only record of what the plane claimed, including verified-but-unsupported rulings. (`persistEvidenceVerification`)
+- **Disputed values are proposed, not known**: when two evidence-supported values disagree the fact is known-and-disputed, not missing, so Go refuses to guess. It is carried as a proposed fact so the card does not show it as a prefillable known fact, and accepted dimensions come only from the bounded check, since a model-extracted `knownFacts` value is not proof of acceptance. The same applies to Financial Provider Email: a residual on `evidence_support` means the value facts are proposed, not recorded (Web shows known facts as "Tercatat"). (`bankemail/processor.go`, `financialemail/processor.go`)
+- **Category kill-switch is stored inverted**: `categoryAutoConfirmOff` is inverted so a zero-value `Processor` keeps auto-confirm on. When set, the expense parks for review with its category decision still shown instead of writing confirmed money. (`Processor.categoryAutoConfirmOff`)
+- **Kill-switch gates category-carrying results only**: `applyCategoryAutoConfirmSwitch` skips results without a category, because a known-account transfer has no category to pick and gating it would park an unresolvable review. (`applyCategoryAutoConfirmSwitch`)
+- **Kill-switch runs before the bounded classifier and also disables it**: it is applied to the deterministic policy result first (it governs remembered-merchant auto-confirm), and the bounded category path is turned off too, so the decision it gates cannot be re-opened by the classifier. (`Processor`)
+- **Category policy mirrors Telegram's**: `bankCategoryPolicy` copies the Telegram category policy so a category auto-applies only when the same plane would accept it there. (`bankCategoryPolicy`)
+- **Bank extraction tool schema**: `merchant` is nullable so the model never invents one, while every property stays `required` because a native tool call must be complete. A missing merchant is a missing fact, not an invalid transaction. (`ToolSchemaVersion` tool schema)
+- **No optional gateway fields by default**: reasoning effort is provider-specific, so the portable bank extraction path sends none unless set in gateway config. (`extractor.go`)
+- **Malformed timestamps are repaired by the model, never coerced**: a malformed transaction time goes back to the model with the precise schema failure. A timezone-less or unparseable time stays canonical-invalid and never silently becomes the received-at time. (`validator_repair_test.go`)
+- **Judgment seam is local**: `jeverifier` (bank) and its provider-email counterpart are declared in each package's own terms so neither imports Telegram policy. (`jeverifier`)
+
+## ADR-088: Bank email review completion and cross-lane dedup
+*Accepted · 2026-11-21*
+
+Scope: how a bank-email review is completed by a person, settled, and linked to other evidence lanes. Extends ADR-040 and ADR-046. These decisions were previously recorded only as source comments.
+
+- **Completion uses the ordinary Go path**: `Complete` resumes a source-bound review with only the facts a person entered; extraction still goes through the normal Go policy and persist path, and no ledger row is fabricated to close a review. (`Processor.Complete`)
+- **Completion job is idempotent against Telegram**: a Telegram confirmation may complete the review item first, so a queued completion job then counts as satisfied rather than failing. (`Processor.Complete`)
+- **Retry after a committed persist still settles the source**: a persist may commit while the review is open (for example a cross-lane link settles via the lifecycle), so `Complete` and its retry refresh the source lifecycle afterwards instead of leaving it `NEEDS_REVIEW`. (`Processor.Complete`)
+- **Completion owns attribution and the notice**: `persist` does not settle a review passed as `completingReviewID`; `Complete` resolves it in the resolving transaction with the person's surface, and only the Telegram lane sets `telegram_chat_id` so admin attribution is correct. The automatic notice is skipped for human-completed reviews, and the terminal wording is sent after commit with a once-matching status update. (`auditBankCompletion`, `persist`)
+- **Projection closes with the item**: the Telegram projection is resolved in the same transaction (request RESOLVED queues card retirement, migration 00079; conversation stops awaiting a reply). The same settlement applies when a transaction later exists for the source, so delivered cards retire. (`resolveBankReviewProjection`)
+- **Canonical review is independent of Telegram**: the `review_item` exists with or without Telegram, which is only a delivery projection. A Cloudflare-origin `BANK_EMAIL` review is household-owned before projection and reaches the household's eligible identity without a chat payload; source provenance is evidence only. (`household_projection_integration_test.go`)
+- **Bank low-confidence review is not document-resolvable**: it shares a reason with document reviews but has no `document_id`, so the document callback must not be able to resolve it. (`household_projection_integration_test.go`)
+- **ReviewDecision is written after the item exists**: it is written after `EnqueueReviewRequest` creates the item; a silent zero-row UPDATE once broke this ordering, leaving the Inbox row without its decision. (`transaction_review_decision_integration_test.go`)
+- **Bank cross-lane dedup is receipt, screenshot and manual only**: bank email asks only whether one of those already recorded the event (one real event, one canonical transaction); other bank emails never match because two notifications are two events. A plausible but unprovable match becomes `NEEDS_REVIEW` with `POSSIBLE_DUPLICATE`; it is asked, never guessed. (`persist`)
+
+## ADR-089: Financial provider email bounded-claim gating
+*Accepted · 2026-11-21*
+
+Scope: how `financialemail` turns System One rulings into gates for cash movements, review facts and previews. Extends ADR-043 and ADR-045. These decisions were previously recorded only as source comments.
+
+- **Undecided fails closed**: a decided negative on the ambiguous question is recorded explicitly (`AmbiguityDecidedNotAmbiguous`) so the undecided middle band never reads as approval. `cashAllowed` lets Go treat an observation as a real cash movement only when every bounded claim holds, and bank `noulClaimed` likewise reports only a decided affirmative, matching the Telegram decision plane. (`classification.go`, `cashAllowed`)
+- **Inverted predicates use the Ambiguity policy**: `material_ambiguity` is inverted, so it must use the Ambiguity policy; `Supported` would read a (Low, High) middle band as a decided negative while the gate treats it as undecided. (`classification.go`)
+- **Record only accepted choices**: a choice clears the gate only when `AcceptChoice` accepts it. Recording the raw label let a rejected choice read as a passing predicate. (`classification.go`)
+- **Capabilities restrict the schema, Choice rules semantics**: capabilities only narrow the tool schema; the observation-type Choice decides on semantics using `observationTypeCriteria`. (`observationTypeCriteria`)
+- **Only a ruling that ran names predicate facts**: only a classification that actually ran may name predicate-level missing facts, and only a ruling that the observation is `CASH_MOVEMENT` may raise the cash-evidence residual. `WEALTH_VALUE`/`NON_ACTIONABLE` on a cash observation is actionable and goes to `TRANSFER_CLASSIFICATION`, the recovery lane. (`financialemail/processor.go`)
+- **Unreadable printed date keeps the observation**: a wealth observation with an unreadable date is kept with a null date, so the household can still bind the account and confirm the value. (`financialemail/processor.go`)
+- **Preview failure is final only at the last retry**: a preview stays `PROCESSING` while its job retries; only the final failure marks it `FAILED`. (`TerminalPreviewFailureTx`)
+
+## ADR-090: Gateway protocol fallback, failure classes and telemetry
+*Accepted · 2026-11-21*
+
+Scope: the worker `gateway` client and the System One telemetry decorator. Extends ADR-027 and ADR-030. These decisions were previously recorded only as source comments.
+
+- **Chat Completions is stateless**: Responses keeps tool-call history by `PreviousResponseID`, but the Chat Completions fallback for routers without Responses must rebuild assistant `tool_calls` plus `role=tool` messages, so `AgentReadPhase` preserves a completed native READ batch for replay. Both return the same `ToolCall` shape. (`AgentReadPhase`, `nativeChatCompletion`)
+- **A user turn is always sent**: the provider rejects chat requests without one, so `chatMessages` supplies fallback text when bounded extraction callers pass no content. (`chatMessages`)
+- **Failures are classed by type**: unavailable (unreachable, unconfigured, 408/429/5xx) falls back; rejected (other 4xx) is permanent. Classification keys on typed errors, never error text, and a cancelled or expired caller context keeps its own meaning rather than counting as unreachable. (`errors.go`, `transportError`)
+- **Telemetry wraps the engine**: `InstrumentedEngine` decorates rather than lives inside the System One engine so it never changes the wire request. Document calls use their own document ID as request ID, so the trusted source event on the context must win in metrics. (`InstrumentedEngine`, `decorate_test.go`)
+
+## ADR-091: Worker runtime, job queue and cycle-job operating invariants
+*Accepted · 2026-11-21*
+
+Scope: how the worker sizes its database pool, parses operator switches, settles failed jobs and keeps queued insight and residual jobs correct. Extends ADR-026. These decisions were previously recorded only as source comments.
+
+- **Worker pool floor**: the worker raises `MaxConns` to `minWorkerPoolConns` (16) unless `DATABASE_URL` sets `pool_max_conns`. Each lane loop (3 DEFAULT, 1 INTERACTIVE, 1 BACKGROUND) can hold a transaction plus nested reads and parallel READ tools, so a smaller default pool can be exhausted by its own jobs. (`runWorker`, `minWorkerPoolConns`)
+- **Auto-confirm kill-switches fail open on typos**: `RICHMOD_AUTOCONFIRM_*` switches (screenshot, receipt, bank category, Telegram) park rows in review without a deploy, but `envEnabled` turns one off only for an explicit negative (`0`, `false`, `off`, `no`, `disabled`). Processors store the switch inverted (`rowAutoConfirmOff`, `receiptAutoConfirmOff`) so a zero value keeps auto-confirm on, and each source is independent of the others. (`envEnabled`, `Processor`)
+- **Final-failure notice shares the FAILED transaction**: when a job will not be retried, `FailWithHook` marks it FAILED and runs `onFinal` in one transaction, so the notice and final state cannot diverge. Only the lease owner runs `onFinal`; if it errors the job is still FAILED, so it is never reclaimed forever. (`queue.FailWithHook`)
+- **Household derivation must not abort enqueue**: a 19-digit Telegram chat ID overflows `bigint`, so `job_assign_household` derivation yields `NULL` for it instead of raising an error that would reject the enqueue. (`job_assign_household`)
+- **Superseded insight contract fails, never regenerates**: historical successful `insight` rows are read-only, and a queued insight whose `prompt_version` differs from the current one is failed as `superseded_contract` rather than regenerated, since the old contract is not the current non-advice contract. (`insight.Processor`)
+- **Insight reads keep the original measured-day cutoff**: the analytics session is built from the insight's stored `requestedAt` (its `facts_snapshot.generatedAt`), not the processing time, so queue delay and retries cannot shift which days count as measured. (`insight.Processor`)
+- **Open cycle residual review is recomputed in the same transaction**: recording the missing transaction through Telegram intake must refresh the open cycle-residual review inside the same canonical transaction, or the review keeps showing a residual the new transaction already explains. Extends ADR-036. (`residual.TestConfirmedIntakeRefreshesOpenCycleResidual`)
+
+## ADR-092: Web Push outbox delivery, lease and endpoint safety
+*Accepted · 2026-11-21*
+
+Scope: the worker-side Web Push sender, its outbox sweeps and its outbound-request guard. Extends ADR-057. These decisions were previously recorded only as source comments.
+
+- **Outbox sweeps run without VAPID**: missing VAPID configuration only stops the sender, so rows stay pending until keys are installed, but `push.Expire` and `push.Purge` are free functions the worker ticks anyway. Otherwise the outbox would grow behind a disabled feature, and a `Sender` cannot even be built with an empty key. (`push.Expire`, `push.Purge`)
+- **Endpoints are user-supplied, so SSRF is blocked at dial time**: `checkEndpoint` pins HTTPS and pre-resolves the host, and the dialer rechecks the connected address, so a later DNS change cannot reach a private service. `secureClient` refuses redirects and sets `Proxy` to nil so an environment proxy cannot bypass the checks. (`checkEndpoint`, `secureClient`)
+- **At-least-once delivery with a long lease**: `defaultLease` (5 minutes) outlasts an HTTP send so a slow push service does not lose its claim, and the lease of every claimed row is renewed before each device send so a slow multi-device batch is not reclaimed and sent twice. A crash after send but before recording can still re-send once. (`defaultLease`, `Sender`)
+- **Expiry, retention and purge bounds**: `DefaultExpiry` (1 hour) drops stale notifications because replaying history to a newly subscribed device is noise. `DefaultRetention` (7 days) keeps terminal rows for missed-notification reports, which resolve within days. `purgeBatch` (1000) stops the first purge after long uptime from locking a huge set. (`DefaultExpiry`, `DefaultRetention`, `purgeBatch`)
+- **Purge deletes deliveries before outbox rows**: the outbox-to-delivery foreign key has no `ON DELETE CASCADE`, so `push_outbox_delivery` rows go first, PENDING rows are never matched, and a terminal outbox row that still has a fresh delivery is skipped so the delivery is not stranded on a missing key. (`push.Purge`)
+- **Failures retire a device only on a definitive answer**: `failure_count` is diagnostic, because a transient outage must not retire a valid device. Only `DeliveryError.Dead` (HTTP 404 or 410) sets `disabled_at`, and the attempts cap already marks the delivery FAILED. (`DeliveryError`, `push_subscription`)
+
+## ADR-093: Document pipeline cross-lane write serialization and reprocess safety
+*Accepted · 2026-11-21*
+
+Scope: how receipt and screenshot writes stay one canonical transaction per real event when bank email, receipts and screenshots arrive concurrently, and how identity evidence and reprocessing are kept from creating duplicates. Extends ADR-042 and ADR-041. These decisions were previously recorded only as source comments.
+
+- **Receipt write re-checks under the ledger lock**: another lane (for example a bank email) may write a matching candidate between the receipt decision and its write, so the write re-checks candidates under `LockLedgerEvent` and retakes the decision on `ErrLedgerRaced`, linking to the existing transaction instead of creating a second one. This holds for every lane order, including when the earlier transaction is still NEEDS_REVIEW. (`receipt.go`, `reviewdomain.LockLedgerEvent`)
+- **The locked re-check runs on the writing transaction's connection**: it uses the same transaction, never a second pool connection, so a screenshot write completes on a single-connection pool instead of waiting forever. (`findScreenshotMatchesWith`)
+- **Screenshot rows lock every amount, then compare the whole candidate set**: amounts are locked in sorted order, and `sameScreenshotCandidates` treats a new, re-scored or vanished candidate as a change that returns `ErrLedgerRaced`, so a stale decided list never authorises a write and the job retries. (`sameScreenshotCandidates`)
+- **Candidate scope spans lanes**: match candidates include transactions awaiting review from any lane, so one purchase seen twice is not two. Only proposals bound to this transaction's screenshot evidence may contribute identity. (`findScreenshotMatchesWith`)
+- **Carried prior matches are review signals, never scored matches**: a reprocess adds earlier matched transactions as candidates of unmatched rows, because otherwise today's matcher finding nothing would write a second CONFIRMED row. These candidates carry no score, since Score 1 means exact identity to the strong-match selector. (`priorScreenshotState`)
+- **Reprocess keeps proposal history**: `reprocessProposalKey` takes the next free key instead of overwriting earlier proposals. Proposals written before per-row keys existed use the key `primary`, which does not collide with `row-001`. (`reprocessProposalKey`)
+- **Identifier normalization is bounded and audited**: screenshot identifiers are observed evidence, so duplicate kinds and entries over `maxScreenshotIdentifiers` are dropped before validation so a harmless duplicate cannot fail a valid document. It never touches amount, type, direction, date or tenant, and bad syntax still fails validation. JSON Schema cannot express per-kind uniqueness, so the schema description states it in words and Go enforces it. One idempotent audit row per document and stage records row indexes, kind names and counts, never values. (`normalizeScreenshotIdentifiers`, `recordIdentifierNormalization`)
+- **A row without an amount is never duplicate-matched**: no amount means no safe match, so it becomes a `MISSING_AMOUNT` review and reconciliation runs after the user supplies the amount. (`screenshot.go`)
+- **A merged row keeps its category only if sources agree**: a validated category survives a merge into an existing transaction so a later dispute can reuse it, but a row whose independent sources disagree (`CategoryConflict`) keeps none. (`screenshot.go`)
+
+## ADR-094: Document intake: untrusted text, notices and review idempotency
+*Accepted · 2026-11-21*
+
+Scope: how the document pipeline treats user- and image-derived text, announces results once, and keeps its review and intake paths independent of the gateway and Telegram. Extends ADR-009. These decisions were previously recorded only as source comments.
+
+- **One notice per document, claimed by a marker**: `document.evidence_notice_at` is set with `WHERE evidence_notice_at IS NULL` in the same transaction as the `SEND_TELEGRAM_MESSAGE` job, so both commit or roll back with the mutation. The guarantee rests on the marker, not on job rows, which are pruned after 30 days, so a late retry cannot announce the document twice. (`document/notice.go`)
+- **Evidence text sent to chat is plain text**: `noticeSubject` renders merchant or employer text as one bounded line, never markup, because it comes from untrusted documents. (`noticeSubject`)
+- **User captions and filenames are bounded untrusted evidence**: `sanitizeEvidenceText` strips control characters and caps length so they cannot inflate the prompt or smuggle terminal sequences. A screenshot caption is also whitespace-collapsed, clipped to `screenshotCaptionChars` (200 runes) and placed in its own block labelled untrusted, never phrased as an instruction, so it cannot change tool policy, schema or Go validation. (`sanitizeEvidenceText`, `screenshotEvidenceCaption`, `screenshotExtractionText`)
+- **Row text in the verifier prompt is delimited**: image-derived merchant and description text is delimited as untrusted so a crafted merchant cannot steer the bounded ruling that authorises a write. (`screenshot_choice.go`)
+- **Repair may re-answer only top-level fields**: `screenshotValidationIssues` maps rule failures to the top-level field the model may re-answer, while row-local problems stay on rows, so a repair cannot restructure the row set. (`screenshotValidationIssues`)
+- **One active review per document**: the `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` insert uses `ON CONFLICT DO NOTHING` and reuses the existing PENDING_SEND or OPEN review, because a retried job or a sibling classification review may already hold it. (`document/terminal.go`)
+- **Review decisions persist without a Telegram recipient**: the receipt review stores its `reviewdec.Preset` contract even when no recipient exists, because the Inbox must not depend on notification configuration. (`document/receipt.go`)
+- **Thumbnail is made before any gateway call**: it is created first so a thumbnail exists even when the AI gateway is down. (`document/processor.go`)
+- **A resolved Wealth Account is a sufficient binding**: a unique, active, compatible Wealth Account accepts the `wealth_observation` without review, while an unresolved account hint stays `PENDING` and becomes a review. (`document/processor.go`)
+
+## ADR-095: Super Admin and operations status endpoint safeguards
+*Accepted · 2026-11-21*
+
+Scope: the platform Super Admin read paths and the household `GET /api/v1/operations/status` endpoint. Extends ADR-058 and ADR-059. These decisions were previously recorded only as source comments.
+
+- **Household list figures are independent subqueries**: each count in the admin household list is its own indexed subquery. Joining child tables and counting `DISTINCT` multiplied rows and took minutes on one real household. (`apps/api/internal/admin/handler.go`)
+- **Invite responses are never cacheable**: a response whose body carries a bearer invite token is sent `Cache-Control: private, no-store`, so no browser or proxy cache can retain the credential. (`apps/api/internal/admin/provision.go`)
+- **Overview diagnostics are best-effort**: a diagnostics query error omits the diagnostics instead of failing the whole household overview, so a broken probe cannot hide the household. (`apps/api/internal/admin/read.go`)
+- **Review-ops views never select financial evidence**: the Super Admin rollout-health aggregates are read-only and never select amounts, merchants, counterparties, email bodies, document content or prompt text, so the platform operator cannot read household finances through them. (`ReviewOpsSummary`, `ReviewOpsBreakdown`, `ReviewOpsProjections`)
+- **Probe timeout sized from measurement**: `probeTimeout` is 120ms because the heaviest leaf query measured about 13ms with fresh statistics and 76ms with stale ones on a 30-day seed. `statusBudget` (150ms) is the acceptance deadline, and a healthy read finishes well inside it. (`probeTimeout`, `statusBudget`)
+- **Probe fan-out is capped below pool size**: `probeSlots` is pool capacity minus one, so queries queue on the semaphore rather than on the pgx pool and never take every connection other requests need. Only leaf queries may call `probe`; a group that fans out further must not hold a slot, or nested fan-out could deadlock. A small pool must still return real data, so the overall status value is not asserted in the small-pool test. (`probeSlots`, `runGroups`)
+- **A failed section degrades visibly**: the four status sections run concurrently, and a slow or failing one returns its zero value and is named in `degradedSections`, so a client can tell a failed section from a real zero. (`apps/api/internal/operations/handler.go`)
+- **Empty binding map serialises as `{}`**: a household with no CEU traffic returns an empty non-nil `ceuBinding` map so the JSON is `{}`, not `null`, which clients depend on. (`ceuBinding`)
+
+## ADR-096: TARC coverage and web-escape metric definitions
+*Accepted · 2026-11-21*
+
+Scope: the Super Admin review-ops rollout metrics for Telegram-actionable review coverage (TARC) and Web escapes. Extends ADR-046. These decisions were previously recorded only as source comments.
+
+- **Resolution surface comes from the shared audit row**: a resolved review's surface (TELEGRAM, USER or SYSTEM) is read from the audit row written in the same transaction as the `review_item` update, where `created_at` equals `resolved_at`, so it works whatever action name a resolver uses. Legacy entity matches and `resolution_action` are fallbacks. It is never inferred from the resolver's Telegram identity, because one person may resolve from either channel. The test routes a real resolution through the shared operation, because hand-seeded audit rows would hide a production path that writes none. (`resolutionSurfaceSQL`)
+- **Telegram capability mirrors the worker gate**: `telegramCapabilitySQL` treats a stored `ReviewDecision` as Telegram-completable only when all its ordinary allowed actions are, matching the worker's action-level gate. A delivered card whose only button lives on Web is not counted as actionable coverage.
+- **Eligibility is snapshotted at creation**: `review_item.telegram_eligible_at_creation` is set by a BEFORE INSERT trigger (migration `00080`), so linking or unlinking a Telegram identity later cannot move a review into or out of TARC. NULL legacy rows fall back to the current-recipient predicate. (`telegramEligibleSQL`)
+- **Denominator and range basis**: the TARC denominator is decision-backed reviews created in range in a household that had an active Telegram recipient at creation, excluding system-settled reviews. Reviews without a stored `ReviewDecision` predate the contract and are reported as legacy. It is range-based, not a snapshot of open reviews, so it stays measurable once the inbox is empty. (`coverageEligibleSQL`, `coverageSQL`)
+- **Only mandatory Web resolutions count as escapes**: a Web resolution counts only when its ordinary actions could not all be completed in Telegram. A fully Telegram-capable review resolved on Web is a voluntary switch, not an escape. (`webEscapeSQL`)
+
+## ADR-097: Operations scoreboard derivation and metric cohorts
+*Accepted · 2026-11-21*
+
+Scope: the product and judgment aggregates behind `GET /api/v1/operations/status` (human-touch rate, RHICE, closure and fidelity metrics, Jev scoreboard). Extends ADR-062 and ADR-038. These decisions were previously recorded only as source comments.
+
+- **Scoreboards are derived on read**: the product and judgment aggregates are read-only, computed from canonical state and tables the worker already writes, and never select amounts or free text. They cannot drift from the ledger, need no write-path pipeline and lose no history when thresholds change. Unbounded 30-day scans with no new indexes are accepted until volume warrants a rollup. (`productAggregate`, `judgmentAggregate`)
+- **`llm_call` telemetry semantics**: every bounded call and decision lands in `llm_call` as protocol `systemone`. Only `JUDGMENT` rows are transport calls, so failures are counted there; a `DECISION` row's status is `SUCCEEDED`/`FAILED` with the outcome in `error_class`. Fixtures must use the gateway spellings: wrong ones once made the failure counter read zero. (`judgment.go`)
+- **Phase telemetry measures model order only**: a phase row knows only transport success, so policy and rescue success are read from `judgment_decision`. The double-pass counter is a candidate only, since generative output alone cannot prove Go accepted its category. (`judgment.go`)
+- **Human-touch rate uses one cohort**: `SourceEvents` is the whole-window cohort and reviewed events use the same cohort as the processing states, so the ratio cannot exceed 1. Reviewed events still in `NEEDS_REVIEW` belong in it, and `IGNORED` events (promos, internal moves) are not canonical financial events. (`HumanTouchRate`)
+- **RHICE numerator is an allow-list of explicit user actions**: it counts recorded review turns per canonical event, so each supplied field counts. A deny-list would let system resolutions inflate it. `IGNORE` and residual allocation (review metadata) add no input to a canonical transaction and are excluded, as are values merged from known server state. A resolution bound to an event outside the window cannot sit in the numerator while that event is outside the denominator. (`RHICE`)
+- **Wealth Snapshot reviews bind through the observation row**: that review carries no `source_event`, proposal or document, so the observation evidence row is the only link that can bind it to a transaction for RHICE. (`RHICE`)
+- **RHICE query shape**: a single pass over `review_item` with hashed `IN` subqueries. A `UNION` of three bindings re-materialised the resolved set and measured 790ms against 12ms on a 30-day seed.
+- **Accepted-without-edit excludes `MERGE_EXISTING`**: only resolutions that accepted a proposal count (`CONFIRM_REVIEW` and its Telegram equivalents). `MERGE_EXISTING` is a choice between candidates, not an accepted proposal. (`AcceptedWithoutEdit`)
+- **Resolution time reads `review_item`**: mean open-to-resolve time comes from `review_item`, not `review_request`, so every review type counts, not only Telegram-delivered ones. (`TimeToResolutionMs`)
+- **Reviews without a source event stay counted**: legacy and proposal-scoped reviews group as `unattributed` instead of being dropped, so counts stay complete. (`product.go`)
+- **CEU binding telemetry is counters only**: `CEUBinding` exposes counts by bounded action name, with no text, value or identifier. (`CEUBinding`)
+- **Closure metric provenance**: a NULL accepted-dimension set means historical/unknown and is ignored rather than counted as zero; `'{}'` is explicitly empty. Evidence-support and same-event identity checks are not semantic re-decisions. Only bounded validation reviews with explicit entry provenance are eligible; conflicts, canonical ambiguity and human policy are excluded.
+- **Fidelity and re-ask use complete contracts only**: fidelity is a property of the stored contract, not semantic ground truth. Only complete `ReviewDecision` contracts enter its denominator, and populated ones the known-fact re-ask metric, because historical NULL decisions cannot show which fact was asked. Changed fields come from review-turn telemetry, not raw resolution values.
+- **Late callbacks still count as a review turn**: a delayed Telegram callback can persist its bound reply after the canonical review has resolved. It is still one review turn and must not be dropped. (`product_telemetry`)
+
+## ADR-098: Review Inbox and canonical resolution invariants
+*Accepted · 2026-11-21*
+
+Scope: the Web Review Inbox read path and the canonical resolve handlers in `apps/api/internal/review`. Extends ADR-046 and ADR-054. These decisions were previously recorded only as source comments.
+
+- **The Inbox reads canonical `review_item` only**: every `NEEDS_REVIEW` transaction has one active item carrying its `ReviewDecision`, with or without Telegram. The item ID stays the transaction id because Web actions address `/reviews/{transactionId}/...`. (`apps/api/internal/review/handler.go`)
+- **One stored decision contract for every client**: the persisted `ReviewDecision` is the single source of truth for what a review asks, so the Telegram card and the Inbox read the same contract. A regression once told the Inbox `merchant` was missing while the stored decision asked only for `category`. The server decides what is unresolved, so tests assert this on the API payload, not in the browser.
+- **Known facts are shown, only missing facts are asked**: the Inbox renders known facts read-only and asks only for what the stored decision reports missing. A missing or unreadable decision yields the zero value, not a guess, and the card falls back to the full form. Resolved entities are read from decision provenance, so a producer resolving a new dimension needs no new list column. (`proposalFacts`, `resolvedEntity`)
+- **Confirm enforces the missing-fact guard in its transaction**: `confirmationBlockers` runs inside the confirm transaction, so a confirm proceeds only when every residual fact the stored decision reported is supplied this turn. A legacy client or old card cannot skip a required date or category by omitting it. (`confirmationBlockers`)
+- **Orphaned items stay visible**: transaction-bound items normally go to Telegram, so the Inbox excludes them. A transaction-bound item whose transaction is already `CONFIRMED` is orphaned and still listed, so a stranded review can be resolved. It has no financial work left: only `IGNORE` is accepted and the shared operation acknowledges it without touching the final transaction. The item is the authority, so it keeps listing even if the transaction left `NEEDS_REVIEW`. (`canonicalOpenItems`)
+- **Merge candidates match the Telegram card**: window candidates plus transactions a reprocessed document was already linked to (`prior_match_transaction_ids` in the decision), even when amount or date drifted. (`handler.go`)
+- **Merge reversal reopens only the voided transaction**: only the transaction the merge voided is reopened. One that changed since stops the reversal instead of being dragged back into review. (`handler.go`)
+- **Missing amount keeps the proposal unresolved**: a screenshot row whose image never showed an amount stays unresolved until the household supplies a value, so no canonical transaction exists without a positive amount. (`resolveMissingAmount`)
+- **Pay-date answers cannot silently set salary policy**: when a primary salary already exists, a date-only answer with no classification leaves policy intact and must not make that income primary. A first salary source with a missing date is two dimensions at once: a date alone is rejected and the explicit policy choice records exactly one salary event. (`canonical.go`)
+- **Typed nil must not reach the shared command**: a nil `*time.Time` placed in the command's `any` field is a non-nil interface, once slipped past the domain guard and wrote NULL into NOT NULL `transaction_proposal.transaction_at` (a 500). A confirm without a supplied date must succeed with the stored date untouched. (`canonical.go`)
+- **Provider-email facts ignore settles the source event**: such a residual is observation-scoped, so `review_item` has only `financial_email_observation_id` and a NULL `source_event_id`. Web `IGNORE` must still settle the owning source event rather than leave it in `NEEDS_REVIEW`, as the Telegram lane does. (`canonical.go`)
+- **`pay_date` is a household-local civil date**: payslip finalization and duplicate handling must not depend on the Postgres session timezone (`Asia/Jakarta` is the household zone); the test runs under both UTC and `Asia/Jakarta`. (`payslip_finalization_integration_test.go`)
+
+## ADR-099: Household creation, session and Telegram intake ordering
+*Accepted · 2026-11-21*
+
+Lock and acknowledgement ordering for household creation, login, invite acceptance, Telegram linking and Telegram webhook intake. Extends ADR-035, ADR-058 and ADR-059. These decisions were previously recorded only as source comments.
+
+- **One advisory lock for every household creation path**: the operator bootstrap command and `provision.CreateHousehold` both take `pg_advisory_xact_lock(hashtext('richmod.household.create'))` before their uniqueness checks (owner exists, email, Telegram ID). Without the shared lock, concurrent bootstrap and console requests could both pass those checks. (`createHousehold`, `CreateHousehold`)
+- **Login cannot outlive a password reset**: session creation re-reads the user row `FOR SHARE` and re-checks the hash it verified. A reset holds `FOR UPDATE`, so a login that verified the old password waits, sees the new hash and fails instead of creating a session after the reset revoked sessions. (`auth.Service` login)
+- **Invite acceptance re-checks membership**: a dashboard invite enrolls only a member still active in the household that issued it. Removal revokes pending invites, Telegram access and sessions, but acceptance re-checks anyway so an invite sent before removal can never be used. (`auth.Service` invite acceptance, household member removal handler)
+- **Telegram link versus member removal**: the link path reads the member row `FOR SHARE`, which conflicts with `Deactivate`'s update. A removal either finishes first and the link is refused, or waits and then revokes the identity just created, so removal can never miss a fresh identity. (`telegram` intake link handling)
+- **Reply binding needs the chat id**: upload intake stores `ChatID` beside the Telegram message id, because message ids are unique only per chat and a reply binds to the stored pair. (`telegram.intake`)
+- **Failed capture is not acknowledged**: when capturing an update fails, the webhook returns 500 and does not answer the callback query, so Telegram redelivers the update and the retry answers it. Webhook handling stays idempotent. (`telegram.intake`)
+- **Callback answered in the webhook response**: `answerCallbackInResponse` returns the Bot API call as the webhook reply, so the tap spinner clears once the tap is durably stored. That avoids holding the bot token in the API and waiting on the worker queue; it carries no text and the worker sends the outcome as a message. (`answerCallbackInResponse`)
+
+## ADR-100: Inbound email authentication and forwarding verification
+*Accepted · 2026-11-21*
+
+How the email-ingress transport judges sender authentication, proves forwarding works, and sets up bank-email listeners. Extends ADR-033 (Cloudflare email ingress) and ADR-058. These decisions were previously recorded only as source comments.
+
+- **Only the topmost Authentication-Results counts**: the receiving MTA prepends its own header, so every header below it may be sender-written (RFC 8601 section 5). `mime.go` keeps them topmost-first; `authTrusted` requires a trusted authserv-id with `dkim=pass` and `dmarc=pass` as method results, and a DMARC `header.from` equal to the routed From domain. `ARC-Authentication-Results` is never trusted, since without validating the ARC-Seal chain (RFC 8617) it is just another sender-writable header. (`authTrusted`, `mime.go`)
+- **authserv-id may carry a version number**: only the first field of the header is matched against the trusted list. (`emailingress/auth.go`)
+- **Header comments are stripped before parsing**: RFC 5322 comments may contain any text, including look-alike `dkim=pass` fragments a sender could forge, so `stripHeaderComments` runs before method results are read. (`stripHeaderComments`)
+- **A sender is the only hard prerequisite of activation**: forwarding verification needs only the address, because Gmail confirms forwarding against a `PROVISIONED` address. (`buildSteps`)
+- **Forwarding proof must be real mail**: `forwardingVerified` counts only a non-control email, and `acceptedDeliveryStatus` accepts only `PROVISIONED_RECEIVED`, `INGESTED` and `DUPLICATE`. A Gmail confirmation email is a delivery but proves nothing, and rejected `IGNORED_*` outcomes must not close a pending verification. (`forwardingVerified`, `acceptedDeliveryStatus`)
+- **Rotation drops the old verification action**: rotating the address auto-resolves the pending Gmail verification, and `OpenForwardingAction` never returns an action whose source delivery belongs to a disabled address. Its code and link belong to the old address and must not be offered for the new one. (`OpenForwardingAction`, address rotation)
+- **Sender identity is not account identity**: bank-email listener setup reuses one deterministic system-managed `SPENDING_ONLY` logical account per bank name (looked up `FOR UPDATE`) and otherwise creates one with an ID-derived `system_key`, rather than one account per sender address. (`settings/bank_email.go`)
+
+## ADR-101: Web push safety and static UI serving details
+*Accepted · 2026-11-21*
+
+Push enablement, subscription handling, endpoint validation, and cache and path rules of the embedded web UI. Extends ADR-056 and ADR-057. These decisions were previously recorded only as source comments.
+
+- **Push enabled state has one predicate**: `pushsupport.Parse` validates the VAPID private scalar and subject exactly once; both the API's advertised key (`NewHandler`) and the worker's sender go through it. A private key without a valid subject disables push, so the client is never told push is on when delivery cannot start. (`pushsupport.Parse`, `push.NewHandler`)
+- **Subscribe does not leak endpoint ownership**: when the upsert affects no row, either the caller is not an active member or the endpoint belongs to another user. A non-member always gets a generic 403; only an active member sees `ENDPOINT_OWNED_BY_ANOTHER_USER`, and ownership is never transferred. (`push.Handler.Subscribe`)
+- **Unsubscribe disables, never deletes**: it touches only the caller's own row and keeps it as evidence of the device that used to receive notifications. (`push.Handler.Unsubscribe`)
+- **Endpoint SSRF guard**: `validateEndpoint` requires HTTPS, resolves the host and rejects loopback, private, link-local, CGNAT, unspecified, multicast and reserved answers. It is only a subscribe-time gate, so the worker repeats it at dial time against DNS changes. `errEndpointBlocked` never carries the resolved address and callers return a generic rejection, so probing cannot reveal lookup results. (`validateEndpoint`, `errEndpointBlocked`)
+- **UI 404 body is never cached**: it is served `no-store`, because a path that 404s today may exist after the next deploy and no shared cache may keep serving the old body. (`webui.go`)
+- **Embedded root is the traversal boundary**: `path.Clean` has already removed traversal and the embedded filesystem is rooted at `assets`, so that root, not the cheap `exists` guard, is the security boundary. Do not rely on `exists` alone. (`webui.go`)
+- **build-id.txt must always revalidate**: it changes on every release and open tabs poll it, so an immutable or max-age answer would keep telling a stale tab it is current. (`webui.go`)
+- **Manifest MIME is set explicitly**: Go's built-in table has no `.webmanifest` entry and the host `mime.types` file is not part of the contract, while browsers ignore a manifest not served as `application/manifest+json`. (`webui.go`)
+
+## ADR-102: Ledger edit, void and document-pending rules
+*Accepted · 2026-11-21*
+
+Rules for editing and voiding transactions, the quick-suggestion key, and document review state. Extends ADR-036, ADR-039 and ADR-060. These decisions were previously recorded only as source comments.
+
+- **Transaction edit is a narrow patch**: `PATCH /api/v1/transactions/{id}` locks amount, time, type, currency and evidence links, so corrections go through void and re-create and evidence stays intact. A transaction with an open review returns 409 `REVIEW_OPEN`, because review resolution owns those facts and this endpoint never routes around it. Transfers reject category and account changes. An unchanged but since-deactivated category or account is accepted; only a change to an inactive one is rejected. (`ledger/edit.go`)
+- **Detail edits have no residual side effect**: analytics read the ledger live and the cycle basis sums confirmed transactions household-wide, so a detail edit never recomputes residual reviews. (`ledger/edit.go`)
+- **Void and manual record recompute open residuals in the same commit**: voiding a CONFIRMED transaction removes it from cycle totals, so any open cycle residual review built on them is recomputed in the same transaction (reason `TRANSACTION_VOIDED`), as recording one is. A manual transaction refreshes residuals because the Inbox answer "transaksi belum tercatat" reopens with the recomputed residual (ADR-036). (`ledger/lifecycle.go`, `ledger/manual.go`)
+- **Quick-suggestion description key is shared with the web**: `normalizeDescription` (lower-case, whitespace collapsed) must match the client's normalization exactly or lookups miss. When category counts tie, the walk runs newest first so the most recent category wins. (`normalizeDescription`, `quick_suggestions.go`)
+- **One definition of "document still pending"**: `documentPendingSQL` decides whether anything actionable waits on a document (open review, `NEEDS_REVIEW` transaction or proposal, pending provider-email observation, open transfer case, pending wealth observation) over the document's source plus album page sources, and drives the badge. Migration 00099 embeds an exact copy because SQL cannot import it, and `pending_rule_test.go` keeps the two equal so repaired stored rows never drift from displayed ones. (`documentPendingSQL`)
+- **Reprocess resolves open reviews through the `/reviews` path, in a loop**: the Inbox must stop offering REPROCESS/IGNORE for a document already being retried. `review_item_active_document_unique` (migration 00029) currently allows one open review per document, but the loop stays so relaxing that index cannot leave a stale review. (`document/handler.go`)
+
+## ADR-103: Analytics windows, cycle decisions and model projections
+*Accepted · 2026-11-21*
+
+Window labeling, comparison cohorts, wealth reconciliation, cycle-decision records, insight rate limiting and what analytical tools may see. Extends ADR-015, ADR-036 and ADR-062. These decisions were previously recorded only as source comments.
+
+- **Window labels follow the resolved window**: the analytics detail response always reports window kind and cycle count with the resolved dates, so a calendar-month fallback (fewer than 3 salary anchors) is never labelled as cycles. (`analytics/detail.go`)
+- **Previous period matches the overview's kind**: `previousPeriod` resolves the salary cycle or calendar month immediately before the period. A calendar month counts only when it holds confirmed spending, income or refunds; a salary cycle exists whenever an earlier salary anchor does. (`previousPeriod`)
+- **Median baselines need equal windows**: while the selected cycle is ACTIVE, `medianCohort` needs three prior cycles that each cover the selected cycle's elapsed day count. A shorter closed cycle is kept whole (not skipped) as the previous-cycle baseline, so an older, longer cycle never masquerades as "previous", but it is never mixed into a median of unequal windows. (`medianCohort`)
+- **Wealth reconciliation uses the observed interval**: it reconciles over the actual observation interval, not an invented cycle-end balance, and future observations never enter a past review. (`analyticscore/query.go`)
+- **Cycle decision writes enforce tenancy**: `createDecision` rechecks active household membership inside the INSERT and accepts no client-supplied household or author. Any active household member may soft-revoke a shared household decision, not only its author. (`analytics/decision.go`)
+- **Decision and review telemetry carries no content**: `CYCLE_DECISION_SAVED` is logged only after the decision commits, and `CYCLE_REVIEW_OPENED` counts successful facts loads, not visitors or meeting completion. Neither logs household IDs, amounts, dates, names or source/decision text; canonical text and authorship stay in `cycle_decision`. (`analytics/decision.go`, `analytics/review.go`)
+- **Stale insight cutoffs still count against the hourly cap**: a request for a different measured day is not reusable, and the client rejects the returned insight, but it counts toward the hourly cap so changing the cutoff cannot bypass it. The reuse match covers only the reusable cutoff: a pending job always, a fresh `SUCCEEDED` row only on the same cutoff. (`insight/handler.go`)
+- **Tool projections are explicit and narrow**: analytical tools never receive canonical IDs, source payloads or account membership (display names and bounded amount/date facts are intentional), nor the additive `History` and `CategoryHistory` series. (`analyticscore/tools.go`, `facts.go`)
+- **`category_ref` is turn-scoped**: refs are positions in one turn's fact snapshot, valid only in the turn whose `get_cycle_changes` issued them. An unissued ref returns `ErrCategoryRefNotIssued`, which the caller hands back to the model to re-fetch. (`ErrCategoryRefNotIssued`)
+
+## ADR-104: ReviewDecision action and encoding invariants
+*Accepted · 2026-11-21*
+
+Contract rules for the shared `reviewdec` package that produces the stored `review_item.decision`. Extends ADR-039 and ADR-046. These decisions were previously recorded only as source comments.
+
+- **Version tracks meaning, not shape**: `Version` is bumped only when the meaning of an existing field changes, not when a new optional field is added. (`reviewdec.Version`)
+- **No generic FORM interaction mode**: it is deliberately absent so a catch-all form cannot become the default by accident. (`reviewdec/decision.go`)
+- **Stored shape is stable and always valid**: `Decision.JSON` normalizes `MissingFacts` and `KnownFacts` to non-nil so the keys the UI reads always exist, and never encodes a decision that fails `Validate`. Every active reason's preset must encode, so a producer falling back to its preset is never refused by `Validate` or the `review_item` decision trigger. (`Decision.JSON`)
+- **PREPARE_SNAPSHOT is navigation, not an allowed action**: it is not a canonical completion, and listing it would make the real remaining actions look unavailable. The wealth review's ordinary allowed actions must contain no Web-only action. (`reviewdec/kinds.go`)
+- **Compound residual names both dimensions**: a category-plus-date residual lists each missing dimension explicitly, so one reason code never hides the other. (`reviewdec/kinds.go`)
+- **Reconciliation actions only with candidates**: the completion vocabulary is what the shared classifier accepts; `MERGE_EXISTING` and `CONFIRM_NEW_TRANSFER` belong to the reconciliation chooser and are added only when the case carries candidates. (`reviewdec/kinds.go`)
+- **Failed financial-email facts only acknowledge**: the producer overrides Missing/Affected/Consequence with the failed predicate, and since no canonical transaction was written the only allowed action is to acknowledge. (`reviewdec/kinds.go`)
+- **Receipt arithmetic mismatch is a quality signal**: the receipt's own total, date and category may all be known; only the line arithmetic disagrees, which cannot prove the printed total wrong. It is therefore treated as a quality signal needing one-tap confirmation. (`reviewdec/kinds.go`)
+
+## ADR-105: Web client load-state, session and one-time secret handling
+*Accepted · 2026-11-21*
+
+Scope: how the Next.js client turns failed, partial or missing server answers into UI state without showing a wrong number or a stale secret. Extends ADR-021 and ADR-046. These decisions were previously recorded only as source comments.
+
+- **Only a 401 means signed out**: `AuthProvider` and the admin page treat only a 401 as a lost session. A network error or 5xx says nothing about the session, so the client keeps what it knew and retries instead of logging the user out. (`AuthProvider.js`, `admin/page.js`)
+- **Null means not loaded**: the household members state stays `null` until a request succeeds, never an empty list, so a failed request cannot render as zero members or accounts. (`household/page.js`)
+- **Settings endpoints load independently**: a 403/404 means the section is not available to this role and renders empty; a 5xx, 401 or dropped connection means the state is unknown and is reported, not hidden as empty. (`SettingsPanels.js`)
+- **Inbox lists fail independently, the badge only from a full load**: one failing list request must not hide the other, but the nav badge is published only from a load that fetched both lists, and the publish effect is keyed on the load status, not the error banner, so a stale action error cannot freeze it. (`inbox/page.js`)
+- **Badge uses the server decision count**: the count is the server's `X-Decision-Count` (all pages, notices excluded) plus pending actions; only a list response without the header is counted client-side. Counting the loaded page would let notices and paging change the number. (`InboxCountProvider.js`)
+- **Invite and reset links are one-time secrets**: the link is returned only once, so the UI reports whether it reached the clipboard (no clipboard API without a secure context) and removes it once the owner enrolls or is deactivated, rather than leaving a spent link on screen. (`admin/Households.js`)
+- **Renewing an invite cancels first**: a new link exists only at creation, so renewal cancels the pending invite and then creates one; a 404 on cancel counts as success because nothing pending is the desired end state. (`household/page.js`)
+- **Model insight text is untrusted prose**: `InsightCard` renders generated text as plain paragraphs, never markdown or HTML; the banner and "Cek dengan data" links are static, not generated. (`InsightCard.js`)
+
+## ADR-106: Web money, date and cycle display rules
+*Accepted · 2026-11-21*
+
+Scope: what the web client may compute or reinterpret from served financial values. Extends ADR-013 and ADR-036; Go keeps ownership of financial arithmetic. These decisions were previously recorded only as source comments.
+
+- **Cycle review figures are served, not derived**: every amount, delta, median, total and share in the cycle KPI, ledger, section and where/what-changed views comes from the API (`cycle-review-v1`). The web only picks fields, formats and maps values to visual lengths; it never adds, subtracts, divides or orders by money. Compact "12,5" formatting is display only. (`cycleLedger.js`, `cycleKpi.js`, `cycleSections.js`, `cycleWhere.js`)
+- **Home sums use BigInt, never floats**: Beranda money arrives as decimal strings and is summed as BigInt integers; chart text alternatives keep the maximum as an exact decimal string compared via BigInt. Plain numbers are for chart geometry only. (`home.js`, `chartData.js`)
+- **Liability sign is presentational**: a liability above zero is stored positive but shown on the negative side (owing is negative), and zero is neutral, never a warning tone. The sign is applied in `amountTone`/format code, not in data. (`format.js`)
+- **Date-only strings are Jakarta calendar days**: a string like `2026-10-22` is read as a `+07:00` Jakarta day, not UTC, so the household timezone cannot shift the displayed day. (`format.js`)
+- **Cycle end is exclusive in the API**: a closed cycle is labelled up to the day before the stored `end` and the raw end is never printed; `active` wins over `end` because a running cycle may carry a provisional end. A spending-window label uses what the server resolved (`kind`, `cycles`, inclusive `end`) so the donut never answers a different question than the page. (`cycleDates.js`)
+- **Missing-transaction handoff passes an inclusive range**: the residual review converts `cycle_residual_case.cycle_end` (exclusive) to an inclusive last day so the manual form limits its date to that cycle. (`missingTransaction.js`)
+- **Running cycle is not tinted in the heatmap**: in full mode a column is tinted only if it covers the same span as the others, so a partial running cycle is flagged instead of looking smaller than completed ones. (`cycleSections.js`)
+- **Day subtotal counts only confirmed rows**: a ledger day's spend is confirmed expenses minus confirmed refunds, so needs-review and voided rows never move it. (`ledgerDays.js`)
+- **Decision text length counts code points**: the client counts characters, not bytes, because the server's 1-2000 rule counts code points. (`cycleSections.js`)
+
+## ADR-107: Review card and transaction form contracts with the server
+*Accepted · 2026-11-21*
+
+Scope: client behaviour that must match server contracts exactly so a button or payload never produces a guaranteed 400 or a wrong label. Extends ADR-044 and ADR-046. These decisions were previously recorded only as source comments.
+
+- **Resolved ids come from the item root only**: the list API fills resolved account ids at the review item root from the stored decision; reading a second path inside `decision` once rendered an account select for an already-resolved account and posted `undefined`. (`FinancialEmailResolutionCard.js`)
+- **Resend known entity ids, not null**: the canonical resolver needs both a funding account and a wealth account, so a dimension the decision already resolved is sent back as that id; sending null would 400 once partial decisions are stored. Extends ADR-043. (`FinancialEmailResolutionCard.js`)
+- **Quick-accept only when satisfiable**: a legacy `AMBIGUOUS_CATEGORY` card has no `categoryId` or proposal, so one-click accept would post a null category and 400. The primary action is quick-accept only if the card can satisfy the server contract, else it opens the edit form.
+- **One date field, two server contracts**: the residual field posts a date-only string to `parseReviewDate`, while `COMPLETE_BANK_FACTS` queues a job needing an RFC3339 instant with timezone (`parseStrictBankRFC3339`); the card converts a bare `datetime-local` value via `toISOString`.
+- **Proposal label keys off proposal state**: a proposed value is unsupported or contested and is labelled "Richmod mengusulkan", never "Tercatat". The label uses the row's own proposal state, not `decisionSource`, which stays `DETERMINISTIC` on automated reviews.
+- **Only PENDING and CONFIRMED rows edit or void**: this mirrors the API; `NEEDS_REVIEW` is resolved through review and `VOIDED` is final. (`transactionForm.js`)
+- **Edit sends changed fields only**: an unchanged category or account is never resent, since it may have been deactivated since and would block a description-only edit. (`editPayload`)
+- **Description is required only when touched**: ingestion may leave description NULL, so it is required only once the user changes it or the transaction already has one. (`transactionForm.js`)
+- **Description suggestion key matches the API**: the client key (lower-case, whitespace collapsed) must equal the key the API uses for `descriptionMap`, or suggestions miss. (`quickRecord.js`)
+- **Evidence link `?id=` scopes the list**: an evidence link's `?id=` deliberately limits the ledger to one row and stays in the list request; `?open=` only opens the drawer. (`transactionForm.js`)
+- **Document refresh merges by id**: refreshing the newest page keeps older loaded pages. Documents are never deleted, so a missing loaded row was only pushed past the page by newer uploads; merge by id, never timestamp, since rows can share one. (`documentPaging.js`)
+
+## ADR-108: Transactions page interaction invariants
+*Accepted · 2026-11-21*
+
+Scope: event-ordering, history and focus decisions on the transactions page and shared overlays that avoid double submits, lost handoffs and a broken back button. These decisions were previously recorded only as source comments.
+
+- **Quick-record handoff calls context, not an event**: a missing-transaction handoff calls the provider's `open()` from context. On a cold load the page effect runs before the provider attaches its window listener, so a dispatched event would be dropped. (`transactions/page.js`)
+- **Drawer mutations guard with a ref**: void and reverse-merge use a ref to refuse a second start in the same tick; `busyAction` state only disables buttons, because state is not visible until the next render and could allow a double submit.
+- **Failed load keeps rows, drops the cursor**: the pagination cursor belongs to the previous query and is invalid for the new one, so only the cursor is dropped.
+- **Paging walks `cursorHistory`**: previous-page replaces the history entry and drops `open=` instead of calling `history.back()`, which would pop the drawer's `?open=` entry rather than return to the previous page.
+- **Edit dialog stops key events locally**: the detail drawer's Escape/Tab handler is on `document`, so the native modal edit `<dialog>` stops key events to keep the drawer from handling them too.
+- **No form reset after await**: React clears `event.currentTarget` once a handler yields, so `currentTarget.reset()` after an `await` throws and skips the refresh that follows.
+- **Analytics leave guard stays synchronous**: the leave-page guard keeps `window.confirm` because the leave decision must be answered synchronously, which an async dialog cannot do.
+- **Focus trap skips unrendered controls**: a closed `<details>` hides its content, and counting it would make the last "focusable" a control Tab can never reach. (`useDrawerA11y.js`)
+- **Date input paints the spelled-out date in CSS**: `DateInput` shows the chosen date via `::after` with `content: attr(data-date)`, because callers wrap it in a `<label>` and a text node would leak into the label's accessible name. (`DateInput.js`)
+
+## ADR-109: Static frontend build, service worker and CSS invariants
+*Accepted · 2026-11-21*
+
+Scope: build identity, service-worker safety, iOS launch images and stylesheet rules around the static export served by Go. Extends ADR-056 and ADR-057. These decisions were previously recorded only as source comments.
+
+- **Build id hashes shipped sources, not the release SHA**: the container copies `apps/web` without `.git`, so a rebuild of the same tree keeps the same id and open tabs are not told to reload. One computation writes both `buildId.generated.js` and `public/build-id.txt` so they cannot disagree. (`scripts/build-id.mjs`)
+- **Update notice state and polling**: dismissal lives in module state because the shell remounts on navigation and the dismissal must last the page load; a newly mounted watcher checks immediately so frequent navigation cannot keep resetting the ten-minute timer. (`BuildUpdateNotice.js`)
+- **Notification click URLs reject `//` paths**: a pathname starting with `//` is protocol-relative to `openWindow()` and `navigate()` even though `new URL()` reports this origin, so `sameOriginPath` rejects it and a push payload cannot send the user off-origin. (`public/sw.js`)
+- **Launch images must match their media query**: iOS silently ignores a file whose pixels differ from the query. One image exists per distinct portrait logical size and pixel ratio; the conflicting 375x812@3 case uses the larger 1125x2436 image (the mini scales it down 4%); iPads and landscape are not covered. (`splash-devices.mjs`)
+- **Static preview server is not the reference**: the Playwright `static-server.mjs` only approximates `apps/api/internal/webui` and omits the 308 for `/path/`, per-class `Cache-Control` and security headers, which are tested in the Go handler. Do not change the Go server to match it.
+- **Stylesheet order is the cascade**: `globals.css` inlines contiguous pieces of the original stylesheet via `@import` in order; keep the order and add new rules to the piece that owns them. (`globals.css`)
+- **Page entry animates opacity only**: `app/template.js` remounts per navigation, and a transform on that wrapper would become the containing block for the fixed shell and toast. (`15-motion.css`)
+
+## ADR-110: Source comments are banned; decisions live in the ADR log
+*Accepted · 2026-11-21*
+
+Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. About 6,000 comment lines had accumulated; most restated the code, some were stale, some excused workarounds, and the few that recorded real decisions were scattered where nobody searched for them. Comments that explain a non-obvious why now go in this log, workarounds go in a GitHub issue, and everything else is deleted. `scripts/check-comments.mjs` enforces the ban in CI as a ratchet: `scripts/comment-baseline.json` holds per-file comment counts that may only fall, and it is empty today. Tool directives (`//go:build`, `-- +goose`, `eslint-disable`) are not comments. Decisions moved out of comments are ADR-064 to ADR-109; the original text is in git history before the purge. `/delete-comment` (`.claude/skills/delete-comment/SKILL.md`) repeats the audit.

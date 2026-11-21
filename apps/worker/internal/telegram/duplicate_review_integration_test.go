@@ -108,8 +108,6 @@ func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
 	}
 }
 
-// A reprocessed document whose match drifted out of the amount and window rules is still offered the
-// transaction its review decision carries.
 func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

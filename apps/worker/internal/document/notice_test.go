@@ -92,7 +92,7 @@ func noticeFixture(t *testing.T, ctx context.Context, withChat bool, sourceType 
 func TestEvidenceNoticeIsOnePerDocumentToTheUploadChatAsAReply(t *testing.T) {
 	ctx := context.Background()
 	pool, sourceID, documentID, chat := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
-	for i := 0; i < 3; i++ { // a retried processor re-runs the same path
+	for i := 0; i < 3; i++ {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -159,8 +159,6 @@ func TestEvidenceNoticeRollsBackWithItsMutation(t *testing.T) {
 	}
 }
 
-// The one-notice guarantee must not depend on job rows, which are pruned after 30 days; a later retry must
-// not announce the same document twice.
 func TestEvidenceNoticeStaysOnePerDocumentAfterJobsArePruned(t *testing.T) {
 	ctx := context.Background()
 	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
@@ -180,7 +178,7 @@ func TestEvidenceNoticeStaysOnePerDocumentAfterJobsArePruned(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DELETE FROM job WHERE payload_json->>'bind_document_id'=$1`, documentID); err != nil {
 		t.Fatal(err)
 	}
-	enqueue() // a processor retry after the first notice's job row was pruned
+	enqueue()
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE payload_json->>'bind_document_id'=$1`, documentID).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("a notice was re-queued after its job was pruned: %d (err=%v)", n, err)

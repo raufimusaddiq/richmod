@@ -5,11 +5,6 @@ import (
 	"fmt"
 )
 
-// Error taxonomy (ADR-033): model-recoverable refusals return to the model as tool results, permanent
-// failures end the turn with no retry; transient database or network trouble retries the job.
-
-// agentRecoverable is an executor refusal the model can act on; nothing was written, and UserCopy is shown if
-// the model runs out of turn budget.
 type agentRecoverable struct {
 	Status   string
 	Reason   string
@@ -23,7 +18,6 @@ func (e *agentRecoverable) toolOutput(tool string) map[string]any {
 	return map[string]any{"status": e.Status, "tool": tool, "reason": e.Reason, "next_step": e.NextStep, "executed": false}
 }
 
-// maxRecoverableResults bounds executor refusals handed back to the model per turn.
 const maxRecoverableResults = 2
 
 var (

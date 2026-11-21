@@ -9,55 +9,36 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TransferCommand is one canonical transfer-classification decision for a
-// transaction review that is still NEEDS_REVIEW with an unresolved type.
 type TransferCommand struct {
-	HouseholdID   string
-	ActorUserID   string
-	TransactionID string
-	ReviewItemID  string
-	RequestID     string
-	Action        string
-	// Classification is EXPENSE, OWN_ACCOUNT, HOUSEHOLD_ACCOUNT,
-	// INVESTMENT_ACCOUNT, ASSET_PURCHASE, or IGNORE.
+	HouseholdID     string
+	ActorUserID     string
+	TransactionID   string
+	ReviewItemID    string
+	RequestID       string
+	Action          string
 	Classification  string
 	CategoryID      string
 	WealthAccountID string
 	TransactionAt   *time.Time
 }
 
-// TransferResult reports the canonical classification outcome.
 type TransferResult struct {
 	Type            string
 	Status          string
 	Purpose         string
 	WealthAccountID string
 	CategoryID      string
-	// Counterparty is the stored transaction counterparty, exposed so a surface
-	// can default a remembered account display name without re-reading the row.
-	Counterparty *string
+	Counterparty    *string
 }
 
 var (
-	// ErrTransferNotFound reports a transaction that is no longer an open
-	// transfer-classification subject.
-	ErrTransferNotFound = errors.New("reviewdomain: transfer review not found")
-	// ErrExpenseCategoryRequired reports an EXPENSE classification without a category.
-	ErrExpenseCategoryRequired = errors.New("reviewdomain: expense category is required")
-	// ErrWealthAccountRequired reports ASSET_PURCHASE without a Wealth Account.
-	ErrWealthAccountRequired = errors.New("reviewdomain: asset purchase requires a Wealth Account")
-	// ErrInvestmentAccountAmbiguous reports an investment-account match that is not unique.
+	ErrTransferNotFound           = errors.New("reviewdomain: transfer review not found")
+	ErrExpenseCategoryRequired    = errors.New("reviewdomain: expense category is required")
+	ErrWealthAccountRequired      = errors.New("reviewdomain: asset purchase requires a Wealth Account")
 	ErrInvestmentAccountAmbiguous = errors.New("reviewdomain: investment account requires a deterministic linked wealth account")
-	// ErrWealthAccountIncompatible reports a Wealth Account that cannot hold this classification.
-	ErrWealthAccountIncompatible = errors.New("reviewdomain: incompatible wealth account")
+	ErrWealthAccountIncompatible  = errors.New("reviewdomain: incompatible wealth account")
 )
 
-// ClassifyTransferReview applies one canonical transfer classification: it locks the
-// subject, resolves Wealth Account/category candidates deterministically, mutates the
-// transaction and proposal, refreshes source-event state, and completes the review
-// item(s). Web and Telegram both call it (ADR-046). ErrMissingFacts leaves a
-// validated classification pending in this transaction; a partial-answer adapter may
-// commit it without completing the review.
 func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand) (TransferResult, error) {
 	var result TransferResult
 	var transactionType, purpose string
@@ -69,7 +50,6 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	if err != nil {
 		return result, err
 	}
-	// A retained transfer may replace its account, never silently change its purpose.
 	replacingAccount := transactionType == "TRANSFER" && (purpose == "ASSET_PURCHASE" && cmd.Classification == "ASSET_PURCHASE" || purpose == "INVESTMENT_CONTRIBUTION" && cmd.Classification == "INVESTMENT_ACCOUNT")
 	if !replacingAccount && !transferClassificationApplies(transactionType, cmd.Classification) {
 		return result, ErrTransferNotFound
@@ -81,8 +61,6 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	if cmd.Classification == "INVESTMENT_ACCOUNT" {
 		var linked string
 		if cmd.WealthAccountID != "" {
-			// An explicit chooser selection bypasses ambiguous hint matching, but
-			// only if the account remains active, compatible, and in this household.
 			err = tx.QueryRow(ctx, "SELECT id::text FROM wealth_account WHERE id::text=$1 AND household_id=$2 AND transfer_wealth_compatible('INVESTMENT_CONTRIBUTION',id,$2::uuid)", cmd.WealthAccountID, cmd.HouseholdID).Scan(&linked)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return result, ErrWealthAccountIncompatible
@@ -153,7 +131,6 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 		}
 	}
 	if result.Status == "VOIDED" {
-		// Ignoring a review-held target of an ACTIVE merge would leave the merged event with no live transaction.
 		if protected, perr := ActiveMergeTarget(ctx, tx, cmd.HouseholdID, cmd.TransactionID); perr != nil {
 			return result, perr
 		} else if protected {
@@ -187,11 +164,6 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	return result, err
 }
 
-// transferClassificationApplies reports whether a classification is valid for the
-// transaction's current type. An unclassified transfer accepts every classification;
-// an expense can only become an asset purchase; an incoming row typed INCOME (a
-// screenshot "dana masuk") can be recognised as own-account movement or ignored,
-// since expense, asset and investment contribution describe money leaving.
 func transferClassificationApplies(transactionType, classification string) bool {
 	switch transactionType {
 	case "UNCLASSIFIED":

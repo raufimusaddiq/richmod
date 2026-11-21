@@ -13,8 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// A staged screenshot-link dispute is resolved only by its Telegram buttons.
-// Web confirm/merge must answer an explicit 409 and mutate nothing.
 func TestWebConfirmAndMergeOnStagedDisputeAreExplicitConflictsWithoutMutation(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

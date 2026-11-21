@@ -1,45 +1,4 @@
 -- +goose Up
--- Ticket #356: 15 source events show as NEEDS_REVIEW although no active review
--- item can resolve them (detected by the stuck-source-events query, see
--- docs/runbooks/stuck-source-events.md). Each group below has one root cause,
--- found by read-only inspection of production, and one settlement:
---   A  6 Telegram chat replies saved as NEEDS_REVIEW (never a review subject)
---        -> PROCESSED.
---   B  3 bank emails whose extraction was INVALID under pre-ADR-048 code
---        -> FAILED plus the dismissable failed-source Tindakan item that
---        reviewdomain.RecordFailedSourceAction writes today. Not re-extracted.
---   C  1 wealth document whose observation is APPLIED and item RESOLVED
---        -> PROCESSED.
---   D  5 documents whose DOCUMENT_EXTRACTION_LOW_CONFIDENCE item was resolved
---        IGNORE without settling the source -> source IGNORED. The document
---        stays EXTRACTED: document.status has no IGNORED value.
---
--- Two transfer-proof events (group E in the ticket) are deliberately NOT here.
--- Reprocessing them can write a second CONFIRMED transaction for a transfer that
--- is already recorded, which is money and not a status settlement; the runbook
--- settles them by hand with a before/after check.
---
--- No row id is named. Each group is found by the state signature the inspection
--- established among events received before 2026-10-07 (the batch inspected;
--- group A's cause is still live in code, so later events must neither be
--- touched nor block this deploy), and the migration refuses to run unless the
--- group has exactly its expected size (A 6, B 3, C 1, D 5) or is empty, so a
--- database that differs from the inspected one fails loudly instead of being
--- half-repaired. The four groups are all-or-nothing: if some match and others
--- match nothing (for instance because one was already settled by hand), the
--- whole migration raises. Events at or after the cutoff stay visible to the
--- detection query for their own follow-up. An empty database is a notice and a
--- no-op, so fresh and already-repaired databases migrate cleanly and re-running
--- is idempotent. The optional session setting richmod.repair_household narrows
--- every group to one household; it is unset in a normal migrate.
---
--- Every changed event gets one audit_log row (REPAIR_STUCK_SOURCE_EVENT) holding
--- the prior state, which Down uses to restore it. No transaction, evidence,
--- proposal, job or review row is created, changed or deleted.
---
--- Note on D: reviewdomain.ResolveDocumentReview writes document.status='IGNORED',
--- which document_status_check forbids; that is a separate defect tracked outside
--- this repair, so the migration does not depend on it.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -54,9 +13,6 @@ DECLARE
     mig CONSTANT text := '00084_settle_stuck_source_events';
     stamp CONSTANT text := 'repair-00084';
 BEGIN
-    -- Events an earlier run of this migration settled and that were not rolled back
-    -- (a Down skips an event the household has acted on since) count toward each
-    -- group's expected size, so Down -> Up stays runnable.
     SELECT COALESCE(jsonb_object_agg(g, c), '{}'::jsonb) INTO prior_counts FROM (
         SELECT a.before_json->>'group' AS g, count(DISTINCT a.entity_id) AS c
         FROM audit_log a
@@ -65,7 +21,6 @@ BEGIN
                           AND r.after_json->>'migration' = mig AND r.created_at >= a.created_at)
         GROUP BY 1) t;
 
-    -- A: chat replies parked as NEEDS_REVIEW.
     SELECT array_agg(se.id) INTO ids FROM source_event se
     WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.source_type = 'TELEGRAM_TEXT' AND se.processing_status = 'NEEDS_REVIEW' AND se.parser_name IS NULL
@@ -91,7 +46,6 @@ BEGIN
         IF changed <> n THEN RAISE EXCEPTION '00084 group A: % of % rows changed', changed, n; END IF;
     END IF;
 
-    -- B: bank emails with an INVALID extraction recorded as NEEDS_REVIEW.
     SELECT array_agg(se.id) INTO ids FROM source_event se
     WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.source_type = 'BANK_EMAIL' AND se.processing_status = 'NEEDS_REVIEW'
@@ -115,8 +69,6 @@ BEGIN
         UPDATE source_event SET processing_status = 'FAILED' WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
         GET DIAGNOSTICS changed = ROW_COUNT;
         IF changed <> n THEN RAISE EXCEPTION '00084 group B: % of % rows changed', changed, n; END IF;
-        -- Same item reviewdomain.RecordFailedSourceAction writes for a BANK_EMAIL / INVALID source;
-        -- the text is reviewdomain.FailedSourceCopy("BANK_EMAIL", "INVALID"), pinned by a test.
         INSERT INTO integration_action(household_id, integration_type, action_type, status, title, description, dedupe_key, metadata_json)
         SELECT se.household_id, 'SOURCE_PROCESSING', 'SOURCE_FAILED', 'OPEN',
                'Email bank tidak bisa dibaca',
@@ -127,7 +79,6 @@ BEGIN
         ON CONFLICT (household_id, integration_type, action_type, dedupe_key) DO NOTHING;
     END IF;
 
-    -- C: document-sourced wealth observation applied, item resolved, source never settled.
     SELECT array_agg(se.id) INTO ids FROM source_event se
     WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.processing_status = 'NEEDS_REVIEW'
@@ -158,7 +109,6 @@ BEGIN
         IF changed <> n THEN RAISE EXCEPTION '00084 group C: % of % rows changed', changed, n; END IF;
     END IF;
 
-    -- D: documents whose only review items were resolved IGNORE.
     SELECT array_agg(se.id) INTO ids FROM source_event se
     WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.processing_status = 'NEEDS_REVIEW'
@@ -192,8 +142,6 @@ BEGIN
         IF changed <> n THEN RAISE EXCEPTION '00084 group D: % of % rows changed', changed, n; END IF;
     END IF;
 
-    -- All four groups or none: a database where only some groups match is not the
-    -- inspected one (or was partly settled by hand) and must fail here.
     IF settled <> '' AND length(settled || covered) <> 4 THEN
         RAISE EXCEPTION '00084: groups % matched but the others matched nothing; this is not the inspected database, resolve by hand', settled;
     END IF;
@@ -202,10 +150,6 @@ $$;
 -- +goose StatementEnd
 
 -- +goose Down
--- Restores each event this migration settled, from the prior state held in its
--- audit_log row, and only while the event is still in the state Up left it in.
--- An event the household or a worker has moved on from is left alone. Each rollback writes its own audit row
--- so a second Down is a no-op and a later Up can run again.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -225,16 +169,10 @@ BEGIN
     LOOP
         restored := false;
         IF rec.grp IN ('A', 'C') THEN
-            -- Only while the event still carries the stamp Up wrote: most worker paths
-            -- that finish the event afterwards rewrite parser_name and must not be undone; the
-            -- A and C selectors also require no review item, proposal or evidence, which the
-            -- few paths that keep parser_name only write.
             UPDATE source_event SET processing_status = 'NEEDS_REVIEW', parser_name = rec.before_parser
             WHERE id = rec.id AND processing_status = 'PROCESSED' AND parser_name = stamp;
             restored := FOUND;
         ELSIF rec.grp = 'B' THEN
-            -- Restore unless the household already dismissed the failed-source item;
-            -- remove the item only when this migration wrote it.
             UPDATE source_event SET processing_status = 'NEEDS_REVIEW' WHERE id = rec.id AND processing_status = 'FAILED'
               AND NOT EXISTS (SELECT 1 FROM integration_action ia WHERE ia.household_id = rec.hh AND ia.dedupe_key = rec.id::text
                               AND ia.action_type = 'SOURCE_FAILED' AND ia.status <> 'OPEN');

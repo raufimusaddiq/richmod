@@ -74,9 +74,6 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	}
 }
 
-// The Inbox may confirm on a merchant name alone when a household-confirmed
-// alias already resolves the category: the merchant answer is the whole input,
-// so no second category question is asked (ADR-040).
 func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

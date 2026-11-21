@@ -14,10 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestStatusReturnsRealDataWithSmallPool: the probe semaphore is sized from the
-// pool, so a small pool must still return real telemetry rather than zeroing a
-// section. The status value itself is not asserted: under load a probe may
-// legitimately time out and be named in degradedSections.
 func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

@@ -1,6 +1,3 @@
-/* Global styles. The files below are the original stylesheet split into contiguous
-   pieces; @import inlines them in this order, so the cascade is unchanged. Keep the
-   order, and put new rules in the piece that owns them. */
 @import "./styles/01-tokens-and-base.css";
 @import "./styles/02-shell-and-controls.css";
 @import "./styles/03-dashboard-and-charts.css";

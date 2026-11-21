@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// Amounts as typed in Indonesian chat (25rb, 5k, Rp 25.000, 1,5jt), read deterministically for typed card answers.
-
 const maxAnswerAmount = 100_000_000
 
 var (
@@ -16,8 +14,6 @@ var (
 	amountUnits     = map[string]string{"rb": "rb", "ribu": "rb", "k": "rb", "jt": "jt", "juta": "jt"}
 )
 
-// parseAmountToken turns one token into whole rupiah: dots and commas are thousands separators unless a unit
-// follows (1,5jt). A bare number under 500 is refused: "25" likely means 25 ribu and Go never guesses.
 func parseAmountToken(token, unit string) (string, bool) {
 	match := amountToken.FindStringSubmatch(token)
 	if match == nil {
@@ -33,7 +29,6 @@ func parseAmountToken(token, unit string) (string, bool) {
 	var value *big.Rat
 	switch unit {
 	case "":
-		// Only well-formed thousands groups: 50.000, 1.250.000 or 25000.
 		if strings.ContainsAny(digits, ".,") && !amountThousands.MatchString(digits) {
 			return "", false
 		}
@@ -43,7 +38,6 @@ func parseAmountToken(token, unit string) (string, bool) {
 			return "", false
 		}
 	default:
-		// With a unit, one decimal separator is a decimal point: 1,5jt, 2.5rb.
 		if strings.Count(digits, ".")+strings.Count(digits, ",") > 1 {
 			return "", false
 		}

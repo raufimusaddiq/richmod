@@ -1,6 +1,4 @@
 -- +goose Up
--- Source-review completion is a user action and must not queue behind bank or
--- document extraction. Keep the durable lane classifier authoritative.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_job_lane() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

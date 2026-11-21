@@ -21,9 +21,6 @@
 .settings-list b, .settings-list small, .integration-grid b, .integration-grid small { display: block; }
 .settings-list small, .integration-grid small { margin-top: 3px; color: var(--ink-soft); font-size: var(--text-md); }
 .panel, .settings-section { padding: var(--card-padding); }
-/* Add-forms keep a persistent visible label above every control. The row aligns at
-   the top so a helper line under one control never lifts its neighbours; the submit
-   button is offset past the label line to sit on the control row. */
 .inline-form { align-items: start; }
 .inline-form > label { flex: 1 1 150px; min-width: 150px; }
 .inline-form > button { align-self: start; margin-top: 24px; }
@@ -34,39 +31,28 @@
 .member-form > label { flex: 1 1 220px; min-width: 150px; }
 .inline-form select, .member-form input { width: 100%; min-width: 0; }
 .inline-form > button { min-width: 0; }
-/* The tab bar is the section index: sticky, one row, and it names the current
-   tab. It sits flush on the canvas so no empty band shows above the content. */
 .settings-tabs-wrap { position: sticky; top: 0; z-index: 6; margin: 0 0 18px; padding: 4px 0; background: var(--canvas); }
 .settings-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .settings-tabs::-webkit-scrollbar { display: none; }
 .settings-tabs button { flex: 0 0 auto; min-height: var(--control-height-compact); padding: 0 14px; }
 .settings-tabs button.active { border-color: var(--ink); background: var(--ink); color: var(--surface); }
 .settings-tabs button.active:hover:not(:disabled) { border-color: var(--ink); background: var(--ink); color: var(--surface); }
-/* A section title lands below the sticky bar, never under it. */
 .settings-section { scroll-margin-top: 64px; }
-/* A row's destructive action is secondary: a text-style danger button, never a
-   full-width red block. It keeps the 44px control height for touch. */
 .danger-quiet { border-color: transparent; background: transparent; color: var(--danger); padding-inline: 8px; }
 .danger-quiet:hover:not(:disabled) { border-color: transparent; background: var(--danger-soft); color: var(--danger); }
-/* A row action never stretches to the full row width, even as a direct grid child. */
 .settings-list article > button { justify-self: start; }
-/* A row's controls sit together on the right; a select keeps its own width. */
 .settings-list .row-actions { justify-content: flex-end; }
 .settings-list .row-actions select { width: auto; min-width: 140px; }
-/* A long list filters in place; the count is announced as it changes. */
 .list-search { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .list-search label { flex: 1 1 220px; min-width: 0; }
 .list-search .list-count { padding: 0; }
 .settings-heading { margin-bottom: 18px; }
 .settings-heading p { max-width: 64ch; margin: 6px 0 0; color: var(--muted); font-size: var(--text-xs); }
-/* Required fields carry one visible marker, explained once per page. */
 .req { color: var(--danger); }
 .form-legend { margin: 0 0 10px; color: var(--muted); font-size: var(--text-xs); }
-/* A failed change is announced in the form or row that failed, not at the page top. */
 .field-error { margin: 8px 0 0; color: var(--danger); font-size: var(--text-xs); }
 .field-hint { display: block; margin-top: 4px; color: var(--muted); font-size: var(--text-xs); }
 .settings-list article > .field-error { grid-column: 1 / -1; }
-/* The row a change just touched flashes once, so the eye finds it after a reload. */
 @keyframes row-highlight { from { background-color: var(--accent-soft); } }
 .settings-list article.is-new { animation: row-highlight var(--motion-slow) var(--ease-out); }
 .list-count { margin: 0; padding: 8px 0; color: var(--muted); font-size: var(--text-xs); }
@@ -120,5 +106,4 @@ button.admin-link:active:not(:disabled) { border: 0; background: transparent; tr
 .email-checklist li[data-state="current"] .step-state { color: var(--accent); font-weight: 700; }
 .email-checklist li[data-state="blocked"] { opacity: .72; }
 
-/* Generated addresses (h_...@richmod.link) have no wrap point and overflowed 390px. */
 .integration-grid small, .email-checklist li small, .settings-list small { overflow-wrap: anywhere; }

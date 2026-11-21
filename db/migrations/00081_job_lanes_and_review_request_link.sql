@@ -1,9 +1,4 @@
 -- +goose Up
--- Lanes: 00048 rewrote enforce_job_lane without COMPLETE_BANK_REVIEW
--- (INTERACTIVE) and GENERATE_CYCLE_RESIDUAL_REVIEW (BACKGROUND), so both ran in
--- DEFAULT while Go classified them otherwise. Free-text Telegram stays in
--- DEFAULT: one consumer keeps a person's messages in order, and the CHAT lane
--- (ADR-032) is retired. Go's classifyLane mirrors this function.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_job_lane() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -18,8 +13,6 @@ END $$;
 UPDATE job SET lane='INTERACTIVE' WHERE type='COMPLETE_BANK_REVIEW' AND status='PENDING';
 UPDATE job SET lane='BACKGROUND' WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND status='PENDING';
 
--- Every Telegram review_request projects a canonical review_item; no producer
--- writes one without it. Fails (and aborts the migration) if any row lacks it.
 ALTER TABLE review_request ALTER COLUMN review_item_id SET NOT NULL;
 
 -- +goose Down

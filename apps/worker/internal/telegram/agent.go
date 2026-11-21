@@ -28,7 +28,6 @@ type agentCallPlan struct {
 	Calls []validatedAgentCall
 }
 
-// ProcessAgent handles free-text messages; callbacks keep their deterministic Process path.
 func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) error {
 	var householdID, payloadText, processingStatus, sourceType, parserName string
 	var receivedAt time.Time
@@ -40,7 +39,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return fmt.Errorf("load Telegram source event: %w", err)
 	}
 	if processingStatus == "PROCESSED" || processingStatus == "IGNORED" || processingStatus == "NEEDS_REVIEW" {
-		// A retry of a turn whose mutation committed but whose answer was never queued re-sends the answer.
 		if sourceType == "TELEGRAM_TEXT" && processingStatus != "IGNORED" {
 			return p.recoverUnansweredTurn(ctx, sourceEventID, householdID, payloadText, parserName)
 		}
@@ -66,13 +64,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
-	// The typing indicator spans the whole turn, deterministic review lane included.
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
-	// An exact reply to a proposal-keyed review (card, upload, or evidence notice) goes to the deterministic
-	// review lane. Chat state alone never owns a turn, and transaction-keyed reviews stay with the agent.
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		// A card past its 7-day projection window is still open; renew it so a typed answer is not refused as stale.
 		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
 			return err
 		}
@@ -100,15 +94,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return err
 	}
 
-	// An explicit reply is terminal: if it no longer points at an eligible workflow, do not fall back to
-	// another active review.
 	explicitReply := update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0
 	merchantBinding, merchantCount, err := p.loadAgentMerchantLearningBinding(ctx, householdID, update)
 	if err != nil {
 		return err
 	}
 	if !explicitReply && merchantBinding != nil && !isYesNoAnswer(text) {
-		// Without a reply, a pending merchant-learning question owns the turn only for a plain yes/no.
 		merchantBinding, merchantCount = nil, 0
 	}
 	var reviewBinding *agentReviewBinding
@@ -116,7 +107,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	reviewCount := 0
 	var openCards []map[string]any
 	if explicitReply {
-		// Merchant learning must be recognized before the generic transaction-review binder.
 		if merchantBinding == nil {
 			reviewBinding, err = p.exactAgentReviewBinding(ctx, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID)
 			if err != nil {
@@ -127,7 +117,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 			}
 		}
 	} else {
-		// A typed answer without Reply binds to an open card only by deterministic rules; the model never decides.
 		cards, err := p.loadLiveReviewCards(ctx, householdID, update.Message.Chat.ID)
 		if err != nil {
 			return err
@@ -152,8 +141,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		}
 	}
 
-	// Bind the evidence this turn is about (reply to an upload or bound notice); the model chooses nothing.
-	// A failure to resolve it never fails the message: the turn proceeds without it.
 	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
 	if evidenceErr != nil {
 		evidence, evidenceReview = nil, nil
@@ -162,17 +149,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		reviewBinding = evidenceReview
 		reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 	}
-	// With no reply, review or pending workflow, just-sent evidence is offered as context only; it never
-	// narrows the tools.
 	var recentEvidence []map[string]any
-	// One candidates query per turn serves context, harvest and ledger guard; its failure leaves no evidence
-	// context and no guard.
 	recentCandidates, _ := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
 	freshDocuments := freshEvidenceDocuments(recentCandidates)
 	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
 		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
-		// Recent evidence is context only: a no-reply review binding must come from eligible chat reviews.
 	}
 
 	contextState.ActiveReview = reviewPublic
@@ -196,13 +178,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.HasMerchantLearning,
 		contextState.ReviewMode,
 	)
-	// get_evidence_context reads a ref issued with this turn's evidence; without evidence context there is
-	// nothing to read.
 	if evidence == nil && len(recentEvidence) == 0 {
 		generalTools = withoutTool(generalTools, "get_evidence_context")
 	}
-	// Go validation is the only mutation authority (ADR-052); exact replies narrow to their bound workflow.
-	// A reply to a non-workflow bot message keeps the general catalog; a reply to a closed review card stays narrowed.
 	tools, workflowScope := generalTools, agentWorkflowGeneral
 	staleWorkflowReply := false
 	if explicitReply {
@@ -240,28 +218,24 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}
 	}
 	state := &agentState{
-		SourceEventID:    sourceEventID,
-		HouseholdID:      householdID,
-		Update:           update,
-		Now:              now,
-		Categories:       categories,
-		Tools:            tools,
-		RequiredTool:     "",
-		TurnContext:      turnContext,
-		HasPendingAction: contextState.HasPendingAction,
-		HasPendingBatch:  contextState.HasPendingBatch,
-		HasSalaryChoice:  contextState.HasSalaryChoice,
-		ReviewType:       contextState.ReviewType,
-		ReviewMode:       contextState.ReviewMode,
-		Analytics:        analyticscore.NewSession(p.pool, householdID, now, sourceEventID),
-		// Server-only, never model-visible: documents sent in the immediate window for the record_transaction
-		// duplicate guard.
+		SourceEventID:          sourceEventID,
+		HouseholdID:            householdID,
+		Update:                 update,
+		Now:                    now,
+		Categories:             categories,
+		Tools:                  tools,
+		RequiredTool:           "",
+		TurnContext:            turnContext,
+		HasPendingAction:       contextState.HasPendingAction,
+		HasPendingBatch:        contextState.HasPendingBatch,
+		HasSalaryChoice:        contextState.HasSalaryChoice,
+		ReviewType:             contextState.ReviewType,
+		ReviewMode:             contextState.ReviewMode,
+		Analytics:              analyticscore.NewSession(p.pool, householdID, now, sourceEventID),
 		FreshEvidenceDocuments: freshDocuments,
 		ReceivedAt:             receivedAt,
 		activity:               new(atomic.Int32),
 	}
-	// An exact reply attaches its bound workflow; otherwise a card match or yes/no merchant-learning answer
-	// is attached with the catalog kept whole.
 	if workflowScope == agentWorkflowExactReview || (!explicitReply && reviewBinding != nil) {
 		state.ReviewBinding = reviewBinding
 		state.ReviewBindingCount = reviewCount
@@ -273,13 +247,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	agentGateway, ok := p.gateway.(conversationalGateway)
 	if !ok {
-		// No conversational model is wired: the message waits like any outage.
 		return p.deferForGateway(ctx, state, errConversationalGatewayMissing)
 	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
-	// Say once when a multi-phase turn is slow, naming what it is doing.
 	stopProgress := startProgressNotice(ProgressNoticeDelay, func(noticeCtx context.Context) error {
 		return p.enqueueProgressNotice(noticeCtx, state.Update, progressNoticeFor(state.activityNow()))
 	})
@@ -299,7 +271,6 @@ func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
 	}
 	send()
 	go func() {
-		// Telegram's typing indicator lasts about 5s and sending a message clears it, so renew every 4s.
 		ticker := time.NewTicker(4 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -315,12 +286,10 @@ func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
 	return func() { once.Do(func() { close(stop) }) }
 }
 
-// finalPhaseInstruction is added on the last phase after facts were gathered: no tools, answer from what was read.
 const finalPhaseInstruction = `
 
 FINAL PHASE: no more tools are available in this turn. Answer the user now using only the tool results you already have. If something could not be checked, say briefly what is missing; do not promise another lookup.`
 
-// partialAnswerMessage is the last resort when even the final phase produced no answer.
 const partialAnswerMessage = "Aku sudah mengumpulkan sebagian datanya, tapi belum sempat merangkum semuanya dalam satu jawaban. Coba tanyakan bagian yang paling penting dulu, ya."
 
 func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGateway, state *agentState) error {
@@ -345,8 +314,6 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		cancel()
 		if err != nil {
 			if state.SideEffects == 0 && IsGatewayUnavailable(err) {
-				// The AI is unreachable and nothing was written: the message waits durably and re-runs when
-				// the gateway returns.
 				return p.deferForGateway(ctx, state, err)
 			}
 			if finalPhase && !IsGatewayUnavailable(err) && !errors.Is(err, context.DeadlineExceeded) {
@@ -354,7 +321,6 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			}
 			return fmt.Errorf("%w: %w", errModelPhase, err)
 		}
-		// Continuation data is single-use; a further READ phase replaces it with new response/call IDs.
 		state.PreviousResponseID = ""
 		state.PreviousToolCalls = nil
 		state.PendingToolOutputs = nil
@@ -375,7 +341,6 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		plan, err := validateAgentCallSet(response.ToolCalls, state, defaultAgentLimits)
 		if err != nil {
 			if rejected, ok := repairableArguments(state, err); ok {
-				// Go rejected the arguments, not the intent: tell the model why once so it can correct the call.
 				state.ArgumentRepairs++
 				slog.Default().Warn("agent tool arguments rejected; asking the model to correct them", "tool", rejected.Call.Name, "repair", state.ArgumentRepairs)
 				state.PreviousResponseID = response.ResponseID
@@ -422,7 +387,6 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			}
 			var recoverable *agentRecoverable
 			if errors.As(err, &recoverable) {
-				// Go refused the call in a way the model can fix; nothing was written.
 				if state.Recoveries < maxRecoverableResults && state.ModelPhases < defaultAgentLimits.MaxModelPhases {
 					state.Recoveries++
 					slog.Default().Warn("agent side effect refused; returning the reason to the model", "tool", call.Call.Name, "status", recoverable.Status)
@@ -446,18 +410,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				}
 			}
 			if state.ReplyQueued {
-				// The deterministic reply was queued inside the mutation.
 				return nil
 			}
-			// A reply that lost the race to a tap, the web, or another member gets a deterministic outcome,
-			// never model wording.
 			if result.Status == "STALE_REVIEW_BINDING" {
 				if answered := staleReviewReply(ctx, p.pool, state.HouseholdID, state.Update, ""); answered != "" {
 					return p.finishAgentText(ctx, state, answered)
 				}
 			}
-			// A result Go fully knows is answered deterministically; only a result without its own copy is
-			// worded by the model.
 			if reply, ok := agentMutationReply(result); ok || !synthesize {
 				return p.finishAgentText(ctx, state, reply)
 			}
@@ -470,8 +429,6 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 	return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")
 }
 
-// agentArgumentsError marks a tool call whose arguments Go rejected, the only validation failure the model
-// can fix itself.
 type agentArgumentsError struct {
 	Call gateway.ToolCall
 	Err  error
@@ -482,10 +439,8 @@ func (e *agentArgumentsError) Error() string {
 }
 func (e *agentArgumentsError) Unwrap() error { return e.Err }
 
-// maxArgumentRepairs bounds rejections returned to the model per turn; a second means the model cannot fix it.
 const maxArgumentRepairs = 1
 
-// maxRepairReasonBytes bounds Go's rejection reason handed back to the model.
 const maxRepairReasonBytes = 240
 
 func repairableArguments(state *agentState, err error) (*agentArgumentsError, bool) {
@@ -496,7 +451,6 @@ func repairableArguments(state *agentState, err error) (*agentArgumentsError, bo
 	return rejected, true
 }
 
-// argumentRepairOutputs answers every call of the rejected response because the provider requires an output per call.
 func argumentRepairOutputs(calls []gateway.ToolCall, rejected *agentArgumentsError) []gateway.AgentToolOutput {
 	reason := rejected.Err.Error()
 	if len(reason) > maxRepairReasonBytes {
@@ -533,7 +487,6 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		}
 		args, err := validateAgentToolCall(call)
 		if err != nil {
-			// Remember the first rejection but keep checking: a set-shape or budget refusal is final and wins.
 			if argumentErr == nil {
 				argumentErr = &agentArgumentsError{Call: call, Err: err}
 			}
@@ -579,8 +532,6 @@ func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
 	return false
 }
 
-// executeAgentReadBatch runs READ calls in parallel; a call identical to one already answered this turn is
-// served from cache. fresh[i] is false for those so the stored conversation does not repeat them.
 func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, []bool, error) {
 	if state.Analytics == nil {
 		state.Analytics = analyticscore.NewSession(p.pool, state.HouseholdID, state.Now, state.SourceEventID)
@@ -634,7 +585,7 @@ func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState
 }
 
 func readCacheKey(name string, args map[string]any) string {
-	encoded, _ := json.Marshal(args) // map keys marshal sorted: canonical
+	encoded, _ := json.Marshal(args)
 	return name + "|" + string(encoded)
 }
 
@@ -647,7 +598,6 @@ func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversa
 		"current_user_text":           state.TurnContext["current_user_text"],
 		"authoritative_action_result": result,
 	}
-	// On failure the deterministic fallback below still answers.
 	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.ModelCallTimeout)
 	response, err := model.AgentTurn(phaseCtx, state.SourceEventID, gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: content})
 	cancel()
@@ -677,7 +627,6 @@ func (p *Processor) finishAgentText(ctx context.Context, state *agentState, mess
 	return p.finishAgentReply(ctx, state, message, "")
 }
 
-// finishAgentFailure stores the reply as an ASSISTANT turn marked failed so the next turn knows nothing was recorded.
 func (p *Processor) finishAgentFailure(ctx context.Context, state *agentState, message, failure string) error {
 	if failure == "" {
 		failure = "REFUSED"
@@ -715,15 +664,12 @@ func (p *Processor) finishAgentReply(ctx context.Context, state *agentState, mes
 		public["failure"] = failure
 		public["nothing_recorded"] = state.SideEffects == 0
 	}
-	// The ASSISTANT turn commits with the reply so memory never misses a sent answer or records an unsent one.
 	if err := insertTurnTx(ctx, tx, state.HouseholdID, state.SourceEventID, state.Update, "ASSISTANT", message, "", public); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-// finalizeAgentSource derives source status via the shared lifecycle (ADR-046): open review or pending evidence
-// keeps NEEDS_REVIEW, a lone dismissal stays IGNORED, anything else PROCESSED.
 func finalizeAgentSource(ctx context.Context, tx pgx.Tx, householdID, sourceEventID, parser string) error {
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET parser_name=$3,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceEventID, householdID, parser); err != nil {
 		return err
@@ -731,8 +677,6 @@ func finalizeAgentSource(ctx context.Context, tx pgx.Tx, householdID, sourceEven
 	return reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceEventID)
 }
 
-// settleFreshEvidenceSources re-derives sources still parked in review after a side effect consumed this
-// turn's fresh evidence.
 func (p *Processor) settleFreshEvidenceSources(ctx context.Context, state *agentState) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {

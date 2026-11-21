@@ -17,8 +17,6 @@ var (
 	noticeSpaces = regexp.MustCompile(`\s+`)
 )
 
-// enqueueEvidenceNotice queues one "recorded" reply to the Telegram upload for a document resolved without
-// a human, in the mutation's tx (ADR-050); the document.evidence_notice_at marker limits it to one.
 func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, documentID, text string) error {
 	var chatID, messageID *int64
 	err := tx.QueryRow(ctx, `SELECT telegram_chat_id,telegram_message_id FROM source_event WHERE id=$1 AND source_type='TELEGRAM_IMAGE'`, sourceEventID).Scan(&chatID, &messageID)
@@ -28,7 +26,6 @@ func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, docume
 	if err != nil {
 		return err
 	}
-	// Claim the document's one notice; the marker and job commit or roll back with the mutation.
 	var claimed string
 	err = tx.QueryRow(ctx, `UPDATE document SET evidence_notice_at=now() WHERE id=$1::uuid AND evidence_notice_at IS NULL RETURNING id::text`, documentID).Scan(&claimed)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -52,8 +49,6 @@ func receiptRecordedNotice(merchant, total string) string {
 	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat." + noticeFooter
 }
 
-// receiptRecordedMismatchNotice tells the household the printed lines do not add up to the printed total,
-// which was recorded; nothing needs deciding (RECEIPT_MISMATCH is a quality signal).
 func receiptRecordedMismatchNotice(merchant, total string) string {
 	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat memakai total yang tercetak. Rincian barisnya tidak pas dengan total, tetapi tidak ada yang perlu kamu putuskan." + noticeFooter
 }
@@ -66,7 +61,6 @@ func payslipRecordedNotice(employer, netPay string) string {
 	return "Slip gaji" + noticeSubject(employer) + " tercatat, gaji bersih" + noticeAmount(netPay) + "." + noticeFooter
 }
 
-// noticeSubject renders evidence-derived text for the user's chat as one bounded line of plain text, never markup.
 func noticeSubject(value string) string {
 	value = strings.TrimSpace(noticeSpaces.ReplaceAllString(value, " "))
 	if value == "" {
@@ -78,14 +72,11 @@ func noticeSubject(value string) string {
 	return " " + value
 }
 
-// noticeAmount groups a whole-rupiah amount with dots; anything not a plain digit string is left out rather
-// than echoed.
 func noticeAmount(amount string) string {
 	amount = strings.TrimSpace(amount)
 	if !digitsOnly.MatchString(amount) {
 		return ""
 	}
-	// amount is ASCII digits (checked above), so byte positions are digit positions.
 	var grouped []byte
 	for index := 0; index < len(amount); index++ {
 		if index > 0 && (len(amount)-index)%3 == 0 {

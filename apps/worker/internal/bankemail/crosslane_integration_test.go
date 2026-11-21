@@ -10,8 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Bank email checks transactions other lanes wrote (receipt, screenshot, manual) before writing its own;
-// dedup only links evidence and two bank emails stay two events.
 func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -26,7 +24,7 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 	for _, tt := range []struct {
 		name, status, evidence, merchant string
 		offset                           time.Duration
-		want                             string // LINK, ASK, NEW
+		want                             string
 	}{
 		{"receipt first, still in review", "NEEDS_REVIEW", "RECEIPT_IMAGE", "Alfamart", 15 * time.Minute, "LINK"},
 		{"receipt first, confirmed", "CONFIRMED", "RECEIPT_IMAGE", "Alfamart", 2 * time.Hour, "LINK"},
@@ -111,8 +109,6 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 	}
 }
 
-// A completion whose persist (a cross-lane link) committed before the completion transaction failed is
-// retried; the retry must resolve the review and settle the source, not leave it NEEDS_REVIEW.
 func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -155,7 +151,6 @@ func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
 	}
 }
 
-// An auto-confirmed bank expense reopens a cycle waiting on a missing transaction, with the recomputed residual.
 func TestAutoConfirmedBankEmailReopensAWaitingResidual(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

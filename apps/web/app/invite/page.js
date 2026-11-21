@@ -8,7 +8,6 @@ export default function InvitePage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Editing a field retires the message that was about the previous attempt.
   const edit = setter => event => { setter(event.target.value); setError(""); };
 
   async function submit(event) {
@@ -25,7 +24,7 @@ export default function InvitePage() {
         setError(response.status >= 500 ? "Server sedang bermasalah. Coba lagi sebentar lagi." : "Undangan kedaluwarsa atau kata sandi terlalu lemah.");
         return;
       }
-      leaving = true; // stay busy while the browser navigates away
+      leaving = true;
       window.location.hash = "";
       window.location.href = "/";
     } catch {

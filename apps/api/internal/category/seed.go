@@ -7,8 +7,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// SeedIndonesianDefaults creates missing default categories for a household.
-// It is idempotent and never changes or removes an existing user category.
 func SeedIndonesianDefaults(ctx context.Context, tx pgx.Tx, householdID string) error {
 	for _, item := range IndonesianDefaults {
 		if item.ParentSlug == "" {

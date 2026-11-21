@@ -4,14 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { BUILD_ID } from "../lib/buildId.generated.js";
 import { fetchDeployedId, startBuildWatch } from "../lib/buildWatch";
 
-// Module state, not React state: the shell remounts on navigation and a dismissal has
-// to survive that for the rest of this page load.
 let dismissedForThisLoad = false;
 
-// A deploy replaces the whole export, but an open tab keeps running the old bundle and
-// `next/link` navigation only fetches RSC payloads. This compares the id baked into this
-// bundle with the one the server serves and offers a reload. Production only, like
-// ServiceWorkerRegistrar: `next dev` has no stable id and hot-reloads anyway.
 export default function BuildUpdateNotice() {
   const [available, setAvailable] = useState(false);
   const watch = useRef(null);

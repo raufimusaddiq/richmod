@@ -1,5 +1,4 @@
 -- +goose Up
--- Durable, bounded public Telegram context. This is not financial evidence.
 CREATE TABLE telegram_conversation_turn (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   household_id UUID NOT NULL REFERENCES household(id),

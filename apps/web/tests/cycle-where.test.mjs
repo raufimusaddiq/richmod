@@ -8,7 +8,6 @@ const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8"
 
 test("the ranking is the served order and total; the web sorts and sums nothing", () => {
   const facts = cycleFacts();
-  // Served order whose string order differs from numeric order: 9.000 listed before 10.000.
   facts.categoryRanking.rows = [{ ...facts.categoryRanking.rows[0], amount: "9000", name: "B" }, { ...facts.categoryRanking.rows[0], amount: "10000", name: "A" }];
   const view = rankingView(facts);
   assert.deepEqual(view.rows.map(row => row.name), ["B", "A"], "served order is kept");
@@ -32,7 +31,6 @@ test("ranking and change deltas follow the baseline of the cycle state", () => {
   const closed = cycleFacts("2026-08-26");
   assert.match(rankingView(closed).baseline, /penuh/);
   const dining = view => view.rows.find(row => row.name === "Makan di luar");
-  // Active uses the same-day delta, closed the full-cycle delta.
   active.categoryChanges[1].deltaVsPrevious = "111";
   active.categoryChanges[1].deltaVsPreviousFullCycle = "222";
   assert.match(dining(changesView(active)).delta.text, /111/);

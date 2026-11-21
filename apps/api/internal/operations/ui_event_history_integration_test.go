@@ -11,8 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Screen views are not product-telemetry history: 30 days of UI_EVENT rows must
-// not clear the pre-migration coverage gap.
 func TestOldUIEventsDoNotClearPreMigrationTelemetryHistory(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

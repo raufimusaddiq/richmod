@@ -10,42 +10,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// DuplicateCommand carries one canonical duplicate-merge decision: the open
-// review transaction is merged into an existing confirmed transaction.
 type DuplicateCommand struct {
-	HouseholdID   string
-	ActorUserID   string
-	TransactionID string
-	// TargetTransactionID is the confirmed household transaction keeping the
-	// canonical record.
+	HouseholdID         string
+	ActorUserID         string
+	TransactionID       string
 	TargetTransactionID string
-	// ReviewItemID pins one exact item (Telegram binding). Empty completes every
-	// open item for the transaction, which is the Web behavior.
-	ReviewItemID string
-	RequestID    string
-	Action       string
+	ReviewItemID        string
+	RequestID           string
+	Action              string
 }
 
-// DuplicateResult reports the created merge so each surface can answer with its
-// own shape.
 type DuplicateResult struct{ MergeID string }
 
 var (
-	// ErrDuplicateTargetInvalid reports a merge target that is not an open-review
-	// source plus a confirmed household target in the same shape and window.
 	ErrDuplicateTargetInvalid = errors.New("reviewdomain: invalid duplicate merge target")
-	// ErrAlreadyMerged reports a source transaction that already has an active merge.
-	ErrAlreadyMerged = errors.New("reviewdomain: review is already merged")
+	ErrAlreadyMerged          = errors.New("reviewdomain: review is already merged")
 )
 
-// mergeWindowHours is the deterministic window two transactions must share to be
-// the same real event (ADR-039 duplicate safety).
 const mergeWindowHours = 72
 
-// MergeDuplicateReview is the canonical duplicate-resolution operation. It locks both
-// transactions, revalidates the target as a deterministic duplicate candidate, copies
-// evidence onto the canonical transaction, voids the duplicate, and completes the
-// review. Web and Telegram both call it (ADR-046).
 func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) (DuplicateResult, error) {
 	var result DuplicateResult
 	if cmd.TargetTransactionID == "" || cmd.TargetTransactionID == cmd.TransactionID {
@@ -69,8 +52,6 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	}
 	var targetType, targetAmount, targetCurrency string
 	var targetTime time.Time
-	// A target still awaiting its own review is accepted only when Go named it as this
-	// review's cross-lane candidate (prior_match_transaction_ids); that review stays.
 	err = tx.QueryRow(ctx, `SELECT type,amount::text,currency,transaction_at FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND (t.status='CONFIRMED' OR (t.status='NEEDS_REVIEW' AND EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=$2 AND ri.transaction_id=$3 AND ri.status IN ('OPEN','PENDING_SEND') AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' AND ri.decision->'knownFacts'->'prior_match_transaction_ids' ? t.id::text))) FOR UPDATE`, cmd.TargetTransactionID, cmd.HouseholdID, cmd.TransactionID).Scan(&targetType, &targetAmount, &targetCurrency, &targetTime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrDuplicateTargetInvalid
@@ -82,8 +63,6 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 		return result, ErrDuplicateTargetInvalid
 	}
 	if sourceAmount != targetAmount || math.Abs(targetTime.Sub(sourceTime).Hours()) > mergeWindowHours {
-		// A reprocessed document may name the transaction it was already linked
-		// to even after amount or date drifted; only that carried target is exempt.
 		var carried bool
 		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' AND ri.decision->'knownFacts'->'prior_match_transaction_ids' ? $3)", cmd.HouseholdID, cmd.TransactionID, cmd.TargetTransactionID).Scan(&carried); err != nil {
 			return result, err
@@ -132,8 +111,6 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 		}
 	}
 	if _, err := tx.Exec(ctx, "UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'", cmd.TransactionID, cmd.HouseholdID); err != nil {
-		// The merge row above makes this transaction a source, which the database guard allows
-		// even when it is also the target of an earlier merge (the event continues in the new target).
 		return result, MergeTargetError(err)
 	}
 	if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, cmd.TargetTransactionID); err != nil {

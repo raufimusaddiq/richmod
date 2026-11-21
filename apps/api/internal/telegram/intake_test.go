@@ -118,12 +118,9 @@ func TestWebhookCapturesOnlyAllowlistedPrivateCallback(t *testing.T) {
 	if response.Code != http.StatusOK || store.calls != 1 {
 		t.Fatalf("invalid callback was captured: status=%d calls=%d", response.Code, store.calls)
 	}
-	// An unknown action is never processed, but its spinner is still cleared.
 	assertCallbackAnswered(t, response, "callback-2")
 }
 
-// assertCallbackAnswered checks the webhook acknowledged the callback query in
-// its own response, so the tap spinner clears before the worker runs.
 func assertCallbackAnswered(t *testing.T, response *httptest.ResponseRecorder, callbackID string) {
 	t.Helper()
 	var body map[string]string

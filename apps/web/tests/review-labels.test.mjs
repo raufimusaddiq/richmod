@@ -2,9 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
-// Every review_type the database accepts must have an Indonesian label and a one-line
-// explanation, so the Inbox never renders a raw code such as "UNKNOWN BANK TEMPLATE".
-// The set is read from the latest migration that redefines review_item_review_type_check.
 function reviewTypesFromMigrations() {
   const dir = new URL("../../../db/migrations/", import.meta.url);
   const files = readdirSync(dir).filter(name => name.endsWith(".sql")).sort();

@@ -4,10 +4,6 @@ import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Preview server for the static export, used by the Playwright smoke scripts. It
-// approximates apps/api/internal/webui and is not the reference: it does not reproduce
-// the 308 for /path/, the per-class Cache-Control or the security headers, which live
-// in the Go handler and are tested there. Do not "fix" the Go server to match this.
 const root = fileURLToPath(new URL("../out/", import.meta.url));
 const portFlag = process.argv.indexOf("-p");
 const port = Number(process.env.PORT || (portFlag >= 0 ? process.argv[portFlag + 1] : 3000));
@@ -32,10 +28,6 @@ async function file(path) {
   }
 }
 
-// The client requests segment payloads dotted (/a/x/__next.a.x.__PAGE__.txt); an export built
-// on a non-POSIX host writes them nested (/a/x/__next.a/x/__PAGE__.txt) and Next leaves the
-// rewrite to the host. Production builds on POSIX with flat names, so apps/api/internal/webui
-// only carries the same mapping as a safety net.
 const segmentPayload = /^(.*\/)?__next\.([^/]+)\.txt$/;
 const nestedPayload = path => path.replace(segmentPayload, (match, dir = "", rest) => (rest.includes("..") ? match : `${dir}__next.${rest.replaceAll(".", "/")}.txt`));
 

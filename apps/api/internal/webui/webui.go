@@ -1,5 +1,3 @@
-// Package webui embeds the static Next.js export and serves it from the API,
-// so one container serves both the UI and /api.
 package webui
 
 import (
@@ -16,22 +14,15 @@ import (
 //go:embed all:assets
 var embedded embed.FS
 
-// Cache-Control values reproduce the responses the Next.js server sent before
-// the export: app routes were pinned by next.config headers, other pages used
-// the dynamic-page default, hashed chunks were immutable, and public files were
-// revalidated.
 const (
-	cacheAppHTML   = "no-store, max-age=0"
-	cacheOtherHTML = "private, no-cache, no-store, max-age=0, must-revalidate"
-	cacheImmutable = "public, max-age=31536000, immutable"
-	cachePublic    = "public, max-age=0"
-	cacheMetadata  = "public, max-age=0, must-revalidate"
-	// The worker is a pass-through with no cache; revalidate its script so a new
-	// release is picked up on the browser's next update check.
+	cacheAppHTML       = "no-store, max-age=0"
+	cacheOtherHTML     = "private, no-cache, no-store, max-age=0, must-revalidate"
+	cacheImmutable     = "public, max-age=31536000, immutable"
+	cachePublic        = "public, max-age=0"
+	cacheMetadata      = "public, max-age=0, must-revalidate"
 	cacheServiceWorker = "no-cache"
 )
 
-// appRoutes are the paths next.config.mjs used to send "no-store, max-age=0".
 var appRoutes = map[string]struct{}{
 	"/":             {},
 	"/transactions": {},
@@ -42,7 +33,6 @@ var appRoutes = map[string]struct{}{
 	"/settings":     {},
 }
 
-// Handler serves the export embedded in the binary.
 func Handler() http.Handler {
 	assets, err := fs.Sub(embedded, "assets")
 	if err != nil {
@@ -51,8 +41,6 @@ func Handler() http.Handler {
 	return NewHandler(assets)
 }
 
-// Embedded reports whether this binary contains a built export. A tree without
-// a web build still compiles and serves 404s for the UI, so main warns at startup.
 func Embedded() bool {
 	return hasIndex(embedded)
 }
@@ -62,7 +50,6 @@ func hasIndex(fsys fs.FS) bool {
 	return err == nil
 }
 
-// NewHandler serves a static export from assets. Tests pass an fstest.MapFS.
 func NewHandler(assets fs.FS) http.Handler {
 	return handler{assets: assets}
 }
@@ -82,7 +69,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serve(w, r, "index.html", cacheAppHTML)
 		return
 	}
-	// The export uses trailingSlash:false; keep the previous 308 from /x/ to /x.
 	if strings.HasSuffix(r.URL.Path, "/") && h.exists(strings.TrimPrefix(clean, "/")+".html") {
 		target := clean
 		if r.URL.RawQuery != "" {
@@ -94,7 +80,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(clean, "/")
 	for _, candidate := range []string{name, segmentPayloadPath(name), name + ".html", name + "/index.html"} {
 		if h.exists(candidate) {
-			// A mapped payload takes its class from the route the client asked for.
 			class := candidate
 			if candidate != name && strings.HasSuffix(candidate, ".txt") {
 				class = name
@@ -106,12 +91,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.notFound(w, r)
 }
 
-// segmentPayloadPath maps the dotted segment-payload URL the client requests
-// (analytics/x/__next.analytics.x.__PAGE__.txt) to the nested file an export
-// built on a non-POSIX host writes (analytics/x/__next.analytics/x/__PAGE__.txt).
-// Next leaves that rewrite to the host. The production image builds the export
-// on POSIX, where the names stay flat and match the first candidate, so this is
-// a safety net for other builds, not a production fix.
 func segmentPayloadPath(name string) string {
 	dir, base := path.Split(name)
 	if !strings.HasPrefix(base, "__next.") || !strings.HasSuffix(base, ".txt") {
@@ -141,8 +120,6 @@ func (h handler) notFound(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// A path that 404s today may exist after the next deploy; never let a shared
-	// cache serve this body for it.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
@@ -151,8 +128,6 @@ func (h handler) notFound(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// exists is only a cheap guard: path.Clean already removed traversal and the
-// embedded FS is rooted at assets. The root, not this check, is the boundary.
 func (h handler) exists(name string) bool {
 	if name == "" || strings.Contains(name, "..") {
 		return false
@@ -165,9 +140,6 @@ func cacheFor(name string) string {
 	switch name {
 	case "opengraph-image", "icon.svg", "manifest.webmanifest":
 		return cacheMetadata
-	// The deployed build identity (#413). It changes on every release and open
-	// tabs ask for it repeatedly, so it must revalidate: an immutable or max-age
-	// answer would keep telling a tab it is current.
 	case "build-id.txt":
 		return cacheMetadata
 	case "sw.js":
@@ -179,10 +151,7 @@ func cacheFor(name string) string {
 	if strings.HasSuffix(name, ".html") {
 		return htmlCacheFor(routeOf(name))
 	}
-	// The static export's client router loads RSC payloads as `<route>.txt`;
-	// they carry the same class as the route's HTML.
 	if strings.HasSuffix(name, ".txt") {
-		// Segment payloads (<route>/__next.<route>.__PAGE__.txt) belong to <route>.
 		route := name
 		if i := strings.Index(route, "/__next."); i >= 0 {
 			route = route[:i]
@@ -210,9 +179,6 @@ func contentType(name string) string {
 	if name == "opengraph-image" {
 		return "image/png"
 	}
-	// Go's built-in table has no .webmanifest entry and the host mime.types file
-	// is not part of the contract; a manifest must be application/manifest+json
-	// or browsers ignore it.
 	if name == "manifest.webmanifest" {
 		return "application/manifest+json"
 	}

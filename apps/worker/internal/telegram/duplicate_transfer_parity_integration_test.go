@@ -134,8 +134,6 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
 		t.Fatal(err)
 	}
-	// Free text that is not a bound reply is ordinary conversation; with the model down it reports the outage
-	// so the queue retries. Nothing mutates either way.
 	if err = NewProcessor(pool, boundReviewGateway{}).ProcessAgent(ctx, sourceID); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
 		t.Fatal(err)
 	}
@@ -227,8 +225,6 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	}
 }
 
-// An expense transfer review can only become an expense or asset purchase, so no own/household account
-// classifications are offered.
 func TestExpenseTransferChooserOmitsInvalidClassifications(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

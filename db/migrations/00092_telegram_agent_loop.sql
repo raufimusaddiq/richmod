@@ -1,22 +1,11 @@
 -- +goose Up
--- Telegram agent loop hardening (ADR-033 / ADR-052 amendments, 2026-11).
 
--- Corrections may also change the amount and merchant of a transaction the
--- household entered itself; Go checks the evidence before staging and again
--- under lock before applying. NULL keeps the current value.
 ALTER TABLE telegram_pending_action ADD COLUMN proposed_amount NUMERIC(20,0) CHECK (proposed_amount > 0);
 ALTER TABLE telegram_pending_action ADD COLUMN proposed_merchant TEXT CHECK (proposed_merchant IS NULL OR length(proposed_merchant) BETWEEN 1 AND 160);
 
--- A staged correction or batch waits 30 minutes for its confirmation instead
--- of 5: people answer later than that. Go sets the same interval explicitly.
 ALTER TABLE telegram_pending_action ALTER COLUMN expires_at SET DEFAULT now()+interval '30 minutes';
 ALTER TABLE telegram_pending_batch ALTER COLUMN expires_at SET DEFAULT now()+interval '30 minutes';
 
--- A typed answer that deterministically fits more than one open review card
--- (for example a category name while two category cards are open) is not
--- guessed: Richmod asks which card with one button per card. The choice row
--- holds the answer Go parsed; each option is an opaque button token bound to
--- one review request. Household-, Telegram user- and chat-scoped; expires.
 CREATE TABLE telegram_pending_card_choice (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     household_id UUID NOT NULL REFERENCES household(id),
@@ -41,10 +30,6 @@ CREATE TABLE telegram_pending_card_choice_option (
     PRIMARY KEY (choice_id, position)
 );
 
--- A job set aside while a dependency (the AI gateway) is unavailable waits with
--- a growing run_after and gives its attempt back; deferrals counts the waits
--- (backoff 5 minutes doubling to an hour) and lets the claim tell a deferred
--- job from a retry.
 ALTER TABLE job ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0 CHECK (deferrals >= 0);
 
 -- +goose Down

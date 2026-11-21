@@ -11,23 +11,15 @@ if [ ! -r "$RESTIC_PASSWORD_FILE" ]; then
     exit 1
 fi
 
-# Snapshots must share host and paths across runs: restic picks a parent and
-# `forget` groups by them. `compose run` gives every container a random
-# hostname and mktemp a random path, which made every snapshot its own
-# retention group (nothing was ever forgotten) and every run parentless.
 backup_host="family-finance"
 backup_tmp="${TMPDIR:-/tmp}/family-finance-backup"
 
-# The fixed path is shared by any run on the same filesystem, so one run at a
-# time: a second run must not clear the dump the first is backing up.
 exec 9>"$backup_tmp.lock"
 if ! flock -n 9; then
     echo "another backup run holds $backup_tmp.lock" >&2
     exit 1
 fi
 
-# Only the files this script writes are ever removed; the path is predictable,
-# so a symlink or foreign file there is refused instead of followed.
 backup_files="database.dump created-at.txt"
 clear_staging() {
     for name in $backup_files; do
@@ -42,14 +34,8 @@ fi
 clear_staging
 trap clear_staging EXIT INT TERM
 
-# A run killed mid-prune leaves an exclusive lock that blocks every later restic
-# command. `unlock` removes only stale locks, never one held by a live process.
-# Not fatal: it exits non-zero for a missing or unreachable repository, and the
-# check below classifies those.
 restic unlock 2>/dev/null || true
 
-# Initialise only when restic says the repository is missing. Any other failure
-# (network, credentials, lock) must surface as itself, not as a failed init.
 if ! probe_output="$(restic cat config 2>&1)"; then
     case "$probe_output" in
     *"does not exist"*|*"Is there a repository"*|*"no such file"*|*"NoSuchKey"*|*"NoSuchBucket"*)
@@ -72,7 +58,5 @@ if [ -d /var/lib/finance/attachments ]; then
     set -- "$@" /var/lib/finance/attachments
 fi
 restic backup --host "$backup_host" --tag family-finance --tag daily "$@"
-# Group by tags, not host+paths, so snapshots written before the host and path
-# were pinned fall under the same policy as new ones.
 restic forget --tag family-finance --group-by tags --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
 restic check --read-data-subset=5%

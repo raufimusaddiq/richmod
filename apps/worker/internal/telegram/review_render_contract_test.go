@@ -8,8 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// Reads the review reason set from the production package that owns the presets, so no second hand-maintained
-// list exists.
 var producibleReviewTypes = reviewdec.ActiveReasons()
 
 func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
@@ -31,8 +29,6 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 	}
 }
 
-// Mirrors the switch in EnqueueReviewRequest; a mode without a case silently falls back to the generic Ubah
-// detail/Abaikan keyboard.
 var markupModesHandledAtCreation = map[string]bool{
 	"category":              true,
 	"reply":                 true,
@@ -73,7 +69,6 @@ func TestPayslipReviewTypesCanProject(t *testing.T) {
 	}
 }
 
-// Every active reason needs a decision preset so a new producer gets the shared contract, not a zero decision.
 func TestActiveReasonsArePresetBacked(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
 		if _, ok := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000"); !ok {
@@ -82,17 +77,13 @@ func TestActiveReasonsArePresetBacked(t *testing.T) {
 	}
 }
 
-// Action-level gate: every ordinary action a review offers must be completable from Telegram.
-// Maps actions to the lane they reach, not the wire value; CONFIRM_REVIEW and CLASSIFY_TRANSFER are presets.
 func telegramReviewLanes() map[string]bool {
 	telegramLanes := map[string]bool{"CONFIRM_REVIEW": true, "IGNORE": true, "CLASSIFY_TRANSFER": true}
 	for _, action := range reviewdec.AllAgentActions() {
 		telegramLanes[action] = true
 	}
-	// MERGE_EXISTING and CONFIRM_NEW_TRANSFER are case-bound actions, not presets.
 	telegramLanes["MERGE_EXISTING"] = true
 	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
-	// SET_TRANSACTION_DATE completes through the date reply lane (AWAITING_DATE), which confirms with the date.
 	telegramLanes["SET_TRANSACTION_DATE"] = true
 	telegramLanes["SET_AMOUNT"] = true
 	for _, action := range []string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE"} {
@@ -123,7 +114,6 @@ func TestEveryOrdinaryAllowedActionHasATelegramLane(t *testing.T) {
 	}
 }
 
-// Every review_type a producer can emit must be completable from Telegram; a producer without a lane fails here.
 func TestEveryProducedReviewTypeIsTelegramCompletable(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
 		if !TelegramCompletableReviewType(reviewType) {
@@ -132,8 +122,6 @@ func TestEveryProducedReviewTypeIsTelegramCompletable(t *testing.T) {
 	}
 }
 
-// The gate is structural: a reason not registered as active coverage and with no Telegram lane is rejected
-// like the real fixture.
 func TestUnregisteredProducerFailsTheGate(t *testing.T) {
 	const unregistered = "TEST_ONLY_UNREGISTERED_REVIEW"
 	for _, reviewType := range producibleReviewTypes {
@@ -149,7 +137,6 @@ func TestUnregisteredProducerFailsTheGate(t *testing.T) {
 	}
 }
 
-// A registered review type whose ordinary action has no Telegram lane must fail independently of the type-level gate.
 func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
 	const deadEndAction = "TEST_ONLY_DEAD_END_ACTION"
 	if contains(reviewdec.AllAgentActions(), deadEndAction) {
@@ -172,8 +159,6 @@ func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
 	}
 }
 
-// A supplied prompt keeps the decision's markup and state; category and transfer reviews use the summary as
-// the body unchanged, detail/date/duplicate wrap it in the decision prompt.
 func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
 		decision, ok := reviewdec.Preset(reviewType, "source_event", "00000000-0000-0000-0000-000000000000")
@@ -187,8 +172,6 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		if !strings.Contains(message, "bespoke prompt") {
 			t.Fatalf("%s dropped the supplied prompt: %q", reviewType, message)
 		}
-		// The mode follows the decision, not the review type, so a supplied prompt cannot turn a bounded
-		// chooser into a free-form reply.
 		wantMode := "reply"
 		switch {
 		case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
@@ -230,8 +213,6 @@ func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
 	}
 }
 
-// The UNKNOWN_BANK_TEMPLATE card must be completable from Telegram and a natural reply ("54000
-// 2026-09-23T13:45:00+07:00", either order) must yield both facts.
 func TestBankFactsReplyParserAndCapability(t *testing.T) {
 	if !TelegramCompletableReviewType("UNKNOWN_BANK_TEMPLATE") {
 		t.Fatal("UNKNOWN_BANK_TEMPLATE must be completable from Telegram")
@@ -248,7 +229,6 @@ func TestBankFactsReplyParserAndCapability(t *testing.T) {
 	if amount, at := parseBankFactsReply("lihat nanti ya"); amount != "" || at != "" {
 		t.Fatalf("non-fact reply parsed as %q,%q", amount, at)
 	}
-	// A separator-bearing amount is ambiguous IDR: reject it rather than reshape it.
 	for _, text := range []string{
 		"54,5 2026-09-23T13:45:00+07:00",
 		"12.500,50 2026-09-23T13:45:00+07:00",
@@ -262,8 +242,6 @@ func TestBankFactsReplyParserAndCapability(t *testing.T) {
 	}
 }
 
-// A card with no subject summary leads with its prompt once; only the category chooser sends the summary
-// verbatim and falls back to the prompt as body.
 func TestEmptySummaryCardShowsItsTitleOnce(t *testing.T) {
 	decision, ok := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "00000000-0000-0000-0000-000000000000")
 	if !ok {

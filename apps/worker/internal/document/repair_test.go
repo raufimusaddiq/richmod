@@ -30,7 +30,6 @@ func (g *repairGateway) NativeToolCall(_ context.Context, _ string, prompt strin
 	return g.call, gateway.Metadata{Model: "vision-model"}, nil
 }
 
-// Repair must re-read the document: a flagged amount cannot be corrected from an empty prompt with no evidence.
 func TestRepairSendsDocumentEvidenceAndFlaggedFields(t *testing.T) {
 	value := receiptExtraction{Merchant: "Solaria", Currency: "IDR", Total: "6500", Confidence: 0.9}
 	issues := validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}

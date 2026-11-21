@@ -1,7 +1,5 @@
 export const focusableSelector = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
 
-// Which element Tab should move to so focus stays inside a modal container.
-// Returns null when the browser's default Tab order is already inside.
 export function trapTarget(items, active, shiftKey, container) {
   if (!items.length) return container || null;
   const first = items[0], last = items[items.length - 1];
@@ -10,7 +8,6 @@ export function trapTarget(items, active, shiftKey, container) {
   return outside || active === last ? first : null;
 }
 
-// Keydown handler: Escape closes, Tab wraps inside `container`.
 export function trapKeyDown(event, container, close) {
   if (event.key === "Escape") { close(); return; }
   if (event.key !== "Tab" || !container) return;
@@ -19,7 +16,6 @@ export function trapKeyDown(event, container, close) {
   if (target) { event.preventDefault(); target.focus(); }
 }
 
-// Roving index for a tablist: ArrowLeft/Right wrap, Home/End jump. null = not a tab key.
 export function nextTabIndex(key, index, count) {
   if (!count) return null;
   if (key === "ArrowRight") return (index + 1) % count;

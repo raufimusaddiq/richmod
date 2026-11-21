@@ -14,16 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// Editable fields of an existing transaction (PATCH /api/v1/transactions/{id}).
-// Amount, time, type, currency and evidence links are deliberately locked:
-// correcting those is void + re-create so evidence stays intact.
-//
-// Review policy: a transaction with an open review item is rejected with 409
-// (code REVIEW_OPEN, "selesaikan tinjauan dulu"). Review resolution owns those
-// facts; this endpoint never routes around it. Transfers keep their account and
-// have no category, so those two fields are rejected for TRANSFER. An unchanged
-// current category/account is accepted even if deactivated since; only a change
-// TO an inactive one is rejected.
 const (
 	codeInvalidRequest   = "INVALID_REQUEST"
 	codeUnknownField     = "UNKNOWN_FIELD"
@@ -45,7 +35,6 @@ var lockedEditFields = map[string]bool{
 	"purpose": true, "relatedWealthAccountId": true, "merchantId": true, "evidence": true,
 }
 
-// editError is a deterministic, client-mappable failure.
 type editError struct {
 	status int
 	code   string
@@ -63,8 +52,6 @@ type editInput struct {
 	categoryID, accountID, description, note optString
 }
 
-// parseEditBody decodes the PATCH body. A field present as null clears it
-// (category/account/note); absent fields are left untouched.
 func parseEditBody(body []byte) (editInput, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil || raw == nil {
@@ -99,7 +86,7 @@ func parseEditBody(body []byte) (editInput, error) {
 		s = strings.TrimSpace(s)
 		if key == "categoryId" || key == "accountId" {
 			if s == "" {
-				continue // empty string clears, like null
+				continue
 			}
 			if uuid.Validate(s) != nil {
 				return editInput{}, editError{http.StatusBadRequest, codeInvalidField, key + " must be a UUID"}
@@ -257,8 +244,6 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,'UPDATE_DETAILS','transaction',$3,$4::jsonb,$5::jsonb)`, household, p.UserID, id, string(beforeJSON), string(afterJSON)); err != nil {
 			return fmt.Errorf("audit edit: %w", err)
 		}
-		// A detail edit has no residual side effect: analytics read the ledger
-		// live and the cycle basis sums confirmed transactions household-wide.
 	}
 	return tx.Commit(ctx)
 }

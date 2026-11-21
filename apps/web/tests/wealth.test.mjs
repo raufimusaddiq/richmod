@@ -10,7 +10,6 @@ test("zero money is neutral; only a real amount carries a tone", () => {
   assert.equal(amountTone(null), "");
   assert.equal(amountTone("5000000"), "positive");
   assert.equal(amountTone("-5000000"), "negative");
-  // A liability is the negative side even though the stored figure is positive.
   assert.equal(amountTone("1750000", true), "negative");
   assert.equal(amountTone("0", true), "");
   for (const page of ["app/wealth/page.js", "app/page.js"]) {

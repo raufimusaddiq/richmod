@@ -16,8 +16,6 @@ func TestPhaseMetricDimensionsAreNotNull(t *testing.T) {
 	}
 }
 
-// Production must not disable Jev-owned mutation semantics by omitting the model; only an explicit non-
-// production opt-out is allowed.
 func TestRequireJudgmentModel(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -43,7 +41,6 @@ func TestRequireJudgmentModel(t *testing.T) {
 	}
 }
 
-// An unset or mistyped variable must keep the switch on; only an explicit negative disables it.
 func TestEnvEnabledDefaultsOnForUnsetOrUnknownValues(t *testing.T) {
 	cases := map[string]bool{
 		"":           true,

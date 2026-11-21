@@ -11,10 +11,6 @@ const output = new URL("../test-results/visual-smoke/", import.meta.url);
 const regressionOutput = new URL("../test-results/visual-regression/", import.meta.url);
 const baselines = new URL("../tests/visual-baselines/", import.meta.url);
 const updateBaselines = process.env.UPDATE_VISUAL_BASELINES === "1";
-// Baselines are canonical to the pinned Playwright image (scripts/visual-smoke-docker.sh).
-// The self-hosted woff2 fonts are identical everywhere, but a host Chromium rasterises
-// their glyph edges differently, so an update outside the image rewrites every baseline
-// and breaks the suite for everyone else.
 if (updateBaselines && process.env.RICHMOD_VISUAL_IMAGE !== "1") {
   console.error("Refusing to rewrite visual baselines outside the pinned image. Run: npm run test:visual:update");
   process.exit(2);
@@ -42,8 +38,6 @@ const categories = [
   { id: "cat-3", name: "Makan", amount: "420000", active: true, slug: "makan" },
   { id: "cat-4", name: "Tagihan", amount: "280000", active: true, slug: "tagihan" },
 ];
-// A real household has 25+ categories. The calendar chart is expected to show the top ten
-// plus "Kategori lain" rather than one bar per category.
 const calendarCategories = [
   "Belanja rumah", "Transportasi", "Makan", "Tagihan", "Kesehatan", "Pendidikan", "Hiburan", "Hadiah",
   "Perawatan diri", "Perlengkapan", "Donasi", "Biaya admin", "Lain-lain",
@@ -62,7 +56,6 @@ const wealthItems = [
   { wealthAccountId: "wa-2", name: "Reksa dana pasar uang", side: "ASSET", valueIdr: "20000000" },
   { wealthAccountId: "wa-3", name: "Kartu kredit", side: "LIABILITY", valueIdr: "1750000" },
 ];
-// Two snapshots share 9 Sep so the history axis has to dedupe its date labels.
 const wealthSnapshots = [
   { id: "wealth-3", observedAt: "2026-09-09T15:00:00+07:00", netWorthIdr: "48250000", assetTotalIdr: "50000000", liabilityTotalIdr: "1750000", items: wealthItems },
   { id: "wealth-2", observedAt: "2026-09-09T09:00:00+07:00", netWorthIdr: "47000000", assetTotalIdr: "48750000", liabilityTotalIdr: "1750000", items: wealthItems },
@@ -71,7 +64,6 @@ const wealthSnapshots = [
 
 function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/auth/me") return user;
-  // The analytics page reads one authoritative cycle-review response (the same synthetic facts the smoke test uses).
   if (path === "/api/v1/analytics/cycle-review") return cycleReviewFixture(search.get("cycle_start") || undefined, scenario);
   if (path === "/api/v1/analytics/cycle-decisions") return { items: [], previous: [], previousCycleStart: "2026-08-26" };
   if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
@@ -83,8 +75,6 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/wealth/cycle-recaps") return [];
   if (path === "/api/v1/wealth/observations") return [];
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
-  // The calendar view is served zero-filled months (the API generates the range), so the
-  // fixture does too: Jun is before the household's first transaction and Oct–Nov have none.
   if (path.startsWith("/api/v1/analytics/categories")) return search.get("period") === "last_3_cycles" ? categories : calendarCategories;
   if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-06", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-07", income: "11800000", expense: "7200000", refund: "0", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", refund: "0", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", refund: "0", netCashflow: "9910000" }, { period: "2026-10", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-11", income: "0", expense: "0", refund: "0", netCashflow: "0" }];
   if (path.startsWith("/api/v1/analytics/merchants")) return [{ name: "Pasar Minggu", amount: "1250000" }, { name: "Grab", amount: "640000" }];
@@ -116,8 +106,6 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
   return [];
 }
 
-// The same synthetic cycle facts as the smoke test; `fewCycles` keeps the last two ledger entries so the page shows the card layout.
-// The empty/partial states are the fixtures the unit tests use, so a screenshot and a test never disagree.
 function cycleReviewFixture(start, scenario) {
   const facts = scenario.firstCycle ? firstCycleFacts(start) : scenario.fullCycle ? fullCycleFacts(start) : scenario.noWealth ? noWealthFacts() : scenario.noSpending ? noSpendingFacts() : cycleFacts(start);
   if (scenario.fewCycles) {
@@ -184,7 +172,6 @@ async function compareScreenshot(page, name) {
   assert.ok(result.ratio <= 0.005, `${name} visual difference ${(result.ratio * 100).toFixed(2)}% exceeds 0.50%`);
 }
 
-// A region that scrolls but cannot be focused (and has no name) is invisible to keyboard and screen-reader users.
 async function unreachableScrollers(page) {
   return page.evaluate(() => [...document.querySelectorAll("main *, aside *, dialog *")].filter(element => {
     const style = getComputedStyle(element);
@@ -219,7 +206,6 @@ async function run() {
           await page.locator("#main-content").waitFor();
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
           assert.equal(overflow, false, `${name} ${path} has horizontal overflow`);
-          // Cards use overflow: hidden, so document-level overflow cannot see a clipped column.
           const clippedAmounts = await page.evaluate(() => [...document.querySelectorAll(".transaction-amount")].filter(element => { const card = element.closest(".surface"); return card && element.getBoundingClientRect().right > card.getBoundingClientRect().right + 1; }).length);
           assert.equal(clippedAmounts, 0, `${name} ${path} clips transaction amounts inside their card`);
           const clippedHeads = await page.evaluate(() => [...document.querySelectorAll(".table-head")].filter(element => { const card = element.closest(".surface"); return element.scrollWidth > element.clientWidth + 1 || (element.lastElementChild && card && element.lastElementChild.getBoundingClientRect().right > card.getBoundingClientRect().right + 1); }).length);
@@ -317,8 +303,6 @@ async function run() {
       await regressionPage.locator(".chart-tooltip").waitFor();
       await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
       await regressionPage.close();
-      // Cycle-view states the default capture does not reach: a closed cycle, a selected category row, too few cycles for the ribbon,
-      // and the empty/partial states from the brief (first cycle, no wealth snapshot, a cycle with no spending).
       for (const [name, path, scenario, ready] of [
         ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
@@ -351,17 +335,14 @@ async function run() {
       await regressionMobile.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
       await regressionMobile.locator("#main-content").waitFor();
       await compareScreenshot(regressionMobile, "analytics-cycle-mobile");
-      // The lead figure is the answer to "are we on track?"; it must be on the first screen at 390x844.
       const lead = await regressionMobile.locator(".kpi-cell[data-lead]").boundingBox();
       assert.ok(lead && lead.y >= 0 && lead.y + lead.height <= 844, "the lead KPI is fully visible without scrolling at 390x844");
-      // The phone control row: arrows and the picker are 44px targets.
       const controlTargets = await regressionMobile.evaluate(() => [...document.querySelectorAll(".cycle-picker button, .cycle-picker select, .range-control-group button")].map(element => Math.round(element.getBoundingClientRect().height)));
       assert.deepEqual(controlTargets.filter(height => height < 44), [], "phone controls are at least 44px tall");
       await regressionMobile.getByRole("button", { name: "Kalender" }).click();
       await regressionMobile.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
       await compareScreenshot(regressionMobile, "analytics-calendar-mobile");
       await regressionMobile.close();
-      // Empty and partial states at 390: each one is a fixture and a baseline, and none may scroll sideways.
       for (const [name, scenario] of [["analytics-cycle-first-mobile", { firstCycle: true }], ["analytics-cycle-nowealth-mobile", { noWealth: true }], ["analytics-cycle-nospending-mobile", { noSpending: true }], ["analytics-cycle-full-mobile", { fullCycle: true }]]) {
         const statePage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
         await intercept(statePage, true, [], scenario);
@@ -373,8 +354,6 @@ async function run() {
         await compareScreenshot(statePage, name);
         await statePage.close();
       }
-      // Keyboard-only pass over the dashboard: every stop is visible, named and ringed, and the
-      // chart data tables are reachable without a mouse.
       const keyboardPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
       await intercept(keyboardPage);
       await keyboardPage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
@@ -388,11 +367,7 @@ async function run() {
           const rect = element.getBoundingClientRect();
           const tag = element.tagName.toLowerCase();
           const labelledBy = element.getAttribute("aria-labelledby");
-          // An svg's text content is its plotted labels, not an accessible name.
           const name = (element.getAttribute("aria-label") || (labelledBy ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ") : "") || (tag === "svg" ? "" : element.textContent) || "").trim();
-          // A focus ring is a change, not any pre-existing card shadow: compare the focused
-          // style with the same element's unfocused style, then put the focus back so Tab
-          // keeps walking the page.
           const signature = () => { const style = getComputedStyle(element); return [style.outlineStyle, style.outlineWidth, style.boxShadow, style.backgroundColor, style.borderColor].join("|"); };
           const focused = signature();
           element.blur();
@@ -465,7 +440,6 @@ async function run() {
       }
       await legalPage.close();
 
-      // Scrolling regions must be reachable by keyboard and named. The extraction route returns a long line so the drawer's <pre> really overflows.
       const scrollPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
       await intercept(scrollPage);
       await scrollPage.route("**/api/v1/documents/*/extraction", route => route.fulfill({ json: [{ stage: "RECEIPT", schemaVersion: 1, validated: true, output: { merchant: "Pasar Minggu", note: "x".repeat(400) } }] }));
@@ -476,7 +450,7 @@ async function run() {
         await scrollPage.locator("#main-content").waitFor();
         if (path === "/documents") await scrollPage.locator(".document-card").first().click();
         if (path === "/documents") await scrollPage.locator(".detail-drawer").waitFor();
-        if (path === "/documents") await scrollPage.locator(".detail-drawer pre").first().waitFor({ state: "attached" }); // the extraction arrives after the drawer opens
+        if (path === "/documents") await scrollPage.locator(".detail-drawer pre").first().waitFor({ state: "attached" });
         await scrollPage.evaluate(() => document.querySelectorAll("details").forEach(details => { details.open = true; }));
         if (path === "/documents") await scrollPage.locator(".detail-drawer pre").first().waitFor();
         unreachableByPage[path] = await unreachableScrollers(scrollPage);

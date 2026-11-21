@@ -107,7 +107,6 @@ func TestLifecycleRefreshIsHouseholdScoped(t *testing.T) {
 		_, err = pool.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, f.document)
 		must(err)
 	}
-	// Even an inconsistent page link must not expand the aggregate across tenants.
 	for _, pair := range [][2]string{{owner.document, foreign.source}, {foreign.document, owner.source}} {
 		_, err := pool.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) SELECT id,$2,attachment_id,0 FROM document WHERE id=$1`, pair[0], pair[1])
 		must(err)

@@ -77,8 +77,6 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 		t.Fatalf("unexpected items: %#v", items)
 	}
 
-	// Review drill-down uses exact IDs, includes refunds, excludes next-cycle
-	// midnight and never includes another household's merchant.
 	var similarMerchant, foreignHousehold, foreignMerchant string
 	if err = pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAMELLA DUA LAIN') RETURNING id`, householdID).Scan(&similarMerchant); err != nil {
 		t.Fatal(err)
@@ -107,8 +105,6 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 		}
 		drilldownIDs = append(drilldownIDs, id)
 	}
-	// "Tanpa merchant": no merchant and no counterparty. A named but unresolved
-	// counterparty is its own payee, and another household never leaks in.
 	for _, extra := range []struct{ household, category, counterparty string }{{householdID, categoryID, "Warung Tanpa Alias"}, {foreignHousehold, "", ""}} {
 		if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,category_id,counterparty_name,type,status,amount,transaction_at,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,''),'EXPENSE','CONFIRMED',1000,'2026-09-10T08:00:00+07:00',now())`, extra.household, extra.category, extra.counterparty); err != nil {
 			t.Fatal(err)
@@ -143,7 +139,6 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if pageOneResponse.Code != http.StatusOK || pageOneResponse.Header().Get("X-Next-Cursor") == "" {
 		t.Fatalf("first page status=%d cursor=%q", pageOneResponse.Code, pageOneResponse.Header().Get("X-Next-Cursor"))
 	}
-	// The heading needs the full match count, not the page size; it rides the same query.
 	if total := pageOneResponse.Header().Get("X-Total-Count"); total == "" || total == "0" {
 		t.Fatalf("first page total=%q", total)
 	}
@@ -158,7 +153,6 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if pageTwoResponse.Code != http.StatusOK || json.Unmarshal(pageTwoResponse.Body.Bytes(), &pageTwoItems) != nil || len(pageTwoItems) != 1 || pageTwoItems[0].ID == pageOneItems[0].ID {
 		t.Fatalf("second page status=%d body=%s", pageTwoResponse.Code, pageTwoResponse.Body.String())
 	}
-	// The total is the full match count on every page, not the rows after the cursor.
 	firstTotal := pageOneResponse.Header().Get("X-Total-Count")
 	if got := pageTwoResponse.Header().Get("X-Total-Count"); got != firstTotal {
 		t.Fatalf("total changed on page 2: page1=%q page2=%q", firstTotal, got)

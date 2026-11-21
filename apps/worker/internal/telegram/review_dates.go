@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// Deterministic parsing of an explicit date typed as a review reply; only replies this parser cannot read go
-// to the model.
-
 var indonesianMonthNames = map[string]time.Month{
 	"jan": time.January, "januari": time.January, "january": time.January,
 	"feb": time.February, "februari": time.February, "february": time.February, "peb": time.February, "pebruari": time.February,
@@ -32,8 +29,6 @@ var (
 	namedDatePattern   = regexp.MustCompile(`^(\d{1,2})\s+([a-z]+)\.?(?:\s+(\d{4}))?$`)
 )
 
-// parseReplyDate returns false unless the reply is a single unambiguous date; a year-less date takes the
-// current year, or the previous one if that lands over 31 days ahead.
 func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 	location := jakartaLocation()
 	now = now.In(location)
@@ -59,7 +54,6 @@ func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 		day, _ = strconv.Atoi(parts[3])
 		yearKnown = true
 	case numericDatePattern.MatchString(value):
-		// Indonesian order is day/month[/year].
 		parts := numericDatePattern.FindStringSubmatch(value)
 		day, _ = strconv.Atoi(parts[1])
 		month, _ = strconv.Atoi(parts[2])
@@ -89,7 +83,6 @@ func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 		year = today.Year()
 	}
 	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, location)
-	// time.Date normalizes 31/02 into March; such a reply is not a real date.
 	if month < 1 || month > 12 || date.Day() != day || int(date.Month()) != month {
 		return time.Time{}, false
 	}

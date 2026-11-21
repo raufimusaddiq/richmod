@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// seedWaitingCycle creates a closed cycle whose residual review the household answered "transaksi belum
-// tercatat", covering the receipt time.
 func seedWaitingCycle(t *testing.T, fixture receiptFixture) string {
 	t.Helper()
 	ctx := context.Background()
@@ -35,8 +33,6 @@ func seedWaitingCycle(t *testing.T, fixture receiptFixture) string {
 	return caseID
 }
 
-// An auto-confirmed receipt is a recorded transaction: a cycle waiting on a missing transaction reopens with
-// the recomputed residual.
 func TestAutoConfirmedReceiptReopensAWaitingResidual(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt reopens residual")
 	caseID := seedWaitingCycle(t, fixture)

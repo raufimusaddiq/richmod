@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// Recency windows for evidence a message does not reply to (ADR-050 binding levels 4-6); tune from the
-// binding-level counters.
 const (
 	immediateEvidenceWindow = 10 * time.Minute
 	recentEvidenceWindow    = 60 * time.Minute
@@ -23,8 +21,6 @@ type recentEvidenceCandidate struct {
 	Age      time.Duration
 }
 
-// Scoped to household, chat and sending user; older rows without a sender fall back to the chat id.
-// Reads one row past the carry limit to tell "more than" from "exactly".
 func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID string, chatID, userID int64) ([]recentEvidenceCandidate, error) {
 	rows, err := p.pool.Query(ctx, `SELECT d.id::text,extract(epoch FROM now()-d.created_at)::float8
 		FROM document d JOIN source_event s ON s.id=d.source_event_id AND s.household_id=d.household_id
@@ -50,7 +46,6 @@ func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID st
 	return out, rows.Err()
 }
 
-// Context is optional: any failure yields none rather than aborting the household's message.
 func (p *Processor) recentEvidenceContext(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, candidates []recentEvidenceCandidate) (*agentEvidenceBinding, []map[string]any) {
 	evidence, ambiguous, err := p.bindRecentEvidenceFrom(ctx, householdID, sourceEventID, update, candidates)
 	if err != nil {
@@ -101,8 +96,6 @@ func (p *Processor) bindRecentEvidenceFrom(ctx context.Context, householdID, sou
 	return nil, contexts, nil
 }
 
-// Decides whether a bare amount may be harvested as a new transaction (older evidence must not slow an
-// ordinary expense) and feeds the ledger guard.
 func freshEvidenceDocuments(candidates []recentEvidenceCandidate) []string {
 	var documents []string
 	for _, candidate := range candidates {
@@ -113,8 +106,6 @@ func freshEvidenceDocuments(candidates []recentEvidenceCandidate) []string {
 	return documents
 }
 
-// Backstop against a second transaction for one document: same type and amount, merchant absent or equal.
-// A different merchant is allowed so a genuine second purchase is not blocked; it fails open.
 func (p *Processor) evidenceAlreadyRecorded(ctx context.Context, householdID string, freshDocuments []string, transactionType, amount, merchant string) bool {
 	if len(freshDocuments) == 0 {
 		return false
@@ -149,8 +140,6 @@ func (p *Processor) evidenceAlreadyRecorded(ctx context.Context, householdID str
 	return false
 }
 
-// Identical names match; otherwise each word of the shorter must be a whole word in the longer, and it needs
-// a distinctive word of 5+ letters ("mirota" matches "mirota swalayan", "toko" does not match "toko jaya").
 func sameMerchantTokens(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

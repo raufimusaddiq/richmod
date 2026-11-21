@@ -43,9 +43,6 @@ type createdHousehold struct {
 	} `json:"invite"`
 }
 
-// TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite covers the console
-// path end to end: authorization, provisioning, audit, the invite-only owner
-// enrollment, reissue, and every conflict and validation refusal.
 func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	pool := provisionPool(t)
 	ctx := context.Background()
@@ -76,7 +73,6 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	telegramID := stamp%6_000_000_000 + 17
 	body := fmt.Sprintf(`{"householdName":"Keluarga Baru %d","ownerName":"Pemilik Baru","ownerEmail":%q,"telegramUserId":%d}`, stamp, ownerEmail, telegramID)
 
-	// A household owner who is not a Super Admin cannot provision tenants.
 	owner := superAdmin
 	owner.IsSuperAdmin = false
 	if response := call(owner, "/api/v1/admin/households", body, h.CreateHousehold, ""); response.Code != http.StatusForbidden {
@@ -113,12 +109,10 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 		t.Fatalf("role=%s initialized=%v adminIsMember=%v categories=%d audits=%d/%d", role, initialized, adminIsMember, categories, householdAudits, platformAudits)
 	}
 
-	// The owner cannot log in until enrolling through the invite.
 	service := auth.NewService(pool)
 	if _, _, _, err := service.Login(ctx, ownerEmail, "anything-at-all-123"); !errors.Is(err, auth.ErrInvalidCredentials) {
 		t.Fatalf("login before enrollment: %v", err)
 	}
-	// Reissue while not enrolled replaces the first invite.
 	reissue := call(superAdmin, "/api/v1/admin/households/x/owner-invite", "", h.ReissueOwnerInvite, created.Household.ID)
 	if reissue.Code != http.StatusOK || !strings.Contains(reissue.Header().Get("Cache-Control"), "no-store") {
 		t.Fatalf("reissue: %d %s (Cache-Control %q)", reissue.Code, reissue.Body.String(), reissue.Header().Get("Cache-Control"))
@@ -141,8 +135,6 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 		t.Fatalf("reissue after enrollment: %d %s", response.Code, response.Body.String())
 	}
 
-	// A forgotten owner password is reset only by an explicit request, and
-	// accepting the link replaces the password and ends the old session.
 	if _, _, err := service.Authenticate(ctx, ownerSession); err != nil {
 		t.Fatalf("owner session before reset: %v", err)
 	}
@@ -173,8 +165,6 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 		t.Fatalf("reset audits=%d err=%v", resetAudits, err)
 	}
 
-	// Refusals: an existing user is never attached, a linked Telegram ID is
-	// never reused, and malformed input is rejected.
 	for _, tc := range []struct {
 		name, body string
 		status     int
@@ -199,8 +189,6 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 		t.Fatalf("reissue for unknown household: %d %s", response.Code, response.Body.String())
 	}
 
-	// Telegram ID and user are bound 1:1 for good: a removed member's
-	// (inactive) Telegram ID is still bound and is never given to a new owner.
 	var formerMember string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Former','x') RETURNING id`, fmt.Sprintf("former-%d@example.test", stamp)).Scan(&formerMember); err != nil {
 		t.Fatal(err)

@@ -7,12 +7,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// Telegram review card text (ADR-046 amendment). A card has one title, the facts of
-// its subject, one short reason line, and one instruction matching its buttons. The
-// worker renders every card through TelegramCardText; operations that edit a live
-// card (a refreshed cycle residual) use the same helpers so an edit keeps its facts.
-
-// TelegramCardText joins the card parts, skipping empty ones.
 func TelegramCardText(title, facts, why, instruction string) string {
 	parts := make([]string, 0, 4)
 	for _, part := range []string{title, facts, whyPart(why), instruction} {
@@ -30,36 +24,27 @@ func whyPart(why string) string {
 	return "Alasan: " + strings.TrimSpace(why)
 }
 
-// CycleResidualCardTitle is the cycle residual card's one title.
 const CycleResidualCardTitle = "🧾 Sisa salary cycle belum dialokasikan"
 
-// CycleResidualCardInstruction matches the cycle card's buttons: allocation and
-// a missing transaction are typed replies; leaving it unallocated is a button.
 const CycleResidualCardInstruction = CycleResidualCardReplyInstruction + " Pilih Biarkan saja jika sisa ini memang tidak dialokasikan."
 
-// CycleResidualCardReplyInstruction is the instruction of a cycle card whose
-// contract does not offer LEAVE_UNALLOCATED, so it names no button.
 const CycleResidualCardReplyInstruction = "Balas pesan ini (Reply) untuk mengalokasikan sisa ke akun kekayaan, atau sebutkan transaksi yang belum tercatat."
 
-// CycleResidualCardFacts names the cycle window (end exclusive) and residual.
 func CycleResidualCardFacts(cycleStart, cycleEnd time.Time, residual string) string {
 	last := cycleEnd.AddDate(0, 0, -1)
 	return "Periode: " + FormatIndonesianDate(cycleStart) + " – " + FormatIndonesianDate(last) + "\nSisa: Rp" + FormatRupiah(residual)
 }
 
-// CycleResidualCardText is the complete cycle residual card.
 func CycleResidualCardText(cycleStart, cycleEnd time.Time, residual string) string {
 	return TelegramCardText(CycleResidualCardTitle, CycleResidualCardFacts(cycleStart, cycleEnd, residual), reviewdec.WhyLine(reviewdec.Decision{ReasonCode: "CYCLE_RESIDUAL_ALLOCATION"}), CycleResidualCardInstruction)
 }
 
 var indonesianMonths = [...]string{"Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"}
 
-// FormatIndonesianDate renders a calendar date as "25 Okt 2026".
 func FormatIndonesianDate(value time.Time) string {
 	return value.Format("2") + " " + indonesianMonths[value.Month()-1] + " " + value.Format("2006")
 }
 
-// FormatRupiah groups a whole-rupiah decimal string with dots: 1250000 -> 1.250.000.
 func FormatRupiah(value string) string {
 	value = strings.TrimSpace(value)
 	sign := ""
@@ -67,7 +52,6 @@ func FormatRupiah(value string) string {
 		sign, value = "-", strings.TrimPrefix(value, "-")
 	}
 	if whole, fraction, found := strings.Cut(value, "."); found {
-		// Round half up to whole rupiah for display.
 		value = whole
 		if fraction != "" && fraction[0] >= '5' {
 			value = incrementDecimal(whole)
@@ -87,7 +71,6 @@ func FormatRupiah(value string) string {
 	return sign + strings.Join(parts, ".")
 }
 
-// incrementDecimal adds one to a non-negative decimal digit string.
 func incrementDecimal(value string) string {
 	digits := []byte(value)
 	for i := len(digits) - 1; i >= 0; i-- {

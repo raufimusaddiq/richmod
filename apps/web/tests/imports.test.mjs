@@ -4,8 +4,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-// `npm test` reads sources as text, so a wrong relative import would pass here
-// and only fail in `next build`. Resolve every relative import statically.
 const root = fileURLToPath(new URL("../app/", import.meta.url));
 
 function walk(dir) {

@@ -81,8 +81,6 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Window kind and cycle count are always reported with the resolved dates, so
-	// a fallback (fewer than 3 salary anchors) is never labelled as cycles.
 	windowKind, cycles := "CALENDAR_MONTHS", 0
 	var start, end time.Time
 	var err error
@@ -106,8 +104,6 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	// The resolved window is always reported, so a client never has to guess
-	// which dates a share was computed over. The end is inclusive.
 	w.Header().Set("X-Window-Start", start.Format("2006-01-02"))
 	w.Header().Set("X-Window-End", end.AddDate(0, 0, -1).Format("2006-01-02"))
 	w.Header().Set("X-Window-Kind", windowKind)
@@ -264,10 +260,6 @@ func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, 
 	return current.AddDate(0, -(months - 1), 0), current.AddDate(0, 1, 0), nil
 }
 
-// lastCycles spans the n most recent salary cycles, ending after today. It uses
-// the same primary-salary anchors as the cycle review. Without enough anchors it
-// spans the cycles that exist, and with none it falls back to n calendar months;
-// the caller reports the resolved window so it is never implicit.
 func (h *Handler) lastCycles(ctx context.Context, household string, local time.Time, n int, currentMonth time.Time) (time.Time, time.Time, int, error) {
 	var anchor *string
 	var found int

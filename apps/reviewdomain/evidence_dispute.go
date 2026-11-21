@@ -15,10 +15,7 @@ var ErrEvidenceDisputeConfirmationRequired = errors.New("reviewdomain: use the s
 type EvidenceDisputeCommand struct {
 	HouseholdID, ActorUserID, DocumentID, SourceEventID string
 	TransactionID, ReviewItemID, RequestID              string
-	// CategoryID is a Go-resolved category: at staging the policy-resolved one from the
-	// disputed screenshot's own extraction (empty when unresolved), at confirm the
-	// household's explicit choice from the category chooser. Always revalidated here.
-	CategoryID string
+	CategoryID                                          string
 }
 
 type EvidenceDisputeResult struct {
@@ -34,9 +31,6 @@ type mergedScreenshot struct {
 	at                                                                                  time.Time
 }
 
-// Lock the original observation, not a model-selected ledger target. Identity is
-// deliberately not guessed for legacy extractions; only human confirmation can
-// override the old match. Missing amount/date and multirow documents fail closed.
 func lockMergedScreenshot(ctx context.Context, tx pgx.Tx, household, document string) (mergedScreenshot, error) {
 	var s mergedScreenshot
 	err := tx.QueryRow(ctx, `SELECT p.id::text,p.source_event_id::text,p.proposed_type,p.amount::text,p.currency,p.transaction_at,COALESCE(p.merchant_raw,p.counterparty_raw,''),COALESCE(p.description,''),p.category_candidate_id,p.confidence::float8
@@ -110,8 +104,6 @@ func StageEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCom
 	return result, err
 }
 
-// ResolveEvidenceDispute is intentionally separate from generic duplicate
-// confirm/merge: the original immutable proposal remains MERGED forever.
 func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCommand, confirm bool) error {
 	var originalEvidence, originalProposal, document, disputeSource string
 	var stagedCategory *string
@@ -129,8 +121,6 @@ func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeC
 	}
 	action := "REJECT_EVIDENCE_DISPUTE"
 	if confirm {
-		// Unlike the generic duplicate "record as new", a screenshot expense never confirms
-		// without a category: the caller asks through the category chooser.
 		if stagedCategory == nil && cmd.CategoryID == "" {
 			return ErrMissingCategory
 		}
@@ -159,7 +149,6 @@ func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeC
 			return err
 		}
 		if cmd.CategoryID != "" && stagedCategory == nil {
-			// A household choice is the classification source: full confidence, like the normal chooser.
 			if _, err = tx.Exec(ctx, `UPDATE transaction SET classification_confidence=1 WHERE id=$1::uuid AND classification_confidence IS NULL`, cmd.TransactionID); err != nil {
 				return err
 			}

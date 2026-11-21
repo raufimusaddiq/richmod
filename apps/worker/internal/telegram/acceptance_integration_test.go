@@ -221,7 +221,6 @@ func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
 	mustAgentTest(t, err)
 	processor := NewProcessor(f.pool, &prdReviewGateway{})
-	// A bounded action ruling must fall through for the exact free-form category.
 	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}

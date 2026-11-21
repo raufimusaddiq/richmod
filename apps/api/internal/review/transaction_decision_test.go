@@ -15,10 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// Telegram and the Inbox must read one decision contract. A transaction
-// that the source did not name a merchant for used to be reported to the Inbox as
-// needing `merchant` while its stored decision asked only for `category`. The
-// Inbox must serve the stored contract.
 func TestTransactionBackedReviewExposesStoredDecision(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

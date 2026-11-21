@@ -220,9 +220,6 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
 	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
-	// API routes keep their middleware chain. The UI keeps the same hardening
-	// except the API CSP: default-src 'none' would block the export's own scripts
-	// and styles, so the UI only forbids framing.
 	apiHandler := securityHeaders(httpmw.RequestID(httpmw.AccessLog(logger, httpmw.SameOrigin(cfg.WebOrigin, mux))))
 	if !webui.Embedded() {
 		logger.Warn("embedded web UI is missing; build apps/web with npm run build:embed before building the binary")
@@ -264,8 +261,6 @@ func run(logger *slog.Logger) error {
 	}
 }
 
-// apiOwnedPath reports whether a path belongs to the API. Unregistered paths
-// under these prefixes must stay API 404s instead of falling through to the UI.
 func apiOwnedPath(p string) bool {
 	for _, prefix := range []string{"/api", "/webhooks", "/finance"} {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") {

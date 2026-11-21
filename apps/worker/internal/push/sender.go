@@ -13,16 +13,11 @@ import (
 )
 
 const (
-	// defaultLease outlasts an HTTP send so a slow push service does not lose its claim; a crash after send
-	// but before recording can re-send once.
 	defaultLease       = 5 * time.Minute
 	defaultMaxAttempts = 5
-	// DefaultExpiry drops notifications older than this; replaying history to a newly subscribed device is noise.
-	DefaultExpiry = time.Hour
-	// DefaultRetention keeps terminal rows for diagnosing missed-notification reports, which resolve within days.
-	DefaultRetention = 7 * 24 * time.Hour
-	// purgeBatch bounds one sweep so the first purge after long uptime does not hold locks over a huge set.
-	purgeBatch = 1000
+	DefaultExpiry      = time.Hour
+	DefaultRetention   = 7 * 24 * time.Hour
+	purgeBatch         = 1000
 )
 
 type Sender struct {
@@ -63,8 +58,6 @@ type notification struct {
 	Count int    `json:"count"`
 }
 
-// secureClient refuses redirects and validates every dial target; Proxy is disabled so an environment proxy
-// cannot bypass the SSRF checks.
 func secureClient() *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
@@ -79,7 +72,6 @@ func secureClient() *http.Client {
 	}
 }
 
-// NewSender returns a disabled error without VAPID config; the caller must keep starting normally.
 func NewSender(pool *pgxpool.Pool, privateKey, subject string, logger *slog.Logger) (*Sender, error) {
 	vapid, err := NewVAPID(privateKey, subject)
 	if err != nil {
@@ -119,7 +111,6 @@ func (s *Sender) Run(ctx context.Context) {
 	}
 }
 
-// RunOnce expires stale rows, claims one batch and delivers one notification per user/household.
 func (s *Sender) RunOnce(ctx context.Context) (int, error) {
 	if err := s.expire(ctx); err != nil {
 		return 0, err
@@ -154,8 +145,6 @@ func (s *Sender) expire(ctx context.Context) error {
 	return err
 }
 
-// Expire is a free function so the worker can sweep without VAPID config; otherwise the outbox grows behind a
-// disabled feature.
 func Expire(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, maxAge time.Duration) (int, error) {
 	rows, err := pool.Query(ctx, `
 		UPDATE push_outbox
@@ -192,8 +181,6 @@ func Expire(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, maxAge
 	return len(ids), nil
 }
 
-// Purge deletes terminal rows older than retention, up to purgeBatch per table, and runs without VAPID.
-// The outbox->delivery FK has no ON DELETE CASCADE, so deliveries go first; PENDING ones are never matched.
 func Purge(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, retention time.Duration) (int, error) {
 	deliveries, err := pool.Exec(ctx, `
 		WITH doomed AS (
@@ -268,7 +255,6 @@ func (s *Sender) deliver(ctx context.Context, key groupKey, rows []outboxRow, ba
 		return err
 	}
 	if !active {
-		// The row still records the skip so the removed recipient stays visible.
 		return s.abandonRows(ctx, rowIDs(rows), "recipient is not an active household member")
 	}
 	ids := rowIDs(rows)
@@ -329,7 +315,6 @@ func (s *Sender) deliver(ctx context.Context, key groupKey, rows []outboxRow, ba
 		if err != nil {
 			return err
 		}
-		// Renew the lease for every claimed row before each device send so a slow batch is not reclaimed.
 		if _, renewErr := s.pool.Exec(ctx, `UPDATE push_outbox SET available_at=now()+($2*interval '1 second') WHERE id=ANY($1) AND sent_at IS NULL AND abandoned_at IS NULL`, batchIDs, int(s.lease.Seconds())); renewErr != nil {
 			return renewErr
 		}
@@ -361,8 +346,6 @@ func (s *Sender) deliver(ctx context.Context, key groupKey, rows []outboxRow, ba
 		if _, updateErr := s.pool.Exec(ctx, `UPDATE push_outbox_delivery SET attempts=attempts+1,status=CASE WHEN attempts+1>=$2 THEN 'FAILED' ELSE 'PENDING' END,last_error=$3,updated_at=now() WHERE id=ANY($1) AND status='PENDING'`, deliveryIDs, s.maxAttempts, lastError); updateErr != nil {
 			s.logger.Warn("push delivery record failed", "error", updateErr)
 		}
-		// failure_count is diagnostic only: a transient outage must not retire a valid device; only
-		// DeliveryError.Dead (404/410) sets disabled_at. The attempts cap already marks the delivery FAILED.
 		if _, updateErr := s.pool.Exec(ctx, `UPDATE push_subscriptions SET failure_count=failure_count+1 WHERE id=$1 AND disabled_at IS NULL`, subscriptionID); updateErr != nil {
 			s.logger.Warn("push subscription failure count failed", "error", updateErr)
 		}

@@ -12,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// An incoming screenshot row is typed INCOME and parked as a transfer-classification review; its card offers
-// only incoming answers.
 func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -95,7 +93,6 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 				t.Fatalf("%s: review item status=%s for transaction %s", tc.callback, itemStatus, gotStatus)
 			}
 			if tc.callback == "review:ignore" {
-				// Abaikan on a transfer card must not claim an income-specific reason.
 				var reason, reviewType string
 				must(pool.QueryRow(ctx, `SELECT after_json->>'reason',after_json->>'review_type' FROM audit_log WHERE entity_id=$1 AND action='REJECT_REVIEW' AND actor_type='TELEGRAM'`, transactionID).Scan(&reason, &reviewType))
 				if reason != "telegram_ignore" || reviewType != "TRANSFER_CLASSIFICATION" {

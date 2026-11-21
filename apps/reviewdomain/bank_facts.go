@@ -1,8 +1,3 @@
-// Bank fact completion. A bank email whose bounded verification could not confirm the
-// extracted semantics becomes a source-event review (UNKNOWN_BANK_TEMPLATE). Web
-// queues COMPLETE_BANK_REVIEW; this operation owns the shared validation, entity
-// linkage, source refresh, and review completion so the Telegram reply lane and the
-// worker job cannot diverge.
 package reviewdomain
 
 import (
@@ -15,9 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// BankFactCommand carries one source-event review and the amount/date the user
-// supplied. The account and canonical linkage are reloaded from the source, never
-// trusted from the caller.
 type BankFactCommand struct {
 	HouseholdID   string
 	UserID        string
@@ -28,27 +20,18 @@ type BankFactCommand struct {
 	TransactionAt string
 }
 
-// BankAccountChoice is one bounded active household funding account the Telegram
-// lane may offer for an unlinked bank source.
 type BankAccountChoice struct {
 	ID   string
 	Name string
 }
 
 var (
-	// ErrBankFactsRequired reports a completion missing the amount or time.
-	ErrBankFactsRequired = errors.New("reviewdomain: bank amount and timestamp are required")
-	// ErrBankReviewUnavailable reports a review that is not an open bank-fact item.
+	ErrBankFactsRequired     = errors.New("reviewdomain: bank amount and timestamp are required")
 	ErrBankReviewUnavailable = errors.New("reviewdomain: bank review is unavailable")
-	// ErrBankSourceUnlinked reports a bank source with no active account to bind.
-	ErrBankSourceUnlinked = errors.New("reviewdomain: bank source has no active account")
-	// ErrBankAccountInvalid reports a selected account that is not an active
-	// household funding account.
-	ErrBankAccountInvalid = errors.New("reviewdomain: selected bank account is not available")
+	ErrBankSourceUnlinked    = errors.New("reviewdomain: bank source has no active account")
+	ErrBankAccountInvalid    = errors.New("reviewdomain: selected bank account is not available")
 )
 
-// IgnoreBankReview dismisses source-only bank evidence through the same operation
-// on Web and Telegram. No transaction is created or deleted.
 func IgnoreBankReview(ctx context.Context, tx pgx.Tx, cmd BankFactCommand, actorType string) error {
 	var sourceID string
 	var decision []byte
@@ -66,8 +49,6 @@ func IgnoreBankReview(ctx context.Context, tx pgx.Tx, cmd BankFactCommand, actor
 	var contract struct {
 		AllowedActions []string `json:"allowedActions"`
 	}
-	// review_item_require_decision guarantees a decision; a review that does not
-	// advertise IGNORE cannot be dismissed through this operation.
 	if json.Unmarshal(decision, &contract) != nil || !containsAction(contract.AllowedActions, "IGNORE") {
 		return ErrBankReviewUnavailable
 	}
@@ -83,13 +64,9 @@ func IgnoreBankReview(ctx context.Context, tx pgx.Tx, cmd BankFactCommand, actor
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE'))`, cmd.HouseholdID, actorType, cmd.UserID, cmd.ReviewItemID); err != nil {
 		return err
 	}
-	// The review is resolved first so the shared lifecycle sees no open item.
 	return MarkSourceIgnored(ctx, tx, cmd.HouseholdID, sourceID)
 }
 
-// ListBankSourceAccountChoices returns the bounded active household funding
-// accounts a user may link to an unlinked bank source, keyed by real account ID
-// so a reply cannot invent one.
 func ListBankSourceAccountChoices(ctx context.Context, tx pgx.Tx, householdID, reviewItemID, sourceEventID string, limit int) ([]BankAccountChoice, error) {
 	var unlinked bool
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(l.account_id::text,'')='' FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.household_id=$2 AND ri.source_event_id=$3 AND ri.review_type='UNKNOWN_BANK_TEMPLATE' AND ri.status IN ('OPEN','PENDING_SEND')`, reviewItemID, householdID, sourceEventID).Scan(&unlinked); errors.Is(err, pgx.ErrNoRows) {
@@ -115,8 +92,6 @@ func ListBankSourceAccountChoices(ctx context.Context, tx pgx.Tx, householdID, r
 	return choices, rows.Err()
 }
 
-// BindBankSourceAccount links an unlinked bank source to a server-revalidated
-// active household funding account so the existing completion job can proceed.
 func BindBankSourceAccount(ctx context.Context, tx pgx.Tx, householdID, reviewItemID, sourceEventID, accountID string) error {
 	if err := ValidateFinancialFundingAccount(ctx, tx, householdID, accountID); err != nil {
 		if errors.Is(err, ErrAccountInvalid) {
@@ -134,11 +109,6 @@ func BindBankSourceAccount(ctx context.Context, tx pgx.Tx, householdID, reviewIt
 	return nil
 }
 
-// ValidateBankSourceAccount checks that a bank-fact reply targets an open
-// UNKNOWN_BANK_TEMPLATE item whose listener is bound to a live funding account, so
-// the caller can fail fast before queueing completion. It does not resolve the review
-// or touch the source: the COMPLETE_BANK_REVIEW job owns linking, persisting the
-// transaction, and resolving the item.
 func ValidateBankSourceAccount(ctx context.Context, tx pgx.Tx, cmd BankFactCommand) error {
 	if err := ValidateBankFactValues(cmd.AmountIDR, cmd.TransactionAt); err != nil {
 		return err
@@ -160,8 +130,6 @@ func ValidateBankSourceAccount(ctx context.Context, tx pgx.Tx, cmd BankFactComma
 	return nil
 }
 
-// ValidateBankFactValues applies the same whole-IDR and zoned-time limits to
-// Telegram and the queued bank completion before either can claim success.
 func ValidateBankFactValues(amount, timestamp string) error {
 	if strings.TrimSpace(amount) == "" || strings.TrimSpace(timestamp) == "" {
 		return ErrBankFactsRequired

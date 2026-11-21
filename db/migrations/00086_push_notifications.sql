@@ -1,12 +1,4 @@
 -- +goose Up
--- Web Push transport: subscriptions are per device, the outbox is per user per
--- notification-worthy event. The outbox is written by AFTER INSERT triggers so
--- it shares the creating transaction automatically, including every existing
--- review/integration-action creation path in the worker and domain packages.
--- Household scope rule: a user has exactly one active household (migration
--- 00045), so a subscription row belongs to that household. Re-subscribing moves
--- household_id and retires the old household's PENDING deliveries; the trigger
--- below only enqueues for a subscription whose household matches the event.
 CREATE TABLE push_subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES "user"(id),
@@ -16,8 +8,6 @@ CREATE TABLE push_subscriptions (
     auth TEXT NOT NULL,
     user_agent TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- Start of the current active period. Re-subscribe resets it so events
-    -- created while the device was disabled are not replayed.
     active_since TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
@@ -39,21 +29,16 @@ CREATE TABLE push_outbox (
     sent_at TIMESTAMPTZ,
     abandoned_at TIMESTAMPTZ
 );
--- Sender claim query: only pending rows, earliest availability first.
 CREATE INDEX push_outbox_pending_idx
     ON push_outbox(available_at, id)
     WHERE sent_at IS NULL AND abandoned_at IS NULL;
 CREATE INDEX push_outbox_user_pending_idx
     ON push_outbox(user_id, created_at)
     WHERE sent_at IS NULL AND abandoned_at IS NULL;
--- Expiry scan: rows older than the delivery bound are abandoned at claim.
 CREATE INDEX push_outbox_expiry_idx
     ON push_outbox(created_at)
     WHERE sent_at IS NULL AND abandoned_at IS NULL;
 
--- Per-device outcome for one outbox row. A row is finished only when every
--- delivery is terminal (SENT, DEAD, or FAILED after its own attempts), so one
--- failing device is retried instead of being hidden by another device's success.
 CREATE TABLE push_outbox_delivery (
     id BIGSERIAL PRIMARY KEY,
     outbox_id BIGINT NOT NULL REFERENCES push_outbox(id),
@@ -68,9 +53,6 @@ CREATE TABLE push_outbox_delivery (
 CREATE INDEX push_outbox_delivery_pending_idx
     ON push_outbox_delivery(outbox_id) WHERE status='PENDING';
 
--- One row per active household member who should be told. `available_at` is
--- deliberately delayed so a burst from one email/document batches into one
--- notification in the sender.
 -- +goose StatementBegin
 CREATE FUNCTION enqueue_push_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE

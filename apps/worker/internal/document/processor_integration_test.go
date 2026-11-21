@@ -11,8 +11,6 @@ import (
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
-// Machine-only terminal failures stay observable without a household review or Telegram task; a repeat
-// callback must not duplicate the audit.
 func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -71,7 +69,6 @@ func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 	}
 }
 
-// A source that already has an open projection is not double-sent: the second projection call is a no-op.
 func TestTelegramDocumentProjectionIsIdempotent(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

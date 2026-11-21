@@ -1,8 +1,3 @@
-// Deterministic category look: an Indonesian category name or slug becomes a Phosphor icon name
-// and one of the six chart category tones. No letter boxes, no randomness; an unknown category
-// gets the Tag icon and a tone derived from a stable hash of its name.
-
-// Order matters: the first rule whose keyword appears in the normalized name wins.
 const RULES = [
   ["Coffee", ["kopi", "coffee", "cafe", "kafe", "snack", "jajan", "camilan", "minuman", "boba"]],
   ["Basket", ["belanja bulanan", "bahan makanan", "groceries", "grocery", "sembako", "supermarket", "pasar", "dapur"]],
@@ -26,7 +21,6 @@ const RULES = [
 
 export const FALLBACK_ICON = "Tag";
 
-// Lowercase, accent-free, punctuation collapsed: "Makan & Minum" -> "makan minum".
 export function normalizeCategoryName(value) {
   return String(value ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -39,7 +33,6 @@ function hashTone(text) {
 
 const matches = (text, keyword) => ` ${text} `.includes(` ${keyword} `) || (keyword.length >= 4 && text.includes(keyword));
 
-// Accepts a category object ({ name, slug }) or a bare name.
 export function categoryVisual(category) {
   const name = typeof category === "string" ? category : category?.name;
   const slug = typeof category === "string" ? "" : category?.slug;

@@ -40,7 +40,6 @@ type Metadata struct {
 	ResidualDimensions []string
 }
 
-// CallMetric holds metadata only; prompt, response and source content stay out of telemetry.
 type CallMetric struct {
 	Task               string
 	Protocol           string
@@ -94,8 +93,7 @@ type ToolDefinition struct {
 }
 
 type NativeToolOptions struct {
-	Required bool
-	// ReasoningEffort is forwarded when the selected model supports it.
+	Required        bool
 	ReasoningEffort string
 }
 
@@ -106,7 +104,6 @@ type ToolCall struct {
 	Arguments  json.RawMessage
 }
 
-// NativeToolCall requests a native function_call and never executes it; callers validate and dispatch in Go.
 func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
 	if sourceEventFrom(ctx) == "" {
 		ctx = withSourceEvent(ctx, requestID)
@@ -121,7 +118,6 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	return
 }
 
-// DecodeToolArguments strictly decodes one native function call; callers still own domain validation.
 func DecodeToolArguments[T any](call ToolCall, expectedName string) (T, error) {
 	var out T
 	if call.Name != expectedName {
@@ -209,8 +205,6 @@ func normalizeToolArguments(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// nativeChatCompletion is the Chat Completions fallback for routers without Responses, returning the same
-// ToolCall shape.
 func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, tools []map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {
 	var err error
 	userContent, err = chatContent(userContent)
@@ -234,8 +228,6 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 	return c.doChatToolCall(ctx, requestID, payload, options)
 }
 
-// chatMessages always emits a user turn because the provider rejects messages without one.
-// Bounded extraction callers supply no content, so fallback text keeps the turn non-empty.
 func chatMessages(systemPrompt string, userContent any) []map[string]any {
 	if chatContentEmpty(userContent) {
 		userContent = "Use the required tool call to answer for the supplied evidence."

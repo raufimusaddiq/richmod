@@ -11,18 +11,14 @@ import { documentTypeLabels, label } from "../lib/labels";
 import { mergeFreshDocuments } from "../lib/documentPaging";
 import { LOAD, LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
 
-const POLL_MS = 5000, MAX_POLLS = 60; // about five minutes
+const POLL_MS = 5000, MAX_POLLS = 60;
 
 export default function DocumentsPage() {
   const user = useAuth();
   const [items, setItems] = useState([]), [visibleCount, setVisibleCount] = useState(12), [page, setPage] = useState(0), [working, setWorking] = useState(false), [error, setError] = useState(""), [toast, setToast] = useState(""), [fileInfo, setFileInfo] = useState(""), [processing, setProcessing] = useState(false), [pollStopped, setPollStopped] = useState(false), [filter, setFilter] = useState("ALL"), [retrying, setRetrying] = useState("");
   const polls = useRef(0);
-  // The server returns documents newest first, one page at a time. Older pages are loaded on request
-  // and survive the status poll, which only refreshes the newest page.
   const [nextCursor, setNextCursor] = useState(""), [loadingMore, setLoadingMore] = useState(false);
   const olderLoaded = useRef(false);
-  // The drawer is {closed | loading | error | ready}: "still processing" is only
-  // true for a ready drawer with no extraction rows, never for a pending or failed request.
   const drawer = useDrawerRecord(async (id, signal) => {
     const [extractionResponse, pageResponse] = await Promise.all([fetch(`/api/v1/documents/${id}/extraction`, { signal }), fetch(`/api/v1/documents/${id}/pages`, { signal })]);
     if (!extractionResponse.ok) throw new LoadError("Detail dokumen belum dapat dimuat. Coba lagi.");
@@ -34,7 +30,6 @@ export default function DocumentsPage() {
   const extractions = drawer.data?.extractions || [], pages = drawer.data?.pages || [];
   const closeDetail = drawer.close;
   const drawerRef = useDrawerA11y(drawer.status !== "closed", closeDetail);
-  // Reloading the list after an upload keeps the grid mounted (refresh, not skeleton).
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const response = await fetch("/api/v1/documents", { signal });
     if (!response.ok) throw new LoadError("Dokumen belum dapat dimuat.");
@@ -45,14 +40,10 @@ export default function DocumentsPage() {
     if (olderLoaded.current) {
       setItems(current => mergeFreshDocuments(next, current));
     } else { setItems(next); setNextCursor(cursor); }
-    // Derived only from a successful response, so a failed poll cannot keep a stale PENDING row polling.
     setProcessing(next.some(item => item.status === "PENDING" || item.status === "PROCESSING" || item.reprocessing));
   }, { fallback: "Dokumen belum dapat dimuat. Periksa koneksi lalu coba lagi." });
   const load = loader.run;
   useEffect(() => { if (user) load(); }, [user, load]);
-  // An upload is classified in the background. Poll with a self-rescheduling timeout,
-  // armed only once the previous request settles so a slow list is never aborted by the
-  // next poll. It stops on failure and after MAX_POLLS, then offers a manual reload.
   useEffect(() => {
     if (!processing || loader.status !== LOAD.READY) return undefined;
     if (polls.current >= MAX_POLLS) { setPollStopped(true); return undefined; }
@@ -101,9 +92,6 @@ export default function DocumentsPage() {
     finally { setRetrying(""); }
   }
   const visibleItems = items.filter(item => matchesFilter(item, filter));
-  // One pagination control: reveal more of the loaded page first, then fetch older
-  // pages. Two separate buttons read as two different features when they are the
-  // same "show me more".
   const moreLocal = Math.max(0, visibleItems.length - visibleCount);
   const canLoadOlder = Boolean(nextCursor);
   const shownCount = Math.min(visibleCount, visibleItems.length);
@@ -134,11 +122,6 @@ function matchesFilter(item, filter) {
   if (filter === "OK") return item.status !== "FAILED" && !item.needsReview && !["PENDING", "PROCESSING", "RECEIVED"].includes(item.status);
   return true;
 }
-// A card title that leads with what tells documents apart: the merchant/employer and
-// amount when extraction found them (screenshots keep them in transactions[]), else
-// the source and received date. The document type moves to the meta line instead,
-// because a type prefix used to push the merchant out of the truncated title.
-// Failed documents never borrow classification output.
 function documentTitle(item) {
   const summary = item.status !== "FAILED" && item.summary && typeof item.summary === "object" ? item.summary : null;
   const rows = Array.isArray(summary?.transactions) ? summary.transactions : [];
