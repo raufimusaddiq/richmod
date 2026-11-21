@@ -7,6 +7,7 @@ import AppShell from "./components/AppShell";
 import { ErrorNotice, Skeleton } from "./components/Feedback";
 import { DashboardDailySpendingChart } from "./components/Charts";
 import CategoryBars from "./components/CategoryBars";
+import { useCategoryPalette } from "./components/CategoryPaletteProvider";
 import { useInboxCounts } from "./components/InboxCountProvider";
 import { useQuickRecord } from "./components/QuickRecordProvider";
 import TransactionList from "./components/TransactionList";
@@ -32,6 +33,7 @@ const arrow = direction => (direction === "down" ? "▼" : direction === "up" ? 
 
 export default function Home() {
   const user = useAuth(false);
+  const palette = useCategoryPalette();
   const { open: openQuickRecord } = useQuickRecord();
   const { actionCount = 0 } = useInboxCounts();
   const [overview, setOverview] = useState(null);
@@ -87,7 +89,7 @@ export default function Home() {
   const state = homeState(overview, transactions);
   const comparison = comparisonLine(overview);
   const share = spendingShare(overview);
-  const categoryColors = categoryColorMap(categories).colors;
+  const categoryColors = categoryColorMap(categories, palette).colors;
   const owner = user?.household?.role === "OWNER";
   const compare = comparison && <span className={`home-compare ${comparison.direction}`}>{arrow(comparison.direction)} {comparison.direction !== "same" && <b>{money(comparison.amount)}</b>} {comparison.text}</span>;
   const wealthCard = <Link className="surface home-card overview-wealth" href={latestWealth?.id ? `/wealth?snapshotId=${latestWealth.id}` : "/wealth"}><div><span className="eyebrow">Posisi kekayaan</span><h2>Kekayaan bersih</h2></div><strong>{latestWealth ? money(latestWealth.netWorthIdr) : "—"}</strong>{latestWealth && <div className="wealth-account-list" aria-label="Ringkasan aset dan kewajiban"><div className="wealth-account-row"><div><b>Total aset</b><small>{wealthAssetCount} akun</small></div><strong className={amountTone(latestWealth.assetTotalIdr)}>{money(latestWealth.assetTotalIdr)}</strong></div><div className="wealth-account-row"><div><b>Total kewajiban</b><small>{wealthLiabilityCount} akun</small></div><strong className={amountTone(latestWealth.liabilityTotalIdr, true)}>{money(latestWealth.liabilityTotalIdr)}</strong></div></div>}<small>{wealthDate ? `Diamati ${wealthDate}` : "Kekayaan belum diinisialisasi"}</small><span className="overview-wealth-link">Buka Kekayaan <ArrowRight aria-hidden="true"/></span></Link>;
@@ -129,7 +131,7 @@ export default function Home() {
         </>}
     </section>
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka tinjauan <ArrowRight aria-hidden="true"/></strong></Link>}
-    <section className="overview-insights"><article className="surface home-card overview-trend"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/>{cashflow.length > 0 && <details className="review-daily"><summary>Lihat nilai pengeluaran harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th></tr></thead><tbody>{cashflow.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) > 0 ? <Link href={dayLedgerHref(item.period)}>{dayLabel(item.period)}</Link> : dayLabel(item.period)}</th><td data-label="Pengeluaran">{money(item.expense)}</td><td data-label="Refund">{money(item.refund)}</td></tr>)}</tbody></table></div></details>}</article><article className="surface home-card overview-categories"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji ini" : "Bulan ini"}</span><h2>Ke mana uangnya</h2></div></div><CategoryBars items={categories} window={categoryWindow}/></article></section>
+    <section className="overview-insights"><article className="surface home-card overview-trend"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/>{cashflow.length > 0 && <details className="review-daily"><summary>Lihat nilai pengeluaran harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th></tr></thead><tbody>{cashflow.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) > 0 ? <Link href={dayLedgerHref(item.period)}>{dayLabel(item.period)}</Link> : dayLabel(item.period)}</th><td data-label="Pengeluaran">{money(item.expense)}</td><td data-label="Refund">{money(item.refund)}</td></tr>)}</tbody></table></div></details>}</article><article className="surface home-card overview-categories"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji ini" : "Bulan ini"}</span><h2>Ke mana uangnya</h2></div></div><CategoryBars items={categories} window={categoryWindow} palette={palette}/></article></section>
     <section className="overview-lower"><article className="surface home-card overview-activity"><div className="section-title"><div><span className="eyebrow">Catatan transaksi</span><h2>Terbaru</h2></div><Link href="/transactions">Lihat semua <ArrowRight aria-hidden="true"/></Link></div><TransactionList compact items={transactions.slice(0, 8)} categoryColors={categoryColors}/></article>{wealthCard}</section></>}
   </AppShell>;
 }

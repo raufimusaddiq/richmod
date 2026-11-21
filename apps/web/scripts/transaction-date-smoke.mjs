@@ -11,7 +11,9 @@ let browser;
 
 async function openFilters(page) {
   const toggle = page.locator(".filter-toggle");
-  if (await toggle.isVisible()) await toggle.click();
+  await toggle.waitFor({ state: "visible" });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await page.locator("#transaction-filters-more").waitFor({ state: "visible" });
 }
 
 async function fits(input) {
@@ -53,7 +55,7 @@ try {
   for (const engine of [chromium, webkit]) {
     browser = await engine.launch();
     for (const width of [320, 390, 600, 1440]) {
-      const page = await browser.newPage({ viewport: { width, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
+      const page = await browser.newPage({ viewport: { width, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce", serviceWorkers: "block" });
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
       await page.route("**/api/v1/**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify(new URL(route.request().url()).pathname === "/api/v1/auth/me" ? { id: "synthetic-user", displayName: "Rafi", householdName: "Test household", household: { role: "OWNER" } } : []) }));

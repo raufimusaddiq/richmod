@@ -1,21 +1,21 @@
 import { baselineFor, deltaView } from "./cycleKpi.js";
 import { changeWidth } from "./cycleReview.js";
-import { CATEGORY_COLORS, OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey } from "./categoryColors.js";
+import { CATEGORY_COLORS, OTHER_CATEGORY_COLOR, buildCategoryPalette, categoryColorFor, categoryColorMap, categoryKey } from "./categoryColors.js";
 
-export { CATEGORY_COLORS, OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey };
+export { CATEGORY_COLORS, OTHER_CATEGORY_COLOR, buildCategoryPalette, categoryColorFor, categoryColorMap, categoryKey };
 
 function fraction(value, peak) {
   const number = Math.abs(Number(value));
   return peak > 0 && Number.isFinite(number) ? Math.min(1, number / peak) : 0;
 }
 
-export function rankingView(facts) {
+export function rankingView(facts, palette = null) {
   const ranking = facts.categoryRanking;
   if (!ranking || !Array.isArray(ranking.rows)) return null;
   const basis = baselineFor(facts.period, facts.spendingShape?.days);
   const openable = new Set((facts.categoryChanges || []).map(categoryKey));
   const peak = Math.max(0, ...[...ranking.rows, ...(ranking.other ? [ranking.other] : [])].map(row => Math.abs(Number(row.amount))).filter(Number.isFinite));
-  const { colors } = categoryColorMap(facts);
+  const { colors } = categoryColorMap(facts, palette);
   const view = row => ({ ...row, delta: deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true }), length: fraction(row.amount, peak) });
   const rows = ranking.rows.map(row => {
     const key = categoryKey(row);

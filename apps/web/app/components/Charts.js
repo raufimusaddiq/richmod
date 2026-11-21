@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
 import { OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey } from "../lib/categoryColors";
+import { useCategoryPalette } from "./CategoryPaletteProvider";
 import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceEndLabels, paceMarkerNote, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { clippedBarLabels, dailyChartModel, dayLedgerHref, formatDailyTick } from "../lib/home";
@@ -147,21 +148,25 @@ export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }
   return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }
 
-export function CategoryDonutChart({ items, height = 260 }) {
+export function CategoryDonutChart({ items, height = 260, palette = null }) {
+  const sharedPalette = useCategoryPalette();
+  const activePalette = palette || sharedPalette;
   const data = compactCategories(items, 5).map(item => ({ ...item, value: Number(item.amount || 0) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;
-  const { colors } = categoryColorMap(items);
-  const fillFor = item => (item.id === "other" || item.other || item.remainder ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(item)) || categoryColorFor(item));
+  const { colors } = categoryColorMap(items, activePalette);
+  const fillFor = item => (item.id === "other" || item.other || item.remainder ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(item)) || categoryColorFor(item, activePalette));
   return <div className="category-visual"><div className="chart-wrap" role="img" aria-label="Grafik distribusi kategori" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><PieChart accessibilityLayer={false}><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} labelLine={false} label={false} isAnimationActive={false}>{data.map(item => <Cell key={item.id || item.name} fill={fillFor(item)} stroke="var(--ink)" strokeWidth={2}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={defaultTooltipStyle}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.map(item => <div key={item.id || item.name}><i style={{ background: fillFor(item) }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
 }
 
-export function CategoryRankingChart({ items, height = 320 }) {
+export function CategoryRankingChart({ items, height = 320, palette = null }) {
+  const sharedPalette = useCategoryPalette();
+  const activePalette = palette || sharedPalette;
   const data = items.map(item => ({ ...item, amountValue: Number(item.amount || 0), amountLabel: compactMillions(item.amount) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi.</p>;
-  const { colors } = categoryColorMap(data);
+  const { colors } = categoryColorMap(data, activePalette);
   return <div className="category-ranking">
     <p className="chart-unit">Rp juta</p>
-    <div className="chart-wrap" role="img" aria-label="Distribusi kategori pengeluaran, dalam jutaan rupiah" style={{ height: Math.max(height, data.length * 40) }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} layout="vertical" margin={{ top: 4, right: 56, left: 12, bottom: 4 }}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><Tooltip formatter={(_, __, item) => [money(item.payload.amount), "Pengeluaran bersih"]} contentStyle={defaultTooltipStyle}/><Bar isAnimationActive={false} dataKey="amountValue" fill="var(--chart-category-2)" stroke="var(--ink)" strokeWidth={2} radius={[0, 4, 4, 0]} maxBarSize={24}>{data.map(item => <Cell key={item.id || item.name} fill={item.remainder ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(item)) || categoryColorFor(item)}/>)}<LabelList dataKey="amountLabel" position="right" fill="var(--ink-soft)" fontFamily="var(--font-body)" fontSize={12}/></Bar></BarChart></ResponsiveContainer></div>
+    <div className="chart-wrap" role="img" aria-label="Distribusi kategori pengeluaran, dalam jutaan rupiah" style={{ height: Math.max(height, data.length * 40) }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} layout="vertical" margin={{ top: 4, right: 56, left: 12, bottom: 4 }}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><Tooltip formatter={(_, __, item) => [money(item.payload.amount), "Pengeluaran bersih"]} contentStyle={defaultTooltipStyle}/><Bar isAnimationActive={false} dataKey="amountValue" fill="var(--chart-category-2)" stroke="var(--ink)" strokeWidth={2} radius={[0, 4, 4, 0]} maxBarSize={24}>{data.map(item => <Cell key={item.id || item.name} fill={item.remainder ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(item)) || categoryColorFor(item, activePalette)}/>)}<LabelList dataKey="amountLabel" position="right" fill="var(--ink-soft)" fontFamily="var(--font-body)" fontSize={12}/></Bar></BarChart></ResponsiveContainer></div>
   </div>;
 }
 

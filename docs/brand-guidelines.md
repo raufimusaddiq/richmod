@@ -72,12 +72,14 @@ that source; it does not introduce a parallel token file.
   `#6b5842`, dusty blue `#435c86`, muted plum `#6a4c78`; plus pale sand
   `--chart-category-other` `#cfc9b6` for `Kategori lain`) contain no red, no green,
   and no accent teal, so a category never reads as a spending direction.
-  One shared mapping (`categoryColorMap`, keyed by category identity rather
-  than list position) drives Beranda "Ke mana uangnya", Laporan "Ke mana
-  uangnya", "Siklus ke siklus", per-category tables, the category drawer, and
-  calendar category bars, so each category keeps one colour across screens and
-  cycles with no repeated colours among the displayed categories; `Kategori
-  lain` always uses `--chart-category-other` (sand). Every
+  One shared household-wide registry (`buildCategoryPalette` via
+  `CategoryPaletteProvider`, sorted deterministically by category identity
+  rather than spend rank or displayed subset, and consumed through
+  `categoryColorMap` / `categoryVisual`) drives Beranda "Ke mana uangnya" and
+  transaction icons, Transaksi icons, Laporan "Ke mana uangnya", "Siklus ke
+  siklus", per-category tables, the category drawer, and calendar category
+  bars, so each category keeps one colour across screens, subsets, and cycles;
+  `Kategori lain` always uses `--chart-category-other` (sand). Every
   `--chart-category-1..8` token clears WCAG AA 4.5:1 against `--surface-strong`.
 - Text tokens must keep WCAG AA 4.5:1 against every surface token. This is
   enforced by `apps/web/tests/ui-audit-locks.test.mjs`; run it before shipping a

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/react";
 import CategoryIcon from "./CategoryIcon";
+import { useCategoryPalette } from "./CategoryPaletteProvider";
 import { money, typeLabel } from "../lib/format";
 import { groupByDay, timeOfDay } from "../lib/ledgerDays";
 import { transactionDisplayName } from "../lib/transactionView";
@@ -38,12 +39,14 @@ function dayTotal(day) {
 }
 
 export default function TransactionList({ items, compact = false, onSelect, newId = "", hasFilters = false, onClearFilters, categoryColors = null }) {
+  const palette = useCategoryPalette();
+  const colors = categoryColors || palette;
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     {compact
-      ? items.map(item => <Row key={item.id} item={item} compact onSelect={onSelect} newId={newId} categoryColors={categoryColors}/>)
+      ? items.map(item => <Row key={item.id} item={item} compact onSelect={onSelect} newId={newId} categoryColors={colors}/>)
       : groupByDay(items).map(day => <section className="ledger-day" key={day.day} aria-label={day.heading}>
         <header className="ledger-day-head"><h3>{day.heading}</h3><span>{dayTotal(day)}</span></header>
-        {day.items.map(item => <Row key={item.id} item={item} onSelect={onSelect} newId={newId} categoryColors={categoryColors}/>)}
+        {day.items.map(item => <Row key={item.id} item={item} onSelect={onSelect} newId={newId} categoryColors={colors}/>)}
       </section>)}
     {!items.length && (hasFilters
       ? <div className="empty"><p>Tidak ada transaksi yang cocok dengan filter.</p>{onClearFilters && <button type="button" className="secondary" onClick={onClearFilters}>Hapus filter</button>}</div>

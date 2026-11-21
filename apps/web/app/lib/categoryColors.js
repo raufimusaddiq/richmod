@@ -36,13 +36,41 @@ export function categoryToneIndex(identity, count = CATEGORY_COLORS.length) {
   return hash % count;
 }
 
-export function categoryColorFor(item) {
-  if (item?.other || item?.remainder) return OTHER_CATEGORY_COLOR;
-  return CATEGORY_COLORS[categoryToneIndex(categoryColorIdentity(item), CATEGORY_COLORS.length)];
+function compareKeys(left, right) {
+  const a = String(left);
+  const b = String(right);
+  const ma = /^(.+?)(\d+)$/.exec(a);
+  const mb = /^(.+?)(\d+)$/.exec(b);
+  if (ma && mb && ma[1] === mb[1]) {
+    const diff = Number(ma[2]) - Number(mb[2]);
+    if (diff !== 0) return diff;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function compareKeys(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
+export function buildCategoryPalette(categories = []) {
+  const seen = new Set();
+  const keys = [];
+  for (const item of Array.isArray(categories) ? categories : []) {
+    if (!item || item.other || item.remainder) continue;
+    const key = categoryColorIdentity(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  keys.sort(compareKeys);
+  const palette = new Map();
+  keys.forEach((key, index) => {
+    palette.set(key, CATEGORY_COLORS[index % CATEGORY_COLORS.length]);
+  });
+  return palette;
+}
+
+export function categoryColorFor(item, palette = null) {
+  if (item?.other || item?.remainder) return OTHER_CATEGORY_COLOR;
+  const identity = categoryColorIdentity(item);
+  if (palette?.has(identity)) return palette.get(identity);
+  return CATEGORY_COLORS[categoryToneIndex(identity, CATEGORY_COLORS.length)];
 }
 
 function extractLists(source) {
@@ -73,25 +101,18 @@ function uniqueKeys(rows, exclude = null) {
   return keys;
 }
 
-export function categoryColorMap(source) {
+export function categoryColorMap(source, palette = null) {
   const { primary, secondary, history } = extractLists(source);
-  const colors = new Map();
-  const used = new Set();
-  const assign = keys => {
-    for (const key of [...keys].sort(compareKeys)) {
-      let slot = categoryToneIndex(key, CATEGORY_COLORS.length);
-      if (used.size < CATEGORY_COLORS.length) {
-        while (used.has(slot)) slot = (slot + 1) % CATEGORY_COLORS.length;
-        used.add(slot);
-      }
-      colors.set(key, CATEGORY_COLORS[slot]);
-    }
-  };
   const primaryKeys = uniqueKeys(primary);
   const primarySet = new Set(primaryKeys);
   const secondaryKeys = uniqueKeys(secondary, primarySet);
-  assign(primaryKeys);
-  assign(secondaryKeys);
+  const colors = new Map();
+  if (palette && palette.size > 0) {
+    for (const [key, color] of palette.entries()) colors.set(key, color);
+  }
+  for (const key of [...primaryKeys, ...secondaryKeys]) {
+    if (!colors.has(key)) colors.set(key, categoryColorFor({ id: key }, palette));
+  }
   const order = [...primaryKeys, ...uniqueKeys(history, primarySet)];
   return { colors, order };
 }

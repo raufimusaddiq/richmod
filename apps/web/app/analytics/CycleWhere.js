@@ -19,8 +19,8 @@ function Delta({ delta }) {
   </span>;
 }
 
-export function WhereCard({ facts, step, select }) {
-  const view = rankingView(facts);
+export function WhereCard({ facts, step, select, palette = null }) {
+  const view = rankingView(facts, palette);
   const empty = !view || (!view.rows.length && !view.other);
   const segments = empty ? [] : [...view.rows.map(row => ({ key: row.key, amount: row.amount, color: row.color })), ...(view.other ? [{ key: "other", amount: view.other.amount, color: OTHER_CATEGORY_COLOR }] : [])];
   return <section id="where" className="surface dash-card where-card" aria-labelledby="where-title">
@@ -117,8 +117,8 @@ export function DailyCard({ facts, step, children }) {
   </section>;
 }
 
-export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectCategory }) {
-  const colorMap = categoryColorMap(facts);
+export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectCategory, palette = null }) {
+  const colorMap = categoryColorMap(facts, palette);
   const columns = buildLedger(facts.history, facts.period.start, facts.categoryHistory, colorMap).columns;
   const detail = useRef(null);
   useEffect(() => {
@@ -160,7 +160,7 @@ export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectC
   </section>;
 }
 
-export function CategoryDrawer({ item, facts, period, close, triggerRef }) {
+export function CategoryDrawer({ item, facts, period, close, triggerRef, palette = null }) {
   const ref = useRef(null);
   const closeRef = useRef(close);
   closeRef.current = close;
@@ -178,7 +178,7 @@ export function CategoryDrawer({ item, facts, period, close, triggerRef }) {
   }, [triggerRef]);
   const basis = baselineFor(period, facts.spendingShape?.days);
   const key = categoryKey(item);
-  const color = categoryColorMap(facts).colors.get(key) || categoryColorFor(item);
+  const color = categoryColorMap(facts, palette).colors.get(key) || categoryColorFor(item, palette);
   return <div id="drivers" className="drawer-backdrop category-backdrop" onClick={() => close()}>
     <aside ref={ref} id="category-drawer" tabIndex={-1} className="detail-drawer category-drawer" role="dialog" aria-modal="true" aria-labelledby="drivers-title" onClick={event => event.stopPropagation()}>
       <button type="button" className="drawer-close" aria-label="Tutup rincian kategori" onClick={() => close()}>×</button>
