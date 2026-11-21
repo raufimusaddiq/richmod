@@ -185,6 +185,25 @@ try {
     }
 
     await page.goto(`${baseURL}/`, { waitUntil: "networkidle" });
+    const homeCategoryCheck = await page.evaluate(() => {
+      const items = [...document.querySelectorAll(".category-bars > li")];
+      const ranked = items.filter(el => !el.hasAttribute("data-other")).map(el => getComputedStyle(el.querySelector(".category-bars-name i")).backgroundColor);
+      const other = items.find(el => el.hasAttribute("data-other"));
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--chart-category-other)";
+      document.body.appendChild(probe);
+      const sand = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return {
+        ranked,
+        otherSwatch: other ? getComputedStyle(other.querySelector(".category-bars-name i")).backgroundColor : null,
+        otherBar: other ? getComputedStyle(other.querySelector(".category-bars-track > span")).backgroundColor : null,
+        sand,
+      };
+    });
+    assert.equal(new Set(homeCategoryCheck.ranked).size, homeCategoryCheck.ranked.length, `${width}px Beranda category bars repeat no colour: ${JSON.stringify(homeCategoryCheck.ranked)}`);
+    assert.equal(homeCategoryCheck.otherSwatch, homeCategoryCheck.sand, `${width}px Beranda Kategori lain swatch uses sand`);
+    assert.equal(homeCategoryCheck.otherBar, homeCategoryCheck.sand, `${width}px Beranda Kategori lain bar uses sand`);
     const heroColors = await page.evaluate(() => {
       const ink = getComputedStyle(document.body).color;
       const amount = getComputedStyle(document.querySelector(".home-hero-amount")).color;
@@ -214,6 +233,35 @@ try {
     assert.equal(await page.locator("#where .where-delta").count(), 0, `${width}px Ke mana uangnya omits delta column`);
     assert.ok(await page.locator("#where .where-share").count() >= 1, `${width}px Ke mana uangnya shows share percentages`);
     assert.ok(await page.locator("#history .history-bar .history-seg").count() >= 1, `${width}px Siklus ke siklus draws category-stacked bars`);
+    const chartPolish = await page.evaluate(() => {
+      const barRects = [...document.querySelectorAll("#history .history-bar")].map(el => ({
+        width: el.getBoundingClientRect().width,
+        buttonWidth: el.closest("button").getBoundingClientRect().width,
+      }));
+      const plotHeight = document.querySelector("#history .history-plot")?.getBoundingClientRect().height || 0;
+      const selectedBg = getComputedStyle(document.querySelector("#history .history-cols > li[data-selected]")).backgroundColor;
+      const endLabels = [...document.querySelectorAll("#spending-shape [data-pace-end]")].map(el => {
+        const rect = el.getBoundingClientRect();
+        return { key: el.getAttribute("data-pace-end"), text: el.textContent, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      });
+      return { barRects, plotHeight, selectedBg, endLabels };
+    });
+    if (width >= 1366) {
+      assert.ok(chartPolish.barRects.every(item => item.width >= 56 && item.width <= 76), `${width}px Siklus ke siklus bars should be ~56-72px wide: ${JSON.stringify(chartPolish.barRects)}`);
+      assert.ok(chartPolish.plotHeight >= 180, `${width}px Siklus ke siklus plot grows to card height: ${chartPolish.plotHeight}`);
+    } else if (phone) {
+      assert.ok(chartPolish.barRects.every(item => item.width >= item.buttonWidth - 8), `${width}px phone Siklus ke siklus bars fill column width: ${JSON.stringify(chartPolish.barRects)}`);
+    }
+    assert.notEqual(chartPolish.selectedBg, "rgba(0, 0, 0, 0)", `${width}px Siklus ke siklus keeps current-cycle highlight`);
+    assert.equal(new Set(chartPolish.endLabels.map(item => item.key)).size, chartPolish.endLabels.length, `${width}px Laju pengeluaran has one end label per series: ${JSON.stringify(chartPolish.endLabels)}`);
+    for (let i = 0; i < chartPolish.endLabels.length; i += 1) {
+      for (let j = i + 1; j < chartPolish.endLabels.length; j += 1) {
+        const a = chartPolish.endLabels[i], b = chartPolish.endLabels[j];
+        const overlapX = a.left < b.right && b.left < a.right;
+        const overlapY = a.top < b.bottom && b.top < a.bottom;
+        assert.equal(overlapX && overlapY, false, `${width}px Laju pengeluaran end labels overlap: ${JSON.stringify([a, b])}`);
+      }
+    }
     const stackRows = await page.evaluate(() => [...document.querySelectorAll(".review-stack .report-disclosure > summary")].map(summary => {
       const style = getComputedStyle(summary);
       const h2 = summary.querySelector("h2");
@@ -446,11 +494,19 @@ try {
         window.visualViewport.dispatchEvent(new Event("resize"));
       }, vvHeight);
       await page.waitForTimeout(50);
-      const editKb = await editDialog.evaluate(dialog => ({
-        saveRect: dialog.querySelector('.dialog-actions button:last-child').getBoundingClientRect().toJSON(),
-        dialogOverflow: dialog.scrollWidth > dialog.clientWidth,
-      }));
+      const editKb = await editDialog.evaluate(dialog => {
+        const descLabelSpan = dialog.querySelector('label:has(input[name="description"]) > span');
+        const mark = descLabelSpan?.querySelector(".required-mark");
+        return {
+          saveRect: dialog.querySelector('.dialog-actions button:last-child').getBoundingClientRect().toJSON(),
+          dialogOverflow: dialog.scrollWidth > dialog.clientWidth,
+          descSpanRect: descLabelSpan?.getBoundingClientRect().toJSON() || null,
+          markRect: mark?.getBoundingClientRect().toJSON() || null,
+        };
+      });
       assert.equal(editKb.dialogOverflow, false, `${width}px Ubah dialog must not overflow horizontally`);
+      assert.ok(editKb.descSpanRect && editKb.markRect, `${width}px Ubah Deskripsi renders inline required mark inside label span`);
+      assert.ok(editKb.descSpanRect.height < 28 && Math.abs(editKb.markRect.top - editKb.descSpanRect.top) < 6, `${width}px Ubah Deskripsi required mark stays inline: ${JSON.stringify(editKb)}`);
       assert.ok(editKb.saveRect.top >= 0 && editKb.saveRect.bottom <= vvHeight + 1, `${width}px Ubah Simpan button stays inside visual viewport (${vvHeight}px): ${JSON.stringify(editKb.saveRect)}`);
       await page.evaluate(() => {
         delete window.visualViewport.height;

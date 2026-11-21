@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceMarkerNote, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceEndLabels, paceMarkerNote, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -322,4 +322,32 @@ test("the pace axis covers a comparison curve that ends far above the running cy
   assert.equal(axis.ticks.every(tick => tick % 10_000_000 === 0), true);
   const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
   assert.match(charts, /paceCeiling\(\{ data, levels:/, "the chart asks for the ceiling from the plotted data and references");
+});
+
+test("pace end labels emit one label per series end and offset close endpoints without overlap", () => {
+  const items = Array.from({ length: 30 }, (_, index) => ({ period: `2026-10-${String(index + 1).padStart(2, "0")}`, cumulativeExpense: String(Math.round((index + 1) * 10_100_000 / 30)) }));
+  const previousFullCycle = Array.from({ length: 31 }, (_, index) => (index >= 29 ? "11000000" : String(Math.round((index + 1) * 11_000_000 / 30))));
+  const pace = { previousFullCycle, median3: null };
+  const data = mapPace(items, pace);
+  const curves = paceCurves(pace);
+  const last = data[items.length - 1];
+  const references = paceReferences({ period: { state: "ACTIVE" }, comparison: { expense: { previous: "11000000", previousFullCycle: "11000000", median3: null } } });
+  const axis = paceAxis(paceCeiling({ data, last: last.exact }));
+  const labels = paceEndLabels({ data, last, curves, references, axis, plotHeight: 126, minGapPx: 17 });
+  assert.deepEqual(labels.map(item => [item.key, item.text]), [["current", "10,1"], ["previous", "11,0"]], "11,0 appears once for the previous series, never duplicated on same-day + tail");
+  const pos = item => (1 - item.value / axis.domain[1]) * 126 + item.dy;
+  assert.ok(Math.abs(pos(labels[0]) - pos(labels[1])) >= 16, "adjacent series end labels separate vertically");
+
+  const sameEnd = paceEndLabels({
+    data: mapPace(items, { previousFullCycle: items.map(() => "11000000"), median3: items.map(() => "10500000") }),
+    last,
+    curves: { previous: items.map(() => "11000000"), median: items.map(() => "10500000") },
+    references: [],
+    axis,
+    plotHeight: 126,
+    minGapPx: 17,
+  });
+  assert.equal(sameEnd.length, 3, "one label per series when all three curves are present");
+  const ys = sameEnd.map(pos).sort((a, b) => a - b);
+  assert.ok(ys[1] - ys[0] >= 16 && ys[2] - ys[1] >= 16, "all three right-end labels keep clear vertical separation");
 });

@@ -22,14 +22,18 @@ function hue(hex) {
 
 test("category colours contain no red, green, or accent teal and clear 4.5:1 on the strong surface", () => {
   const accent = token("accent");
-  for (let index = 1; index <= 6; index++) {
+  const seen = new Set();
+  for (let index = 1; index <= 8; index++) {
     const value = token(`chart-category-${index}`);
+    assert.ok(!seen.has(value), `chart-category-${index} must be distinct`);
+    seen.add(value);
     assert.notEqual(value, accent, `chart-category-${index} must not reuse --accent`);
     assert.ok(contrast(value, token("surface-strong")) >= 4.5, `chart-category-${index} contrast`);
     const h = hue(value);
     assert.ok(!(h < 30 || h > 330), `chart-category-${index} is not red (${h.toFixed(0)}°)`);
     assert.ok(!(h > 70 && h < 180), `chart-category-${index} is not green or teal (${h.toFixed(0)}°)`);
   }
+  assert.ok(seen.size >= 7, "at least 7 distinct category colours exist");
   assert.ok(token("chart-category-other"), "Kategori lain has a neutral sand token");
   const guide = text("../../docs/brand-guidelines.md");
   assert.match(guide, /Category colours[\s\S]*contain no red, no green/);

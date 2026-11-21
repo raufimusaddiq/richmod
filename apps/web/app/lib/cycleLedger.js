@@ -197,3 +197,76 @@ export function paceAxis(maxValue) {
   const step = [1, 2, 5, 10].map(multiplier => multiplier * magnitude).find(candidate => raw <= candidate) ?? 10 * magnitude;
   return { domain: [0, step * 4], ticks: [0, step, step * 2, step * 3, step * 4] };
 }
+
+export function paceEndLabels({ data = [], last, curves = {}, references = [], axis, plotHeight = 126, minGapPx = 17 } = {}) {
+  if (!last || last.exact == null) return [];
+  const entries = [];
+  const push = (key, day, exact, fill, priority) => {
+    const value = Number(exact);
+    if (!Number.isFinite(value)) return;
+    entries.push({ key, day, value, text: compactMillions(exact), fill, priority, dy: 0 });
+  };
+  push("current", last.day, last.exact, "var(--ink)", 0);
+  if (curves.previous?.length) {
+    const tail = data[curves.previous.length - 1];
+    if (tail?.previousExact != null) push("previous", tail.day, tail.previousExact, "var(--chart-axis)", 1);
+  } else {
+    const ref = references.find(item => item.key === "previous-same-day") || references.find(item => item.key === "previous-full");
+    if (ref?.value != null) push("previous", last.day, ref.value, "var(--chart-axis)", 1);
+  }
+  if (curves.median?.length) {
+    const medianTail = data[curves.median.length - 1];
+    if (medianTail?.medianExact != null) push("median", medianTail.day, medianTail.medianExact, "var(--chart-reference)", 2);
+  } else {
+    const ref = references.find(item => item.key === "median-same-day") || references.find(item => item.key === "median");
+    if (ref?.value != null) push("median", last.day, ref.value, "var(--chart-reference)", 2);
+  }
+  const yMin = Number(axis?.domain?.[0] ?? 0);
+  const yMax = Number(axis?.domain?.[1] ?? 1);
+  const span = yMax - yMin || 1;
+  for (const entry of entries) {
+    entry.naturalY = (1 - (entry.value - yMin) / span) * plotHeight;
+  }
+  const maxDay = Math.max(data.length, 2);
+  const dayWindow = Math.max(4, Math.ceil(maxDay * 0.25));
+  const byDay = [...entries].sort((left, right) => left.day - right.day || left.priority - right.priority);
+  const clusters = [];
+  for (const entry of byDay) {
+    const group = clusters.at(-1);
+    if (!group || entry.day - group.at(-1).day > dayWindow) clusters.push([entry]);
+    else group.push(entry);
+  }
+  const topBound = -14;
+  const bottomBound = plotHeight + 4;
+  for (const group of clusters) {
+    if (group.length < 2) continue;
+    group.sort((left, right) => left.naturalY - right.naturalY || left.priority - right.priority);
+    const placed = group.map(item => item.naturalY);
+    for (let index = 1; index < placed.length; index += 1) {
+      if (placed[index] < placed[index - 1] + minGapPx) placed[index] = placed[index - 1] + minGapPx;
+    }
+    let naturalSum = 0;
+    let placedSum = 0;
+    for (let index = 0; index < group.length; index += 1) {
+      naturalSum += group[index].naturalY;
+      placedSum += placed[index];
+    }
+    const centerShift = (naturalSum - placedSum) / group.length;
+    for (let index = 0; index < placed.length; index += 1) placed[index] += centerShift;
+    if (placed[0] < topBound) {
+      const down = topBound - placed[0];
+      for (let index = 0; index < placed.length; index += 1) placed[index] += down;
+    }
+    if (placed[placed.length - 1] > bottomBound) {
+      const up = placed[placed.length - 1] - bottomBound;
+      for (let index = 0; index < placed.length; index += 1) placed[index] -= up;
+      if (placed[0] < topBound) {
+        for (let index = 0; index < placed.length; index += 1) placed[index] = topBound + index * minGapPx;
+      }
+    }
+    for (let index = 0; index < group.length; index += 1) {
+      group[index].dy = Math.round(placed[index] - group[index].naturalY);
+    }
+  }
+  return entries.map(({ key, day, value, text, fill, dy }) => ({ key, day, value, text, fill, dy }));
+}

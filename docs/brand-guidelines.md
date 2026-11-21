@@ -67,13 +67,18 @@ that source; it does not introduce a parallel token file.
   with ▲/▼ and the neutral wording `lebih rendah` / `lebih tinggi` (never
   `lebih hemat` or `lebih boros`), and appear nowhere else in category or hero
   figures. A selected cycle, row or list item is `--butter`.
-- Category colours (`--chart-category-1..6`: slate `#3a5867`, ochre `#73561e`,
+- Category colours (`--chart-category-1..8`: slate `#3a5867`, ochre `#73561e`,
   violet `#705268`, light slate `#536e80`, dusk indigo `#544d73`, warm sand
-  `#6b5842`; plus pale sand `--chart-category-other` `#cfc9b6` for `Kategori
-  lain`) contain no red, no green, and no accent teal, so a category never reads
-  as a spending direction. The same category colour mapping is shared between
-  "Ke mana uangnya" and the stacked bars in "Siklus ke siklus". Every
-  `--chart-category-1..6` token clears WCAG AA 4.5:1 against `--surface-strong`.
+  `#6b5842`, dusty blue `#435c86`, muted plum `#6a4c78`; plus pale sand
+  `--chart-category-other` `#cfc9b6` for `Kategori lain`) contain no red, no green,
+  and no accent teal, so a category never reads as a spending direction.
+  One shared mapping (`categoryColorMap`, keyed by category identity rather
+  than list position) drives Beranda "Ke mana uangnya", Laporan "Ke mana
+  uangnya", "Siklus ke siklus", per-category tables, the category drawer, and
+  calendar category bars, so each category keeps one colour across screens and
+  cycles with no repeated colours among the displayed categories; `Kategori
+  lain` always uses `--chart-category-other` (sand). Every
+  `--chart-category-1..8` token clears WCAG AA 4.5:1 against `--surface-strong`.
 - Text tokens must keep WCAG AA 4.5:1 against every surface token. This is
   enforced by `apps/web/tests/ui-audit-locks.test.mjs`; run it before shipping a
   palette change.
@@ -263,7 +268,7 @@ and PRDs; they never appear in user-facing copy.
 - **Transaksi** is a quiet ledger grouped by Asia/Jakarta day with each day's net spend
   in the header. Rows show a display name preferring merchant name → counterparty
   name → description (and `Transfer ke <name>` for transfers with a counterparty,
-  display-only), a semantic Phosphor category icon (`categoryIcons.js`, six
+  display-only), a semantic Phosphor category icon (`categoryIcons.js`, eight
   category tones, never letter boxes), one meta line and the signed amount; a badge
   appears only for exceptions (Perlu dicek, Dibatalkan). Voided rows are hidden through
   `exclude_voided=true` (response headers `X-Total-Count` and `X-Voided-Count`) unless

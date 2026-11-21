@@ -5,7 +5,7 @@ import { CycleSpendingPatternChart } from "../components/Charts";
 import { baselineFor } from "../lib/cycleKpi";
 import { buildLedger, compactMillions, signedMillions } from "../lib/cycleLedger";
 import { amountLabel, ratioLabel, transactionHref } from "../lib/cycleReview";
-import { changesView, categoryColorMap, categoryKey, OTHER_CATEGORY_COLOR, partialDay, rankingView } from "../lib/cycleWhere";
+import { changesView, categoryColorFor, categoryColorMap, categoryKey, OTHER_CATEGORY_COLOR, partialDay, rankingView } from "../lib/cycleWhere";
 import { trapKeyDown } from "../lib/focusTrap";
 import { dayLabel } from "../lib/chartData";
 import { dateTime, money, typeLabel } from "../lib/format";
@@ -178,10 +178,11 @@ export function CategoryDrawer({ item, facts, period, close, triggerRef }) {
   }, [triggerRef]);
   const basis = baselineFor(period, facts.spendingShape?.days);
   const key = categoryKey(item);
+  const color = categoryColorMap(facts).colors.get(key) || categoryColorFor(item);
   return <div id="drivers" className="drawer-backdrop category-backdrop" onClick={() => close()}>
     <aside ref={ref} id="category-drawer" tabIndex={-1} className="detail-drawer category-drawer" role="dialog" aria-modal="true" aria-labelledby="drivers-title" onClick={event => event.stopPropagation()}>
       <button type="button" className="drawer-close" aria-label="Tutup rincian kategori" onClick={() => close()}>×</button>
-      <h2 id="drivers-title" tabIndex={-1}>{item.name}</h2>
+      <h2 id="drivers-title" tabIndex={-1} className="category-drawer-title"><i className="where-swatch" aria-hidden="true" style={{ "--cat": color }}/>{item.name}</h2>
       <p className="detail-amount">{money(item.amount)}</p>
       <dl className="drawer-facts">
         <div><dt>Porsi pengeluaran</dt><dd>{ratioLabel(item.shareOfExpense)}</dd></div>

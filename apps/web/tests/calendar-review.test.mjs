@@ -117,7 +117,7 @@ test("calendar charts follow the cycle rules: bar-order legend, server ranking, 
   assert.match(page, /Data mulai \{monthLabel\(items\[start\]\.period\)\}/, "leading empty months are one line");
   assert.match(page, /data-label=\{labels\[/, "stacked rows keep their column names");
   assert.match(page, /Rentang bulan \$\{rangeSummary\(selection\.from, selection\.to\)\}/, "a one-month range is named once");
-  assert.match(charts, /item\.remainder \? "var\(--line-strong\)" : "var\(--chart-category-2\)"/, "the remainder bar uses a muted fill");
+  assert.match(charts, /item\.remainder \? OTHER_CATEGORY_COLOR :/, "the remainder bar uses the sand Kategori lain token");
   assert.match(css, /\.cycle-review \.custom-range button:disabled \{ opacity: 1;/, "a disabled apply button keeps readable contrast");
 });
 
