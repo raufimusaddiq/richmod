@@ -150,14 +150,16 @@
 .voided-note { margin: 0 0 10px; color: var(--muted); font-size: var(--text-xs); }
 .link-button { min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--accent); font-size: inherit; font-weight: var(--weight-semibold); text-decoration: underline; }
 
-.category-icon { display: grid; flex: none; width: var(--icon-size, 34px); height: var(--icon-size, 34px); place-items: center; border-radius: 12px; }
+.category-icon { display: grid; flex: none; width: var(--icon-size, 34px); height: var(--icon-size, 34px); place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--cat-color, var(--chart-category-1)) 14%, var(--surface)); color: var(--cat-color, var(--chart-category-1)); }
 .category-icon svg { width: 54%; height: 54%; }
-.category-icon.tone-1 { background: color-mix(in srgb, var(--chart-category-1) 14%, var(--surface)); color: var(--chart-category-1); }
-.category-icon.tone-2 { background: color-mix(in srgb, var(--chart-category-2) 14%, var(--surface)); color: var(--chart-category-2); }
-.category-icon.tone-3 { background: color-mix(in srgb, var(--chart-category-3) 14%, var(--surface)); color: var(--chart-category-3); }
-.category-icon.tone-4 { background: color-mix(in srgb, var(--chart-category-4) 14%, var(--surface)); color: var(--chart-category-4); }
-.category-icon.tone-5 { background: color-mix(in srgb, var(--chart-category-5) 14%, var(--surface)); color: var(--chart-category-5); }
-.category-icon.tone-6 { background: color-mix(in srgb, var(--chart-category-6) 14%, var(--surface)); color: var(--chart-category-6); }
+.category-icon.tone-1 { --cat-color: var(--chart-category-1); }
+.category-icon.tone-2 { --cat-color: var(--chart-category-2); }
+.category-icon.tone-3 { --cat-color: var(--chart-category-3); }
+.category-icon.tone-4 { --cat-color: var(--chart-category-4); }
+.category-icon.tone-5 { --cat-color: var(--chart-category-5); }
+.category-icon.tone-6 { --cat-color: var(--chart-category-6); }
+.category-icon.tone-7 { --cat-color: var(--chart-category-7); }
+.category-icon.tone-8 { --cat-color: var(--chart-category-8); }
 
 .filter-primary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .filter-search { position: relative; display: block; flex: 1 1 200px; min-width: 0; }

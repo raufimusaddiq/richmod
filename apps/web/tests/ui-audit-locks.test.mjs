@@ -35,9 +35,14 @@ test("every text colour clears WCAG AA 4.5:1 on every surface", () => {
   assert.ok(ratio(token("surface-strong"), token("accent-hover")) >= 4.5, "primary button hover remains readable");
   assert.ok(ratio(token("line-strong"), token("surface-strong")) >= 3, "input outlines remain visible");
   assert.ok(ratio(token("accent"), token("canvas")) >= 3, "keyboard focus remains visible");
-  for (let index = 1; index <= 6; index++) {
-    assert.ok(ratio(token(`chart-category-${index}`), token("surface-strong")) >= 4.5, "donut labels remain readable");
+  const categoryHexes = new Set();
+  for (let index = 1; index <= 8; index++) {
+    const hex = token(`chart-category-${index}`);
+    categoryHexes.add(hex);
+    assert.ok(ratio(hex, token("surface-strong")) >= 4.5, `chart-category-${index} clears 4.5:1 on surface-strong`);
   }
+  assert.equal(categoryHexes.size, 8, "all eight category tokens are distinct");
+  assert.ok(token("chart-category-other"), "Kategori lain sand token exists");
 });
 
 test("type scale is tokenised and no text renders below 12px", () => {

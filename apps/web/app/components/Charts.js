@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
-import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceMarkerNote, paceTicks } from "../lib/cycleLedger";
+import { OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey } from "../lib/categoryColors";
+import { useCategoryPalette } from "./CategoryPaletteProvider";
+import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceEndLabels, paceMarkerNote, paceTicks } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { clippedBarLabels, dailyChartModel, dayLedgerHref, formatDailyTick } from "../lib/home";
 import { useRouter } from "next/navigation";
 import { transactionHref } from "../lib/cycleReview";
 
-const colors = ["var(--chart-category-1)", "var(--chart-category-2)", "var(--chart-category-3)", "var(--chart-category-4)", "var(--chart-category-5)", "var(--chart-category-6)"];
 const defaultTooltipStyle = { border: "2px solid var(--ink)", borderRadius: 12, background: "var(--surface-strong)", boxShadow: "var(--shadow)", fontSize: 12 };
 const axisTick = { fontFamily: "var(--font-body)", fontSize: 12 };
 const bar = { stroke: "var(--ink)", strokeWidth: 2, radius: [4, 4, 0, 0], maxBarSize: 24 };
@@ -107,24 +108,19 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   const data = mapPace(items, pace);
   const curves = paceCurves(pace);
   const last = data[items.length - 1];
-  const tail = curves.previous ? data[curves.previous.length - 1] : null;
-  const sameDay = references.find(reference => reference.key === "previous-same-day");
   const tone = reference => (reference.tone === "median" ? "var(--chart-reference)" : "var(--line-strong)");
   const levels = references.filter(reference => reference.shape === "line" && !(reference.tone === "previous" && curves.previous) && !(reference.tone === "median" && curves.median));
-  const endLabel = (value, position, fill = "var(--chart-axis)") => ({ value: compactMillions(value), position, fill, fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600 });
   const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
-  const span = axis.domain[1] - axis.domain[0];
-  const closeToLast = value => Math.abs(Number(value) - Number(last.exact)) < span * 0.12;
-  const sameDayLabel = sameDay ? endLabel(sameDay.value, Number(sameDay.value) < Number(last.exact) ? "bottom" : "top") : null;
-  if (sameDayLabel) sameDayLabel.dx = -10;
-  if (sameDayLabel && closeToLast(sameDay.value)) sameDayLabel.dy = Number(sameDay.value) < Number(last.exact) ? 14 : -14;
-  const tailLabel = tail && !(sameDay && tail.day === last.day) ? endLabel(tail.previousExact, "right") : null;
-  if (tailLabel && tail.day === last.day && closeToLast(tail.previousTotal)) tailLabel.dy = Number(tail.previousTotal) < Number(last.exact) ? 14 : -14;
+  const endLabels = paceEndLabels({ data, last, curves, references, axis, plotHeight: Math.max(80, height - 50) });
+  const renderEndLabel = entry => ({ viewBox }) => {
+    if (!viewBox || !Number.isFinite(viewBox.x) || !Number.isFinite(viewBox.y)) return null;
+    return <text x={viewBox.x + 8} y={viewBox.y + 4 + entry.dy} fill={entry.fill} fontFamily="var(--font-body)" fontSize={12} fontWeight={600} textAnchor="start" data-pace-end={entry.key}>{entry.text}</text>;
+  };
   return <div className="cycle-pace">
     <p className="pace-marker-note">{paceMarkerNote(period, last)}</p>
     <div className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-        <LineChart accessibilityLayer={false} data={data} margin={{ top: 26, right: 44, left: 0, bottom: 0 }}>
+        <LineChart accessibilityLayer={false} data={data} margin={{ top: 26, right: 48, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false}/>
           <XAxis dataKey="day" type="number" domain={[1, Math.max(data.length, 2)]} ticks={paceTicks(data.length)} tickFormatter={day => paceDateLabel(items, day)} allowDecimals={false} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/>
           <YAxis width={40} type="number" domain={axis.domain} ticks={axis.ticks} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(axis.domain[1])}/>
@@ -133,10 +129,10 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
           {curves.previous && <Line type="linear" dataKey="previousTotal" stroke="var(--line-strong)" strokeWidth={2} strokeDasharray="7 5" dot={false} activeDot={false} isAnimationActive={false}/>}
           {curves.median && <Line type="linear" dataKey="medianTotal" stroke="var(--chart-reference)" strokeWidth={2} strokeDasharray="2 5" strokeLinecap="round" dot={false} activeDot={false} isAnimationActive={false}/>}
           {levels.map(reference => <ReferenceLine key={reference.key} y={Number(reference.value)} ifOverflow="extendDomain" stroke={tone(reference)} strokeDasharray={reference.tone === "median" ? "2 5" : "7 5"} strokeWidth={2}/>)}
-          {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2} label={reference === sameDay ? sameDayLabel : undefined}/>)}
-          {tail && <ReferenceDot x={tail.day} y={Number(tail.previousTotal)} r={0} ifOverflow="extendDomain" label={tailLabel}/>}
+          {references.filter(reference => reference.shape === "marker").map(reference => <ReferenceDot key={reference.key} x={last.day} y={Number(reference.value)} r={5} ifOverflow="extendDomain" fill="var(--surface-strong)" stroke={tone(reference)} strokeWidth={2}/>)}
           <Line type="linear" dataKey="runningTotal" stroke="var(--ink)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/>
-          <ReferenceDot x={last.day} y={Number(last.exact)} r={4.5} ifOverflow="extendDomain" fill="var(--butter)" stroke="var(--ink)" strokeWidth={2} label={endLabel(last.exact, "right", "var(--ink)")}/>
+          <ReferenceDot x={last.day} y={Number(last.exact)} r={4.5} ifOverflow="extendDomain" fill="var(--butter)" stroke="var(--ink)" strokeWidth={2}/>
+          {endLabels.map(entry => <ReferenceDot key={`end-${entry.key}`} x={entry.day} y={entry.value} r={0} ifOverflow="extendDomain" label={{ content: renderEndLabel(entry) }}/>)}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -152,18 +148,25 @@ export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }
   return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis width={52} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)} label={{ value: "Rp juta", angle: -90, position: "insideLeft", offset: 14, fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Tooltip content={<MonthlyTooltip/>}/><Legend content={legend}/><Bar isAnimationActive={false} dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }
 
-export function CategoryDonutChart({ items, height = 260 }) {
+export function CategoryDonutChart({ items, height = 260, palette = null }) {
+  const sharedPalette = useCategoryPalette();
+  const activePalette = palette || sharedPalette;
   const data = compactCategories(items, 5).map(item => ({ ...item, value: Number(item.amount || 0) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;
-  return <div className="category-visual"><div className="chart-wrap" role="img" aria-label="Grafik distribusi kategori" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><PieChart accessibilityLayer={false}><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} labelLine={false} label={false} isAnimationActive={false}>{data.map((item, index) => <Cell key={item.id || item.name} fill={colors[index % colors.length]} stroke="var(--ink)" strokeWidth={2}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={defaultTooltipStyle}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.map((item, index) => <div key={item.id || item.name}><i style={{ background: colors[index % colors.length] }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
+  const { colors } = categoryColorMap(items, activePalette);
+  const fillFor = item => (item.id === "other" || item.other || item.remainder ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(item)) || categoryColorFor(item, activePalette));
+  return <div className="category-visual"><div className="chart-wrap" role="img" aria-label="Grafik distribusi kategori" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><PieChart accessibilityLayer={false}><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} labelLine={false} label={false} isAnimationActive={false}>{data.map(item => <Cell key={item.id || item.name} fill={fillFor(item)} stroke="var(--ink)" strokeWidth={2}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={defaultTooltipStyle}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.map(item => <div key={item.id || item.name}><i style={{ background: fillFor(item) }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
 }
 
-export function CategoryRankingChart({ items, height = 320 }) {
+export function CategoryRankingChart({ items, height = 320, palette = null }) {
+  const sharedPalette = useCategoryPalette();
+  const activePalette = palette || sharedPalette;
   const data = items.map(item => ({ ...item, amountValue: Number(item.amount || 0), amountLabel: compactMillions(item.amount) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi.</p>;
+  const { colors } = categoryColorMap(data, activePalette);
   return <div className="category-ranking">
     <p className="chart-unit">Rp juta</p>
-    <div className="chart-wrap" role="img" aria-label="Distribusi kategori pengeluaran, dalam jutaan rupiah" style={{ height: Math.max(height, data.length * 40) }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} layout="vertical" margin={{ top: 4, right: 56, left: 12, bottom: 4 }}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><Tooltip formatter={(_, __, item) => [money(item.payload.amount), "Pengeluaran bersih"]} contentStyle={defaultTooltipStyle}/><Bar isAnimationActive={false} dataKey="amountValue" fill="var(--chart-category-2)" stroke="var(--ink)" strokeWidth={2} radius={[0, 4, 4, 0]} maxBarSize={24}>{data.map(item => <Cell key={item.id || item.name} fill={item.remainder ? "var(--line-strong)" : "var(--chart-category-2)"}/>)}<LabelList dataKey="amountLabel" position="right" fill="var(--ink-soft)" fontFamily="var(--font-body)" fontSize={12}/></Bar></BarChart></ResponsiveContainer></div>
+    <div className="chart-wrap" role="img" aria-label="Distribusi kategori pengeluaran, dalam jutaan rupiah" style={{ height: Math.max(height, data.length * 40) }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} layout="vertical" margin={{ top: 4, right: 56, left: 12, bottom: 4 }}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><Tooltip formatter={(_, __, item) => [money(item.payload.amount), "Pengeluaran bersih"]} contentStyle={defaultTooltipStyle}/><Bar isAnimationActive={false} dataKey="amountValue" fill="var(--chart-category-2)" stroke="var(--ink)" strokeWidth={2} radius={[0, 4, 4, 0]} maxBarSize={24}>{data.map(item => <Cell key={item.id || item.name} fill={item.remainder ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(item)) || categoryColorFor(item, activePalette)}/>)}<LabelList dataKey="amountLabel" position="right" fill="var(--ink-soft)" fontFamily="var(--font-body)" fontSize={12}/></Bar></BarChart></ResponsiveContainer></div>
   </div>;
 }
 

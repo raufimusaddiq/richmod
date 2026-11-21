@@ -374,4 +374,7 @@ test("T-62: the phone dialog stretches its fields to the full width", () => {
   const phone = css.slice(css.indexOf("@media (max-width: 719px)"));
   assert.match(phone, /\.create-dialog \.transaction-form \{[^}]*align-items: stretch;/);
   assert.match(css, /\.create-dialog \.date-hint\[data-date=""\] \{ display: none; \}/, "an empty date hint adds no gap under Waktu");
+  assert.match(page, /<label><span>Deskripsi\{selected\.description && <span className="required-mark" aria-hidden="true"> \*<\/span>\}<\/span><input name="description"/, "Ubah Deskripsi keeps its required mark inline inside one label span");
+  assert.match(page, /<TransactionList[^>]*categoryColors=\{categoryColors\}/, "Transaksi passes the shared category colour map to TransactionList");
+  assert.match(page, /const loading = loader\.loading \|\| loader\.refreshing \|\| \(!loader\.hasLoaded && !loader\.failed\);/, "filter bar stays inert before the first load begins");
 });

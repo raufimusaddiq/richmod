@@ -75,7 +75,7 @@
 .cycle-review .review-table-wrap { outline-offset: 2px; }
 .cycle-review .review-table-wrap thead th:not(:first-child) { text-align: right; }
 .cycle-review .cycle-outcome > div:not(.cycle-net) { border-left: 1px solid var(--line); }
-.cycle-review .change-button { display: block; width: 100%; padding: 0 var(--space-2); border-radius: var(--radius-xs); }
+.cycle-review .change-button { display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; padding: 0 var(--space-2); border-radius: var(--radius-xs); }
 .cycle-review .change-button:active:not(:disabled) { transform: none; }
 .cycle-review .review-table-wrap caption { max-width: 74ch; }
 .cycle-review .insight-card { margin-bottom: var(--space-4); }

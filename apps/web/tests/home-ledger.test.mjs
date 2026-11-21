@@ -15,11 +15,15 @@ test("category names map to a Phosphor icon, never a letter box", () => {
   assert.equal(normalizeCategoryName("Késehatan & Obat"), "kesehatan obat");
 });
 
-test("category tone is stable and one of the six chart tones", () => {
+test("category tone is stable and one of the eight chart tones", () => {
   const first = categoryVisual("Dana darurat"), again = categoryVisual("Dana darurat");
   assert.deepEqual(first, again);
-  assert.ok(first.tone >= 1 && first.tone <= 6);
+  assert.ok(first.tone >= 1 && first.tone <= 8);
   assert.equal(first.color, `var(--chart-category-${first.tone})`);
+  const bars = readFileSync(new URL("../app/components/CategoryBars.js", import.meta.url), "utf8");
+  assert.match(bars, /categoryColorMap\(items, palette\)/, "Beranda Ke mana uangnya shares categoryColorMap");
+  assert.match(bars, /row\.other \? OTHER_CATEGORY_COLOR/, "Kategori lain uses sand --chart-category-other");
+  assert.doesNotMatch(bars, /var\(--line-strong\)/, "Beranda Kategori lain no longer uses green-grey line-strong");
 });
 
 const day = (period, expense) => ({ period, expense: String(expense), expenseValue: expense });

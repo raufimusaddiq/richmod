@@ -4,6 +4,7 @@ import { useState } from "react";
 import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { compactMillions, directionMark } from "../lib/cycleLedger";
 import { buildHeatmap, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../lib/cycleSections";
+import { categoryColorFor, categoryKey } from "../lib/categoryColors";
 import { money } from "../lib/format";
 import { Metric } from "./shared";
 
@@ -50,7 +51,7 @@ export function ComparisonContext({ comparison, period }) {
   </div>;
 }
 
-export function ChangesTable({ items, comparison, selected, select }) {
+export function ChangesTable({ items, comparison, selected, select, colors = null }) {
   if (!items.length) return <p className="empty compact">Belum ada pengeluaran kategori pada periode ini atau pembandingnya.</p>;
   const elapsed = comparison.mode === "ELAPSED_DAYS";
   const prevLabel = elapsed ? "Sebelumnya · hari yang sama" : "Sebelumnya · penuh";
@@ -62,14 +63,14 @@ export function ChangesTable({ items, comparison, selected, select }) {
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
     <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —. Sebelumnya · penuh: {measuredLabel(comparison.previousFullCycle)}.</caption>
     <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{prevLabel}</th><th scope="col">{medianLabel}</th><th scope="col">{deltaLabel}</th><th scope="col">{medianDeltaLabel}</th><th scope="col">{contribLabel}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th></>}</tr></thead>
-    <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
-      <th scope="row"><button className="change-button" type="button" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(item.id || "uncategorized", event.currentTarget)}>{item.name}</button></th>
+    <tbody>{items.map(item => { const key = categoryKey(item); const swatch = <i className="heat-swatch" aria-hidden="true" style={{ "--cat": colors?.get(key) || categoryColorFor(item) }}/>; return <tr key={key} data-selected={selected === key}>
+      <th scope="row"><button className="change-button" type="button" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(key, event.currentTarget)}>{swatch}<span>{item.name}</span></button></th>
       <td data-label="Siklus ini">{money(item.amount)}</td><td data-label={prevLabel}>{amountLabel(item.previous)}</td><td data-label={medianLabel}>{amountLabel(item.median3)}</td>
       <td data-label={deltaLabel}><span>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></span></td>
       <td data-label={medianDeltaLabel}><span>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></span></td>
       <td data-label={contribLabel}>{ratioLabel(item.contributionToExpenseChange)}</td>
       {elapsed && <><td data-label="Sebelumnya · penuh">{amountLabel(item.previousFullCycle)}</td><td data-label="Selisih vs siklus sebelumnya (penuh)"><span>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></span></td></>}
-    </tr>)}</tbody>
+    </tr>; })}</tbody>
   </table></div></>;
 }
 

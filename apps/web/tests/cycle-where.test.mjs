@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { changesView, partialDay, rankingView } from "../app/lib/cycleWhere.js";
+import { buildCategoryPalette, categoryColorFor, categoryColorMap, changesView, OTHER_CATEGORY_COLOR, partialDay, rankingView } from "../app/lib/cycleWhere.js";
+import { categoryVisual } from "../app/lib/categoryIcons.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -78,4 +79,46 @@ test("the category drawer is a labelled modal that reuses the shared focus trap"
   assert.match(source, /from "\.\.\/lib\/focusTrap"/);
   assert.match(source, /role="dialog" aria-modal="true" aria-labelledby="drivers-title"/);
   assert.match(source, /opener\.isConnected/, "focus returns to the trigger");
+  assert.match(source, /className="category-drawer-title"><i className="where-swatch"/, "category drawer shows its shared category swatch");
+});
+
+test("categoryColorMap assigns one stable distinct colour per category across screens, subsets, and icons", () => {
+  const eight = [
+    { id: "c-ortu", name: "Orang Tua", amount: "4500000" },
+    { id: "c-tinggal", name: "Tempat Tinggal", amount: "3200000" },
+    { id: "c-kopi", name: "Kopi & Camilan", amount: "1400000" },
+    { id: "c-jalan", name: "Perjalanan", amount: "1100000" },
+    { id: "c-makan", name: "Makan di Luar", amount: "900000" },
+    { id: "c-belanja", name: "Belanja Bahan Makanan", amount: "750000" },
+    { id: "c-keluarga", name: "Keluarga", amount: "600000" },
+    { id: "c-hiburan", name: "Hiburan", amount: "200000" },
+  ];
+  const five = eight.slice(0, 5);
+  const palette = buildCategoryPalette(eight);
+  const paletteReversed = buildCategoryPalette([...eight].reverse());
+  const berandaFive = categoryColorMap(five, palette);
+  const berandaEight = categoryColorMap(eight, palette);
+  const laporan = categoryColorMap({ categoryRanking: { rows: eight.slice(0, 7) }, categoryHistory: { rows: eight } }, palette);
+  const reordered = categoryColorMap({ categoryRanking: { rows: [...eight.slice(0, 7)].reverse() }, categoryHistory: { rows: [...eight].reverse() } }, paletteReversed);
+  const assigned = new Set();
+  for (const row of eight.slice(0, 7)) {
+    const color = laporan.colors.get(row.id);
+    assert.ok(color && color !== OTHER_CATEGORY_COLOR, `${row.name} gets a category colour`);
+    assert.equal(berandaEight.colors.get(row.id), color, `${row.name} keeps the same colour on Beranda and Laporan`);
+    assert.equal(reordered.colors.get(row.id), color, `${row.name} keeps the same colour when list order changes`);
+    assert.equal(categoryColorFor(row, palette), color, `${row.name} categoryColorFor matches chart map`);
+    assert.equal(categoryVisual(row, palette).color, color, `${row.name} CategoryIcon visual matches chart map`);
+    assigned.add(color);
+  }
+  for (const row of five) {
+    assert.equal(berandaFive.colors.get(row.id), berandaEight.colors.get(row.id), `${row.name} keeps the same colour across 5- and 8-category subsets`);
+    assert.equal(categoryVisual(row, palette).color, berandaFive.colors.get(row.id), `${row.name} icon matches 5-category subset`);
+    assert.equal(categoryColorMap(five).colors.get(row.id), categoryColorMap(eight).colors.get(row.id), `${row.name} stays stable across subsets even without a household palette`);
+    assert.equal(categoryVisual(row).color, categoryColorMap(eight).colors.get(row.id), `${row.name} icon matches chart map even without a household palette`);
+  }
+  assert.equal(assigned.size, 7, "all seven ranked categories have distinct colours with no repeats");
+  assert.notEqual(laporan.colors.get("c-keluarga"), laporan.colors.get("c-ortu"));
+  assert.notEqual(berandaEight.colors.get("c-kopi"), berandaEight.colors.get("c-jalan"));
+  assert.equal(new Set(eight.map(row => laporan.colors.get(row.id))).size, 8, "all eight categories stay distinct");
+  assert.equal(categoryVisual(eight[7], palette).color, laporan.colors.get("c-hiburan"), "8th category icon matches chart map");
 });

@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
+import { useCategoryPalette } from "../components/CategoryPaletteProvider";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
@@ -10,7 +11,7 @@ import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
 import { adjacentCycles } from "../lib/cycleLedger";
 import { cycleLabel, inclusiveEnd, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
-import { categoryKey } from "../lib/cycleWhere";
+import { categoryColorMap, categoryKey } from "../lib/cycleWhere";
 import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
 import { MeetingNav, ComparisonContext, ChangesTable, HouseholdSection } from "./CycleSections";
@@ -43,6 +44,7 @@ export default function AnalyticsPage() {
 
 function AnalyticsReview() {
   const user = useAuth();
+  const palette = useCategoryPalette();
   const params = useSearchParams();
   const pathname = usePathname();
   const selection = readReviewSelection(params.toString(), String(pathname || "").replace(/\/$/, "") === "/wealth" ? "wealth" : "cycle");
@@ -217,10 +219,10 @@ function AnalyticsReview() {
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
           <NoticeStrip facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
           <KpiStrip facts={facts} updated={valueUpdated}/>
-          <div className="dash-row"><WhereCard facts={facts} step={step} select={chooseCategory}/>
-            <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory}/></div>
+          <div className="dash-row"><WhereCard facts={facts} step={step} select={chooseCategory} palette={palette}/>
+            <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory} palette={palette}/></div>
           <div className="dash-row dash-row-half dash-row-pace">
-            <ChangesCard facts={facts} step={step} select={chooseCategory}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/></ChangesCard>
+            <ChangesCard facts={facts} step={step} select={chooseCategory}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory} colors={categoryColorMap(facts, palette).colors}/></ChangesCard>
             <PaceCard facts={facts}/></div>
           <div className="review-stack surface card">
           <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td data-label="Pengeluaran">{money(item.expense)}</td><td data-label="Refund">{money(item.refund)}</td><td data-label="Total sampai hari ini">{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
@@ -246,7 +248,7 @@ function AnalyticsReview() {
           </section>
           <QualityFooter facts={facts} step={step}/>
           </div>
-          {selectedCategory && (!meeting || step === "drivers") && <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger}/>}
+          {selectedCategory && (!meeting || step === "drivers") && <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger} palette={palette}/>}
         </>}
       </>}
       </div>}
