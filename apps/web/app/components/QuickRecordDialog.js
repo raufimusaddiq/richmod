@@ -6,6 +6,7 @@ import DateInput from "./DateInput";
 import { createErrorMessage, trapTarget } from "../lib/transactionForm";
 import { withinCycleWindow } from "../lib/missingTransaction";
 import { money } from "../lib/format";
+import { documentTypeLabels, label } from "../lib/labels";
 import { MAX_PHOTOS, buildQuickPayload, categoryChips, caretAfterFormat, formatRupiahInput, photoSelectionError, photoStatus, quickFormErrors, repeatLabel, sanitizeSuggestions, suggestCategory } from "../lib/quickRecord";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -207,7 +208,7 @@ function PhotoProof({ onBack, onClose }) {
       {error && <p role="alert" className="error-notice">{error}</p>}
       {notice && <p role="status" className="notice">{notice}</p>}
       <div className="quick-recent"><span className="quick-label">Unggahan terbaru</span>
-        {recent === null ? <p className="muted">Memuat…</p> : !recent.length ? <p className="muted">Belum ada foto bukti.</p> : <ul>{recent.map(item => { const status = photoStatus(item); return <li key={item.id} data-tone={status.tone}><span>{item.documentType ? item.documentType.replaceAll("_", " ").toLowerCase() : "Foto bukti"}</span><b>{status.text}</b>{status.retry && <button type="button" className="secondary" disabled={Boolean(retrying)} onClick={() => retry(item)}>{retrying === item.id ? "Memproses…" : "Proses ulang"}</button>}</li>; })}</ul>}
+        {recent === null ? <p className="muted">Memuat…</p> : !recent.length ? <p className="muted">Belum ada foto bukti.</p> : <ul>{recent.map(item => { const status = photoStatus(item); return <li key={item.id} data-tone={status.tone}><span>{label(documentTypeLabels, item.documentType) || "Foto bukti"}</span><b>{status.text}</b>{status.retry && <button type="button" className="secondary" disabled={Boolean(retrying)} onClick={() => retry(item)}>{retrying === item.id ? "Memproses…" : "Proses ulang"}</button>}</li>; })}</ul>}
         <Link href="/documents" onClick={onClose}>Lihat semua riwayat foto bukti ›</Link>
       </div>
     </div>

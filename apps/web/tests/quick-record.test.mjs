@@ -137,6 +137,20 @@ test("the sheet opens on the manual form, with no chooser and no badges", () => 
   assert.match(dialog, /<button type="button" className="secondary" onClick=\{\(\) => setMode\("photo"\)\}>Foto bukti<\/button><button type="submit" disabled=\{saving\}>/, "Foto bukti sits right beside Catat");
 });
 
+test("recent uploads use Indonesian document labels, never raw enum text", () => {
+  const dialog = read("app/components/QuickRecordDialog.js");
+  assert.match(dialog, /label\(documentTypeLabels, item\.documentType\) \|\| "Foto bukti"/);
+  assert.doesNotMatch(dialog, /replaceAll\("_", " "\)/);
+});
+
+test("the provider opens from context even before its window listener exists", () => {
+  const provider = read("app/components/QuickRecordProvider.js");
+  assert.match(provider, /<QuickRecordContext\.Provider value=\{\{ open \}\}>/);
+  assert.match(provider, /const open = useCallback\(/);
+  // open() only sets state; the dialog renders as soon as the signed-in user is known.
+  assert.match(provider, /\{enabled && request && <QuickRecordDialog/);
+});
+
 test("saving closes at once, confirms with an undo, and tells open pages to refresh", () => {
   const provider = read("app/components/QuickRecordProvider.js");
   assert.equal(QUICK_EVENTS.created, "richmod:transaction-created");

@@ -12,7 +12,7 @@ import { LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState"
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { selectionHref } from "../lib/cycleReview";
 import { cycleEntryWindow } from "../lib/missingTransaction";
-import { openQuickRecord } from "../components/QuickRecordProvider";
+import { useQuickRecord } from "../components/QuickRecordProvider";
 import { actorText, auditActionText, evidenceTypeText } from "../lib/labels";
 import { VOID_CONFIRM_MESSAGE, REVERSE_MERGE_SUCCESS_MESSAGE, VOID_SUCCESS_MESSAGE, activeFilterCount, canEditTransaction, canVoidTransaction,  editErrorMessage, editFormErrors, editPayload, editableFields, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, mergeSummary, pageLabel, pageSize, resultCountLabel, reverseMergeConfirmMessage, reverseMergeFailure, transactionsErrorMessage, trapTarget, voidFailure } from "../lib/transactionForm";
 
@@ -58,6 +58,9 @@ export default function TransactionsPage() {
   const [filterError, setFilterError] = useState(""), [filterKey, setFilterKey] = useState(0);
   // Adding a transaction is the global "+ Catat" sheet; a missing-transaction handoff opens it
   // with the date limited to that salary cycle.
+  // Called straight from the provider context, not through a window event: on a cold load this page
+  // effect runs before the provider attaches its listener, so an event would be dropped.
+  const { open: openQuickRecord } = useQuickRecord();
   const openCreate = (cycleWindow = null) => openQuickRecord({ missingWindow: cycleWindow });
   // Edit form: same native modal <dialog> pattern as the add form. The drawer's
   // own Escape/Tab handler is on document, so the dialog stops key events here.
@@ -174,7 +177,7 @@ export default function TransactionsPage() {
     if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
   }, [loading, loader.hasLoaded, refreshPending, refreshToken]);
   useEffect(() => { if (user) { const params = new URLSearchParams(window.location.search); const id = params.get("open") || params.get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
-  useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) openCreate(window_); }, [user]);
+  useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) openCreate(window_); }, [user, openQuickRecord]);
   // A transaction recorded (or undone) from the sheet refreshes this list in place.
   useEffect(() => {
     if (!user) return undefined;
