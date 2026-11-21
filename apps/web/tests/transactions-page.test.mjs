@@ -91,7 +91,7 @@ test("audit actions show Indonesian labels with a safe fallback", () => {
   assert.equal(auditActionText("SOME_NEW_ACTION"), "Some new action");
   assert.equal(auditActionText(""), "—");
   assert.equal(auditActionText(undefined), "—");
-  assert.match(page, /auditActionText\(item\.action\)/);
+  assert.match(readFileSync(new URL("../app/lib/transactionView.js", import.meta.url), "utf8"), /auditActionText\(item\.action\)/);
 });
 
 test("ledger lifecycle audit actions read in Indonesian", () => {
@@ -275,7 +275,7 @@ test("T-30: the mobile filter toggle counts active filters", () => {
   assert.equal(activeFilterCount("?q=grab&type=EXPENSE&limit=50"), 2);
   assert.equal(activeFilterCount("?id=abc"), 0, "a drawer id is not a filter");
   assert.match(page, /className="secondary filter-toggle" aria-expanded=\{filtersOpen\}/);
-  assert.match(page, /Filter\{filterCount \? ` \(\$\{filterCount\}\)` : ""\}/);
+  assert.match(page, /Filter lain\{moreCount \? ` \(\$\{moreCount\}\)` : ""\}/);
 });
 
 test("T-30: no-match state offers Hapus filter, the empty ledger keeps the plain message", () => {

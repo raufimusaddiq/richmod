@@ -2,27 +2,48 @@
 
 import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/react";
-import { dateTime, money, sourceLabel, statusLabel, typeLabel } from "../lib/format";
+import CategoryIcon from "./CategoryIcon";
+import { money, typeLabel } from "../lib/format";
+import { groupByDay, timeOfDay } from "../lib/ledgerDays";
+
+const shortDay = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short" });
+
+// One quiet row: icon, who/what, one meta line, signed amount. Only exceptions get a badge.
+function Row({ item, compact, onSelect, newId }) {
+  const incoming = item.type === "INCOME" || item.type === "REFUND";
+  const neutral = item.type === "TRANSFER" || item.type === "UNCLASSIFIED";
+  const Glyph = incoming ? ArrowDownLeft : neutral ? ArrowsLeftRight : ArrowUpRight;
+  const sign = incoming ? "+" : neutral ? "" : "−";
+  const voided = item.status === "VOIDED", review = item.status === "NEEDS_REVIEW";
+  const merchant = item.merchantName || item.description || item.counterpartyName || typeLabel[item.type] || "Transaksi";
+  const category = item.categoryName || (item.type === "TRANSFER" ? "Transfer" : item.type === "INCOME" ? "Pemasukan" : "Belum dikategorikan");
+  const when = compact ? `${shortDay.format(new Date(item.transactionAt))}, ${timeOfDay(item.transactionAt)}` : timeOfDay(item.transactionAt);
+  const meta = [category, when, item.accountName, item.memberName && `oleh ${item.memberName}`].filter(Boolean).join(" · ");
+  const content = <>
+    <div className="transaction-main">
+      {item.categoryName ? <CategoryIcon category={{ name: item.categoryName }}/> : <span className={`transaction-icon ${item.type?.toLowerCase()}`}><Glyph aria-hidden="true"/></span>}
+      <div><b>{merchant}{review && <span className="status status-needs_review">Perlu dicek</span>}{voided && <span className="status status-voided">Dibatalkan</span>}</b><small>{meta}</small></div>
+    </div>
+    <strong className={`transaction-amount ${incoming ? "positive" : neutral ? "neutral" : "negative"}`}>{sign} {money(item.amount)}</strong>
+  </>;
+  const label = `${merchant}, ${typeLabel[item.type] || item.type}, ${money(item.amount)}${voided ? ", dibatalkan" : review ? ", perlu dicek" : ""}`;
+  const className = `transaction-row${item.id === newId ? " is-new" : ""}${voided ? " is-voided" : ""}`;
+  return onSelect ? <button className={className} aria-label={label} onClick={() => onSelect(item)}>{content}</button> : <Link className={className} aria-label={label} href={`/transactions?id=${item.id}`}>{content}</Link>;
+}
+
+function dayTotal(day) {
+  if (day.spend === "0" && day.reviewCount > 0) return `${money("0")} · ${day.reviewCount} perlu dicek`;
+  return money(day.spend);
+}
 
 export default function TransactionList({ items, compact = false, onSelect, newId = "", hasFilters = false, onClearFilters }) {
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
-    <div className="table-head"><span>Transaksi</span><span>Kategori / sumber</span><span>Status</span><span>Jumlah</span></div>
-    {items.map(item => {
-      const incoming = item.type === "INCOME" || item.type === "REFUND";
-      const neutral = item.type === "TRANSFER" || item.type === "UNCLASSIFIED";
-      const Icon = incoming ? ArrowDownLeft : neutral ? ArrowsLeftRight : ArrowUpRight;
-      const sign = incoming ? "+" : neutral ? "" : "−";
-      const merchant = item.merchantName || item.description || item.counterpartyName || typeLabel[item.type] || "Transaksi";
-      const content = <>
-        <div className="transaction-main"><span className={`transaction-icon ${item.type?.toLowerCase()}`}><Icon aria-hidden="true"/></span><div><b>{merchant}</b><small>{dateTime(item.transactionAt)}{item.accountName ? ` · ${item.accountName}` : ""}</small></div></div>
-        <div className="transaction-meta"><b>{item.categoryName || "Belum dikategorikan"}</b><small>{item.memberName || sourceLabel[item.sourceType] || "Input sistem"}</small></div>
-        <div className="transaction-state"><span className={`status status-${item.status?.toLowerCase()}`}>{statusLabel[item.status] || item.status}</span><small>{typeLabel[item.type] || item.type}</small></div>
-        <strong className={`transaction-amount ${incoming ? "positive" : neutral ? "neutral" : "negative"}`}>{sign} {money(item.amount)}</strong>
-      </>;
-      const label = `${merchant}, ${typeLabel[item.type] || item.type}, ${money(item.amount)}`;
-      const className = `transaction-row${item.id === newId ? " is-new" : ""}`;
-      return onSelect ? <button className={className} key={item.id} aria-label={label} onClick={() => onSelect(item)}>{content}</button> : <Link className={className} key={item.id} aria-label={label} href={`/transactions?id=${item.id}`}>{content}</Link>;
-    })}
+    {compact
+      ? items.map(item => <Row key={item.id} item={item} compact onSelect={onSelect} newId={newId}/>)
+      : groupByDay(items).map(day => <section className="ledger-day" key={day.day} aria-label={day.heading}>
+        <header className="ledger-day-head"><h3>{day.heading}</h3><span>{dayTotal(day)}</span></header>
+        {day.items.map(item => <Row key={item.id} item={item} onSelect={onSelect} newId={newId}/>)}
+      </section>)}
     {!items.length && (hasFilters
       ? <div className="empty"><p>Tidak ada transaksi yang cocok dengan filter.</p>{onClearFilters && <button type="button" className="secondary" onClick={onClearFilters}>Hapus filter</button>}</div>
       : <p className="empty">Belum ada transaksi untuk ditampilkan.</p>)}

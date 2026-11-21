@@ -181,6 +181,27 @@ and PRDs; they never appear in user-facing copy.
   "Email masuk terakhir" log) and Notifikasi. A member sees Anggota (read-only)
   and Notifikasi only. Every old `/settings?tab=…` and `/settings#<anchor>` link
   opens the matching tab and scrolls to the anchor.
+- **Beranda** keeps one 2px ink-outlined, shadowed card: the hero. Supporting cards
+  (`.home-card`: Pengeluaran harian, Ke mana uangnya, Terbaru, Kekayaan bersih) use a
+  1.5px `--line-strong` border on `--surface` with no shadow. The hero has three
+  states: empty (welcome + "Catat transaksi pertama" / "Foto bukti"), expenses-only
+  ("Pengeluaran siklus ini" + "Catat pemasukan", no misleading negative balance) and
+  normal ("Sisa siklus ini" with spending share, the comparison against the previous
+  cycle/month from `GET /api/v1/analytics/overview`, and four figures). All cards read
+  the current period (`categories?period=current_cycle`); category rows and non-zero
+  day bars open `/transactions` filtered to that category/day. Daily bars are capped
+  at 3x the median day only when the largest day exceeds that and the median is above
+  zero, with a break slash and the real value labelled. Owners see a one-line butter
+  notice when `actionCount > 0`.
+- **Transaksi** is a quiet ledger grouped by Asia/Jakarta day with each day's net spend
+  in the header. Rows show a semantic Phosphor category icon (`categoryIcons.js`, six
+  category tones, never letter boxes), one meta line and the signed amount; a badge
+  appears only for exceptions (Perlu dicek, Dibatalkan). Voided rows are hidden through
+  `exclude_voided=true` (response headers `X-Total-Count` and `X-Voided-Count`) unless
+  a status filter or `?showVoided=1` is set. Filters are a search box and chips
+  (Periode, Kategori, Anggota, Akun) plus a "Filter lain" panel (Tipe, Status, Sumber,
+  Dari/Sampai tanggal). The drawer shows "Asal-usul & bukti" and a collapsed
+  "Riwayat perubahan".
 
 ## Diagrams and charts
 

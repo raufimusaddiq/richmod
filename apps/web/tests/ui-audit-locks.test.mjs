@@ -314,7 +314,7 @@ test("loading skeletons say they are loading", () => {
 });
 
 test("transaction filters are inert while their data loads", () => {
-  assert.match(text("app/transactions/page.js"), /<form id="transaction-filters" key=\{filterKey\} className=\{`filter-bar surface\$\{filtersOpen \? " is-open" : ""\}`\} onSubmit=\{filter\} inert=\{loading\}>/);
+  assert.match(text("app/transactions/page.js"), /<form id="transaction-filters" key=\{filterKey\} className="filter-bar" onSubmit=\{filter\} inert=\{loading\}>/);
 });
 
 test("document thumbnails load lazily and the list shows twelve at a time", () => {
@@ -352,19 +352,23 @@ test("document source and status labels cover the values the API returns", () =>
   assert.match(page, /EXTRACTED: "Terbaca"/);
 });
 
-test("tablets keep the transaction table columns; compact rows stop below 720px", () => {
-  const blocks = css().split(/\n@media /);
-  const block = query => blocks.filter(item => item.startsWith(query)).join(" "); // several stylesheets share a breakpoint
-  const tablet = block("(max-width: 1100px)");
-  const phone = block("(max-width: 719px)"); // the full table first fits at 720px: 621px table + 34px card padding + 64px gutter
-  assert.ok(tablet && phone, "both media blocks exist");
-  assert.doesNotMatch(tablet, /(?<!\.compact-table )\.transaction-meta \{ display: none; \}/, "category and source stay visible on tablets");
-  assert.doesNotMatch(tablet, /(?<!\.compact-table )\.table-head \{ display: none; \}/);
-  assert.match(phone, /\.table-head \{ display: none; \}/);
-  assert.match(phone, /\.transaction-meta \{ display: none; \}/);
-  // the dashboard's narrow card still needs compact rows across the tablet band
-  assert.match(tablet, /\.compact-table \.transaction-meta \{ display: none; \}/);
-  assert.match(tablet, /\.compact-table \.transaction-row \{ grid-template-columns: minmax\(0, 1fr\) auto;/);
+test("transaction rows are one quiet line at every width; the old table columns are gone", () => {
+  const sheet = css();
+  assert.doesNotMatch(sheet, /\.table-head|\.transaction-meta|\.transaction-state/, "no leftover table-column rules");
+  assert.match(sheet, /\.transaction-row \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.match(sheet, /\.ledger-day-head \{/, "rows group under a day header");
+  assert.match(sheet, /\.filter-more\[hidden\] \{ display: none; \}/, "the extra filters collapse");
+  assert.doesNotMatch(sheet, /\.filter-bar:not\(\.is-open\)/, "the filter bar itself never hides");
+});
+
+test("Beranda keeps one ink-outlined hero; supporting cards are calm", () => {
+  const sheet = css();
+  assert.match(sheet, /\.home-card \{ border: 1\.5px solid var\(--line-strong\); background: var\(--surface\); box-shadow: none; \}/);
+  const home = text("app/page.js");
+  assert.equal((home.match(/className="surface home-hero/g) || []).length, 2, "hero and welcome card are the only .surface cards");
+  assert.doesNotMatch(home, /Unggah bukti/, "+ Catat owns photo upload");
+  assert.match(home, /period=current_cycle/);
+  assert.doesNotMatch(home, /last_3_cycles/);
 });
 
 test("the visual smoke covers a portrait tablet", () => {

@@ -73,12 +73,44 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `
+	out, total, voided, err := h.listTransactionRows(r.Context(), household, filters)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
+		return
+	}
+	// An empty first page carries no window counts; when only voided rows matched, count them again
+	// without the exclusion so "N dibatalkan disembunyikan" stays accurate.
+	if filters.ExcludeVoided && len(out) == 0 && filters.CursorAt == nil {
+		probe := filters
+		probe.ExcludeVoided, probe.Limit = false, 1
+		if _, all, _, probeErr := h.listTransactionRows(r.Context(), household, probe); probeErr == nil {
+			voided = all
+		}
+	}
+	// The count of every row matching the filters, before the page limit. The window
+	// function rides the same query, so a second COUNT round-trip is not needed.
+	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
+	if filters.ExcludeVoided {
+		w.Header().Set("X-Voided-Count", strconv.FormatInt(voided, 10))
+	}
+	if len(out) > filters.Limit {
+		last := out[filters.Limit-1]
+		out = out[:filters.Limit]
+		w.Header().Set("X-Next-Cursor", transactionCursor(last))
+	}
+	writeJSON(w, 200, out)
+}
+
+// listTransactionRows runs the filtered list. total counts every visible row matching the filters
+// before the page limit; voided counts the VOIDED rows hidden by ExcludeVoided.
+func (h *Handler) listTransactionRows(ctx context.Context, household string, filters transactionFilters) ([]transactionView, int64, int64, error) {
+	rows, err := h.pool.Query(ctx, `
 		WITH filtered AS (
 			SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,
 			       t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,
 			       t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name,t.updated_at,
-			       count(*) OVER() AS total
+			       count(*) FILTER (WHERE NOT ($16::boolean AND t.status='VOIDED')) OVER() AS total,
+			       count(*) FILTER (WHERE $16::boolean AND t.status='VOIDED') OVER() AS voided
 			FROM transaction t
 			LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id
 			LEFT JOIN category c ON c.id=t.category_id
@@ -103,36 +135,23 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 			  AND ($15='' OR t.id::text=$15)
 		)
 		SELECT * FROM filtered
-		WHERE ($12::timestamptz IS NULL OR (transaction_at,id) < ($12,NULLIF($13,'')::uuid))
-		ORDER BY transaction_at DESC,id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID)
+		WHERE NOT ($16::boolean AND status='VOIDED')
+		  AND ($12::timestamptz IS NULL OR (transaction_at,id) < ($12,NULLIF($13,'')::uuid))
+		ORDER BY transaction_at DESC,id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID, filters.ExcludeVoided)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
-		return
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 	out := make([]transactionView, 0, filters.Limit)
-	var total int64
+	var total, voided int64
 	for rows.Next() {
 		var v transactionView
-		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt, &total); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
-			return
+		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName, &v.UpdatedAt, &total, &voided); err != nil {
+			return nil, 0, 0, err
 		}
 		out = append(out, v)
 	}
-	if err := rows.Err(); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
-		return
-	}
-	// The count of every row matching the filters, before the page limit. The window
-	// function rides the same query, so a second COUNT round-trip is not needed.
-	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
-	if len(out) > filters.Limit {
-		last := out[filters.Limit-1]
-		out = out[:filters.Limit]
-		w.Header().Set("X-Next-Cursor", transactionCursor(last))
-	}
-	writeJSON(w, 200, out)
+	return out, total, voided, rows.Err()
 }
 
 type transactionFilters struct {
@@ -143,6 +162,8 @@ type transactionFilters struct {
 	CursorAt                           *time.Time
 	CursorID                           string
 	Limit                              int
+	// ExcludeVoided hides VOIDED rows; it applies only when no explicit status filter is set.
+	ExcludeVoided bool
 }
 
 func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) {
@@ -163,6 +184,7 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		}
 		result.Limit = limit
 	}
+	result.ExcludeVoided = result.Status == "" && query.Get("exclude_voided") == "true"
 	if len(result.Search) > 100 {
 		return result, errors.New("search is too long")
 	}
