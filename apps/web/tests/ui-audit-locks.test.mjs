@@ -171,7 +171,7 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
   assert.match(provider, /INBOX_COUNT_EVENT/);
   assert.match(text("app/layout.js"), /<InboxCountProvider><QuickRecordProvider>\{children\}<\/QuickRecordProvider><\/InboxCountProvider>/);
-  assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(\{ reviewCount: decisions, actionCount: actions\.length \}\)/);
+  assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(\{ reviewCount: decisions \}\)/, "the review page never clobbers the action count");
   assert.match(provider, /X-Decision-Count/);
 });
 
@@ -199,8 +199,7 @@ test("a failed request names what is missing and keeps the rest", () => {
   assert.match(home, /Belum termuat: \$\{failed\.join/);
   assert.doesNotMatch(home, /new Date\(latestWealth\?\.observedAt\)/);
   const inbox = text("app/inbox/page.js");
-  assert.match(inbox, /failed\.push\(name\)/);
-  assert.doesNotMatch(inbox, /if \(!reviewResponse\.ok \|\| !actionResponse\.ok\) throw new Error/);
+  assert.match(inbox, /Daftar yang perlu dicek belum dapat dimuat/);
 });
 
 test("large screens are split into modules and review cards carry no inline styles", () => {
@@ -245,11 +244,10 @@ test("every dashboard section has a setter and every nav entry has an icon", () 
   for (const key of [...navKeys, "inbox", "admin"]) assert.match(iconMap, new RegExp(`\\b${key}: `), `nav icon "${key}" is mapped`);
 });
 
-test("one malformed inbox list does not hide the other", () => {
+test("a malformed optional list does not hide the reviews", () => {
   const inbox = text("app/inbox/page.js");
-  assert.match(inbox, /const readList = async \(response, name\) => \{ try \{/);
-  assert.match(inbox, /await readList\(reviewResponse, "daftar transaksi"/);
-  assert.match(inbox, /await readList\(actionResponse, "daftar tindakan"/);
+  assert.match(inbox, /const readOptional = async response => \{ try \{/);
+  assert.match(inbox, /if \(reviewList === null\) throw new Error/);
 });
 
 test("the stylesheet is an ordered list of balanced pieces", () => {
@@ -389,11 +387,8 @@ test("unfinished sources link to the Tindakan tab, which can show and close them
   const sections = text("app/analytics/CycleDashboard.js");
   assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
   assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
-  const inbox = text("app/inbox/page.js");
-  assert.match(inbox, /SOURCE_PROCESSING: "Sumber"/);
-  assert.match(inbox, /actionKind\(item\.integrationType\)/);
-  assert.doesNotMatch(inbox, /item\.integrationType === "EMAIL_FORWARDING"/);
-  assert.match(inbox, /view=actions|=== "actions"/);
+  assert.match(text("app/lib/reviewInbox.js"), /view === "actions"\) return "\/household\?tab=sumber#tindakan"/);
+  assert.match(text("app/components/SettingsPanels.js"), /tindakan/);
 });
 
 test("every document type the worker can assign has an Indonesian label", () => {

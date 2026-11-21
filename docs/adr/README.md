@@ -121,6 +121,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-108](#adr-108-transactions-page-interaction-invariants) | Transactions page interaction invariants | Accepted |
 | [ADR-109](#adr-109-static-frontend-build-service-worker-and-css-invariants) | Static frontend build, service worker and CSS invariants | Accepted |
 | [ADR-110](#adr-110-source-comments-are-banned-decisions-live-in-the-adr-log) | Source comments are banned; decisions live in the ADR log | Accepted |
+| [ADR-111](#adr-111-perlu-dicek-answers-merchant-rename-by-alias-dead-states-dropped) | Perlu dicek answers, merchant rename by alias, dead states dropped | Accepted |
 
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
@@ -1129,3 +1130,12 @@ Scope: build identity, service-worker safety, iOS launch images and stylesheet r
 *Accepted · 2026-11-21*
 
 Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. About 6,000 comment lines had accumulated; most restated the code, some were stale, some excused workarounds, and the few that recorded real decisions were scattered where nobody searched for them. Comments that explain a non-obvious why now go in this log, workarounds go in a GitHub issue, and everything else is deleted. `scripts/check-comments.mjs` enforces the ban in CI as a ratchet: `scripts/comment-baseline.json` holds per-file comment counts that may only fall, and it is empty today. Tool directives (`//go:build`, `-- +goose`, `eslint-disable`) are not comments. Decisions moved out of comments are ADR-064 to ADR-109; the original text is in git history before the purge. `/delete-comment` (`.claude/skills/delete-comment/SKILL.md`) repeats the audit.
+
+## ADR-111: Perlu dicek answers, merchant rename by alias, dead states dropped
+*Accepted · 2026-11-21*
+
+**Decision:** (1) `GET /api/v1/reviews` attaches `suggestedCategories` (up to 3 `{id,name,count,reason}`) to each transaction review that asks for a category: active household categories ranked in Go from the household's confirmed, non-voided history of the same merchant (or normalized counterparty/description) by frequency then recency (`MERCHANT_HISTORY`), filled from the household's 90-day most-used categories of the same type (`HOUSEHOLD_RECENT`); one batched read per page, zero AI. (2) `PATCH /api/v1/transactions/{id}` accepts `merchantName`: Go resolves or creates the household merchant, repoints the raw source name's `merchant_alias` at it (existing category rule kept) and audits `UPDATE_DETAILS` plus `UPDATE_MERCHANT_ALIAS`; `counterparty_name` stays as evidence and `merchantId` stays locked. (3) Migration `00102` drops `transaction.status = 'PENDING'` and `transaction.type = 'ADJUSTMENT'` (no producer) from the CHECKs and the status-transition trigger, and removes the unreachable `POST /api/v1/transactions/{id}/confirm`. (4) A bank email whose only missing fact is the transaction time already settles from the email's received time (`EMAIL_RECEIVED_AT` provenance); a test pins that it never opens `UNKNOWN_BANK_TEMPLATE` while missing amount, unknown kind or ambiguous facts still do.
+
+**Reason:** the Inbox should ask one plain question with ready answers instead of a form, a place name fixed once should stay fixed, and states nothing can reach only invite untested paths.
+
+**Consequence:** the Inbox renders history-ranked 1-tap answers and an inline `Urungkan` over the reopen endpoint, addressed by `reviewItemId`; `ReopenReview` may undo a plain `CONFIRM_REVIEW` of a confirmed expense/income/refund only when it is the latest item and no active merge or salary event references the transaction (history is kept, a fresh item opens); the migration refuses to run if a legacy `PENDING`/`ADJUSTMENT` row exists rather than rewriting canonical records.

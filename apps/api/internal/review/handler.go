@@ -48,6 +48,8 @@ type item struct {
 	AccountID               *string                   `json:"accountId"`
 	CategoryName            *string                   `json:"categoryName"`
 	MerchantName            *string                   `json:"merchantName"`
+	MerchantID              *string                   `json:"-"`
+	ReviewItemID            string                    `json:"reviewItemId,omitempty"`
 	Counterparty            *string                   `json:"counterparty"`
 	SourceType              *string                   `json:"sourceType"`
 	Confidence              *string                   `json:"confidence"`
@@ -78,6 +80,7 @@ type item struct {
 	PurposeChoices          []string                  `json:"purposeChoices,omitempty"`
 	Presentation            string                    `json:"presentation"`
 	DateChoices             []reviewdomain.DateChoice `json:"dateChoices,omitempty"`
+	SuggestedCategories     []suggestedCategory       `json:"suggestedCategories,omitempty"`
 }
 
 const reviewPageSize = 100
@@ -119,7 +122,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
-		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,
+		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,t.merchant_id::text,ri.id::text,
 		       COALESCE(ri.decision,'null'::jsonb)
 		FROM review_item ri
 		JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
@@ -142,7 +145,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	items := make([]item, 0)
 	for rows.Next() {
 		var value item
-		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus, &value.Decision); err != nil {
+		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus, &value.MerchantID, &value.ReviewItemID, &value.Decision); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 			return
 		}
@@ -173,6 +176,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		items = items[:reviewPageSize]
 		last := items[len(items)-1]
 		w.Header().Set("X-Next-Cursor", encodeReviewCursor(last.TransactionAt, last.ID))
+	}
+	suggestions, err := h.suggestCategories(r.Context(), household, items)
+	if err != nil {
+		slog.Warn("review suggested categories unavailable", "household_id", household, "err", err)
+		suggestions = nil
+	}
+	for index := range items {
+		items[index].SuggestedCategories = suggestions[items[index].ID]
 	}
 	if cursorAt != nil {
 		writeJSON(w, 200, items)

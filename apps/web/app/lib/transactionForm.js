@@ -81,12 +81,12 @@ export function trapTarget(items, active, shift, container = null) {
 }
 
 export function canEditTransaction(transaction) {
-  return Boolean(transaction?.id) && ["PENDING", "CONFIRMED"].includes(transaction.status);
+  return Boolean(transaction?.id) && ["CONFIRMED"].includes(transaction.status);
 }
 
 export function editableFields(transaction) {
   const transfer = transaction?.type === "TRANSFER";
-  return { category: !transfer, account: !transfer, description: true, note: true };
+  return { category: !transfer, account: !transfer, place: !transfer, description: true, note: true };
 }
 
 export function editFormErrors(values, transaction = {}) {
@@ -96,6 +96,7 @@ export function editFormErrors(values, transaction = {}) {
     if (description !== (transaction?.description || "")) errors.description = "Deskripsi wajib diisi.";
   } else if (description.length > 500) errors.description = "Deskripsi maksimal 500 karakter.";
   if (String(values.note || "").trim().length > 2000) errors.note = "Catatan maksimal 2000 karakter.";
+  if (String(values.merchantName || "").trim().length > 160) errors.merchantName = "Tempat maksimal 160 karakter.";
   return errors;
 }
 
@@ -103,6 +104,8 @@ export function editPayload(transaction, values) {
   const fields = editableFields(transaction), body = {};
   if (fields.category && (values.categoryId || null) !== (transaction.categoryId || null)) body.categoryId = values.categoryId || null;
   if (fields.account && (values.accountId || null) !== (transaction.accountId || null)) body.accountId = values.accountId || null;
+  const place = String(values.merchantName || "").trim().replace(/\s+/g, " ");
+  if (fields.place && place && place !== (transaction.merchantName || "")) body.merchantName = place;
   const description = String(values.description || "").trim();
   if (description !== (transaction.description || "")) body.description = description;
   const note = String(values.note || "").trim() || null;
@@ -115,7 +118,7 @@ export function editErrorMessage(status, body = {}) {
     case "REVIEW_OPEN": return "Transaksi ini masih menunggu tinjauan. Selesaikan tinjauan dulu.";
     case "STALE_EDIT": return "Transaksi sudah berubah. Muat ulang detail lalu coba lagi.";
     case "TRANSACTION_VOIDED": return "Transaksi yang dibatalkan tidak bisa diubah.";
-    case "TRANSFER_FIELD_LOCKED": return "Kategori dan akun transfer tidak bisa diubah.";
+    case "TRANSFER_FIELD_LOCKED": return "Kategori, akun, dan tempat transfer tidak bisa diubah.";
     case "INVALID_CATEGORY": return "Kategori tidak valid atau tidak aktif. Pilih kategori lain.";
     case "INVALID_ACCOUNT": return "Akun tidak valid atau tidak aktif. Pilih akun lain.";
     case "NOT_FOUND": return "Transaksi tidak ditemukan.";
@@ -134,7 +137,7 @@ export const VOID_CONFIRM_MESSAGE = "Batalkan transaksi ini? Transaksi keluar da
 export const VOID_SUCCESS_MESSAGE = "Transaksi dibatalkan. Tidak lagi dihitung dalam total, dan tetap ada di riwayat.";
 
 export function canVoidTransaction(transaction) {
-  return Boolean(transaction?.id) && ["PENDING", "CONFIRMED"].includes(transaction.status);
+  return Boolean(transaction?.id) && ["CONFIRMED"].includes(transaction.status);
 }
 
 export function voidFailure(status, body = {}) {

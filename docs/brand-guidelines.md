@@ -160,6 +160,14 @@ and PRDs; they never appear in user-facing copy.
 - **Perlu dicek** (`/inbox`) is conditional: a butter-highlighted sidebar link with
   the count, and a compact "N perlu dicek ›" butter pill in the phone page header,
   both rendered only while `reviewCount > 0`. The direct URL always works.
+- **Perlu dicek cards** ask one plain Indonesian question with ready 1-tap answers
+  (`Masuk kategori apa?` shows up to three history-ranked categories from
+  `suggestedCategories`, `sering dipakai` only on a merchant-history first rank, then
+  `Kategori lain…`, plus an `Ingat untuk <tempat>` checkbox). Cards use the calm
+  supporting-card style (1.5px `--line-strong`, no offset shadow). A resolved card
+  collapses into one line `✓ <tempat> · <jumlah> <hasil> · Urungkan` (reopen). The
+  page has two tabs, `Menunggu (N)` and `Riwayat 30 hari`; `Tindakan` and `Email masuk`
+  live in Keluarga › Sumber otomatis and the old `?view=actions|email` links move there.
 - Desktop sidebar order: brand, **+ Catat**, conditional Perlu dicek, the four places,
   then workspace, a quiet **Admin** link (super admins only) and the user.
 - Phone bottom bar: `Beranda · Transaksi · + · Laporan · Keluarga`. The centre **+**

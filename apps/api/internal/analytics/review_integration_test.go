@@ -81,7 +81,7 @@ func (f reviewFixture) transaction(t *testing.T, date, typ, status, amount strin
 		purpose = "SAVINGS_TRANSFER"
 		account = &f.account
 	}
-	err := f.pool.QueryRow(context.Background(), `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at,category_id,merchant_id,created_by_user_id,purpose,related_wealth_account_id) VALUES($1,$2,$3,$4::numeric,($5::date::timestamp AT TIME ZONE 'Asia/Jakarta')+interval '10 hours',CASE WHEN $3='CONFIRMED' THEN now() ELSE NULL END,$6,$7,$8,$9,$10) RETURNING id`, f.household, typ, status, amount, date, category, merchant, f.user, purpose, account).Scan(&id)
+	err := f.pool.QueryRow(context.Background(), `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at,voided_at,category_id,merchant_id,created_by_user_id,purpose,related_wealth_account_id) VALUES($1,$2,$3,$4::numeric,($5::date::timestamp AT TIME ZONE 'Asia/Jakarta')+interval '10 hours',CASE WHEN $3='CONFIRMED' THEN now() ELSE NULL END,CASE WHEN $3='VOIDED' THEN now() END,$6,$7,$8,$9,$10) RETURNING id`, f.household, typ, status, amount, date, category, merchant, f.user, purpose, account).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestCycleReviewRefundBaselinesDriversWealthAndIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.transaction(t, "2026-09-01", "EXPENSE", "CONFIRMED", "9999999", true)
-	f.transaction(t, "2026-08-31", "EXPENSE", "PENDING", "8888888", true)
+	f.transaction(t, "2026-08-31", "EXPENSE", "VOIDED", "8888888", true)
 	for i, item := range []struct{ at, value string }{{"2026-07-31T23:00:00+07:00", "20000000"}, {"2026-08-31T23:00:00+07:00", "30000000"}, {"2026-09-05T10:00:00+07:00", "99999999"}} {
 		var snapshot string
 		if err := f.pool.QueryRow(context.Background(), `INSERT INTO wealth_snapshot(household_id,observed_at,created_by_user_id) VALUES($1,$2::timestamptz,$3) RETURNING id`, f.household, item.at, f.user).Scan(&snapshot); err != nil {
@@ -153,7 +153,7 @@ func TestCycleReviewRefundBaselinesDriversWealthAndIsolation(t *testing.T) {
 	if facts.Wealth.Current.NetWorth != "30000000" || facts.Wealth.Previous.NetWorth != "20000000" || *facts.Wealth.Change != "10000000" || *facts.Wealth.Cashflow != "8600000" || *facts.Wealth.Other != "1400000" {
 		t.Fatalf("wealth=%+v", facts.Wealth)
 	}
-	if len(facts.Quality) != 1 || facts.Quality[0].Kind != "OPEN_REVIEWS" || facts.Quality[0].Count != 2 {
+	if len(facts.Quality) != 1 || facts.Quality[0].Kind != "OPEN_REVIEWS" || facts.Quality[0].Count != 1 {
 		t.Fatalf("quality=%+v", facts.Quality)
 	}
 	other := cycleReviewFixture(t)

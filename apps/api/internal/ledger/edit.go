@@ -30,6 +30,8 @@ const (
 	codeTransferLocked   = "TRANSFER_FIELD_LOCKED"
 )
 
+const maxMerchantNameRunes = 160
+
 var lockedEditFields = map[string]bool{
 	"amount": true, "transactionAt": true, "type": true, "currency": true, "status": true,
 	"purpose": true, "relatedWealthAccountId": true, "merchantId": true, "evidence": true,
@@ -49,7 +51,7 @@ type optString struct {
 }
 
 type editInput struct {
-	categoryID, accountID, description, note optString
+	categoryID, accountID, description, note, merchantName optString
 }
 
 func parseEditBody(body []byte) (editInput, error) {
@@ -69,6 +71,8 @@ func parseEditBody(body []byte) (editInput, error) {
 			target = &in.description
 		case "note":
 			target = &in.note
+		case "merchantName":
+			target = &in.merchantName
 		default:
 			if lockedEditFields[key] {
 				return editInput{}, editError{http.StatusBadRequest, codeLockedField, "field " + key + " cannot be edited"}
@@ -95,13 +99,19 @@ func parseEditBody(body []byte) (editInput, error) {
 		if key == "note" && s == "" {
 			continue
 		}
+		if key == "merchantName" {
+			s = strings.Join(strings.Fields(s), " ")
+		}
 		target.value = &s
 	}
-	if !in.categoryID.set && !in.accountID.set && !in.description.set && !in.note.set {
+	if !in.categoryID.set && !in.accountID.set && !in.description.set && !in.note.set && !in.merchantName.set {
 		return editInput{}, editError{http.StatusBadRequest, codeEmptyEdit, "no editable fields supplied"}
 	}
 	if in.description.set && (in.description.value == nil || *in.description.value == "" || len(*in.description.value) > 500) {
 		return editInput{}, editError{http.StatusBadRequest, codeInvalidField, "description is required and must not exceed 500 characters"}
+	}
+	if in.merchantName.set && (in.merchantName.value == nil || *in.merchantName.value == "" || len([]rune(*in.merchantName.value)) > maxMerchantNameRunes) {
+		return editInput{}, editError{http.StatusBadRequest, codeInvalidField, "merchantName is required and must not exceed 160 characters"}
 	}
 	if in.note.set && in.note.value != nil && len(*in.note.value) > 2000 {
 		return editInput{}, editError{http.StatusBadRequest, codeInvalidField, "note must not exceed 2000 characters"}
@@ -166,16 +176,17 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	}
 	defer tx.Rollback(ctx)
 	var (
-		kind, status             string
-		accountID, categoryID    *string
-		description, note        *string
-		updatedAt                time.Time
-		reviewOpen               bool
+		kind, status                              string
+		accountID, categoryID                     *string
+		description, note                         *string
+		merchantID, counterparty, merchantCurrent *string
+		updatedAt                                 time.Time
+		reviewOpen                                bool
 	)
-	err = tx.QueryRow(ctx, `SELECT t.type,t.status,t.account_id::text,t.category_id::text,t.description,t.note,t.updated_at,
+	err = tx.QueryRow(ctx, `SELECT t.type,t.status,t.account_id::text,t.category_id::text,t.description,t.note,t.merchant_id::text,t.counterparty_name,m.normalized_name,t.updated_at,
 		EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND'))
-		FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).
-		Scan(&kind, &status, &accountID, &categoryID, &description, &note, &updatedAt, &reviewOpen)
+		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).
+		Scan(&kind, &status, &accountID, &categoryID, &description, &note, &merchantID, &counterparty, &merchantCurrent, &updatedAt, &reviewOpen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return editError{http.StatusNotFound, codeNotFound, "transaction not found"}
 	}
@@ -191,8 +202,8 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	if reviewOpen || status == "NEEDS_REVIEW" {
 		return editError{http.StatusConflict, codeReviewOpen, "resolve the open review first (selesaikan tinjauan dulu)"}
 	}
-	if kind == "TRANSFER" && (in.categoryID.set || in.accountID.set) {
-		return editError{http.StatusConflict, codeTransferLocked, "a transfer's category and account cannot be edited"}
+	if kind == "TRANSFER" && (in.categoryID.set || in.accountID.set || in.merchantName.set) {
+		return editError{http.StatusConflict, codeTransferLocked, "a transfer's category, account and place cannot be edited"}
 	}
 	if in.categoryID.set && in.categoryID.value != nil && !equalPtr(in.categoryID.value, categoryID) {
 		var okCategory bool
@@ -210,6 +221,38 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		}
 		if !okAccount {
 			return editError{http.StatusBadRequest, codeInvalidAccount, "accountId must identify an active household account"}
+		}
+	}
+	var newMerchantID *string
+	var aliasChange map[string]any
+	if in.merchantName.set {
+		name := *in.merchantName.value
+		var resolved string
+		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET normalized_name=excluded.normalized_name,updated_at=CASE WHEN merchant.normalized_name IS DISTINCT FROM excluded.normalized_name THEN now() ELSE merchant.updated_at END RETURNING id::text`, household, name).Scan(&resolved); err != nil {
+			return fmt.Errorf("resolve merchant: %w", err)
+		}
+		if !equalPtr(&resolved, merchantID) || !equalPtr(&name, merchantCurrent) {
+			newMerchantID = &resolved
+			raw := firstNonBlank(counterparty, merchantCurrent, description)
+			if runes := []rune(raw); len(runes) > maxMerchantNameRunes {
+				raw = string(runes[:maxMerchantNameRunes])
+			}
+			if raw != "" {
+				var oldAlias *string
+				var aliasExisted bool
+				err := tx.QueryRow(ctx, `SELECT normalized_merchant_id::text FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) FOR UPDATE`, household, raw).Scan(&oldAlias)
+				switch {
+				case err == nil:
+					aliasExisted = true
+				case !errors.Is(err, pgx.ErrNoRows):
+					return fmt.Errorf("read merchant alias: %w", err)
+				}
+				var aliasID string
+				if err := tx.QueryRow(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,created_from_user_confirmation) VALUES($1,left(regexp_replace(btrim($2),'[[:space:]]+',' ','g'),160),$3,true) ON CONFLICT(household_id,(lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')))) DO UPDATE SET normalized_merchant_id=excluded.normalized_merchant_id,created_from_user_confirmation=true RETURNING id::text`, household, raw, resolved).Scan(&aliasID); err != nil {
+					return fmt.Errorf("upsert merchant alias: %w", err)
+				}
+				aliasChange = map[string]any{"rawName": raw, "existed": aliasExisted, "before": oldAlias, "after": resolved, "aliasId": aliasID}
+			}
 		}
 	}
 	before, after := map[string]any{}, map[string]any{}
@@ -235,14 +278,24 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	record("accountId", accountID, newAccount)
 	record("description", description, newDescription)
 	record("note", note, newNote)
+	if newMerchantID != nil {
+		before["merchantName"], after["merchantName"] = merchantCurrent, in.merchantName.value
+	}
 	if len(after) > 0 {
 		beforeJSON, _ := json.Marshal(before)
 		afterJSON, _ := json.Marshal(after)
-		if _, err := tx.Exec(ctx, `UPDATE transaction SET category_id=$2::uuid,account_id=$3::uuid,description=$4,note=$5,updated_at=now() WHERE id=$1`, id, newCategory, newAccount, newDescription, newNote); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE transaction SET category_id=$2::uuid,account_id=$3::uuid,description=$4,note=$5,merchant_id=COALESCE($6::uuid,merchant_id),updated_at=now() WHERE id=$1`, id, newCategory, newAccount, newDescription, newNote, newMerchantID); err != nil {
 			return fmt.Errorf("update transaction: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,'UPDATE_DETAILS','transaction',$3,$4::jsonb,$5::jsonb)`, household, p.UserID, id, string(beforeJSON), string(afterJSON)); err != nil {
 			return fmt.Errorf("audit edit: %w", err)
+		}
+		if aliasChange != nil {
+			aliasJSON, _ := json.Marshal(aliasChange)
+			aliasID, _ := aliasChange["aliasId"].(string)
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'UPDATE_MERCHANT_ALIAS','merchant_alias',$3,$4::jsonb)`, household, p.UserID, aliasID, string(aliasJSON)); err != nil {
+				return fmt.Errorf("audit merchant alias: %w", err)
+			}
 		}
 	}
 	return tx.Commit(ctx)
@@ -253,4 +306,15 @@ func equalPtr(a, b *string) bool {
 		return a == nil && b == nil
 	}
 	return *a == *b
+}
+
+func firstNonBlank(values ...*string) string {
+	for _, value := range values {
+		if value != nil {
+			if cleaned := strings.Join(strings.Fields(*value), " "); cleaned != "" {
+				return cleaned
+			}
+		}
+	}
+	return ""
 }

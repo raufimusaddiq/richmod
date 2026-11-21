@@ -50,3 +50,47 @@ func TestApplyEmailReceivedTimeFallback(t *testing.T) {
 }
 func ptr(v string) *string { return &v }
 func timePtr() *time.Time  { v := time.Now(); return &v }
+
+func TestMissingTransactionTimeAloneNeverOpensBankFactsReview(t *testing.T) {
+	listener := Listener{TrackingPolicy: "SPENDING_ONLY"}
+	receivedAt := time.Date(2026, 8, 31, 3, 32, 46, 0, time.UTC)
+	outgoing, channel, merchant := "OUTGOING", "QR", "GRAB"
+	complete := func() Extraction {
+		return Extraction{Kind: "TRANSACTION", Direction: &outgoing, Channel: &channel, Merchant: &merchant, AmountIDR: ptr("13120"), MissingFields: []string{"transaction_at"}}
+	}
+
+	extraction := complete()
+	if !applyEmailReceivedTimeFallback(&extraction, receivedAt) {
+		t.Fatal("received time must settle a missing transaction time")
+	}
+	if extraction.TransactionAtSource != "EMAIL_RECEIVED_AT" || !extraction.TransactionAt.Equal(receivedAt) {
+		t.Fatalf("provenance not recorded: %v %q", extraction.TransactionAt, extraction.TransactionAtSource)
+	}
+	result := EvaluateBankEmail(listener, extraction, nil)
+	if result.ReviewType == "UNKNOWN_BANK_TEMPLATE" || result.ReviewType == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
+		t.Fatalf("missing time alone opened a bank-facts review: %+v", result)
+	}
+	if result.Type != "EXPENSE" {
+		t.Fatalf("expected an expense decision, got %+v", result)
+	}
+
+	noAmount := complete()
+	noAmount.AmountIDR = nil
+	if applyEmailReceivedTimeFallback(&noAmount, receivedAt) {
+		t.Fatal("received time must not paper over a missing amount")
+	}
+	if result := EvaluateBankEmail(listener, noAmount, nil); result.ReviewType != "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
+		t.Fatalf("missing amount must stay a review: %+v", result)
+	}
+	unknown := complete()
+	unknown.Kind = "UNKNOWN"
+	if applyEmailReceivedTimeFallback(&unknown, receivedAt) {
+		t.Fatal("received time must not settle an unknown notification kind")
+	}
+	if result := EvaluateBankEmail(listener, unknown, nil); result.ReviewType != "UNKNOWN_BANK_TEMPLATE" {
+		t.Fatalf("unknown kind must keep UNKNOWN_BANK_TEMPLATE: %+v", result)
+	}
+	if applyEmailReceivedTimeFallback(&Extraction{Kind: "TRANSACTION", AmountIDR: ptr("1")}, time.Time{}) {
+		t.Fatal("a zero received time is not evidence")
+	}
+}

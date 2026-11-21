@@ -137,11 +137,7 @@ func ReopenReview(ctx context.Context, tx pgx.Tx, cmd ReopenCommand) (string, er
 	}
 	switch {
 	case transaction != nil:
-		id, err := reopenTransaction(ctx, tx, cmd.HouseholdID, *transaction, cmd.ActorUserID)
-		if err == nil && id == "" {
-			return "", ErrReopenNotReversible
-		}
-		return id, err
+		return reopenTransactionResolution(ctx, tx, cmd, *transaction, kind, decision)
 	case residual != nil:
 		if resolution == nil || (*resolution != "LEAVE_UNALLOCATED" && *resolution != "TRANSACTION_MISSING" && *resolution != "NO_LONGER_APPLICABLE") {
 			return "", ErrReopenNotReversible

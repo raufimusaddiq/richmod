@@ -129,11 +129,11 @@ test("T-16 polish: actors, evidence, minus sign, admin durations and decimal com
 import { canEditTransaction, editErrorMessage, editFormErrors, editPayload, editableFields } from "../app/lib/transactionForm.js";
 
 test("edit: only live transactions are editable and transfers lock category and account", () => {
-  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
+  for (const status of ["CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
   assert.equal(canEditTransaction({ id: "t", status: "NEEDS_REVIEW" }), false);
   assert.equal(canEditTransaction({ id: "t", status: "VOIDED" }), false);
   assert.equal(canEditTransaction({ status: "CONFIRMED" }), false);
-  assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, description: true, note: true });
+  assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, place: false, description: true, note: true });
   assert.equal(editableFields({ type: "INCOME" }).category, true);
 });
 
@@ -167,8 +167,8 @@ test("edit: drawer offers Ubah and the dialog keeps drawer key handling out", ()
   assert.match(page, /onEditKeyDown[\s\S]{0,80}stopPropagation/);
 });
 
-test("void: the button is offered for PENDING and CONFIRMED only", () => {
-  for (const status of ["PENDING", "CONFIRMED"]) assert.equal(canVoidTransaction({ id: "t1", status }), true, status);
+test("void: the button is offered for CONFIRMED only", () => {
+  for (const status of ["CONFIRMED"]) assert.equal(canVoidTransaction({ id: "t1", status }), true, status);
   for (const status of ["NEEDS_REVIEW", "VOIDED", undefined]) assert.equal(canVoidTransaction({ id: "t1", status }), false, String(status));
   assert.equal(canVoidTransaction({ status: "CONFIRMED" }), false, "no id, no action");
   assert.equal(canVoidTransaction(null), false);

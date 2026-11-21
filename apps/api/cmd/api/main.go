@@ -27,11 +27,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/push"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/uitelemetry"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/uitelemetry"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/wealth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/webui"
 )
@@ -135,7 +135,6 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/transactions/quick-suggestions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.QuickSuggestions)))
 	mux.Handle("GET /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.GetTransaction)))
 	mux.Handle("PATCH /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.EditTransaction)))
-	mux.Handle("POST /api/v1/transactions/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ConfirmTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
 	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))

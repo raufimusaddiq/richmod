@@ -10,10 +10,8 @@ func TestTransactionStatusTransitions(t *testing.T) {
 		from, to string
 		allowed  bool
 	}{
-		{"PENDING", "CONFIRMED", true},
 		{"NEEDS_REVIEW", "CONFIRMED", false},
 		{"NEEDS_REVIEW", "VOIDED", false},
-		{"PENDING", "VOIDED", true},
 		{"CONFIRMED", "CONFIRMED", false},
 		{"CONFIRMED", "VOIDED", true},
 		{"VOIDED", "VOIDED", false},
