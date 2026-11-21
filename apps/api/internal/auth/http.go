@@ -116,7 +116,6 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 	return principal, ok
 }
 
-// ContextWithPrincipal is used by authenticated internal handlers and tests.
 func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
 	if !principal.HasHousehold && len(principal.Memberships) > 0 {
 		if normalized, err := principalWithMemberships(principal, principal.Memberships); err == nil {

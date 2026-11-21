@@ -36,9 +36,7 @@ type ImageInput struct {
 	Caption      string
 	MediaGroupID string
 	MessageID    int64
-	// ChatID is the private chat the upload arrived in. Message ids are unique
-	// only per chat, so reply binding needs it.
-	ChatID int64
+	ChatID       int64
 }
 
 type Store interface {
@@ -124,7 +122,6 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err = h.store.CaptureCallback(r.Context(), CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.CallbackQuery.From.ID, RawPayload: raw}, update.CallbackQuery.ID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID)
 		if err != nil && !errors.Is(err, ErrUnauthorized) {
-			// Not answered: Telegram redelivers the update, and the retry answers.
 			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
 			return
 		}
@@ -182,11 +179,6 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// answerCallbackInResponse acknowledges a callback query in the webhook's own
-// HTTP response: Telegram runs a Bot API method returned as the webhook reply,
-// so the tap spinner clears as soon as the tap is durably captured, without the
-// bot token in the API and without waiting for the worker's queue. The answer
-// carries no text; the worker sends the outcome as a message.
 func answerCallbackInResponse(w http.ResponseWriter, callbackQueryID string) {
 	if callbackQueryID == "" {
 		w.WriteHeader(http.StatusNoContent)
@@ -197,8 +189,6 @@ func answerCallbackInResponse(w http.ResponseWriter, callbackQueryID string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"method": "answerCallbackQuery", "callback_query_id": callbackQueryID})
 }
 
-// validCallbackAction admits only the callback grammar the system issues; the
-// grammar is shared with the worker so the two cannot drift apart.
 func validCallbackAction(value string) bool {
 	return reviewdomain.ValidTelegramCallback(value)
 }
@@ -280,8 +270,6 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	return true, nil
 }
 
-// CaptureCallback durably records a validated inline action without routing it
-// through the general text/LLM pipeline.
 func (s *PostgreSQLStore) CaptureCallback(ctx context.Context, input CaptureInput, callbackID string, chatID, messageID int64) (bool, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -367,15 +355,10 @@ func (s *PostgreSQLStore) Link(ctx context.Context, input CaptureInput, token st
 	if err != nil {
 		return false, fmt.Errorf("validate Telegram invite: %w", err)
 	}
-	// FOR SHARE conflicts with Deactivate's update of the same member row, so a
-	// removal either finishes first (this link is refused) or waits for the link
-	// and then revokes the identity it just created; it can never miss it.
 	var active bool
 	if err = tx.QueryRow(ctx, `SELECT hm.active AND u.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 AND hm.user_id=$2 FOR SHARE OF hm`, householdID, userID).Scan(&active); err != nil || !active {
 		return false, ErrUnauthorized
 	}
-	// Telegram ID and user are bound 1:1: an ID already bound to anyone, or a
-	// member who already has a Telegram ID, is refused (ADR-059).
 	if err = provision.BindTelegramIdentity(ctx, tx, input.TelegramUserID, householdID, userID); err != nil {
 		return false, ErrUnauthorized
 	}

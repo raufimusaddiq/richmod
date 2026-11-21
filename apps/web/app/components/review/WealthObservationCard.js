@@ -3,9 +3,6 @@ import { useState } from "react";
 import { money } from "../../lib/format";
 import { ProposalFacts } from "./shared";
 
-// One household action resolves this review (ADR-036 amendment): choosing the
-// account accepts the observation, which then waits on /wealth for the next
-// complete snapshot. It never becomes a transaction or a partial snapshot.
 export default function WealthObservationCard({ item, wealthAccounts, disabled, resolve }) {
   const [editing, setEditing] = useState(!item.resolvedWealthAccountId);
   const proposed = wealthAccounts.find(account => account.id === item.resolvedWealthAccountId);

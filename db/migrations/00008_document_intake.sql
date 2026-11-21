@@ -44,7 +44,5 @@ CREATE TABLE document_extraction (
 DROP TABLE document_extraction;
 DROP TABLE document;
 DROP TABLE attachment;
--- The non-unique evidence hash index is intentionally retained. Restoring the
--- former uniqueness constraint would require deleting valid duplicate evidence.
 DROP INDEX source_event_payload_hash_idx;
 CREATE INDEX source_event_payload_unique ON source_event (household_id,source_type,payload_hash);

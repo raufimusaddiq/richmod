@@ -12,16 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// probeTimeout bounds every leaf query. The heaviest query measured on a 30-day
-// seed (5k jobs, 3k reviews, 10k telemetry rows) is ~13ms with fresh statistics
-// and ~76ms with stale ones, so this leaves headroom while keeping the endpoint
-// under the 150ms acceptance budget. A slow or unreachable dependency degrades
-// its section instead of holding the response.
 const probeTimeout = 120 * time.Millisecond
 
-// statusBudget is the acceptance ceiling the handler must stay under even when
-// every dependency is slow. It is the request deadline; a healthy read finishes
-// well inside it, so real numbers are not zeroed.
 const statusBudget = 150 * time.Millisecond
 
 type rowScanner interface{ Scan(dest ...any) error }
@@ -33,8 +25,6 @@ type rowsScanner interface {
 	Close()
 }
 
-// queryer is the slice of pgx the status handler needs, so a test can inject a
-// slow dependency without a database.
 type queryer interface {
 	QueryRow(ctx context.Context, sql string, args ...any) rowScanner
 	Query(ctx context.Context, sql string, args ...any) (rowsScanner, error)
@@ -54,10 +44,7 @@ type Handler struct {
 	pool              queryer
 	gatewayConfigured bool
 	protocol          string
-	// probeSlots caps concurrent leaf queries at the pool's capacity minus one,
-	// so the fan-out queues on this semaphore instead of on the pgx pool and
-	// never occupies every connection other requests need.
-	probeSlots chan struct{}
+	probeSlots        chan struct{}
 }
 
 func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
@@ -80,16 +67,11 @@ func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
 	return handler
 }
 
-// namedGroup is one independent status section. Its name is reported when it
-// fails or times out, so a client can tell a failed section from a real zero.
 type namedGroup struct {
 	name string
 	run  func(context.Context) error
 }
 
-// runGroups runs independent groups concurrently and returns the names of the
-// ones that failed or timed out, in declaration order. A group that fans out
-// further must not hold a probe slot, so only leaf queries call probe.
 func runGroups(ctx context.Context, groups ...namedGroup) []string {
 	failed := make([]string, len(groups))
 	var wg sync.WaitGroup
@@ -112,8 +94,6 @@ func runGroups(ctx context.Context, groups ...namedGroup) []string {
 	return degraded
 }
 
-// runProbes runs independent leaf queries concurrently, each holding a probe
-// slot so the fan-out cannot exceed the pool.
 func (h *Handler) runProbes(ctx context.Context, probes ...func(context.Context) error) error {
 	errs := make([]error, len(probes))
 	var wg sync.WaitGroup
@@ -128,8 +108,6 @@ func (h *Handler) runProbes(ctx context.Context, probes ...func(context.Context)
 	return errors.Join(errs...)
 }
 
-// probe acquires a pool slot before running fn, so a slow query cannot starve
-// the pool and a queued probe is bounded by the request deadline.
 func (h *Handler) probe(ctx context.Context, fn func(context.Context) error) error {
 	select {
 	case h.probeSlots <- struct{}{}:
@@ -152,9 +130,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required"})
 		return
 	}
-	// Queue figures cover this household's own jobs only; the platform-wide
-	// queue is a Super Admin concern (GET /api/v1/admin/overview). The worker
-	// heartbeat is shared infrastructure and carries no household data.
 	householdID := principal.HouseholdID
 	var pendingJobs, runningJobs, failedJobs, openReviews int
 	var lastHeartbeat *time.Time
@@ -162,9 +137,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	var judgment judgmentAggregate
 	var product productAggregate
 
-	// The four sections are independent, so they run concurrently. A slow or
-	// failing section degrades to its zero value and is named in degradedSections
-	// rather than blocking the response.
 	ctx, cancel := context.WithTimeout(r.Context(), statusBudget)
 	defer cancel()
 	degradedSections := runGroups(ctx,

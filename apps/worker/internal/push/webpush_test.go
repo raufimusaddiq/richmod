@@ -11,8 +11,6 @@ import (
 	"testing"
 )
 
-// The expected record comes from an independent Python cryptography implementation of RFC 8291/8188 for the
-// fixed keys below.
 func TestEncryptRecordMatchesIndependentVector(t *testing.T) {
 	uaPublic := mustDecode(t, "BFFcPW6545a5BNP-yn9U_c0MwemXvzddylFa0KbDtANfRTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q")
 	auth := mustDecode(t, "AAECAwQFBgcICQoLDA0ODw")

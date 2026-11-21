@@ -69,7 +69,6 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 			p := NewProcessor(f.pool, model)
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			if mode == "remembered" {
-				// "Beli aset" is a deterministic callback, so it arrives on the callback lane.
 				asset := callbackUpdate(f.chatID, 99, "review:asset")
 				assetRaw, marshalErr := json.Marshal(asset)
 				mustAgentTest(t, marshalErr)

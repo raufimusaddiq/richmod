@@ -19,13 +19,9 @@ type Job struct {
 	Payload     json.RawMessage
 	Attempts    int
 	MaxAttempts int
-	// HouseholdID is derived at enqueue (migration 00087); empty for platform jobs.
 	HouseholdID string
-	// Deferrals counts waits on an unavailable dependency; deferrals spend no attempts.
-	Deferrals int
-	// LockedBy holds the lease; later state writes are conditional on it, so a reclaimed worker cannot
-	// finish, fail or defer the new run.
-	LockedBy string
+	Deferrals   int
+	LockedBy    string
 }
 
 type Queue struct{ pool *pgxpool.Pool }
@@ -64,8 +60,6 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 	return job, true, nil
 }
 
-// claimSQL takes a lane's next due job, rotating households fairly by who started longest ago.
-// A household's Telegram text jobs run in order; only an older deferred job lets a newer one through.
 const claimSQL = `
 	WITH heads AS (
 		SELECT DISTINCT ON (household_id) id,household_id,run_after,created_at
@@ -94,10 +88,8 @@ const claimSQL = `
 	FOR UPDATE OF j SKIP LOCKED
 	LIMIT 1`
 
-// serializedChatTypesSQL lists job types one household runs one at a time, in creation order (see claimSQL).
 const serializedChatTypesSQL = `'PROCESS_TELEGRAM_TEXT'`
 
-// Deferral backoff: 5 minutes, doubling per deferral, capped at an hour.
 const (
 	deferralBase = 5 * time.Minute
 	deferralCap  = time.Hour
@@ -114,8 +106,6 @@ func DeferralDelay(deferrals int) time.Duration {
 	return delay
 }
 
-// Defer sets a running job aside until its dependency is back and gives back the attempt it used, so a long
-// outage cannot exhaust retries.
 func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -125,17 +115,13 @@ func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
 	return err
 }
 
-// Succeed is a no-op for a worker that lost its lease to a reclaim; the run that owns the job decides the outcome.
 func (q *Queue) Succeed(ctx context.Context, job Job) error {
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$2`, job.ID, job.LockedBy)
 	return err
 }
 
-// leaseRenewal is how often a running job extends its lease; it must stay well under the five-minute stale-lock window.
 const leaseRenewal = time.Minute
 
-// KeepLease extends the lease while the job runs so a slow job is not reclaimed and run twice; call the
-// returned stop when processing ends.
 func (q *Queue) KeepLease(ctx context.Context, job Job) (stop func()) {
 	done := make(chan struct{})
 	finished := make(chan struct{})
@@ -165,8 +151,6 @@ func (q *Queue) KeepLease(ctx context.Context, job Job) (stop func()) {
 	}
 }
 
-// LeaseExpiredError marks a job reclaimed after using every attempt (a crashed worker); it is permanent, so
-// the job takes the final-failure path instead of being reclaimed forever.
 type LeaseExpiredError struct{ Attempts, MaxAttempts int }
 
 func (e LeaseExpiredError) Error() string {
@@ -174,16 +158,12 @@ func (e LeaseExpiredError) Error() string {
 }
 func (LeaseExpiredError) Permanent() bool { return true }
 
-// Exhausted reports whether a claim returned a job that had already spent all its attempts.
 func Exhausted(job Job) bool { return job.Attempts > job.MaxAttempts }
 
-// Final reports whether a failed attempt is the last: attempts used up or a non-retryable error.
 func Final(job Job, processErr error) bool {
 	return job.Attempts >= job.MaxAttempts || isPermanent(processErr)
 }
 
-// FailWithHook reschedules the job or, on the final attempt, marks it FAILED and runs onFinal in the same tx.
-// Only the lease owner runs onFinal; if it fails the job is still FAILED so it is not reclaimed forever.
 func (q *Queue) FailWithHook(ctx context.Context, job Job, processErr error, onFinal func(context.Context, pgx.Tx) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -230,8 +210,6 @@ func (q *Queue) logRetry(ctx context.Context, job Job, processErr error) error {
 	return nil
 }
 
-// retryDelaySeconds is exponential backoff unless the error names its own wait (a Telegram 429 retry_after),
-// honoured up to one hour.
 func retryDelaySeconds(job Job, processErr error) int {
 	delay := time.Duration(1<<min(job.Attempts, 8)) * time.Second
 	var hinted interface{ RetryAfter() time.Duration }
@@ -248,8 +226,6 @@ func isPermanent(err error) bool {
 	return errors.As(err, &permanent) && permanent.Permanent()
 }
 
-// classifyLane mirrors the database enforce_job_lane function (migration 00081);
-// TestClassifyLaneMatchesDatabase keeps them in step.
 func classifyLane(jobType string) string {
 	switch jobType {
 	case "PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "EDIT_TELEGRAM_MESSAGE", "PROCESS_TELEGRAM_REVIEW_TEXT", "RETIRE_TELEGRAM_REVIEW_CARD", "COMPLETE_BANK_REVIEW":
@@ -286,8 +262,6 @@ func durationMillis(err error) int {
 	if err == nil {
 		return 0
 	}
-	// Errors from ctx-bound processors may hide the budget timeout; the executor logs it via slog, so only
-	// the error class is persisted here.
 	return 0
 }
 

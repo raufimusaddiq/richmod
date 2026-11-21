@@ -107,6 +107,7 @@ provider-specific production branches or expose canonical IDs to AI models.
 ## Development rules
 
 - Keep HTTP handlers thin; business rules belong in domain/service code.
+- Do not write code comments (Go, JS, CSS, SQL, shell, YAML). `node scripts/check-comments.mjs` enforces this in CI as a ratchet. The code states what; rename or extract instead of narrating; a non-obvious *why* belongs in an ADR, and a workaround belongs in a GitHub issue. Tool directives (`//go:build`, `-- +goose`, `eslint-disable`) are allowed. `/delete-comment` (`.claude/skills/delete-comment/SKILL.md`) is the repeatable purge procedure.
 - Money uses PostgreSQL `NUMERIC`, never float.
 - Time uses `TIMESTAMPTZ`; household timezone is `Asia/Jakarta`.
 - Schema changes require migrations, relevant tests, and a same-branch update to

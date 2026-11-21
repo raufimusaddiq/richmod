@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Web and the live Telegram lane must resolve a cycle residual through the shared
-// operation; no adapter may keep its own basis recomputation or allocation SQL.
 func TestCycleResidualIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/canonical.go",

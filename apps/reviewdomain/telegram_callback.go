@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// Telegram inline-button callback grammar, shared by the API webhook (which admits
-// only this grammar before persisting anything) and the worker (which produces and
-// consumes it). Every callback is a bounded literal or a literal prefix plus an opaque
-// token or small page/index number; none carries a canonical identifier that
-// authorizes a mutation, and the worker re-derives household, user, chat and pending
-// state for each callback. Telegram rejects callback_data longer than 64 bytes.
 const telegramCallbackMaxBytes = 64
 
 var pendingCallbackToken = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -26,20 +20,16 @@ var telegramCallbackExact = map[string]struct{}{
 	"pending:action:yes": {}, "pending:action:no": {}, "pending:batch:yes": {}, "pending:batch:no": {},
 }
 
-// Opaque-token callbacks: the token is a server-issued identifier of a choice
-// the worker re-validates against the household.
 var telegramCallbackTokenPrefixes = []string{
 	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:", "pending:card:",
 	"review:cat:", "review:category:", "review:fe:account:", "review:fe:wealth:",
 	"review:invest:", "review:bank:",
 }
 
-// Numeric callbacks: a page number or a list position resolved server-side.
 var telegramCallbackNumberPrefixes = []string{
 	"review:catpage:", "review:fepage:", "review:dup:merge:", "review:xfer:merge:",
 }
 
-// ValidTelegramCallback reports whether data is a callback the system issues.
 func ValidTelegramCallback(data string) bool {
 	if data == "" || len(data) > telegramCallbackMaxBytes {
 		return false
@@ -64,8 +54,6 @@ func ValidTelegramCallback(data string) bool {
 	return false
 }
 
-// TelegramCallbackSamples returns one valid example of every callback form. It
-// exists so the worker can prove that everything it emits is admitted.
 func TelegramCallbackSamples() []string {
 	samples := make([]string, 0, len(telegramCallbackExact)+len(telegramCallbackTokenPrefixes)+len(telegramCallbackNumberPrefixes))
 	for data := range telegramCallbackExact {

@@ -14,7 +14,6 @@ func TestPayslipPolicy(t *testing.T) {
 	if !reflect.DeepEqual(first.MissingFacts, []string{"transaction_at", "salary_classification"}) || !reflect.DeepEqual(first.AllowedActions, []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}) || first.DecisionClass != ClassHumanPolicyChoice || first.InteractionMode != ModePolicyChoice {
 		t.Fatalf("first salary and date: %+v", first)
 	}
-	// Reading back a stored decision must converge, whichever way policy moved.
 	if again := PayslipPolicy(first, "MISSING_PAY_DATE", false); !reflect.DeepEqual(again.MissingFacts, first.MissingFacts) {
 		t.Fatalf("not idempotent: %v", again.MissingFacts)
 	}

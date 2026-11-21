@@ -38,17 +38,11 @@ type documentClassification struct {
 }
 
 type Processor struct {
-	pool    *pgxpool.Pool
-	gateway Gateway
-	storage *blob.Store
-	// verifier is the bounded plane for row-level category rulings on screenshots; nil disables auto-confirm
-	// and keeps the review path, so intake works without the gateway.
-	verifier jeverifier
-	// rowAutoConfirmOff is this source's kill-switch, stored inverted so the zero value keeps auto-confirm
-	// on; when set, a clear row parks a review, independent of the bank and receipt switches.
-	rowAutoConfirmOff bool
-	// receiptAutoConfirmOff is the receipt kill-switch, same convention; when set, a clear receipt parks a
-	// review, independent of the bank and screenshot switches.
+	pool                  *pgxpool.Pool
+	gateway               Gateway
+	storage               *blob.Store
+	verifier              jeverifier
+	rowAutoConfirmOff     bool
 	receiptAutoConfirmOff bool
 	logger                *slog.Logger
 }
@@ -79,14 +73,12 @@ func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Stor
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
 
-// SetRowAutoConfirm is the screenshot row kill-switch; false disables auto-confirm for this source.
 func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !enabled }
 
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
 func (p *Processor) SetLogger(logger *slog.Logger) { p.logger = logger }
 
-// SetReceiptAutoConfirm is the receipt kill-switch; false disables auto-confirm for this source.
 func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
@@ -125,7 +117,6 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err != nil {
 			return err
 		}
-		// Before any gateway call, so a thumbnail exists even when the gateway is down.
 		p.ensureThumbnail(ctx, storageRef, raw)
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount++
@@ -155,7 +146,6 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if !allowedType(result.DocumentType) || result.Confidence < 0 || result.Confidence > 1 {
 		return fmt.Errorf("invalid document classification")
 	}
-	// Confidence is stored for audit/telemetry, not used as semantic authority.
 	documentStatus, sourceStatus := "CLASSIFIED", "PROCESSED"
 	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" {
 		documentStatus, sourceStatus = "CLASSIFIED", "IGNORED"
@@ -206,8 +196,6 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		}
 		var observationID string
 		observationStatus := "PENDING"
-		// A unique, active, compatible Wealth Account is a sufficient binding, so accept the observation;
-		// unresolved account hints still become a review.
 		if resolvedWealthID != "" {
 			observationStatus = "ACCEPTED"
 		}
@@ -261,7 +249,6 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 					return err
 				}
 			}
-			// Keep the observation actionable in both Inbox and Telegram.
 			if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
 				return err
 			}

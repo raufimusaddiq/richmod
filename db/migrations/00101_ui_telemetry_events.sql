@@ -1,7 +1,3 @@
--- Lightweight, privacy-safe screen/action measurement. UI events reuse the
--- bounded product event table: `screen` and `action` are allow-listed names,
--- never a financial value, amount, description, merchant, prompt or free text,
--- and a UI event carries no source/transaction/review reference.
 -- +goose Up
 ALTER TABLE product_telemetry_event ADD COLUMN screen TEXT;
 

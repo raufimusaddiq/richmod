@@ -17,7 +17,6 @@ func TestNormalizeValidatesOwnerAndNames(t *testing.T) {
 	if in.HouseholdName != "Keluarga Baru" || in.OwnerName != "Pemilik" || in.OwnerEmail != "owner@example.test" {
 		t.Fatalf("not normalized: %+v", in)
 	}
-	// 120 non-ASCII characters fit the database's character limit.
 	in = valid()
 	in.HouseholdName = strings.Repeat("é", 120)
 	if err := in.Normalize(); err != nil {

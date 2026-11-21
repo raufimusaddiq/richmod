@@ -18,8 +18,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// thumbnailGateway answers the classification call and records whether the
-// thumbnail already existed when the gateway was reached.
 type thumbnailGateway struct {
 	storage   *blob.Store
 	thumbRef  string
@@ -48,8 +46,6 @@ func thumbnailPNG(t *testing.T, width, height int) []byte {
 	return output.Bytes()
 }
 
-// seedThumbnailDocument stores raw under a fresh ref and returns the household,
-// document and storage ref.
 func seedThumbnailDocument(t *testing.T, ctx context.Context, pool *pgxpool.Pool, storage *blob.Store, stamp int64, raw []byte) (householdID, documentID, ref string) {
 	t.Helper()
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Thumbnail doc %d", stamp)).Scan(&householdID); err != nil {
@@ -211,7 +207,6 @@ func TestBackfillThumbnailsSkipsExistingAndStaysHouseholdScoped(t *testing.T) {
 	if _, err := storage.Read(ctx, otherRef+".thumb.jpg"); err == nil {
 		t.Fatal("backfill crossed the household boundary")
 	}
-	// A second run is a no-op, and the other household is covered when asked.
 	if err := processor.BackfillThumbnails(ctx, otherHouseholdID); err != nil {
 		t.Fatal(err)
 	}

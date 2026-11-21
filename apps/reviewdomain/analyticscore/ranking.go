@@ -9,12 +9,9 @@ import (
 
 const (
 	rankingTopCategories = 7
-	// RankingOtherName is the display name of the remainder bucket.
-	RankingOtherName = "Kategori lain"
+	RankingOtherName     = "Kategori lain"
 )
 
-// rankedCategory is one amount-ranked category row. ID is null for spending
-// without a category (the explicit "Belum dikategorikan" row).
 type rankedCategory struct {
 	ID       *string `json:"id"`
 	Name     string  `json:"name"`
@@ -37,11 +34,6 @@ type rankedOther struct {
 	Relative      *string `json:"relativeDeltaVsBaseline"`
 }
 
-// categoryRanking is the "where did the money go" list: the top categories by
-// net expense (numeric, descending) plus one remainder bucket, so rows plus
-// other equal cashflow.expense exactly. Baseline is SAME_DAY (previous cycle at
-// the same elapsed day) while the cycle is active, PREVIOUS_FULL otherwise; the
-// baseline fields are null when there is nothing to compare against.
 type categoryRanking struct {
 	Baseline string           `json:"baseline"`
 	Rows     []rankedCategory `json:"rows"`
@@ -52,8 +44,6 @@ func emptyCategoryRanking() categoryRanking {
 	return categoryRanking{Baseline: "PREVIOUS_FULL", Rows: []rankedCategory{}, Other: rankedOther{Name: RankingOtherName, Amount: "0"}}
 }
 
-// buildCategoryRanking ranks current's categories. baseline is the comparison
-// measure (nil when absent) and mode the comparison mode.
 func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode string) categoryRanking {
 	out := emptyCategoryRanking()
 	if mode == "ELAPSED_DAYS" {
@@ -117,7 +107,6 @@ func deltaPair(current, baseline string) (*string, *string) {
 	return &d, positiveRatio(d, baseline)
 }
 
-// roundedPerDay is amount/days rounded half away from zero to whole rupiah.
 func roundedPerDay(amount string, days int) string {
 	n, ok := new(big.Int).SetString(amount, 10)
 	if !ok || days <= 0 {

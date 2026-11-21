@@ -9,7 +9,6 @@ import { SectionTitle, Metric } from "./shared";
 const qualityHref = (blocker, period) => blocker.kind === "UNCATEGORIZED_EXPENSE" ? transactionHref(period, { type: "EXPENSE", categoryId: "uncategorized" }) : ["/inbox", "/inbox?view=actions", "/wealth", "/settings"].includes(blocker.action) ? blocker.action : "/inbox";
 const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"];
 
-// Never collapsed: whatever is incomplete stays visible above the figures it qualifies.
 export function NoticeStrip({ facts }) {
   const calendar = facts.period.kind !== "SALARY_CYCLE";
   if (!facts.dataQuality.length && !calendar) return null;
@@ -25,7 +24,6 @@ export function NoticeStrip({ facts }) {
   </aside>;
 }
 
-// With nothing to report the strip is absent; the positive statement lives in a collapsed footer.
 export function QualityFooter({ facts, step }) {
   if (facts.dataQuality.length || facts.period.kind !== "SALARY_CYCLE") return null;
   return <section id="quality" className="review-section" aria-labelledby="quality-title">
@@ -37,7 +35,6 @@ export function QualityFooter({ facts, step }) {
 
 function Delta({ delta }) {
   if (!delta || (delta.empty && !delta.note)) return null;
-  // A missing comparison is named in words; it does not also draw a second grey dash.
   return <p className="kpi-delta" data-tone={delta.tone}>
     {!delta.empty && <strong>{delta.mark && <span aria-hidden="true">{delta.mark} </span>}{delta.word && <span className="visually-hidden">{delta.word} </span>}{delta.text}{delta.percent && ` ${delta.percent}`}</strong>}
     {delta.note && <small>{delta.note}</small>}
@@ -83,7 +80,6 @@ export function PaceCard({ facts }) {
     </div>
     <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={pace} period={period} height={176}/>
     <p className="dash-caption">Garis berhenti di data terakhir; tidak ada proyeksi.{!comparison.median3Available && ` Median 3 siklus tampil setelah 3 siklus penuh (${comparison.eligibleCycles}/3).`}</p>
-    {/* The chart is an image to assistive tech; the same served totals are here as a table. */}
     <details className="review-daily"><summary>Lihat nilai laju pengeluaran</summary>
       <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai laju pengeluaran, geser untuk semua kolom"><table>
         <caption className="visually-hidden">Total pengeluaran bersih sampai setiap hari siklus</caption>

@@ -1,5 +1,3 @@
-// Package push implements Web Push (RFC 8030) with VAPID (RFC 8292) and aes128gcm encryption (RFC 8188/8291)
-// using only the standard library.
 package push
 
 import (
@@ -23,7 +21,6 @@ import (
 
 const recordSize = 4096
 
-// VAPID wraps the shared configuration so the sender and API use the same enabled predicate.
 type VAPID struct{ config *pushsupport.VAPID }
 
 func NewVAPID(privateKey, subject string) (*VAPID, error) {
@@ -45,7 +42,6 @@ type Subscription struct {
 	Auth     string
 }
 
-// DeliveryError describes a failed push attempt without carrying the endpoint.
 type DeliveryError struct {
 	Status  int
 	Dead    bool
@@ -54,7 +50,6 @@ type DeliveryError struct {
 
 func (e *DeliveryError) Error() string { return e.Message }
 
-// Send encrypts payload and posts it; a 2xx means the push service accepted it for delivery.
 func (v *VAPID) Send(ctx context.Context, client *http.Client, sub Subscription, payload []byte) error {
 	if client == nil {
 		client = secureClient()
@@ -104,8 +99,6 @@ func (v *VAPID) Send(ctx context.Context, client *http.Client, sub Subscription,
 	}
 }
 
-// encryptPayload builds one aes128gcm record with a per-message ephemeral key and salt; the deterministic
-// variant is for tests.
 func encryptPayload(payload, uaPublic, authSecret []byte) ([]byte, error) {
 	ephemeral, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
@@ -140,7 +133,7 @@ func encryptRecord(payload, uaPublic, authSecret []byte, ephemeral *ecdh.Private
 	cek := hmacSHA256(prk, append([]byte("Content-Encoding: aes128gcm\x00"), 1))[:16]
 	nonce := hmacSHA256(prk, append([]byte("Content-Encoding: nonce\x00"), 1))[:12]
 
-	record := append(append([]byte(nil), payload...), 2) // last-record delimiter
+	record := append(append([]byte(nil), payload...), 2)
 	block, err := aes.NewCipher(cek)
 	if err != nil {
 		return nil, err

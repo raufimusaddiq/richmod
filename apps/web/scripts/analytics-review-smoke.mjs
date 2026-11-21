@@ -10,7 +10,6 @@ const port = "3210";
 const base = `http://127.0.0.1:${port}`;
 const output = new URL("../test-results/cycle-review/", import.meta.url);
 const user = { id: "synthetic-user", displayName: "Rafi", householdName: "Rumah keluarga", household: { role: "OWNER" } };
-// Serve the static export the API embeds; `next start` cannot run an export.
 const server = spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: port } });
 let browser;
 
@@ -22,8 +21,6 @@ async function waitForServer() {
   throw new Error("Synthetic review server did not start");
 }
 
-// A disclosure can be closed again by a React re-render that lands after the DOM
-// was opened, so open it and confirm the content is actually visible.
 async function openDisclosure(page, selector, content) {
   for (let attempt = 0; attempt < 10; attempt++) {
     await page.evaluate(sel => { const details = document.querySelector(sel); if (details) details.open = true; }, selector);
@@ -57,7 +54,6 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/v1/**", async route => {
       const url = new URL(route.request().url());
-      // Fire-and-forget UI telemetry is not part of the behaviour under test.
       if (url.pathname === "/api/v1/telemetry/events") { await route.fulfill({ status: 204 }); return; }
       requests.push({ path: url.pathname, search: url.search, method: route.request().method() });
       let body = [];
@@ -154,7 +150,6 @@ try {
     if (name === "desktop") await page.screenshot({ path: fileURLToPath(new URL("readme-analytics.png", output)), fullPage: false, animations: "disabled" });
     assert.equal(await page.locator("#changes tbody tr").count(), 3);
     assert.equal(await page.locator("#changes tbody tr").nth(1).locator("td").nth(2).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1350000n), "previous outlier does not hide recent median");
-    // Detail perubahan stays open: the category buttons below live inside it.
     await page.locator("#discussion > details > summary").click();
     await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
     await page.locator("#discussion > details > summary").click();
@@ -214,8 +209,6 @@ try {
     assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-tooltip.png`, output)), fullPage: true, animations: "disabled" });
 
-    // Kategori × siklus heatmap: same-day default while the cycle runs, a full-cycle
-    // toggle that leaves the running column untinted, and served values only.
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Kategori × siklus", exact: true }).waitFor();
     await openDisclosure(page, "#matrix details", ".heat-table");
@@ -250,12 +243,10 @@ try {
     await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("category"), "11111111-1111-4111-8111-111111111111");
     await page.keyboard.press("Escape");
-    // The URL changes before React re-renders (next 16.4 defers the update), so wait for the state this line asserts.
     await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor({ state: "detached" });
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
     assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "closing the drawer returns focus to the matrix row");
 
-    // A closed cycle has no same-day matrix; returning to the active cycle re-seeds it.
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
     await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Ditutup"));
     await openDisclosure(page, "#matrix details", ".heat-table");
@@ -268,12 +259,10 @@ try {
     await page.waitForFunction(() => document.querySelector('.heat-section .segmented button[aria-pressed="true"]')?.textContent.includes("Hari ke-6"));
     assert.equal(await page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true }).getAttribute("aria-pressed"), "true", "returning to the active cycle re-seeds same-day");
 
-    // The cycle-columns card shows a served amount and a real bar, not Rp0/NaN.
     const historyColumn = page.locator("#history .history-cols > li").first();
     assert.match(await historyColumn.locator("em").textContent(), /[1-9]/, "a history column shows a served amount");
     assert.ok(await historyColumn.locator(".history-plot i").evaluate(element => element.getBoundingClientRect().height) > 0, "the history bar has a real height");
 
-    // Merchant pendukung: a real table, largest first, with the served total.
     await openDisclosure(page, "#merchants details", "#merchants table.merchant-rank");
     const merchants = page.locator("#merchants table.merchant-rank");
     for (const header of ["Merchant", "Transaksi", "Siklus ini", "Siklus lalu, hari yang sama", "Selisih"]) assert.equal(await merchants.getByRole("columnheader", { name: header, exact: true }).count(), 1, `merchant column ${header}`);
@@ -282,7 +271,6 @@ try {
     assert.match(await merchants.locator("tfoot").textContent(), /Rp\s?4\.200\.000/, "the total equals the cycle's net expense");
     assert.equal(new URL(await merchants.getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), base).searchParams.get("merchantId"), "22222222-2222-4222-8222-222222222222");
 
-    // Catatan rumah tangga: fixed order, automatic bucket first, served shares.
     await openDisclosure(page, "#household details", "#household .household-list");
     const household = page.locator("#household .household-list > li");
     assert.equal(await household.count(), 2);
@@ -337,8 +325,6 @@ try {
     assert.equal(await page.getByText("Older daily snapshot is visible.", { exact: true }).isVisible(), true, "hourly cap does not erase the dated snapshot");
     olderCommentary = false; generationStatus = 202;
 
-    // Selected closed cycle, no AI: full deterministic review and supporting
-    // data remain usable. No automatic retries or synthesis request.
     aiAvailable = false;
     requests.length = 0;
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
@@ -349,8 +335,6 @@ try {
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).count(), 1);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}-closed-ai-unavailable.png`, output)), fullPage: true });
 
-    // A complete, URL-bound closed-cycle meeting works without AI. Typing does
-    // not write; explicit failed save preserves the draft for retry.
     await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).click();
     await page.waitForFunction(() => document.activeElement?.id === "position-title");
     assert.equal(new URL(page.url()).searchParams.get("review"), "position");
@@ -402,7 +386,6 @@ try {
     await page.locator("dialog[open]").getByRole("button", { name: "Ya, batalkan", exact: true }).click();
     await page.getByText("Keputusan dibatalkan. Riwayat tetap tersimpan.", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Selesai meninjau", exact: true }).click();
-    // Same rule: closing the meeting clears the URL first, then swaps the view back.
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("review") && document.querySelector("#position")?.checkVisibility({ checkVisibilityCSS: true, checkOpacity: false }) === true);
     assert.equal(new URL(page.url()).searchParams.has("review"), false);
     assert.equal(await page.locator("#position").isVisible(), true);
@@ -412,17 +395,14 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("view"), "calendar");
     await page.getByRole("button", { name: "3 Bulan", exact: true }).click();
     assert.equal(new URL(page.url()).searchParams.get("range"), "3");
-    // Calendar hygiene: months are formatted, and a custom range is validated beside its fields instead of failing after a request.
     assert.equal(await page.getByRole("rowheader", { name: /Sep 26/ }).count(), 1, "months are formatted, not raw YYYY-MM");
     const monthTable = page.getByRole("region", { name: "Arus kas per bulan, geser untuk semua kolom", exact: true });
     const monthLink = monthTable.getByRole("link", { name: "Lihat pengeluaran Agu 26", exact: true });
     assert.equal(await monthLink.getAttribute("href"), "/transactions?from=2026-08-01&to=2026-08-31&status=CONFIRMED&type=SPENDING&cycle=2026-08-26");
-    // Months before the household's first transaction are one line, not a row each.
     const startRow = monthTable.getByRole("row").filter({ hasText: "Data mulai Agu 26" });
     assert.equal(await startRow.count(), 1, "leading empty months collapse into one line");
     assert.equal(await startRow.getByRole("link").count(), 0, "the collapsed line is not interactive");
     assert.equal(await monthTable.getByRole("rowheader", { name: /Jul 26/ }).count(), 0, "the collapsed month is not a row of its own");
-    // A month after the first transaction still says so, and stays non-interactive.
     const emptyRow = monthTable.getByRole("row").filter({ hasText: "belum ada transaksi" });
     assert.equal(await emptyRow.count(), 1, "an empty month after the first transaction remains visible");
     assert.equal(await emptyRow.getByRole("link").count(), 0, "empty month stays non-interactive");
@@ -442,17 +422,13 @@ try {
     await page.getByRole("button", { name: "Terapkan", exact: true }).click();
     await page.getByText("Rentang bulan Jan 25 sampai Mar 25").waitFor();
     assert.equal(new URL(page.url()).searchParams.get("from"), "2025-01");
-    // The apply button is an action, not a preset toggle: once the fields match the shown
-    // range there is nothing left to apply, so it disables instead of offering a dead click.
     await page.waitForFunction(() => document.querySelector(".custom-range button")?.disabled === true);
     assert.equal(await page.getByRole("button", { name: "Terapkan", exact: true }).isDisabled(), true, "nothing left to apply once the fields match the shown range");
     assert.equal(await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).count(), 0, "a valid range clears the field error");
     await page.goBack({ waitUntil: "networkidle" });
-    // The fields open on the range already shown, so Back never leaves them blank.
     const shownRange = defaultRange({ from: "", to: "", range: new URL(page.url()).searchParams.get("range") || "3" });
     await page.waitForFunction(expected => document.querySelector('input[name="from"]')?.value === expected, shownRange.from);
     assert.equal(await page.getByLabel("Bulan mulai").inputValue(), shownRange.from, "the inputs follow the URL after Back");
-    // One failing section does not blank the rest, and it retries on its own.
     merchantsFail = true;
     await page.getByRole("button", { name: "6 Bulan", exact: true }).click();
     await page.getByRole("alert").filter({ hasText: "Analisis kalender belum dapat dimuat" }).waitFor();
@@ -481,8 +457,6 @@ try {
     assert.equal(await page.locator("#changes tbody tr").count(), 1);
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0, "stable review never auto-generates commentary");
 
-    // Requested URL, synthetic facts only. Default is scan-first; one explicit
-    // action exposes the complete report without deleting any data.
     stable = false;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-25`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Posisi siklus", exact: true }).waitFor();

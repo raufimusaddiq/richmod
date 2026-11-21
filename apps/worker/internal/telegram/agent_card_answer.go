@@ -13,9 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Typed answers without Telegram Reply bind to a live review card only by deterministic rules.
-// One fitting card binds; several ask which by button; otherwise it is a new message.
-
 const maxLiveCards = 10
 
 type cardAnswerKind string
@@ -145,8 +142,6 @@ func (p *Processor) categoryNames(ctx context.Context, householdID string) (map[
 	return names, rows.Err()
 }
 
-// matchTypedCardAnswer returns the live cards the text answers; a typed value (category, date, amount) wins
-// over a free-text detail, never both.
 func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories map[string]string, now time.Time) ([]agentReviewBinding, typedCardAnswer) {
 	var matched []agentReviewBinding
 	var answer typedCardAnswer
@@ -168,7 +163,6 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 			continue
 		}
 		if answer.Kind != "" && (answer.Kind != kind || answer.Value != value) {
-			// One text cannot be two different answers; do not bind at all.
 			return nil, typedCardAnswer{}
 		}
 		answer = typedCardAnswer{Kind: kind, Value: value}
@@ -183,8 +177,6 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 	return nil, typedCardAnswer{}
 }
 
-// isDetailAnswer accepts only a short phrase that cannot be anything but an answer: at most six words, no
-// digits, no question, not yes/no.
 func isDetailAnswer(text string, now time.Time) bool {
 	value := normalizeAnswer(text)
 	if value == "" || strings.ContainsAny(value, "?\n") || len(strings.Fields(value)) > 6 || len([]rune(value)) > 80 {
@@ -210,7 +202,6 @@ func normalizeAnswer(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// answerFillerWords wrap a short answer ("masukin ke makan aja"); removing them never changes the value named.
 var answerFillerWords = map[string]bool{
 	"masukin": true, "masukkan": true, "masukan": true, "ke": true, "aja": true, "saja": true, "kategori": true, "kategorinya": true,
 	"jadi": true, "itu": true, "ini": true, "yang": true, "buat": true, "untuk": true, "deh": true, "ya": true, "dong": true, "sih": true,
@@ -229,7 +220,6 @@ func stripAnswerFiller(text string) string {
 	return strings.Join(kept, " ")
 }
 
-// parseCategoryAnswer accepts exactly one household category by name or slug, with only filler words around it.
 func parseCategoryAnswer(text string, categories map[string]string) (string, bool) {
 	value := stripAnswerFiller(text)
 	if value == "" {
@@ -263,8 +253,6 @@ var (
 	}
 )
 
-// parseDateAnswer accepts exactly a date (2026-10-03, 3/10, 3 Okt, "kemarin", optional "tgl" prefix).
-// A date without a year is this year, or last year when that would be the future.
 func parseDateAnswer(text string, now time.Time) (string, bool) {
 	value := stripAnswerFiller(strings.ReplaceAll(text, "tgl.", "tgl"))
 	local := now.In(jakartaLocation())
@@ -324,7 +312,6 @@ func parseDateAnswer(text string, now time.Time) (string, bool) {
 	return date.Format("2006-01-02"), true
 }
 
-// bankFactsTimeWords may accompany the amount in a bank-card answer ("54rb tadi siang 13.45").
 var bankFactsTimeWords = map[string]bool{
 	"tadi": true, "pagi": true, "siang": true, "sore": true, "malam": true, "jam": true, "pukul": true, "wib": true,
 	"kemarin": true, "kemaren": true, "hari": true, "ini": true, "tanggal": true, "tgl": true, "rp": true, "rp.": true,
@@ -332,8 +319,6 @@ var bankFactsTimeWords = map[string]bool{
 
 var clockToken = regexp.MustCompile(`^([01]?[0-9]|2[0-3])[:.][0-5][0-9]$`)
 
-// parseBankFactsAnswer accepts one amount plus only time words, clock times, dates and month names, never a
-// new expense.
 func parseBankFactsAnswer(text string) (string, bool) {
 	fields := strings.Fields(strings.NewReplacer(",", " ").Replace(normalizeAnswer(text)))
 	amount := ""
@@ -352,7 +337,6 @@ func parseBankFactsAnswer(text string) (string, bool) {
 			}
 			value, ok := parseAmountToken(token, unit)
 			if !ok {
-				// A small bare number next to a month is a day ("23 sep").
 				if index+1 < len(fields) && monthNames[fields[index+1]] != 0 {
 					continue
 				}
@@ -378,8 +362,6 @@ var yesNoAnswers = map[string]bool{
 
 func isYesNoAnswer(text string) bool { return yesNoAnswers[normalizeAnswer(text)] }
 
-// replyTargetsWorkflowMessage reports whether a reply points at a review card or merchant-learning question of
-// this chat, open or not. A reply to any other bot message is an ordinary turn.
 func (p *Processor) replyTargetsWorkflowMessage(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		return false, nil
@@ -393,10 +375,8 @@ func (p *Processor) replyTargetsWorkflowMessage(ctx context.Context, householdID
 
 const callbackPendingCardPrefix = "pending:card:"
 
-// askWhichCard stores the value Go read and sends one button per card; nothing is resolved yet.
 func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, cards []agentReviewBinding, answer typedCardAnswer) error {
 	if answer.Kind != cardAnswerCategory && answer.Kind != cardAnswerDate {
-		// An amount alone cannot complete a bank card (it needs the time): ask for a Reply instead.
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Ada beberapa kartu yang menunggu jawaban seperti itu. Balas (Reply) kartu yang dimaksud langsung, ya.")
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -450,8 +430,6 @@ func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID
 
 const cardChoiceStaleMessage = "Pilihan ini sudah tidak berlaku. Balas (Reply) kartu yang dimaksud langsung, ya."
 
-// processCardChoiceCallback applies the stored typed answer to the picked card.
-// Binding comes from the button token (household, user, chat); no model is involved.
 func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	if !strings.HasPrefix(data, callbackPendingCardPrefix) {
 		return false, nil
@@ -479,8 +457,6 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if binding == nil || binding.ReviewRequestID != reviewRequestID {
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu itu sudah selesai atau berubah, jadi belum ada yang diubah.")
 	}
-	// Claim the choice before applying: the read takes no lock, so two quick taps would land one answer on two cards.
-	// Whoever flips PENDING to RESOLVED first applies it; a failure before applying hands the choice back.
 	claimed, err := p.pool.Exec(ctx, `UPDATE telegram_pending_card_choice SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='PENDING' AND expires_at>now()`, choiceID)
 	if err != nil {
 		return true, err
@@ -509,8 +485,6 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if err != nil {
 		return true, err
 	}
-	// The choice stays RESOLVED only once reply and source finalization commit; a failed commit hands it back
-	// for retry.
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return true, err

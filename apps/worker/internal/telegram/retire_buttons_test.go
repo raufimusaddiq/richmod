@@ -43,7 +43,6 @@ func TestRetiredMessageKeepsTheQuestionAndAddsTheOutcome(t *testing.T) {
 }
 
 func TestEnqueueRetireButtonsSkipsMessagesItCannotEdit(t *testing.T) {
-	// An unknown callback or question text must return before touching the database.
 	if err := enqueueRetireButtons(context.Background(), nil, telegramUpdate{}, "x"); err != nil {
 		t.Fatal(err)
 	}

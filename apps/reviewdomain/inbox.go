@@ -1,7 +1,3 @@
-// Inbox action contract. The stored ReviewDecision says what a review asks; the
-// binding says which answers the canonical resolvers can execute. Every surface
-// offers the intersection, so none renders a button that can only fail (ADR-054
-// amendment, 2026-11).
 package reviewdomain
 
 import (
@@ -13,7 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// Subject discriminators of review_item's exactly-one-subject binding.
 const (
 	SubjectTransaction       = "transaction"
 	SubjectFinancialEmail    = "financial_email_observation"
@@ -24,53 +19,31 @@ const (
 	SubjectCycleResidual     = "cycle_residual_case"
 )
 
-// Presentation values. A NOTICE asks nothing to decide: the only executable answer
-// is acknowledging it, so surfaces render it as information ("Mengerti") outside the
-// needs-your-decision count.
 const (
 	PresentationDecision = "DECISION"
 	PresentationNotice   = "NOTICE"
 )
 
-// Binding is the server-side shape of one review item that decides which
-// actions a resolver can execute. It never reaches a model.
 type Binding struct {
-	Subject string
-	// TransactionStatus is the bound transaction's status ('' when unbound).
-	TransactionStatus string
-	// SourceType is the evidence source's type (BANK_EMAIL, FINANCIAL_EMAIL, ...).
-	SourceType string
-	// HasDocument reports a bound document (document-bound reviews only).
-	HasDocument bool
-	// HasTransferCase reports an open transfer_reconciliation_case for the item.
-	HasTransferCase bool
-	// TransferCandidates is the case's full candidate count before ranking.
-	TransferCandidates int
-	// MergeableTransferCandidates counts the ranked candidates TransferMergeable
-	// accepts (LoadTransferMergeSet). MERGE_EXISTING is offered only when one
-	// exists, so a merge button never leads to a refused merge.
+	Subject                     string
+	TransactionStatus           string
+	SourceType                  string
+	HasDocument                 bool
+	HasTransferCase             bool
+	TransferCandidates          int
 	MergeableTransferCandidates int
-	// HasWealthObservation reports a bound wealth observation. A provider-email wealth
-	// review binds both observations (migration 00052), so the subject discriminator
-	// alone is not enough.
-	HasWealthObservation bool
-	// FinancialTransferCase reports that the open case is bound to a provider
-	// email observation, which is the resolver's overflow predicate.
-	FinancialTransferCase bool
+	HasWealthObservation        bool
+	FinancialTransferCase       bool
 }
 
 var documentKinds = map[string]bool{"DOCUMENT_CLASSIFICATION": true, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE": true}
 var bankFactKinds = map[string]bool{"UNKNOWN_BANK_TEMPLATE": true, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE": true}
 var payslipKinds = map[string]bool{"PAYSLIP_CONFIRMATION": true, "MISSING_PAY_DATE": true}
 
-// Executable reports whether a canonical resolver exists for action on this
-// binding. It is the single rule the Web dispatcher and the list share.
 func Executable(kind, action string, b Binding) bool {
 	openTransaction := b.Subject == SubjectTransaction && b.TransactionStatus == "NEEDS_REVIEW"
 	switch action {
 	case "IGNORE":
-		// A residual allocation is a policy choice with its own "leave
-		// unallocated" answer; it is never silently dismissed.
 		return b.Subject != SubjectCycleResidual
 	case "REPROCESS_DOCUMENT":
 		return documentKinds[kind] && b.Subject == SubjectDocument && b.HasDocument
@@ -88,7 +61,6 @@ func Executable(kind, action string, b Binding) bool {
 			if action == "MERGE_EXISTING" {
 				return b.MergeableTransferCandidates > 0
 			}
-			// Same predicate as ReconcileTransfer: the case's observation binding.
 			return !(b.FinancialTransferCase && b.TransferCandidates > TransferCandidateLimit)
 		}
 		return openTransaction
@@ -100,22 +72,14 @@ func Executable(kind, action string, b Binding) bool {
 		if payslipKinds[kind] {
 			return b.Subject == SubjectProposal
 		}
-		// Legacy transaction-date decisions stored SET_PAY_DATE; it executes as
-		// the transaction-date answer (SET_TRANSACTION_DATE).
 		return openTransaction
 	case "SET_AMOUNT":
 		return kind == "MISSING_AMOUNT" && b.Subject == SubjectProposal
 	default:
-		// CONFIRM_REVIEW, SET_TRANSACTION_DATE, CLASSIFY_TRANSFER and the transfer
-		// classification vocabulary answer an open transaction only.
 		return openTransaction
 	}
 }
 
-// ExecutableActions returns what a surface may offer: the stored decision's actions
-// (ADR-054), falling back to the kind's preset and then the registry Inbox list for
-// rows written before the decision contract, filtered by Executable. A transfer
-// review with an open reconciliation case also carries the bounded chooser.
 func ExecutableActions(kind string, stored []string, b Binding) []string {
 	base := stored
 	if len(base) == 0 {
@@ -139,14 +103,11 @@ func ExecutableActions(kind string, stored []string, b Binding) []string {
 		out = append(out, action)
 	}
 	if len(out) == 0 && Executable(kind, "IGNORE", b) {
-		// Nothing the decision asked can be answered on this binding any more (for example
-		// its transaction is already final); the review is acknowledged rather than stranded.
 		out = append(out, "IGNORE")
 	}
 	return out
 }
 
-// PresentationFor classifies offered actions: acknowledge-only is a notice.
 func PresentationFor(actions []string) string {
 	if len(actions) == 1 && actions[0] == "IGNORE" {
 		return PresentationNotice
@@ -154,8 +115,6 @@ func PresentationFor(actions []string) string {
 	return PresentationDecision
 }
 
-// LoadBinding reads the binding of one review item inside the caller's transaction,
-// so "offered" and "accepted" are the same rule.
 func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID string) (string, []string, Binding, error) {
 	var kind, caseID string
 	var decision []byte

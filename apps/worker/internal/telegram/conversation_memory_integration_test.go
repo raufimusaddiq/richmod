@@ -22,8 +22,6 @@ func (f *terminalFixture) updateFor(messageID int64) telegramUpdate {
 	return u
 }
 
-// A retried message saves the user and assistant rows once per source event; rows without a source event are
-// not deduplicated.
 func TestRetriedTurnSavesTheUserAndAssistantRowsOnce(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -149,7 +147,6 @@ func TestRecentConversationIsBoundedForALongChat(t *testing.T) {
 	}
 }
 
-// Concurrent saves of one turn (stale lock reclaimed mid-attempt) still leave one USER and one ASSISTANT row.
 func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
@@ -180,7 +177,6 @@ func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
 	}
 }
 
-// A replayed tool result drops analytics refs, which were valid only in the issuing turn.
 func TestReplayedToolResultsCarryNoExpiredCategoryRefs(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)

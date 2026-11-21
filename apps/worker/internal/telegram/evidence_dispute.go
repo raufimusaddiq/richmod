@@ -23,8 +23,6 @@ func evidenceDisputeMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Konfirmasi transaksi berbeda", CallbackData: "review:dispute:confirm"}, {Text: "Batalkan koreksi", CallbackData: "review:dispute:reject"}}}}
 }
 
-// Same policy as the normal screenshot path: merchant memory overrides only when both agree; a disagreement
-// stays unresolved so the household is asked.
 type disputeCategory struct{ id string }
 
 func (p *Processor) disputeCategory(ctx context.Context, tx pgx.Tx, household, document string) (disputeCategory, error) {
@@ -212,7 +210,6 @@ func (p *Processor) resolveEvidenceDispute(ctx context.Context, source, househol
 	return tx.Commit(ctx)
 }
 
-// Drops the generic asset-purchase/detail/ignore row, which would bypass the dispute contract.
 func disputeCategoryMarkup(markup *InlineKeyboardMarkup) *InlineKeyboardMarkup {
 	if markup == nil {
 		return nil

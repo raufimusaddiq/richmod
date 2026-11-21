@@ -6,29 +6,19 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// RejectCommand carries one canonical transaction-review rejection.
 type RejectCommand struct {
 	HouseholdID   string
 	ActorUserID   string
 	TransactionID string
-	// ReviewItemID pins one exact item (Telegram binding). Empty completes every
-	// open item for the transaction, which is the Web behavior.
-	ReviewItemID string
-	// RequestID is the exact Telegram projection, used only with ReviewItemID.
-	RequestID string
-	Action    string
+	ReviewItemID  string
+	RequestID     string
+	Action        string
 }
 
-// RejectTransactionReview performs the canonical transaction-review rejection: it
-// locks the subject, voids the transaction, rejects its proposal, refreshes the
-// source-event states, cancels the Telegram projection(s), and completes the
-// review item(s). Web and Telegram both call this (ADR-046).
 func RejectTransactionReview(ctx context.Context, tx pgx.Tx, cmd RejectCommand) error {
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return err
 	}
-	// A review-held target of an ACTIVE merge (a cross-lane candidate) must not be rejected:
-	// the merged event would end with no live transaction. Refuse before any write.
 	if protected, err := ActiveMergeTarget(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return err
 	} else if protected {

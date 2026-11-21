@@ -14,8 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// The web "Batalkan transaksi" action: a CONFIRMED WEB_MANUAL transaction is voided in
-// place (nothing deleted), audited, and its evidence and salary link follow.
 func TestVoidWebManualTransaction(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -89,7 +87,6 @@ func TestVoidWebManualTransaction(t *testing.T) {
 		if evidence != 1 {
 			t.Fatalf("void must keep evidence, got %d rows", evidence)
 		}
-		// The list still returns the row (history), now as VOIDED.
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/"+id, nil)
 		r.SetPathValue("id", id)
 		w := httptest.NewRecorder()
@@ -97,7 +94,6 @@ func TestVoidWebManualTransaction(t *testing.T) {
 		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"status":"VOIDED"`) {
 			t.Fatalf("detail after void: %d %s", w.Code, w.Body)
 		}
-		// Voiding twice is refused and writes no second audit row.
 		if w := void(id, principal); w.Code != http.StatusConflict {
 			t.Fatalf("second void status=%d", w.Code)
 		}
@@ -181,8 +177,6 @@ func TestVoidWebManualTransaction(t *testing.T) {
 	})
 }
 
-// Voiding a confirmed transaction re-asks a cycle the household had answered "transaksi belum
-// tercatat"; the reopened review says why: recording one is TRANSACTION_RECORDED, voiding is TRANSACTION_VOIDED.
 func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -229,7 +223,6 @@ func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
 	as := func(r *http.Request) *http.Request { return r.WithContext(auth.ContextWithPrincipal(r.Context(), p)) }
 
 	answeredMissing()
-	// Recording a transaction inside the cycle reopens it as TRANSACTION_RECORDED (unchanged).
 	w := httptest.NewRecorder()
 	h.CreateManualTransaction(w, as(httptest.NewRequest(http.MethodPost, "/api/v1/transactions", strings.NewReader(`{"type":"EXPENSE","amount":"25000","description":"Dalam siklus","transactionAt":"2026-01-15T10:00:00+07:00"}`))))
 	if w.Code != http.StatusCreated {
@@ -241,7 +234,6 @@ func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
 	var created string
 	must(pool.QueryRow(ctx, `SELECT id FROM transaction WHERE household_id=$1 AND description='Dalam siklus'`, hh).Scan(&created))
 
-	// The household answers "belum tercatat" again; voiding that transaction asks again as TRANSACTION_VOIDED.
 	_, err = pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='TRANSACTION_MISSING' WHERE cycle_residual_case_id=$1 AND status='OPEN'`, caseID)
 	must(err)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/"+created+"/void", nil)

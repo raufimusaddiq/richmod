@@ -2,9 +2,6 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
-// Styled replacements for window.confirm / window.prompt. The native <dialog>
-// gives modal focus handling and Escape for free; the promise resolves to
-// true/false for confirm and to { name: value } or null for prompt.
 export default function useDialogs() {
   const [request, setRequest] = useState(null);
   const resolver = useRef(null);

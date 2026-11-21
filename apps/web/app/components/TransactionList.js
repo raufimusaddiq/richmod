@@ -8,7 +8,6 @@ import { groupByDay, timeOfDay } from "../lib/ledgerDays";
 
 const shortDay = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short" });
 
-// One quiet row: icon, who/what, one meta line, signed amount. Only exceptions get a badge.
 function Row({ item, compact, onSelect, newId }) {
   const incoming = item.type === "INCOME" || item.type === "REFUND";
   const neutral = item.type === "TRANSFER" || item.type === "UNCLASSIFIED";

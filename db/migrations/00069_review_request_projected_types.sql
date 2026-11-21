@@ -1,9 +1,4 @@
 -- +goose Up
--- UIR-02: a document, payslip, bank, or financial-email review now receives a
--- Telegram projection, so review_request.review_type must accept the same
--- reasons review_item already allows. Without this the projection insert fails
--- the review_request_review_type_check constraint (SQLSTATE 23514) and the
--- review never reaches Telegram.
 ALTER TABLE review_request DROP CONSTRAINT review_request_review_type_check;
 ALTER TABLE review_request ADD CONSTRAINT review_request_review_type_check CHECK (review_type IN (
     'UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE',

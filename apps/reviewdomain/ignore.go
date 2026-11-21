@@ -10,34 +10,20 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// IgnoreCommand dismisses or acknowledges one exact review item. The caller
-// authenticates the actor and binds the interaction (for Telegram, the stored
-// card message) before entering this transaction.
 type IgnoreCommand struct {
 	HouseholdID  string
 	ActorUserID  string
 	ReviewItemID string
-	// ActorType is the canonical audit surface; empty defaults to USER.
-	ActorType string
-	// Values is recorded as the resolution values of a generic dismissal.
-	Values []byte
+	ActorType    string
+	Values       []byte
 }
 
 var (
-	// ErrUseTransactionAction reports a transaction review whose transaction is neither
-	// awaiting review nor final (for example PENDING); nothing is changed.
-	ErrUseTransactionAction = errors.New("reviewdomain: use the transaction review action")
-	// ErrIgnoreNotAllowed reports a review whose stored contract does not offer IGNORE
-	// (for example a cycle residual, whose only dismissal is LEAVE_UNALLOCATED).
-	ErrIgnoreNotAllowed = errors.New("reviewdomain: this review cannot be ignored")
-	// ErrIgnoreTransactionBound reports a transaction-bound review passed to
-	// IgnoreReview; IgnoreReviewItem handles those (reject or acknowledge).
+	ErrUseTransactionAction   = errors.New("reviewdomain: use the transaction review action")
+	ErrIgnoreNotAllowed       = errors.New("reviewdomain: this review cannot be ignored")
 	ErrIgnoreTransactionBound = errors.New("reviewdomain: transaction-bound review uses RejectTransactionReview")
 )
 
-// IgnoreAllowed reports whether a stored decision offers IGNORE. A decision with
-// no stored actions falls back to the kind registry, so a surface-only kind
-// such as MISSING_AMOUNT keeps its declared dismissal.
 func IgnoreAllowed(reviewType string, decision []byte) bool {
 	var stored struct {
 		AllowedActions []string `json:"allowedActions"`
@@ -55,10 +41,6 @@ func IgnoreAllowed(reviewType string, decision []byte) bool {
 	return slices.Contains(actions, "IGNORE")
 }
 
-// IgnoreReviewItem is the IGNORE every surface's generic dismissal shares (ADR-046).
-// An open transaction review is rejected (RejectTransactionReview); one whose
-// transaction is already final is only acknowledged (NO_LONGER_APPLICABLE). Every
-// other review goes through IgnoreReview.
 func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	var status string
 	var transaction *string
@@ -80,8 +62,6 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 		return notFoundAsResolved(err)
 	}
 	if txStatus == "NEEDS_REVIEW" {
-		// Dismissing an open transaction review is the canonical rejection
-		// (Web "Abaikan", Telegram ignore): offered and accepted are one rule.
 		return RejectTransactionReview(ctx, tx, RejectCommand{HouseholdID: cmd.HouseholdID, ActorUserID: cmd.ActorUserID, TransactionID: *transaction, ReviewItemID: cmd.ReviewItemID, Action: "IGNORE"})
 	}
 	if txStatus != "CONFIRMED" && txStatus != "VOIDED" {
@@ -93,16 +73,9 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,NULLIF($3,'')::uuid,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE','reason','transaction_already_final'))`, cmd.HouseholdID, actorTypeOf(cmd), cmd.ActorUserID, cmd.ReviewItemID); err != nil {
 		return err
 	}
-	// The acknowledged item may have been the last thing holding the transaction's
-	// sources in review.
 	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, *transaction)
 }
 
-// IgnoreReview is the canonical IGNORE for every review kind not bound to a
-// transaction. It routes to the kind's own resolver where one exists; otherwise it
-// parks the evidence (never deletes it: observation IGNORED/DISMISSED, proposal
-// REJECTED), completes the item and its Telegram projection, and settles every
-// source through the shared lifecycle (MarkSourceIgnored).
 func IgnoreReview(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	actorType := actorTypeOf(cmd)
 	var kind, status string
@@ -145,7 +118,6 @@ func IgnoreReview(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 		if !errors.Is(err, ErrTransferCaseUnavailable) {
 			return err
 		}
-		// No open case: the evidence is parked through the generic path below.
 	}
 	if financialObservation != nil {
 		if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','REVIEW')`, *financialObservation, cmd.HouseholdID); err != nil {
@@ -191,8 +163,6 @@ func actorTypeOf(cmd IgnoreCommand) string {
 	return cmd.ActorType
 }
 
-// notFoundAsResolved reports a vanished binding as an already-resolved review; any
-// other error is returned as is so a transient failure retries.
 func notFoundAsResolved(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAlreadyResolved
@@ -218,7 +188,6 @@ func resolveItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand, action strin
 	return err
 }
 
-// reviewItemSources returns the evidence source events one review is about.
 func reviewItemSources(ctx context.Context, tx pgx.Tx, householdID string, proposal, source, document, wealth, financial *string) ([]string, error) {
 	var out []string
 	add := func(id string) {

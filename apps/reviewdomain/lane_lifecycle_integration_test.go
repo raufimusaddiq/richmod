@@ -10,9 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Each lane's resolution leaves its source in the status the shared lifecycle
-// derives: an accepted sibling wins, an open sibling keeps it in review, and a
-// lone dismissal is IGNORED.
 func TestFinancialEmailIgnoreSettlesThroughTheSharedLifecycle(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

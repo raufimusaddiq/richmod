@@ -7,8 +7,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// semantic_grounded must accept clear Indonesian spend wording; the old channel_supported rejected
-// "kartu debit" and stamped UNKNOWN_BANK_TEMPLATE instead of reaching UNKNOWN_MERCHANT review.
 func TestSemanticGroundedAcceptsIndonesianMethodWord(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"transaction_observed": noul(0.99),

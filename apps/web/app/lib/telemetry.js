@@ -1,6 +1,3 @@
-// Privacy-safe, fire-and-forget UI telemetry. Only fixed screen/action keys
-// (mirrored by the server allow-list) are ever sent: never a path, query, id,
-// amount or text. Failures are swallowed and never block the UI.
 const SCREENS = ["home", "transactions", "analytics", "wealth", "inbox", "documents", "household", "settings", "admin"];
 
 export function screenForPath(pathname) {
@@ -21,7 +18,6 @@ export function trackEvent(screen, action = "SCREEN_VIEW") {
     });
     if (request && typeof request.catch === "function") request.catch(() => {});
   } catch {
-    // Telemetry must never affect the app.
   }
 }
 

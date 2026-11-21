@@ -25,7 +25,6 @@ const tabs = [
   ["audit", "Audit"],
 ];
 
-// The static export prerenders this route, and useSearchParams needs a boundary.
 export default function AdminPage() {
   return <Suspense fallback={<main className="loading" role="status" aria-live="polite">Memuat…</main>}><AdminConsole/></Suspense>;
 }
@@ -44,16 +43,13 @@ function AdminConsole() {
     get("/api/v1/auth/me")
       .then(setMe)
       .catch((err) => {
-        // Only a 401 means signed out; a network blip must not log the admin out.
         if (err?.status === 401) location.href = "/";
         else setMeError("Sesi belum dapat diperiksa. Coba lagi.");
       });
   }, []);
   useEffect(() => { loadMe(); }, [loadMe]);
   useEffect(() => { setError(""); }, [tab]);
-  // A banner belongs to the tab that raised it.
   const select = (key) => { setError(""); router.replace(`/admin?tab=${key}`); };
-  // Roving tablist: arrows/Home/End move the selection and the focus together.
   const tabKeys = (event, index) => {
     const next = nextTabIndex(event.key, index, tabs.length);
     if (next === null) return;

@@ -31,8 +31,6 @@ func TestBankFactValuesRejectUnqueueableFacts(t *testing.T) {
 	}
 }
 
-// The transaction confirm operation must stay channel-neutral: both surfaces
-// call ConfirmTransactionReview, and neither re-owns the transaction mutation.
 func TestConfirmIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",
@@ -48,8 +46,6 @@ func TestConfirmIsSharedAcrossSurfaces(t *testing.T) {
 	}
 }
 
-// Telegram defers terminal completion while it asks about merchant learning, so
-// the shared operation must support a non-resolving confirm.
 func TestConfirmSupportsPartialResolution(t *testing.T) {
 	if !strings.Contains(string(mustRead(t, "./confirm.go")), "if !cmd.ResolveReview {") {
 		t.Fatal("shared confirm lost its partial-resolution path")
@@ -69,8 +65,6 @@ func mustRead(t *testing.T, path string) []byte {
 	return source
 }
 
-// telegramReviewSourceGlob is the Telegram review adapter, split across focused
-// files by workflow; the cross-surface guards scan the whole package slice.
 const telegramReviewSourceGlob = "../worker/internal/telegram/review*.go"
 
 func mustReadPaths(t *testing.T, glob string) []byte {

@@ -97,7 +97,6 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Album images arrive as separate updates; serialize them so concurrent workers converge on one document.
 	if input.MediaGroupID != "" {
 		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, householdID+":"+input.MediaGroupID); err != nil {
 			return err

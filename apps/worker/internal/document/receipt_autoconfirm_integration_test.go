@@ -43,8 +43,6 @@ type receiptFixture struct {
 	categoryID, categorySlug string
 }
 
-// A same-amount hit with a different merchant 12 hours earlier is not plausible duplicate evidence and must
-// not create a review.
 func TestReceiptWithWeakSameAmountCandidateDoesNotBlock(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt weak duplicate")
 	ctx := context.Background()
@@ -212,14 +210,10 @@ func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 	if err := pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status,document_type) VALUES($1,$2,$3,'RECEIVED','RECEIPT') RETURNING id`, fixture.householdID, fixture.sourceID, attachmentID).Scan(&fixture.documentID); err != nil {
 		t.Fatal(err)
 	}
-	// Receipt reviews go through the Telegram review request, so the household needs a bound identity to
-	// exercise that path.
 	var userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Recipient','test-only-hash') RETURNING id`, fmt.Sprintf("receipt-%d@example.test", stamp)).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	// A Telegram identity must belong to its user's membership (migration 00088); the membership is inactive
-	// so it stays out of the active recipients these tests expect to be empty.
 	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role,active,deactivated_at) VALUES($1,$2,'MEMBER',false,now())`, fixture.householdID, userID); err != nil {
 		t.Fatal(err)
 	}
@@ -233,8 +227,6 @@ func receiptTime() time.Time {
 	return time.Date(2026, 9, 23, 13, 45, 0, 0, time.FixedZone("WIB", 7*3600))
 }
 
-// One strong existing match makes the receipt link as evidence instead of creating a second ledger row; the
-// second upload gets its own source event/document because reprocessing one document is guarded by its status.
 func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt strong match")
 	ctx := context.Background()
@@ -246,8 +238,8 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, category); err != nil {
 		t.Fatal(err)
 	}
-	value.Confidence = .35  // Evidence quality cannot create a duplicate review.
-	value.Tax = ptr("5000") // Component arithmetic quality cannot duplicate it either.
+	value.Confidence = .35
+	value.Tax = ptr("5000")
 	validation.ArithmeticOK = false
 	stamp := time.Now().UnixNano()
 	var secondSource, attachmentID, secondDocument string
@@ -279,8 +271,6 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	}
 }
 
-// R1: a clear new receipt with valid arithmetic, a known date and a resolved category reaches canonical state
-// without a review.
 func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt auto confirm")
 	ctx := context.Background()
@@ -307,8 +297,6 @@ func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 	}
 }
 
-// Component arithmetic is a quality signal, not a second vote over a printed total; known category/date and
-// no duplicate make a confirmed expense.
 func TestReceiptArithmeticMismatchConfirmsPrintedTotalWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt mismatch")
 	ctx := context.Background()
@@ -361,8 +349,6 @@ func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
 	}
 }
 
-// Category rescue: with a printed date, no duplicate candidate and the category as the only residual, one Jev
-// rescue confirms a decisive receipt; vision stays the only generative call.
 func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt category rescue")
 	ctx := context.Background()
@@ -407,7 +393,6 @@ func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
 	}
 }
 
-// An undecided or failed category answer must not confirm and keeps a category-only review, never a guessed category.
 func TestReceiptCategoryUndecidedStaysInCategoryReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt category undecided")
 	ctx := context.Background()
@@ -463,7 +448,6 @@ func (*stubReceiptFailureVerifier) Evaluate(context.Context, string, judgment.Re
 	return judgment.Result{}, fmt.Errorf("test judgment provider failure")
 }
 
-// A genuinely absent date is never rescued by Jev: the rescue must not run and the review names only the date.
 func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt dateless rescue")
 	ctx := context.Background()
@@ -491,7 +475,6 @@ func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
 	}
 }
 
-// Upload time is not the receipt's transaction time, so a receipt without a printed date keeps asking for it.
 func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt dateless")
 	ctx := context.Background()
@@ -510,14 +493,11 @@ func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
 	}
 }
 
-// The receipt auto-confirm must be independently disable-able; with the switch off the same clear receipt
-// parks a review.
 func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt kill switch")
 	ctx := context.Background()
 	slug := fixture.categorySlug
 	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
-	// Complete facts with an arithmetic signal: the switch, not the quality signal, parks this review.
 	value.Subtotal, value.Tax = ptr("50000"), ptr("5000")
 	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: false}
 	processor := &Processor{pool: fixture.pool}
@@ -534,8 +514,6 @@ func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	}
 }
 
-// The receipt switch covers the category rescue as well as direct confirmation; a disabled rescue leaves the
-// category-only review untouched.
 func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt kill switch rescue")
 	ctx := context.Background()
@@ -564,7 +542,6 @@ func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
 	}
 }
 
-// A receipt that resolves without a human tells the chat it came from, as a reply to the upload, bound to the document.
 func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt notice")
 	ctx := context.Background()

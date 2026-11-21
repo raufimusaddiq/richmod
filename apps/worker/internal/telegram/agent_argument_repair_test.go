@@ -103,8 +103,6 @@ func TestAgentLoopSendsTheRejectionBackToTheModel(t *testing.T) {
 	}
 }
 
-// A set-shape or budget refusal wins over a malformed argument in the same response, so the model cannot swap
-// the refused set for a standalone mutation.
 func TestServerStateRefusalsWinOverMalformedArguments(t *testing.T) {
 	validRead := gateway.ToolCall{CallID: "c0", Name: "query_spending", Arguments: []byte(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)}
 	validEffect := gateway.ToolCall{CallID: "c2", Name: "confirm_pending_action", Arguments: []byte(`{}`)}

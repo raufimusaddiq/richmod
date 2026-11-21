@@ -61,12 +61,10 @@ func TestTransactionListExcludeVoided(t *testing.T) {
 		return w.Code, items, w.Header()
 	}
 
-	// Existing callers: voided rows stay, and no voided header appears.
 	_, items, header := list("")
 	if len(items) != 5 || header.Get("X-Total-Count") != "5" || header.Get("X-Voided-Count") != "" {
 		t.Fatalf("legacy list items=%d total=%q voided=%q", len(items), header.Get("X-Total-Count"), header.Get("X-Voided-Count"))
 	}
-	// Hidden by default, with the hidden count reported.
 	_, items, header = list("?exclude_voided=true")
 	if len(items) != 2 || header.Get("X-Total-Count") != "2" || header.Get("X-Voided-Count") != "3" {
 		t.Fatalf("excluded list items=%d total=%q voided=%q", len(items), header.Get("X-Total-Count"), header.Get("X-Voided-Count"))
@@ -76,24 +74,20 @@ func TestTransactionListExcludeVoided(t *testing.T) {
 			t.Fatal("voided row leaked into the excluded list")
 		}
 	}
-	// Paging keeps the totals.
 	_, items, header = list("?exclude_voided=true&limit=1")
 	if len(items) != 1 || header.Get("X-Total-Count") != "2" || header.Get("X-Voided-Count") != "3" || header.Get("X-Next-Cursor") == "" {
 		t.Fatalf("paged items=%d total=%q voided=%q", len(items), header.Get("X-Total-Count"), header.Get("X-Voided-Count"))
 	}
-	// An explicit status filter wins: asking for VOIDED shows them.
 	_, items, header = list("?exclude_voided=true&status=VOIDED")
 	if len(items) != 3 || header.Get("X-Total-Count") != "3" || header.Get("X-Voided-Count") != "" {
 		t.Fatalf("status override items=%d total=%q voided=%q", len(items), header.Get("X-Total-Count"), header.Get("X-Voided-Count"))
 	}
-	// A page past the last visible row (cursor on the oldest confirmed row) is empty but still reports hidden rows.
 	_, items, _ = list("?exclude_voided=true")
 	cursor := transactionCursor(items[len(items)-1])
 	_, items, header = list("?exclude_voided=true&cursor=" + cursor)
 	if len(items) != 0 || header.Get("X-Voided-Count") != "3" {
 		t.Fatalf("cursor past end items=%d voided=%q", len(items), header.Get("X-Voided-Count"))
 	}
-	// A filter matching only voided rows still reports how many are hidden.
 	if _, err = pool.Exec(ctx, `UPDATE transaction SET description='only-voided' WHERE household_id=$1 AND status='VOIDED'`, householdID); err != nil {
 		t.Fatal(err)
 	}

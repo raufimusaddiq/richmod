@@ -8,25 +8,18 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// ReconciliationPolicyVersion marks the thresholds behind the same-event ruling so stored decisions stay reproducible.
 const ReconciliationPolicyVersion = "2026-09-jev2"
 
-// sameEventAnswer is the bounded ruling on whether the email matches the ledger row Go found.
-// Go owns narrowing (household, account, amount, direction, 24h window); Jev never sees a hidden ID.
 type sameEventAnswer struct {
 	SameEvent bool
 	Model     string
 }
 
-// candidateChoice picks among deterministic survivors by anonymous index, keeping the index-to-row mapping
-// private; a decisive CANDIDATE_n reuses that row, anything else keeps the review.
 type candidateChoice struct {
-	Index int // 1-based; 0 means no decisive pick
+	Index int
 	Model string
 }
 
-// reconcileCandidates is used only when narrowing leaves several survivors; several candidates are not
-// automatically human ambiguity.
 func (p *Processor) reconcileCandidates(ctx context.Context, requestID, amount, at, description string, candidateFacts []string) (candidateChoice, error) {
 	if p.verifier == nil || len(candidateFacts) == 0 || len(candidateFacts) > 10 {
 		return candidateChoice{}, nil
@@ -69,14 +62,10 @@ func (p cashPlan) canReconcileCandidates() bool {
 	return p.review == "TRANSFER_RECONCILIATION" && len(p.candidates) > 1 && len(p.candidates) <= 10 && p.existing == ""
 }
 
-// reconcileSemantically asks if the one remaining candidate is the same event; many go to Review.
-// The candidate's canonical UUID is never sent.
 func (p *Processor) reconcileSemantically(ctx context.Context, requestID, amount string, at string, description string, candidateType, candidatePurpose, candidateAt string) (sameEventAnswer, error) {
 	if p.verifier == nil {
 		return sameEventAnswer{}, nil
 	}
-	// An identity check over extracted facts, not a semantic dimension decision, so the accepted set is
-	// explicitly empty.
 	ctx = judgment.WithPhaseMetadata(ctx, "OTHER_BOUNDED", ReconciliationPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, requestID, judgment.Request{
 		State: map[string]any{
@@ -101,13 +90,10 @@ func (p *Processor) reconcileSemantically(ctx context.Context, requestID, amount
 	if !ok {
 		return sameEventAnswer{}, nil
 	}
-	// Only an affirmatively high Noul is a yes; the undecided middle band stays in Review since reusing the
-	// wrong row silently merges two real events.
 	sameEvent, decided := judgment.AcceptNoul(answer, judgment.NoulPolicy{High: 0.85, Low: 0.15})
 	return sameEventAnswer{SameEvent: sameEvent && decided, Model: result.Model}, nil
 }
 
-// canReconcileSemantically requires exactly one survivor with nothing already reused.
 func (p cashPlan) canReconcileSemantically() bool {
 	return p.review == "TRANSFER_RECONCILIATION" && len(p.candidates) == 1 && p.existing == ""
 }

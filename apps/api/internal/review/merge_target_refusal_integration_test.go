@@ -14,8 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// Ignoring or rejecting a review-held transaction that is the TARGET of an ACTIVE merge is a clean
-// 409 MERGE_TARGET on every web route, not a 400/500, and mutates nothing.
 func TestWebReviewRoutesRefuseActiveMergeTarget(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

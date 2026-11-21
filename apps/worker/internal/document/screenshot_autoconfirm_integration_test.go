@@ -74,8 +74,6 @@ func screenshotRowTime() time.Time {
 	return time.Date(2026, 9, 23, 15, 30, 0, 0, time.FixedZone("WIB", 7*3600))
 }
 
-// A row that plausibly matches an existing transaction must link evidence, never write a second CONFIRMED
-// one; candidates without a single decisive match are exactly that case.
 func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot ambiguous row")
 	ctx := context.Background()
@@ -99,8 +97,6 @@ func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
 	}
 }
 
-// seedScreenshotCandidates writes n CONFIRMED 54000 expenses within the hour before screenshotRowTime, kept
-// by the matcher as non-decisive candidates.
 func seedScreenshotCandidates(t *testing.T, f screenshotFixture, n int) []string {
 	t.Helper()
 	ids := make([]string, 0, n)
@@ -114,8 +110,6 @@ func seedScreenshotCandidates(t *testing.T, f screenshotFixture, n int) []string
 	return ids
 }
 
-// The locked re-check validates the whole decided candidate set: a non-chosen candidate that vanished since
-// the decision still makes the write retry instead of acting on a stale list.
 func TestScreenshotWriteRetriesWhenANonChosenCandidateVanished(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot vanished candidate")
 	ctx := context.Background()
@@ -232,8 +226,6 @@ func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T)
 	}
 }
 
-// An income row with no visible amount must reach a completable Telegram card, and a duplicate the ingest-
-// time matcher saw must still be found when the household supplies a day-only date.
 func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
 	f := seedScreenshotFixture(t, "Screenshot absent amount income")
 	ctx := context.Background()
@@ -247,8 +239,6 @@ func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
 	if requestState == "" {
 		t.Fatal("an income missing-amount row must project a completable Telegram card")
 	}
-	// A same-amount confirmed transaction at the row's printed time is the duplicate the ingest matcher sees;
-	// the household-supplied day must not lose it.
 	printedAt := screenshotRowTime()
 	if _, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,'INCOME','CONFIRMED',5000000,'IDR',$2,'Honor',.95,.95,now())`, f.householdID, printedAt); err != nil {
 		t.Fatal(err)
@@ -275,8 +265,6 @@ func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
 	}
 }
 
-// The screenshot row auto-confirm must be independently disable-able; with the switch off the same clear row
-// waits for a human.
 func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot kill switch")
 	categoryID := fixture.categoryID
@@ -296,8 +284,6 @@ func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	}
 }
 
-// Disabling screenshot auto-confirm also skips its selective rescue, keeping the residual category in review
-// rather than spending Jev.
 func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot kill switch residual")
 	ctx := context.Background()
@@ -322,13 +308,11 @@ func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testin
 	}
 }
 
-// An unmatched row with a decisive bounded category and a printed date is a new transaction, not an ambiguous
-// one; genuinely uncertain rows still ask exactly one question.
 func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot rows")
 	ctx := context.Background()
 	clear := screenshotDataRow("EXPENSE", "54000", "Indomaret")
-	clear.Value.Confidence = .35 // Complete material facts must not become category review.
+	clear.Value.Confidence = .35
 	categoryID := fixture.categoryID
 	clear.CategoryID, clear.CategoryDecided = &categoryID, true
 	incoming := screenshotDataRow("INCOME", "100000", "Teman")
@@ -458,7 +442,6 @@ func assertScreenshotSummary(t *testing.T, fixture screenshotFixture, wants ...s
 	}
 }
 
-// An unresolved row stores the decision contract so the Inbox asks only about the genuinely unresolved dimension.
 func assertScreenshotReviewDecisions(t *testing.T, fixture screenshotFixture, want int) {
 	t.Helper()
 	rows, err := fixture.pool.Query(context.Background(), `SELECT review_type,decision FROM review_item WHERE household_id=$1 AND decision IS NOT NULL`, fixture.householdID)
@@ -493,11 +476,7 @@ func assertScreenshotReviewDecisions(t *testing.T, fixture screenshotFixture, wa
 	}
 }
 
-// A reprocess whose matcher no longer finds the originally linked transaction (amount drift, outside the
-// window) must not write a second CONFIRMED row for the same event.
 func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) {
-	// "primary" is the key of proposals written before per-row keys existed (the real duplicate path, no key
-	// collision); "row-001" collides.
 	for _, tc := range []struct{ status, key string }{{"MERGED", "primary"}, {"REJECTED", "primary"}, {"NEEDS_REVIEW", "primary"}, {"MERGED", "row-001"}, {"REJECTED", "row-001"}, {"MERGED", "merged_into"}, {"REJECTED", "garbage"}} {
 		priorStatus, priorKey := tc.status, tc.key
 		t.Run(priorStatus+"/"+priorKey, func(t *testing.T) {
@@ -552,8 +531,6 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 	}
 }
 
-// A reprocess missing the amount keeps the prior match on its MISSING_AMOUNT review, no second CONFIRMED row.
-// The prior is offered for merge only if same type; another type still blocks auto-confirm.
 func TestScreenshotReprocessMissingAmountKeepsPriorMatch(t *testing.T) {
 	for _, tc := range []struct {
 		priorType string

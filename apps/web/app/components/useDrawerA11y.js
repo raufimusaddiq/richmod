@@ -4,9 +4,6 @@ import { useEffect, useRef } from "react";
 
 const focusable = "a[href], summary, button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
-// Modal drawer behaviour the markup alone cannot give: move focus in, close on
-// Escape, keep Tab inside the drawer, and return focus to the opener on close.
-// Attach the returned ref to the `aside[role="dialog"]` element.
 export default function useDrawerA11y(open, close) {
   const ref = useRef(null);
   const closeRef = useRef(close);
@@ -18,10 +15,8 @@ export default function useDrawerA11y(open, close) {
     const drawer = ref.current;
     drawer?.focus();
     const onKeyDown = event => {
-      // Escape inside a modal <dialog> opened from the drawer (a confirm) closes that dialog only.
       if (event.key === "Escape") { if (!event.target?.closest?.("dialog")) closeRef.current(); return; }
       if (event.key !== "Tab" || !drawer) return;
-      // Skip controls that are not rendered (a closed <details> hides its <pre>), or the last "focusable" would be one Tab can never reach.
       const items = [...drawer.querySelectorAll(focusable)].filter(node => node.getClientRects().length > 0);
       if (!items.length) { event.preventDefault(); return; }
       const first = items[0], last = items[items.length - 1];

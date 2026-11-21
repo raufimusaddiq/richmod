@@ -63,8 +63,6 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(r.Context())
 		var aid, lid string
-		// Sender identity is not account identity. Reuse a single, deterministic
-		// logical account for the same bank, otherwise create an ID-derived key.
 		e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND account_type='BANK' AND tracking_policy='SPENDING_ONLY' AND active AND system_managed AND lower(name)=lower('Bank · '||$2) ORDER BY created_at,id LIMIT 1 FOR UPDATE`, hid, in.BankName).Scan(&aid)
 		if e == pgx.ErrNoRows {
 			e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed) VALUES($1,$2,'BANK','SPENDING_ONLY',true) RETURNING id`, hid, "Bank · "+in.BankName).Scan(&aid)

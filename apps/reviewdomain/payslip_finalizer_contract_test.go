@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// The worker autonomous path and the household-resolved path must mint
-// canonical salary state through one operation.
 func TestPayslipPathsShareFinalizer(t *testing.T) {
 	for _, path := range []string{"../worker/internal/document/payslip.go", "payslip.go"} {
 		source, err := os.ReadFile(path)

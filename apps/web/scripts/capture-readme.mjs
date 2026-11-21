@@ -83,7 +83,6 @@ for (const [path, file, selector, isAuthenticated] of [
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: `${outputDirectory}/${file}`, fullPage: false });
 }
-// The same synthetic app on a phone and a tablet: the layout changes, the data does not.
 authenticated = true;
 for (const [viewport, path, file] of [
   [{ width: 390, height: 844 }, "/", "dashboard-mobile.png"],

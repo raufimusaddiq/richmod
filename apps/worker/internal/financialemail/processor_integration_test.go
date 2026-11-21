@@ -310,8 +310,6 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE source_event_id=$1 AND ordinal=1`, source).Scan(&wealthObservationStatus); err != nil {
 		t.Fatal(err)
 	}
-	// A uniquely resolved wealth account observation is accepted without human confirmation; the cash leg
-	// still parks its own review.
 	if wealthChildren != 1 || wealthReviews != 0 || transactions != 1 {
 		t.Fatalf("wealth children=%d reviews=%d transactions=%d", wealthChildren, wealthReviews, transactions)
 	}
@@ -640,8 +638,6 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return source
 }
 
-// Parks provider cash facts whose predicates failed as FINANCIAL_EMAIL_FACTS (IGNORE only), naming the
-// unsupported dimension and writing no canonical transaction.
 func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -695,8 +691,6 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "evidence_support" {
 		t.Fatalf("the residual must name the exact unsupported dimension: %v", decision.MissingFacts)
 	}
-	// Residual evidence_support means these value facts must be proposed, not recorded, or the Web card would
-	// show an unsupported amount as "Tercatat".
 	if _, known := decision.KnownFacts["amount_idr"]; known {
 		t.Fatalf("an unsupported amount must not be a known fact: %+v", decision.KnownFacts)
 	}
@@ -712,8 +706,6 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	}
 }
 
-// The worker alone writes a partial resolution and the Inbox reads known entities from observation columns,
-// so the known column must be written or the resolver rejects the submit.
 func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -774,8 +766,6 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	}
 }
 
-// A job out of attempts finalizes its source FAILED and leaves one Tindakan item; a stranded preview becomes
-// FAILED so it stops blocking activation.
 func TestFinancialEmailTerminalFailureFinalizesSourceAndPreview(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

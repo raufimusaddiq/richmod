@@ -2,8 +2,6 @@
 import { dateTime } from "../lib/format";
 import { emailDeliveryReasonLabel, emailDeliveryStatusLabel, label } from "../lib/labels";
 
-// The activity log of forwarded bank emails, newest first. The server pages it; when older rows
-// exist the list says how many are shown and offers to load more.
 export default function EmailDeliveries({ state, retry, loadMore }) {
   if (state.status === "error") return <p role="alert">Email masuk belum dapat dimuat. <button type="button" className="secondary" onClick={retry}>Coba lagi</button></p>;
   if (state.status === "idle" || state.status === "loading") return <p className="muted">Memuat…</p>;

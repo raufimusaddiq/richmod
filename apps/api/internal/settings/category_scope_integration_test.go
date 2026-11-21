@@ -14,8 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestCreateCategoryRejectsAnotherHouseholdsParent: a category can only nest
-// under a parent of the caller's own household.
 func TestCreateCategoryRejectsAnotherHouseholdsParent(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

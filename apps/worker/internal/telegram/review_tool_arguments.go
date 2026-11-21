@@ -6,8 +6,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// reviewActionArguments names the resolve_review arguments each bound action reads; CONFIRM is left out
-// because it depends on what the card asks for.
 var reviewActionArguments = map[string][]string{
 	"EXPENSE":              {"category_slug"},
 	"ASSET_PURCHASE":       {"wealth_account_hint"},
@@ -17,8 +15,6 @@ var reviewActionArguments = map[string][]string{
 	"COMPLETE_BANK_FACTS":  {"amount_idr", "transaction_at"},
 }
 
-// confirmArguments is what CONFIRM reads: the typed value the card asked for, or the whole confirm surface
-// when it asks for nothing specific.
 func confirmArguments(conversationState string) []string {
 	switch conversationState {
 	case "AWAITING_DATE":
@@ -33,8 +29,6 @@ func confirmArguments(conversationState string) []string {
 	return []string{"category_slug", "description", "merchant", "pay_date", "transaction_at"}
 }
 
-// focusReviewArguments narrows resolve_review to the bound card's arguments; bindings with their own
-// executors keep the full set.
 func focusReviewArguments(tools []gateway.ToolDefinition, binding *agentReviewBinding) {
 	if binding == nil || (binding.Kind != "TRANSACTION" && binding.Kind != "BANK_FACTS") {
 		return

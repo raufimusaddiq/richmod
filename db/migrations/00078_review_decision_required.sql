@@ -1,18 +1,4 @@
 -- +goose Up
--- Every new review_item carries a complete ReviewDecision contract: a non-empty
--- reasonCode and a non-empty allowedActions array (the same rule as Go's
--- reviewdec.Decision.Validate). Rows created before the contract existed have
--- decision IS NULL and are historical records: they stay readable and are never
--- rewritten, so this is a trigger rather than NOT NULL/CHECK. On UPDATE a
--- legacy NULL row stays editable (status, resolution) but can never become
--- active (OPEN/PENDING_SEND) again, so every active item carries a contract;
--- a row that already had a decision cannot have it erased or degraded.
---
--- Precondition: no active item may violate the contract when this runs (the
--- Inbox and Telegram render only stored contracts). Fail loudly instead of
--- guessing a decision for such a row. goose runs this file in one transaction;
--- the SHARE ROW EXCLUSIVE lock blocks concurrent review_item writes from the
--- check until the trigger exists, so no unguarded row can slip in between.
 LOCK TABLE review_item IN SHARE ROW EXCLUSIVE MODE;
 -- +goose StatementBegin
 DO $$
@@ -51,8 +37,6 @@ BEGIN
         RAISE EXCEPTION 'review_item.decision.reasonCode must be a non-empty string'
             USING ERRCODE = 'check_violation';
     END IF;
-    -- PL/pgSQL ends an IF condition at the first THEN, so the CASE guard (which
-    -- keeps jsonb_array_length off non-arrays) is evaluated in an assignment.
     actions_present := CASE WHEN jsonb_typeof(NEW.decision->'allowedActions') = 'array'
                             THEN jsonb_array_length(NEW.decision->'allowedActions') > 0
                             ELSE false END;

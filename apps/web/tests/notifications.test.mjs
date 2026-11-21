@@ -1,6 +1,3 @@
-// The settings card is a pure view of browser state, so every state it can
-// show is rendered here. The badge helper is the only place the icon badge is
-// set or cleared.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,8 +9,6 @@ import swc from "next/dist/build/swc/index.js";
 
 const require = createRequire(import.meta.url);
 await swc.loadBindings();
-// The page imports the shell for its own rendering; this file only renders the
-// exported card, so the icon and router packages are replaced by inert stubs.
 const stubs = {
   "@phosphor-icons/react": new Proxy({}, { get: () => () => null }),
   "next/link": { __esModule: true, default: ({ children }) => children },

@@ -13,9 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestAdminPagedEndpointsRejectMalformedCursor covers the pre-existing bug where
-// a crafted cursor fell back to page one or reached SQL as ::uuid and 500'd.
-// Every admin keyset endpoint must answer 400 with INVALID_CURSOR instead.
 func TestAdminPagedEndpointsRejectMalformedCursor(t *testing.T) {
 	pool := provisionPool(t)
 	ctx := context.Background()
@@ -28,7 +25,7 @@ func TestAdminPagedEndpointsRejectMalformedCursor(t *testing.T) {
 		name  string
 		new   func(http.ResponseWriter, *http.Request)
 		path  string
-		nonID string // "" means the endpoint does not cast the id, so only garbage cursors apply
+		nonID string
 	}{
 		{"jobs", handler.Jobs, "/api/v1/admin/jobs", "not-a-uuid"},
 		{"llmCalls", handler.LLMCalls, "/api/v1/admin/llm/calls", "not-a-uuid"},
@@ -38,8 +35,6 @@ func TestAdminPagedEndpointsRejectMalformedCursor(t *testing.T) {
 		{"allAudit", handler.AllAudit, "/api/v1/admin/audit/all", ""},
 		{"reviewProjections", handler.ReviewOpsProjections, "/api/v1/admin/reviews/projections", "not-a-uuid"},
 	}
-	// Malformed beyond repair, and a well-formed cursor whose id cannot be cast
-	// by the endpoint's SQL.
 	cursors := func(nonID string) []string {
 		out := []string{"not-a-cursor", url.QueryEscape("%%%")}
 		if nonID != "" {

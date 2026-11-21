@@ -12,7 +12,6 @@ import EmailDeliveries from "../components/EmailDeliveries";
 import { dateTime } from "../lib/format";
 import { missingTransactionHref } from "../lib/missingTransaction";
 
-// What the household calls each kind of action; an unknown type keeps its own name.
 const actionKinds = { EMAIL_FORWARDING: "Email", SOURCE_PROCESSING: "Sumber" };
 const actionKind = type => actionKinds[type] || type;
 
@@ -23,25 +22,15 @@ export default function InboxPage() {
   const [rawView, setView] = useState("transactions");
   const [reviews, setReviews] = useState([]), [actions, setActions] = useState([]), [categories, setCategories] = useState([]), [wealthAccounts, setWealthAccounts] = useState([]), [accounts, setAccounts] = useState([]);
   const [error, setError] = useState(""), [toast, setToast] = useState("");
-  // One busy flag per card: acting on card B must not release or overwrite card A.
   const { busy, run: runBusy } = useBusyMap();
-  // The needs-your-decision count spans every page and excludes notices; the
-  // cursor fetches the next page of transaction reviews ("Muat lagi").
   const [decisionCount, setDecisionCount] = useState(null), [nextCursor, setNextCursor] = useState(""), [loadingMore, setLoadingMore] = useState(false);
-  // The badge may only be published from a load that fetched both lists.
   const [complete, setComplete] = useState(false);
-  // Recently resolved: its own state machine so a failed fetch is shown and retried, never cached as "empty".
   const [history, setHistory] = useState({ status: "idle", items: [] }), [historyTick, setHistoryTick] = useState(0);
-  // Email deliveries: owner-only on the server; same state machine as the history so a failure is shown and retried.
   const [deliveries, setDeliveries] = useState({ status: "idle", items: [], next: "", more: false }), [deliveriesTick, setDeliveriesTick] = useState(0);
   const owner = user?.household?.role === "OWNER";
-  // Only the owner has the email tab: a stale ?view=email shows the transactions for anyone else.
   const view = rawView === "email" && !owner ? "transactions" : rawView;
-  // A reload (after a 409, a reopen, a save) is a refresh: cards stay mounted so a typed
-  // note and the merchant/category hint survive.
   const loader = useGuardedLoad(async ({ signal, current }) => {
     const [reviewResponse, actionResponse, categoryResponse, wealthResponse, accountResponse] = await Promise.all(["/api/v1/reviews", "/api/v1/integration-actions", "/api/v1/categories", "/api/v1/wealth/accounts", "/api/v1/accounts"].map(url => fetch(url, { signal })));
-    // Each list stands on its own: one failing request must not hide the other.
     const failed = [];
     const readList = async (response, name) => { try { if (!response.ok) throw new Error(); const items = await response.json(); return Array.isArray(items) ? items : []; } catch { failed.push(name); return null; } };
     const readOptional = async response => { try { return response.ok ? await response.json() : null; } catch { return null; } };
@@ -67,7 +56,6 @@ export default function InboxPage() {
   useEffect(() => { setView(currentView()); const sync = () => setView(currentView()); window.addEventListener("popstate", sync); return () => window.removeEventListener("popstate", sync); }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
   const decisions = decisionCount ?? reviews.filter(item => item.presentation !== "NOTICE").length;
-  // Keyed on the load itself, not on the banner: a stale action error must not freeze the nav badge.
   useEffect(() => { if (loader.status === LOAD.READY && complete) publishInboxCount({ reviewCount: decisions, actionCount: actions.length }); }, [loader.status, complete, decisions, actions]);
   const historyOpen = view === "history";
   useEffect(() => {
@@ -141,7 +129,6 @@ export default function InboxPage() {
         const response = await fetch(`/api/v1/reviews/${id}/${name}`, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
         if (!response.ok) {
           const result = await response.json().catch(() => ({}));
-          // Refresh in place: the card that asked stays mounted to show its hint.
           if (response.status === 409 && result.missingFacts) await load();
           setError(result.error || "Tinjauan belum dapat diperbarui.");
           return result;

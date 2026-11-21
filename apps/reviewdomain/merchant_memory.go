@@ -8,10 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// LearnedMerchantCategory returns the one household-confirmed, auto-applicable
-// category for a merchant name, or "" when none is learned. It is the same
-// deterministic rule the worker pipelines apply, shared so the Web Review Inbox
-// confirm recalls a learned category instead of asking again (ADR-040).
 func LearnedMerchantCategory(ctx context.Context, q pgx.Tx, householdID, raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", nil

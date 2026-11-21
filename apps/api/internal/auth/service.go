@@ -26,17 +26,15 @@ type Membership struct {
 }
 
 type Principal struct {
-	UserID        string      `json:"userId"`
-	Email         string      `json:"email"`
-	DisplayName   string      `json:"displayName"`
-	IsSuperAdmin  bool        `json:"isSuperAdmin"`
-	Household     *Membership `json:"household"`
-	HouseholdID   string      `json:"-"`
-	HouseholdRole string      `json:"-"`
-	HasHousehold  bool        `json:"-"`
-	// Memberships is retained only for internal test/legacy construction. Runtime
-	// tenant selection uses the canonical fields above.
-	Memberships []Membership `json:"-"`
+	UserID        string       `json:"userId"`
+	Email         string       `json:"email"`
+	DisplayName   string       `json:"displayName"`
+	IsSuperAdmin  bool         `json:"isSuperAdmin"`
+	Household     *Membership  `json:"household"`
+	HouseholdID   string       `json:"-"`
+	HouseholdRole string       `json:"-"`
+	HasHousehold  bool         `json:"-"`
+	Memberships   []Membership `json:"-"`
 }
 
 type Service struct {
@@ -48,7 +46,6 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool, now: time.Now}
 }
 
-// Login verifies a password and creates a session with a 24-hour idle expiry.
 func (s *Service) Login(ctx context.Context, email, password string) (Principal, string, time.Time, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	var userID, storedHash string
@@ -73,10 +70,6 @@ func (s *Service) Login(ctx context.Context, email, password string) (Principal,
 		return Principal{}, "", time.Time{}, err
 	}
 	expiresAt := s.now().Add(SessionIdleTimeout)
-	// Create the session only while the user still has the password hash that was
-	// just verified. FOR SHARE waits for a concurrent password reset (which holds
-	// FOR UPDATE on the row) and then re-checks the hash, so a login that verified
-	// the old password cannot outlive the reset that revoked its sessions.
 	created, err := s.pool.Exec(ctx, `INSERT INTO session (user_id, token_hash, expires_at)
 		SELECT id, $2, $3 FROM "user" WHERE id=$1 AND active AND password_hash=$4 AND password_initialized_at IS NOT NULL FOR SHARE`, userID, tokenHash, expiresAt, storedHash)
 	if err != nil {
@@ -88,7 +81,6 @@ func (s *Service) Login(ctx context.Context, email, password string) (Principal,
 	return principal, token, expiresAt, nil
 }
 
-// Authenticate validates a session and renews its idle expiry for 24 hours.
 func (s *Service) Authenticate(ctx context.Context, token string) (Principal, time.Time, error) {
 	if token == "" {
 		return Principal{}, time.Time{}, ErrUnauthenticated
@@ -182,8 +174,6 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 	}
 	defer tx.Rollback(ctx)
 	var inviteID, userID string
-	// The invite only enrolls a member who is still active in the household
-	// that issued it; a member removed after the invite was sent cannot use it.
 	err = tx.QueryRow(ctx, `SELECT i.id,i.user_id FROM dashboard_account_invite i
 		JOIN household_member hm ON hm.household_id=i.household_id AND hm.user_id=i.user_id AND hm.active
 		WHERE i.token_hash=$1 AND i.status='PENDING' AND i.expires_at>now() FOR UPDATE OF i`, h).Scan(&inviteID, &userID)
@@ -194,8 +184,6 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 	if err != nil {
 		return Principal{}, "", time.Time{}, err
 	}
-	// The same link sets up a new account and resets a forgotten password. On a
-	// reset the old password may be compromised, so end every existing session.
 	var hadPassword bool
 	if err = tx.QueryRow(ctx, `SELECT password_initialized_at IS NOT NULL FROM "user" WHERE id=$1 FOR UPDATE`, userID).Scan(&hadPassword); err != nil {
 		return Principal{}, "", time.Time{}, err
@@ -210,7 +198,6 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 		return Principal{}, "", time.Time{}, err
 	}
 	if updated.RowsAffected() != 1 {
-		// A deactivated account must not consume the invite or get a session.
 		return Principal{}, "", time.Time{}, ErrInvalidCredentials
 	}
 	if _, err = tx.Exec(ctx, `UPDATE dashboard_account_invite SET status='CONSUMED',consumed_at=now() WHERE id=$1`, inviteID); err != nil {

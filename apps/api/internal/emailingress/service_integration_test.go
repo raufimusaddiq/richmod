@@ -375,7 +375,6 @@ func TestRecentDeliveriesAreHouseholdScoped(t *testing.T) {
 	}
 }
 
-// N19: deliveries page with a cursor; every row is reachable and none repeats.
 func TestRecentDeliveriesPageWithCursor(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -405,7 +404,6 @@ func TestRecentDeliveriesPageWithCursor(t *testing.T) {
 	total := recentDeliveryLimit*2 + 3
 	for i := 0; i < total; i++ {
 		key := "deliveries/" + household + "/p" + strconv.Itoa(i) + ".eml"
-		// Rows in groups of three share a timestamp so the id tiebreak is exercised.
 		if _, err := pool.Exec(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,provider,object_key,content_sha256,observed_sender,status,received_at) VALUES($1,$2,'CLOUDFLARE_EMAIL',$3,sha256(convert_to($3,'UTF8')),'a@test.invalid','IGNORED_UNMATCHED',now()-make_interval(mins => $4))`, address.ID, household, key, i/3); err != nil {
 			t.Fatal(err)
 		}

@@ -168,10 +168,10 @@ func TestForgedWrongTypeAndMalformedEvidenceRefsAreInvalid(t *testing.T) {
 	mustAgentTest(t, err)
 
 	for _, ref := range []evidenceRef{
-		"a00000000_p0r0_ev1", // well-formed but never issued
+		"a00000000_p0r0_ev1",
 		evidenceRef(txRefs[0].Ref),
-		evidenceRef(a.documentID), // a canonical id passed as an argument
-		evidenceRef(a.sourceID),   // another canonical id
+		evidenceRef(a.documentID),
+		evidenceRef(a.sourceID),
 		"ev_1", "category.3", "", "'; DROP TABLE document;--",
 		evidenceRef(strings.Repeat("a", 200)),
 	} {

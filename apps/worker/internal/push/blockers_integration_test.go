@@ -654,8 +654,6 @@ func blkSender(t *testing.T, pool *pgxpool.Pool, fake *blkFake) *Sender {
 	return sender
 }
 
-// A user belongs to one household for good (migration 00088): a refresh claiming another household is refused
-// and the stored subscription keeps its household and deliveries.
 func TestBlockerSubscriptionNeverChangesHousehold(t *testing.T) {
 	pool := blkPool(t)
 	blkClean(t, pool)

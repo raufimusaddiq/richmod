@@ -1,15 +1,11 @@
 const rupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
-// One minus sign everywhere: U+2212, never the hyphen Intl emits for negatives.
 export function minusSign(text) { return String(text).replace(/^-/, "−"); }
 
 export function money(value) {
   try { return minusSign(rupiah.format(BigInt(String(value ?? "0").trim().split(".")[0] || "0"))); } catch { return "Rp0"; }
 }
 
-// Zero is neutral, never a warning: only a real signed amount gets a tone.
-// A liability is shown negative when it is above zero, because owing money is
-// the negative side even though the stored figure is positive.
 export function amountTone(value, liability = false) {
   try {
     const amount = BigInt(String(value ?? "0").trim().split(".")[0] || "0");
@@ -23,8 +19,6 @@ export function dateTime(value) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
 }
 
-// Display date without time, e.g. "22 Okt 2026". Accepts a date-only string
-// ("2026-10-22", read as a Jakarta calendar day) or any timestamp.
 export function displayDate(value) {
   if (!value) return "—";
   const text = String(value);

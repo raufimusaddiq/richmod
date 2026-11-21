@@ -86,8 +86,6 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 	}
 }
 
-// Recreates a historical review_item with decision IS NULL, which the 00078 trigger refuses;
-// session_replication_role=replica skips triggers for this transaction only.
 func execWithoutReviewDecisionTrigger(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 	t.Helper()
 	ctx := context.Background()

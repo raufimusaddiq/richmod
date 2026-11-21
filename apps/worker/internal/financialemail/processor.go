@@ -23,10 +23,8 @@ type Gateway interface {
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 type Processor struct {
-	pool    *pgxpool.Pool
-	gateway Gateway
-	// verifier scores extracted observations against the source email via the bounded plane, replacing
-	// generative self-confidence; nil keeps deterministic checks only.
+	pool     *pgxpool.Pool
+	gateway  Gateway
 	verifier jeverifier
 }
 type Payload struct {
@@ -41,7 +39,6 @@ func NewProcessor(pool *pgxpool.Pool, client Gateway) *Processor {
 	return &Processor{pool: pool, gateway: client}
 }
 
-// SetVerifier wires the bounded classification plane, from the same judgment plane Telegram uses.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 func DecodePreviewPayload(raw json.RawMessage) (PreviewPayload, error) {
 	var v PreviewPayload
@@ -168,7 +165,6 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET parser_name='financial-email-native',parser_version='1' WHERE id=$1`, payload.SourceEventID); err != nil {
 		return err
 	}
-	// ADR-046: the shared lifecycle derives status from every observation, case and review this email produced.
 	if err = reviewdomain.RefreshSourceLifecycle(ctx, tx, household, payload.SourceEventID); err != nil {
 		return err
 	}
@@ -233,8 +229,6 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		if v.ObservedDate != nil && strings.TrimSpace(*v.ObservedDate) != "" {
 			d, e := time.Parse("2006-01-02", *v.ObservedDate)
 			if e != nil {
-				// A malformed model date is a representation defect: ask the model to repair instead of
-				// minting a human review.
 				return fmt.Errorf("financial email wealth observation invalid observed_date %q", *v.ObservedDate)
 			}
 			date = &d
@@ -262,7 +256,6 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	return p.insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
 }
 
-// evidenceReview parks a cash case whose bounded evidence claims failed, naming only the unsupported dimensions.
 func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
 		return err
@@ -285,10 +278,7 @@ func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, so
 	if classification.MovementAccepted {
 		accepted = append(accepted, "movement_type")
 	}
-	// Only independently accepted bounded classifications qualify; raw extracted values are not accepted facts.
 	decision.Provenance["accepted_dimensions_at_validation"] = accepted
-	// A residual on evidence_support means the email does not fully support these value facts, so carry them
-	// as proposed, not recorded (Web shows knownFacts as "Tercatat").
 	valuesUnsupported := containsString(missing, "evidence_support")
 	declare := func(key, value string) {
 		if value == "" {
@@ -354,8 +344,6 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	var observationID string
 	date := any(nil)
 	if v.ObservedDate != nil {
-		// An unreadable printed date keeps the wealth observation with a null date so the household can still
-		// bind the account and confirm the value.
 		if d, err := time.Parse("2006-01-02", value(v.ObservedDate)); err == nil {
 			date = d
 		}
@@ -370,8 +358,6 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	return p.wealthObservationReview(ctx, tx, household, id, observationID, "", hint, *v.ValueIDR)
 }
 
-// wealthObservationReview parks only an unresolved Financial Email wealth value; a uniquely bound account is
-// accepted directly.
 func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, household, financialObservationID, wealthObservationID, resolvedWealthID, hint, valueIDR string) error {
 	decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "financial_email_observation", financialObservationID)
 	if !ok {
@@ -413,22 +399,14 @@ type cashPlan struct {
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, observationID, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference), account: selectedAccount, wealth: selectedWealth}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || (v.FundingAccountHint == nil && selectedAccount == "") {
-		// A structurally incomplete observation cannot be adjudicated, so it parks the recovery lane where
-		// the household supplies the missing amount/relationship, not an IGNORE-only facts card.
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
-	// A configured bounded plane rules on whether the email supports the extracted facts; an unconfigured one
-	// cannot invent a confidence-only human task.
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
-		// A provider outage is retry state, not a household question; the job retains the failure for
-		// operator retry (ADR-048).
 		return plan, fmt.Errorf("classify provider observation: %w", classifyErr)
 	}
 	if verified {
-		// Only a ruling that this is a cash movement can raise the cash-evidence residual;
-		// WEALTH_VALUE/NON_ACTIONABLE on a cash observation is actionable, so it takes the recovery lane.
 		if !classification.TypeAccepted || classification.ObservationType != "CASH_MOVEMENT" {
 			plan.review = "TRANSFER_CLASSIFICATION"
 			return plan, nil
@@ -608,8 +586,6 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	if err != nil {
 		return err
 	}
-	// Go narrows by household, account, amount, direction and a 24h window; a bounded Jev choice resolves up
-	// to ten survivors without exposing IDs.
 	if plan.canReconcileSemantically() {
 		var candidateType, candidatePurpose, candidateAt string
 		if err = tx.QueryRow(ctx, `SELECT type,COALESCE(purpose,''),transaction_at::text FROM transaction WHERE id=$1`, plan.candidates[0]).Scan(&candidateType, &candidatePurpose, &candidateAt); err != nil {
@@ -661,7 +637,6 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at,auto_confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,NULLIF($6,'')::uuid,now(),now()) RETURNING id`, household, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth).Scan(&plan.existing); err != nil {
 			return err
 		}
-		// A cycle waiting on a missing transaction reopens with the new basis.
 		if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, plan.at, ""); err != nil {
 			return err
 		}
@@ -681,8 +656,6 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	return p.insertReviewDecision(ctx, tx, household, observation, "CONFLICTING_EVIDENCE")
 }
 
-// resolutionReview parks an email whose entities Go could not fully resolve, persisting the resolved entity
-// on the observation columns and recording only the unresolved dimension as missing.
 func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string, missingEntities []string, conflictHint string) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW',resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,updated_at=now() WHERE id=$1`, id, account, wealth); err != nil {
 		return err
@@ -736,8 +709,6 @@ func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, s
 	return p.insertReviewDecision(ctx, tx, household, observation, "TRANSFER_CLASSIFICATION")
 }
 
-// insertReviewDecision writes an observation-scoped review with its canonical ReviewDecision contract so the
-// Inbox can explain why input is needed; idempotent on an open review.
 func (p *Processor) insertReviewDecision(ctx context.Context, tx pgx.Tx, household, observation, reason string) error {
 	decision, ok := reviewdec.Preset(reason, "financial_email_observation", observation)
 	if !ok {
@@ -750,8 +721,6 @@ func (p *Processor) insertReviewDecision(ctx context.Context, tx pgx.Tx, househo
 	return p.projectObservationReview(ctx, tx, household, observation, reason, string(encoded))
 }
 
-// projectObservationReview writes the observation-scoped review if none is open, then gives it the shared
-// Telegram projection so the decision can finish in chat.
 func (p *Processor) projectObservationReview(ctx context.Context, tx pgx.Tx, household, observation, reason, decision string) error {
 	var itemID string
 	err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision)
@@ -793,8 +762,6 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	}
 	call, _, err := p.gateway.NativeToolCall(ctx, "preview:"+payload.PreviewID, prompt, map[string]any{"provider_name": provider, "sender_address": sender, "email_subject": subject, "email_body": "<untrusted_email_body>" + body + "</untrusted_email_body>", "household_timezone": "Asia/Jakarta"}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
-		// The preview stays PROCESSING while the job retries; only the final failure marks it FAILED
-		// (TerminalPreviewFailureTx).
 		return err
 	}
 	out, err := gateway.DecodeToolArguments[output](call, "emit_financial_email_observations")

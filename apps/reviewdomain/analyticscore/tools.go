@@ -14,8 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Tool is a channel-neutral native READ definition. No presentation or mutation
-// tools live in this catalog.
 type Tool struct {
 	Name        string
 	Description string
@@ -63,8 +61,6 @@ type Args struct {
 	CategoryRef *string `json:"category_ref,omitempty"`
 }
 
-// DecodeArgs rejects unknown tools, extra/missing keys, trailing values, invalid
-// dates and empty refs even when a provider fails to enforce the native schema.
 func DecodeArgs(name string, raw json.RawMessage) (Args, error) {
 	var definition *Tool
 	for _, tool := range Tools() {
@@ -111,8 +107,6 @@ func DecodeArgs(name string, raw json.RawMessage) (Args, error) {
 	return args, nil
 }
 
-// Session binds facts and refs to one authorized household/request. Independent
-// native READs may run concurrently; each selected cycle is loaded only once.
 type Session struct {
 	pool                 *pgxpool.Pool
 	household            string
@@ -123,9 +117,6 @@ type Session struct {
 	issued               map[string]map[string]int
 }
 
-// ErrCategoryRefNotIssued means the model named a category_ref this session never
-// issued. Refs are positions in one turn's fact snapshot, valid only in the turn whose
-// get_cycle_changes issued them; the caller can hand this back to the model to fix.
 var ErrCategoryRefNotIssued = errors.New("category_ref not issued for selected cycle")
 
 func NewSession(pool *pgxpool.Pool, household string, now time.Time, currentSourceEventID string) *Session {
@@ -153,8 +144,6 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 			return nil, err
 		}
 		s.facts[key] = f
-		// Normalize current-cycle selection so dependent calls share the same snapshot and
-		// reference bindings.
 		s.facts[f.Period.Start] = f
 	}
 	periodKey := f.Period.Start
@@ -218,8 +207,6 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 	return result, nil
 }
 
-// Explicit projections never forward canonical IDs, source payloads or account
-// membership. Display names and bounded amount/date facts are intentional.
 func modelChange(c reviewChange, ref string) map[string]any {
 	return map[string]any{"ref": ref, "name": c.Name, "current": c.Amount, "count": c.Count, "previous": c.Previous, "delta_vs_previous": c.Delta, "relative_delta_vs_previous": c.Relative,
 		"previous_full_cycle": c.PreviousFull, "delta_vs_previous_full_cycle": c.DeltaFull, "relative_delta_vs_previous_full_cycle": c.RelativeFull,

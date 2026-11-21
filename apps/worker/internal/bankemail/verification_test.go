@@ -10,7 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// stubVerifier answers the verification bundle from a fixed ruling and can simulate a provider outage.
 type stubVerifier struct {
 	answers map[string]judgment.Answer
 	err     error
@@ -56,11 +55,7 @@ func testExtraction() Extraction {
 	return Extraction{Kind: "TRANSACTION", AmountIDR: stringPtrFor("25000"), Direction: stringPtrFor("OUTGOING"), Channel: stringPtrFor("QR"), Merchant: stringPtrFor("Toko"), Confidence: 0.55}
 }
 
-// 1) An undecided payment mechanism is evidence metadata, not a required human fact; material predicates
-// concern only the transaction.
 func TestUndecidedPaymentMechanismDoesNotCreateReview(t *testing.T) {
-	// The channel is irrelevant to the bounded ruling; assert through the real verifier so a reintroduced
-	// channel predicate fails.
 	for _, channel := range []string{"QR", "DEBIT_CARD", "MERCHANT_PAYMENT", ""} {
 		extraction := testExtraction()
 		extraction.Channel = stringPtrFor(channel)
@@ -74,8 +69,6 @@ func TestUndecidedPaymentMechanismDoesNotCreateReview(t *testing.T) {
 	}
 }
 
-// 2) SPEND vs TRANSFER_OR_INTERNAL unresolved is a material residual naming transaction_semantics, allowing a
-// bounded resolution.
 func TestSpendVsTransferAmbiguityCreatesBoundedResidual(t *testing.T) {
 	verification := EvidenceVerification{
 		TransactionObserved: true, AmountSupported: true, DirectionSupported: true,
@@ -90,7 +83,6 @@ func TestSpendVsTransferAmbiguityCreatesBoundedResidual(t *testing.T) {
 	}
 }
 
-// 3) Two evidence-supported amounts disagree: a conflict that fails closed and names the material amount fact.
 func TestAmountConflictStillBlocks(t *testing.T) {
 	verification := EvidenceVerification{
 		TransactionObserved: true, AmountSupported: false, DirectionSupported: true, SemanticGrounded: true,
@@ -103,7 +95,6 @@ func TestAmountConflictStillBlocks(t *testing.T) {
 	if verification.supported() {
 		t.Fatal("an amount conflict must block confirmation")
 	}
-	// The disputed amount is contested, so it must not surface as a known fact the Web card would prefill.
 	decision := verificationReviewDecision("household", "source", testExtraction(), verification, "amount_idr", true)
 	if _, known := decision.KnownFacts["amount_idr"]; known {
 		t.Fatalf("a conflicted amount must not stay a known fact: %+v", decision.KnownFacts)
@@ -116,7 +107,6 @@ func TestAmountConflictStillBlocks(t *testing.T) {
 	}
 }
 
-// 4) A material failure keeps every accepted fact (amount, date, direction, channel, merchant) in the known facts.
 func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 	dated := testExtraction()
 	stamp := time.Date(2026, 9, 27, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600))
@@ -136,8 +126,6 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 	}
 }
 
-// An undecided material predicate is a missing fact, not a conflict: the review must request it, not claim an
-// evidence conflict.
 func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 	verification := EvidenceVerification{
 		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true,
@@ -159,8 +147,6 @@ func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 	}
 }
 
-// Direction alone undecided goes to the policy review; a contradicted direction or unobserved transaction
-// still parks for bank facts.
 func TestOnlyUndecidedDirectionSkipsBankFactsReview(t *testing.T) {
 	for _, tc := range []struct {
 		observed, direction string
@@ -173,7 +159,6 @@ func TestOnlyUndecidedDirectionSkipsBankFactsReview(t *testing.T) {
 	}
 }
 
-// 5) The whole ruling rides in the single bounded bundle, so classifying non-material metadata adds no second call.
 func TestNonMaterialMetadataAddsNoExtraPass(t *testing.T) {
 	verifier := &stubVerifier{answers: supportedRuling()}
 	processor := &Processor{verifier: verifier}
@@ -185,7 +170,6 @@ func TestNonMaterialMetadataAddsNoExtraPass(t *testing.T) {
 	}
 }
 
-// A fully supported ruling is accepted even when extractor confidence is far below the legacy 0.80 gate.
 func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 	verifier := &stubVerifier{answers: supportedRuling()}
 	processor := &Processor{verifier: verifier}
@@ -202,7 +186,6 @@ func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 	if verifier.calls != 1 {
 		t.Fatalf("expected one bounded bundle, got %d", verifier.calls)
 	}
-	// Every claim must ride in the same request: one snapshot, one round trip.
 	for _, claim := range []string{"transaction_observed", "amount_supported", "direction_supported", "semantic_grounded"} {
 		if _, ok := verifier.request.Questions[claim]; !ok {
 			t.Fatalf("missing claim %q in %v", claim, verifier.request.Questions)
@@ -212,7 +195,7 @@ func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 
 func TestAmbiguityIsNotAskedOrRequiredForSupportedEvidence(t *testing.T) {
 	answers := supportedRuling()
-	answers["material_ambiguity"] = noul(0.10) // ignored legacy answer
+	answers["material_ambiguity"] = noul(0.10)
 	verifier := &stubVerifier{answers: answers}
 	verification, verified, err := (&Processor{verifier: verifier}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
 	if err != nil || !verified || !verification.supported() {
@@ -245,7 +228,6 @@ func TestEvidenceVerificationRejectsUnsupportedClaim(t *testing.T) {
 	}
 }
 
-// A missing answer is never silently treated as a positive claim.
 func TestEvidenceVerificationMissingAnswersFailClosed(t *testing.T) {
 	processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{}}}
 	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
@@ -264,7 +246,6 @@ func TestEvidenceVerificationProviderFailureIsInfrastructure(t *testing.T) {
 	}
 }
 
-// Without a configured verifier, verification is unavailable: machine retry work, never approval.
 func TestEvidenceVerificationUnconfiguredIsMachineFailure(t *testing.T) {
 	processor := &Processor{}
 	if _, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{}); err == nil || verified {
@@ -272,8 +253,6 @@ func TestEvidenceVerificationUnconfiguredIsMachineFailure(t *testing.T) {
 	}
 }
 
-// A semantic negative is a verdict, not a provider failure; never re-ask it, or either draw could approve and
-// raise the effective bar.
 func TestEvidenceVerificationDoesNotRetryNegativeRuling(t *testing.T) {
 	unsupported := supportedRuling()
 	unsupported["amount_supported"] = noul(0.30)
@@ -306,7 +285,6 @@ func TestEvidenceVerificationRetriesProviderFailureOnce(t *testing.T) {
 	}
 }
 
-// flakyVerifier fails the first call and supports the second, modelling a transient provider failure.
 type flakyVerifier struct{ calls int }
 
 func (f *flakyVerifier) Evaluate(_ context.Context, _ string, _ judgment.Request) (judgment.Result, error) {

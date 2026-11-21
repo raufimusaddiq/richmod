@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Two-member household: Rina (owner, chatA) and Budi (chatB), both linked to Telegram.
 type deliveryFixture struct {
 	pool                   *pgxpool.Pool
 	householdID            string
@@ -115,8 +114,6 @@ func (f *deliveryFixture) resolve(t *testing.T, requestID string) {
 	mustAgentTest(t, err)
 }
 
-// Every member gets the card, but only the member whose message raised it gets a threaded copy; household-
-// level sources thread none.
 func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -131,7 +128,6 @@ func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 		t.Fatalf("spouse's copy must not thread and must name Rina: %+v", spouse[0].Payload)
 	}
 
-	// A bank email has no originating member, though the producer passes a member's chat.
 	bankRequest := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	for _, chat := range []int64{f.chatA, f.chatB} {
 		sends := f.sends(t, bankRequest, chat)
@@ -155,8 +151,6 @@ func TestEnqueueReviewRequestReusesTheOpenProjection(t *testing.T) {
 	}
 }
 
-// A chat holds at most three live review cards; a fourth waits QUEUED and is released when one closes. Expiry
-// retires cards but leaves the review open.
 func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var requests []string
@@ -180,7 +174,6 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 		t.Fatal("closing a card must release the oldest queued card")
 	}
 
-	// Expiry is per copy: Rina's copy is retired and uncounted while Budi's stays live.
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatA, 501, "🟡 Perlu ditinjau"))
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatB, 502, "🟡 Perlu ditinjau"))
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatA)
@@ -221,7 +214,6 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	if retirements(501) != 1 || retirements(502) != 1 {
 		t.Fatal("a second sweep retired the cards again")
 	}
-	// A typed reply to an expired card renews the projection and that copy only; a tap never does.
 	reply := telegramUpdate{}
 	reply.Message.Chat.ID, reply.Message.From.ID, reply.Message.MessageID = f.chatA, f.chatA, 9001
 	reply.Message.ReplyToMessage = &struct {
@@ -397,7 +389,6 @@ func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
 	}
 }
 
-// A second tap (another member's or a double tap) gets the outcome; an expired card is never renewed by a tap.
 func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -520,7 +511,6 @@ func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 	}
 }
 
-// A release never waits for a request another transaction is closing, so close and release cannot deadlock.
 func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var live []string
@@ -558,7 +548,6 @@ func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 	}
 }
 
-// A copy's window starts at first delivery, not at enqueue, and a follow-up does not extend it.
 func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -584,7 +573,6 @@ func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
 	}
 }
 
-// Expiry takes the chat lock before the copy's row, like failure and skip, so they wait in one order.
 func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
@@ -621,7 +609,6 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 	}
 }
 
-// Projections with differing preferred users take chat locks in one order, so they never deadlock.
 func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	for round := 0; round < 10; round++ {
@@ -661,7 +648,6 @@ func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 	}
 }
 
-// A follow-up delivered after its copy expired neither revives it nor takes a slot; only a typed reply renews.
 func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)

@@ -11,10 +11,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// One purchase seen by several lanes stays one canonical transaction with many evidence rows; these pin the
-// document side of every lane order, where the earlier transaction may still be NEEDS_REVIEW.
-
-// seedLaneTransaction inserts the transaction another lane already wrote for the event, with that lane's evidence row.
 func seedLaneTransaction(t *testing.T, fixture receiptFixture, status, evidenceType, merchant string, at time.Time) (string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -80,7 +76,6 @@ func TestReceiptAfterAnotherLaneLinksInsteadOfDuplicating(t *testing.T) {
 func TestReceiptAfterAmbiguousLaneTransactionAsksAndNamesTheCandidate(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Cross-lane ambiguous receipt")
 	ctx := context.Background()
-	// No merchant on the bank row and 30 minutes apart: plausible, not provable.
 	existing, _ := seedLaneTransaction(t, fixture, "NEEDS_REVIEW", "BANK_EMAIL", "", receiptTime().Add(-30*time.Minute))
 	slug := fixture.categorySlug
 	value := receiptExtraction{Merchant: "Alfamart", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
@@ -116,8 +111,6 @@ func TestScreenshotMatcherSeesTransactionsStillInReview(t *testing.T) {
 	}
 }
 
-// A bank email writing the same purchase while the receipt is being decided must not yield two transactions:
-// the receipt write re-checks under the ledger lock and links to the bank transaction.
 func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Cross-lane race")
 	ctx := context.Background()
@@ -149,7 +142,7 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 		value := receiptExtraction{Merchant: "Alfamart", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
 		done <- (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", receiptValidation{TransactionAt: receiptTime(), DateKnown: true}, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}})
 	}()
-	time.Sleep(300 * time.Millisecond) // the receipt has decided "new" and waits on the lock
+	time.Sleep(300 * time.Millisecond)
 	if err := bank.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +158,6 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	}
 }
 
-// The locked re-check runs inside the writing transaction: a screenshot write must complete on a single-
-// connection pool, not wait forever for a second connection.
 func TestScreenshotLedgerRecheckNeedsNoSecondConnection(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Cross-lane single connection")
 	config, err := pgxpool.ParseConfig(os.Getenv("TEST_DATABASE_URL"))

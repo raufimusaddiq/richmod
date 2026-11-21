@@ -1,8 +1,6 @@
 import { actorText, auditActionText, evidenceTypeText } from "./labels.js";
 import { dateTime } from "./format.js";
 
-// The ledger asks the API to hide voided rows unless a status filter is set or ?showVoided=1 is on.
-// `showVoided` is a page switch, never sent to the API.
 export function withVoidedPolicy(search) {
   const query = new URLSearchParams(search);
   const show = query.get("showVoided") === "1";
@@ -13,8 +11,6 @@ export function withVoidedPolicy(search) {
 
 export const hidesVoided = search => { const query = new URLSearchParams(search); return !query.get("status") && query.get("showVoided") !== "1"; };
 
-// Preset ranges of the "Periode" chip. `cycle` is { start, end? } (end exclusive) or null; `today` is a
-// Jakarta YYYY-MM-DD. Presets are derived from dates alone, so the server stays the only calendar.
 const shiftDay = (day, offset) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + offset); return d.toISOString().slice(0, 10); };
 
 export function periodRange(value, { cycle, today }) {
@@ -36,8 +32,6 @@ export function periodValue(search, { cycle, today }) {
 
 const ORIGIN_ACTION = /CREATE|CONFIRM|LINK_/;
 
-// "Asal-usul & bukti": the evidence the transaction rests on and the events that created or confirmed
-// it, oldest first, in plain Indonesian. Every other audit entry goes to the collapsed change history.
 export function originTimeline(evidence = [], audit = []) {
   const origin = [], changes = [];
   for (const item of evidence) origin.push({ key: `e-${item.id}`, kind: "evidence", title: evidenceTypeText(item.evidenceType), detail: `Bukti diterima · ${dateTime(item.receivedAt)}`, at: item.receivedAt });

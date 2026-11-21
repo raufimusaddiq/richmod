@@ -1,19 +1,12 @@
-// Pure helpers for the global "+ Catat" sheet, kept out of the component so
-// they can be unit-tested without a browser.
-
-// Live Indonesian thousands grouping while typing: "60000" -> "60.000".
-// Anything that is not a digit is dropped; leading zeros never survive.
 export function formatRupiahInput(value) {
   const digits = String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
-// "60.000" -> "60000", the whole-IDR string the API expects.
 export function rupiahDigits(value) {
   return String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
 }
 
-// The caret position after reformatting: keep it after the same number of digits.
 export function caretAfterFormat(formatted, digitsBeforeCaret) {
   if (digitsBeforeCaret <= 0) return 0;
   let seen = 0;
@@ -24,14 +17,10 @@ export function caretAfterFormat(formatted, digitsBeforeCaret) {
   return formatted.length;
 }
 
-// Same key the API uses for descriptionMap: lower-case, whitespace collapsed.
 export function normalizeDescription(value) {
   return String(value ?? "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 }
 
-// The category a description suggests. An exact match wins; otherwise the typed
-// text may be the start of a known description (3+ characters). The category must
-// still be active. Returns a category id or "".
 export function suggestCategory(descriptionMap, text, activeIds) {
   const typed = normalizeDescription(text);
   if (!typed || !descriptionMap) return "";
@@ -45,8 +34,6 @@ export function suggestCategory(descriptionMap, text, activeIds) {
   return "";
 }
 
-// The 1-tap chips: the household's recent categories that are still active, then
-// the rest stay behind "Lainnya…". Never more than `limit`.
 export function categoryChips(recentIds, categories, limit = 6) {
   const byId = new Map((categories || []).filter(item => item.active !== false).map(item => [item.id, item]));
   const chips = [];
@@ -57,13 +44,10 @@ export function categoryChips(recentIds, categories, limit = 6) {
   return chips;
 }
 
-// A "Ulangi cepat" chip label.
 export function repeatLabel(item, formatAmount = value => value) {
   return `${item.description} · ${formatAmount(item.amount)}`;
 }
 
-// Only usable entries survive: a suggestion for an inactive category or account
-// has that field cleared, never the whole chip.
 export function sanitizeSuggestions(raw, { categories = [], accounts = [] } = {}) {
   const activeCategories = new Set(categories.filter(item => item.active !== false).map(item => item.id));
   const activeAccounts = new Set(accounts.filter(item => item.active !== false).map(item => item.id));
@@ -79,7 +63,6 @@ export function sanitizeSuggestions(raw, { categories = [], accounts = [] } = {}
   };
 }
 
-// The payload POSTed to /api/v1/transactions from the sheet's form state.
 export function buildQuickPayload(form) {
   const body = { type: form.type, amount: rupiahDigits(form.amount), description: String(form.description || "").trim() };
   if (form.accountId) body.accountId = form.accountId;
@@ -106,7 +89,6 @@ export const QUICK_EVENTS = { open: "richmod:open-quick-record", created: "richm
 
 export const MAX_PHOTOS = 10, MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
-// "" when the picked files are acceptable, else the Indonesian reason.
 export function photoSelectionError(files) {
   const list = [...(files || [])];
   if (!list.length) return "Pilih minimal satu gambar.";
@@ -115,7 +97,6 @@ export function photoSelectionError(files) {
   return "";
 }
 
-// The recent-upload status line. Only FAILED can be retried.
 export function photoStatus(item) {
   if (item?.reprocessing || ["PENDING", "PROCESSING", "RECEIVED"].includes(item?.status)) return { text: "Sedang diproses…", tone: "pending", retry: false };
   if (item?.status === "FAILED") return { text: "Gagal diproses", tone: "failed", retry: true };

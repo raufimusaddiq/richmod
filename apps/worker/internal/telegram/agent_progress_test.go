@@ -25,7 +25,7 @@ func TestProgressNoticeIsSentOnceIfTheTurnIsStillRunning(t *testing.T) {
 func TestProgressNoticeIsNotSentWhenTheTurnFinishesFirst(t *testing.T) {
 	var sent atomic.Int32
 	stop := startProgressNotice(80*time.Millisecond, func(context.Context) error { sent.Add(1); return nil })
-	stop() // the answer arrived before the delay
+	stop()
 	time.Sleep(200 * time.Millisecond)
 	if got := sent.Load(); got != 0 {
 		t.Fatalf("a fast turn must stay silent, got %d notices", got)
@@ -38,7 +38,7 @@ func TestProgressNoticeNeverFollowsTheAnswer(t *testing.T) {
 	release := make(chan struct{})
 	stop := startProgressNotice(10*time.Millisecond, func(context.Context) error {
 		close(started)
-		<-release // a slow insert that is still in flight when the turn ends
+		<-release
 		sent.Add(1)
 		return nil
 	})
@@ -60,7 +60,7 @@ func TestProgressNoticeNeverFollowsTheAnswer(t *testing.T) {
 func TestProgressNoticeSurvivesASendFailure(t *testing.T) {
 	stop := startProgressNotice(10*time.Millisecond, func(context.Context) error { return context.DeadlineExceeded })
 	time.Sleep(60 * time.Millisecond)
-	stop() // a failed notice must not panic or block the turn
+	stop()
 }
 
 func TestProgressNoticeCopyIsPlainAndPointsAtTheAnswer(t *testing.T) {

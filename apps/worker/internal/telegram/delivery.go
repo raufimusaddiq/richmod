@@ -11,8 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Telegram has no idempotency key, so the returned message id is recorded before binding; a retry after a
-// failed bind reuses it instead of sending a second unbound card.
 func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdID string, payload SendPayload) error {
 	messageID, err := p.recordedDelivery(ctx, jobID)
 	if err != nil {
@@ -46,8 +44,6 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 			return err
 		}
 		if err := p.recordDelivery(ctx, jobID, householdID, payload.ChatID, messageID); err != nil {
-			// The message is out but not remembered: strip its buttons (best effort) and stop, since a retry
-			// would send a second card.
 			if payload.ReplyMarkup != nil {
 				if stripErr := bot.EditReplyMarkup(ctx, payload.ChatID, messageID); stripErr != nil {
 					slog.Default().Warn("strip unrecorded Telegram message failed", "job_id", jobID, "error", stripErr)
@@ -74,7 +70,6 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 	return answerLegacyCallback(ctx, bot, payload)
 }
 
-// Answers callback ids on send payloads queued before callbacks were acknowledged at the webhook.
 func answerLegacyCallback(ctx context.Context, bot *Bot, payload SendPayload) error {
 	if payload.CallbackQueryID == "" {
 		return nil
@@ -100,7 +95,6 @@ func (p *Processor) recordedDelivery(ctx context.Context, jobID string) (int64, 
 	return messageID, nil
 }
 
-// Retried in place because a lost record lets a job retry send the card again.
 func (p *Processor) recordDelivery(ctx context.Context, jobID, householdID string, chatID, messageID int64) error {
 	if jobID == "" {
 		return nil
@@ -121,8 +115,6 @@ func (p *Processor) recordDelivery(ctx context.Context, jobID, householdID strin
 	return fmt.Errorf("record Telegram delivery: %w", err)
 }
 
-// A queued edit applies only while the request is active and the copy is neither EXPIRED nor superseded, so
-// an old keyboard never restores buttons retirement removed.
 func (p *Processor) reviewCopyEditable(ctx context.Context, reviewRequestID string, chatID, messageID int64) (bool, error) {
 	var editable bool
 	err := p.pool.QueryRow(ctx, `SELECT r.status IN ('PENDING_SEND','OPEN')
@@ -147,7 +139,6 @@ func (p *Processor) skipReviewDelivery(ctx context.Context, payload SendPayload)
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Lock order: the chat pacing lock comes before any recipient row (migration 00094).
 	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, payload.ChatID); err != nil {
 		return err
 	}
@@ -160,8 +151,6 @@ func (p *Processor) skipReviewDelivery(ctx context.Context, payload SendPayload)
 	return tx.Commit(ctx)
 }
 
-// Runs when a send job fails for good: an undelivered card becomes FAILED and frees its slot.
-// A delivered but unbound card is bound from the recorded message and retired; the item stays open on web.
 func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, jobID string, payload SendPayload, cause error) error {
 	if payload.ReviewRequestID == "" || payload.ChatID == 0 {
 		return nil
@@ -209,8 +198,6 @@ func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, jobID string, payloa
 	return nil
 }
 
-// Closes PENDING copies whose send job no longer exists (pruned, or a final failure step that could not run)
-// so they stop holding a pacing slot.
 func (p *Processor) repairOrphanedReviewCards(ctx context.Context, limit int) (int, error) {
 	rows, err := p.pool.Query(ctx, `SELECT rr.id::text,rr.telegram_chat_id FROM review_request_recipient rr
 		WHERE rr.delivery_status='PENDING' AND rr.telegram_message_id IS NULL
@@ -266,10 +253,7 @@ func (p *Processor) repairOrphanedReviewCards(ctx context.Context, limit int) (i
 	return repaired, nil
 }
 
-// Telegram's "not modified" and unreachable chats are finished; rate limits, 5xx and transport errors retry.
-// A live review card Telegram can no longer edit is re-sent with buttons and bound.
 func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdID string, payload EditPayload) error {
-	// A retry after a re-send only redoes the binding, before any guard can drop the job.
 	if sent, err := p.recordedDelivery(ctx, jobID); err != nil {
 		return err
 	} else if sent != 0 {
@@ -283,7 +267,6 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 		slog.Default().Info("queued Telegram edit dropped: recipient no longer authorized", "job_id", jobID)
 		return nil
 	}
-	// Outcome edits apply only at the card's newest outcome revision.
 	if payload.OutcomeRequestID != "" {
 		return p.ApplyCardOutcomeEdit(ctx, bot, payload)
 	}
@@ -299,8 +282,6 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 	err = bot.Edit(ctx, payload)
 	switch {
 	case err == nil:
-		// A failure to remember the edited text only costs a later retirement its closure note, so it must
-		// not retry the edit.
 		if err := p.RecordReviewCardText(ctx, payload.ChatID, payload.MessageID, payload.Text); err != nil {
 			slog.Default().Warn("record edited Telegram review card text failed", "job_id", jobID, "error", err)
 		}
@@ -322,8 +303,6 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 	return p.DeliverSend(ctx, bot, jobID, householdID, SendPayload{ChatID: payload.ChatID, Text: payload.Text, ReplyMarkup: payload.ReplyMarkup, ReviewRequestID: payload.ReviewRequestID})
 }
 
-// Expiry is per copy: an expired copy loses its buttons and slot; other members' copies keep their windows.
-// The request closes EXPIRED only when no copy is live or waiting; also frees chats stuck by a crash.
 func (p *Processor) SweepReviewProjections(ctx context.Context, limit int) (expired, released int, err error) {
 	due, err := p.collectIDs(ctx, `SELECT rr.id::text FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id
 		WHERE rr.delivery_status='SENT' AND r.status IN ('PENDING_SEND','OPEN') AND COALESCE(rr.card_expires_at,r.expires_at)<=now()

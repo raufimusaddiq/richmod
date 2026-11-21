@@ -1,8 +1,3 @@
-// Cross-lane ledger matching: one real purchase (bank email, receipt, screenshot)
-// stays one canonical transaction with many evidence rows (AGENTS.md, ADR-004).
-// Every lane asks the same deterministic question before writing; a unique strong
-// match is linked as evidence, a weaker plausible one becomes a POSSIBLE_DUPLICATE
-// review, and nothing is deleted.
 package reviewdomain
 
 import (
@@ -17,22 +12,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// LedgerMatchQuery names the canonical event a new source describes.
 type LedgerMatchQuery struct {
-	HouseholdID string
-	Type        string
-	AmountIDR   string
-	At          time.Time
-	Merchant    string
-	// ExcludeSourceID never matches transactions this same source already
-	// evidences (a reprocess is not a duplicate of itself).
-	ExcludeSourceID string
-	// ExcludeEvidenceType skips transactions that already carry evidence of this
-	// type: two bank emails are two bank events, never one.
+	HouseholdID         string
+	Type                string
+	AmountIDR           string
+	At                  time.Time
+	Merchant            string
+	ExcludeSourceID     string
 	ExcludeEvidenceType string
 }
 
-// LedgerMatch is one candidate canonical transaction.
 type LedgerMatch struct {
 	ID            string
 	Status        string
@@ -42,21 +31,14 @@ type LedgerMatch struct {
 	Score         float64
 }
 
-// Match thresholds shared by every lane.
 const (
 	ledgerMatchWindowHours = 72
 	strongMatchScore       = 0.90
 	runnerUpCeiling        = 0.80
 	ledgerMatchLimit       = 10
-	// ledgerMatchScanLimit bounds the rows read for a recurring round amount; reaching
-	// it means the strong match fails closed anyway.
-	ledgerMatchScanLimit = 200
+	ledgerMatchScanLimit   = 200
 )
 
-// FindLedgerMatches returns plausible existing transactions, CONFIRMED or still
-// NEEDS_REVIEW, ordered by closeness in time. A candidate is plausible when its
-// merchant is compatible or it is within an hour; a different merchant days
-// apart is not ambiguity.
 func FindLedgerMatches(ctx context.Context, q rowQueryer, query LedgerMatchQuery) ([]LedgerMatch, error) {
 	rows, err := q.Query(ctx, `SELECT t.id::text,t.status,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600
 		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
@@ -80,26 +62,17 @@ func FindLedgerMatches(ctx context.Context, q rowQueryer, query LedgerMatchQuery
 			continue
 		}
 		match.Score = LedgerMatchScore(match.Hours, match.MerchantMatch)
-		// Return every plausible candidate: a strong match is judged against all of them,
-		// never a time-ordered prefix.
 		out = append(out, match)
 	}
 	return out, rows.Err()
 }
 
-// LockLedgerEvent serializes lanes that may write or link a transaction of this
-// household and IDR amount until the caller's transaction ends, so two lanes cannot
-// both see "no match" and write two transactions.
 func LockLedgerEvent(ctx context.Context, tx pgx.Tx, householdID, amountIDR string) error {
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger-event:'||$1::text||':'||$2::numeric::text,0))`, householdID, amountIDR)
 	return err
 }
 
-// SameLedgerCandidates reports whether a match result taken under the lock is still
-// the one the lane decided on: no new or vanished candidate and no changed score.
-// Any change means the caller must re-run its decision.
 func SameLedgerCandidates(decided map[string]float64, now []LedgerMatch) bool {
-	// Check both directions: a vanished candidate (voided or merged) is a change too.
 	if len(decided) != len(now) {
 		return false
 	}
@@ -112,12 +85,8 @@ func SameLedgerCandidates(decided map[string]float64, now []LedgerMatch) bool {
 	return true
 }
 
-// ErrLedgerRaced reports that another lane changed the candidate set between a
-// lane's decision and its write; the job retries and decides again.
 var ErrLedgerRaced = errors.New("reviewdomain: ledger candidates changed concurrently; retry")
 
-// LedgerMatchScore is the shared deterministic score (amount and type already
-// equal): closeness in time plus merchant compatibility.
 func LedgerMatchScore(hours float64, merchantMatch bool) float64 {
 	score := 0.45
 	switch {
@@ -134,13 +103,8 @@ func LedgerMatchScore(hours float64, merchantMatch bool) float64 {
 	return math.Round(score*100) / 100
 }
 
-// StrongLedgerMatch returns the single candidate that is safe to link without
-// asking: a compatible merchant within a day, and no runner-up above 0.80.
-// Otherwise it returns nil and the caller asks (POSSIBLE_DUPLICATE) when any
-// candidate exists.
 func StrongLedgerMatch(matches []LedgerMatch) *LedgerMatch {
 	if len(matches) > ledgerMatchLimit {
-		// Too many plausible events to call any one of them the same purchase.
 		return nil
 	}
 	var strong *LedgerMatch
@@ -163,7 +127,6 @@ func StrongLedgerMatch(matches []LedgerMatch) *LedgerMatch {
 	return strong
 }
 
-// NormalizeMerchant folds a merchant name to lower-case letter/digit tokens.
 func NormalizeMerchant(value string) string {
 	return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -173,11 +136,6 @@ func NormalizeMerchant(value string) string {
 	}, value)), " ")
 }
 
-// CompatibleMerchant reports whether two observed merchant names describe the
-// same merchant: equal after folding, or every token of the shorter name (at
-// least five letters in total) appears in the longer one, as a bank descriptor
-// such as "QRIS ALFAMART SUDIRMAN" does for a receipt's "Alfamart". An empty
-// name is never compatible.
 func CompatibleMerchant(left, right string) bool {
 	a, b := NormalizeMerchant(left), NormalizeMerchant(right)
 	if a == "" || b == "" {
@@ -205,9 +163,6 @@ func CompatibleMerchant(left, right string) bool {
 	return true
 }
 
-// EvidenceEnrichment carries the facts a newly linked source adds to an
-// existing transaction. Only facts the transaction does not have yet are
-// written; an existing fact is never overwritten by a later source.
 type EvidenceEnrichment struct {
 	MerchantName string
 	AccountID    string
@@ -215,10 +170,6 @@ type EvidenceEnrichment struct {
 	Counterparty string
 }
 
-// EnrichLinkedTransaction fills facts the existing transaction is missing from
-// newly linked evidence, and keeps an open review's decision in step so it does
-// not keep asking for a fact the evidence now supplies. It returns the fields it
-// filled, for the caller's audit row.
 func EnrichLinkedTransaction(ctx context.Context, tx pgx.Tx, householdID, transactionID string, facts EvidenceEnrichment) ([]string, error) {
 	var filled []string
 	if name := strings.TrimSpace(facts.MerchantName); name != "" {
@@ -251,7 +202,6 @@ func EnrichLinkedTransaction(ctx context.Context, tx pgx.Tx, householdID, transa
 		if column.name == "account_id" {
 			cast = "::uuid"
 		}
-		// column.name is one of the fixed names above, never input.
 		result, err := tx.Exec(ctx, `UPDATE transaction SET `+column.name+`=$3`+cast+`,updated_at=now() WHERE id=$1 AND household_id=$2 AND `+column.name+` IS NULL`, transactionID, householdID, value)
 		if err != nil {
 			return nil, err

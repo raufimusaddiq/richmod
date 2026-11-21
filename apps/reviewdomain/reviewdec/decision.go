@@ -1,11 +1,3 @@
-// Package reviewdec holds the canonical ReviewDecision contract: the structured,
-// bounded explanation of why a review exists. It is a plain value with JSON tags
-// (stored in the review_item jsonb column) so every review-creating path fills the
-// same fields without a new table or migration per source.
-//
-// It carries no canonical IDs to the model and performs no mutation; it records what
-// Go already decided so the Review Inbox can render the proposal, the missing fact,
-// and the reason.
 package reviewdec
 
 import (
@@ -13,11 +5,8 @@ import (
 	"errors"
 )
 
-// Version is the contract revision stored on every decision. Bump it when the
-// meaning of a field changes, not when a new optional field is added.
 const Version = 1
 
-// Decision classes.
 const (
 	ClassEvidenceGap            = "EVIDENCE_GAP"
 	ClassEvidenceConflict       = "EVIDENCE_CONFLICT"
@@ -26,8 +15,6 @@ const (
 	ClassCorrectionConfirmation = "CORRECTION_CONFIRMATION"
 )
 
-// Consequence names what a validator actually found, independently of which
-// source produced it. It never grants canonical mutation authority.
 type Consequence string
 
 const (
@@ -40,8 +27,6 @@ const (
 	CanonicalAmbiguity          Consequence = "CANONICAL_AMBIGUITY"
 )
 
-// Interaction modes. Generic FORM is intentionally absent so it
-// cannot become the default by accident.
 const (
 	ModeOneTapConfirmation = "ONE_TAP_CONFIRMATION"
 	ModeBoundedChoice      = "BOUNDED_CHOICE"
@@ -50,7 +35,6 @@ const (
 	ModePolicyChoice       = "POLICY_CHOICE"
 )
 
-// Decision sources.
 const (
 	SourceDeterministic        = "DETERMINISTIC"
 	SourceJev                  = "JEV"
@@ -60,30 +44,21 @@ const (
 	SourceUserPolicy           = "USER_POLICY"
 )
 
-// Subject identifies the canonical thing the review concerns. Type is a stable
-// discriminator such as "source_event"; ID is a canonical UUID that stays on the
-// server and is never handed to a model as a choice.
 type Subject struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 }
 
-// Choice is one server-owned bounded option. Key is what Go maps back to a
-// canonical value; Label is what the user reads.
 type Choice struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 }
 
-// EvidenceRef names where a fact came from without storing the payload.
 type EvidenceRef struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id,omitempty"`
 }
 
-// Decision is the stored contract. Facts use json.RawMessage so callers can put their
-// own bounded shape in known/proposed/conflicting. Missing and Conflicting stay
-// separate from Known so a UI can request only the unresolved dimensions.
 type Decision struct {
 	Version         int                        `json:"version"`
 	Subject         Subject                    `json:"subject"`
@@ -106,16 +81,11 @@ type Decision struct {
 	InteractionMode string                     `json:"interactionMode"`
 }
 
-// EvidenceValue is one supported value plus the evidence that supports it, used
-// when two pieces of evidence disagree.
 type EvidenceValue struct {
 	Value    string `json:"value"`
 	Evidence string `json:"evidence"`
 }
 
-// Validate enforces the minimum stored contract: every review states why it exists
-// (ReasonCode) and what the household may do (AllowedActions). The review_item
-// trigger from migration 00078 enforces the same rule in the database.
 func (d Decision) Validate() error {
 	if d.ReasonCode == "" {
 		return errors.New("review decision: reasonCode is required")
@@ -126,9 +96,6 @@ func (d Decision) Validate() error {
 	return nil
 }
 
-// JSON marshals the decision for review_item.decision. MissingFacts and KnownFacts
-// are normalized to non-nil so the stored shape always has the keys the UI reads. A
-// decision that fails Validate is never encoded.
 func (d Decision) JSON() ([]byte, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err

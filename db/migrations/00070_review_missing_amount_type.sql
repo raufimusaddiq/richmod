@@ -1,7 +1,4 @@
 -- +goose Up
--- SAVR-03: a screenshot row may genuinely have no visible amount. The
--- extraction represents that as null, and the row reaches review instead of
--- being coerced to a sentinel "0". The review reason names only that residual.
 ALTER TABLE transaction_proposal ALTER COLUMN amount DROP NOT NULL;
 ALTER TABLE transaction_proposal ADD CONSTRAINT transaction_proposal_missing_amount_check
     CHECK (amount IS NOT NULL OR proposal_status IN ('NEEDS_REVIEW','REJECTED'));

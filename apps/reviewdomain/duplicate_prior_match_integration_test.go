@@ -11,9 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// A reprocessed screenshot names the transaction it was already linked to in
-// the review decision; merging into it must work even after amount and date
-// drifted out of the usual duplicate rules, and only for that carried target.
 func TestMergeDuplicateAcceptsCarriedPriorMatchOutsideAmountAndWindow(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

@@ -1,6 +1,3 @@
-// Financial email entity resolution. The Review Inbox supplies only the still-unresolved
-// entities; this operation owns the merge, validation, alias learning, and replay
-// enqueue so the rules cannot drift per channel.
 package reviewdomain
 
 import (
@@ -17,61 +14,37 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// FinancialEmailCommand carries one entity resolution for a financial email
-// observation. Empty entity values mean "not supplied this turn"; already
-// resolved entities are reloaded from persisted state.
 type FinancialEmailCommand struct {
-	HouseholdID   string
-	ObservationID string
-	ReviewItemID  string
-	Ignore        bool
-	AllowPartial  bool
-	// ObservationScope is the household-scoped observation update; it is not
-	// optional because a resolution without a bound observation is refused.
+	HouseholdID     string
+	ObservationID   string
+	ReviewItemID    string
+	Ignore          bool
+	AllowPartial    bool
 	AccountID       string
 	WealthAccountID string
-	// AccountHint and ProviderHint are the raw hints to learn as aliases.
-	AccountHint  string
-	ProviderHint string
-	// SourceEventID is the email source to requeue once the entities resolve.
-	SourceEventID string
-	ActorUserID   string
-	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
-	// the chat lanes); empty defaults to USER.
-	ActorType string
+	AccountHint     string
+	ProviderHint    string
+	SourceEventID   string
+	ActorUserID     string
+	ActorType       string
 }
 
-// FinancialEmailResult reports the resolved entity binding so each surface can
-// record its own audit and response shape.
 type FinancialEmailResult struct {
-	Complete bool
-	// ObservationID is the canonical observation the resolution applied to.
+	Complete        bool
 	ObservationID   string
 	AccountID       string
 	WealthAccountID string
-	// HumanSupplied lists the entities supplied by this request, which callers
-	// use for RHICE attribution. Client telemetry claims are never trusted.
-	HumanSupplied []string
-	// Values is the canonical resolution payload stored on the review item.
-	Values []byte
+	HumanSupplied   []string
+	Values          []byte
 }
 
 var (
-	// ErrFinancialObservationUnavailable reports a missing or non-review observation.
 	ErrFinancialObservationUnavailable = errors.New("reviewdomain: financial observation is unavailable")
-	// ErrFundingAccountRequired reports a resolution that leaves the funding account blank.
-	ErrFundingAccountRequired = errors.New("reviewdomain: the unresolved funding account is required")
-	// ErrProviderAccountRequired reports a resolution that leaves the Wealth Account blank.
-	ErrProviderAccountRequired = errors.New("reviewdomain: the unresolved Wealth Account is required")
-	// ErrAccountInvalid reports an inactive or foreign funding account.
-	ErrAccountInvalid = errors.New("reviewdomain: account must be active and belong to this household")
+	ErrFundingAccountRequired          = errors.New("reviewdomain: the unresolved funding account is required")
+	ErrProviderAccountRequired         = errors.New("reviewdomain: the unresolved Wealth Account is required")
+	ErrAccountInvalid                  = errors.New("reviewdomain: account must be active and belong to this household")
 )
 
-// ResolveFinancialEmailEntities merges the supplied entities with those already
-// persisted on the observation, validates them against the household, stores them,
-// learns aliases for newly resolved ones, and returns the canonical binding. It
-// neither completes the review item nor enqueues replay; those stay the caller's
-// terminal steps.
 func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd FinancialEmailCommand) (FinancialEmailResult, error) {
 	var result FinancialEmailResult
 	var observationID, fundingHint, providerHint, knownAccount, knownWealth string
@@ -82,9 +55,6 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if err != nil {
 		return result, err
 	}
-	// The request supplies only unresolved entities; resolved ones are reloaded from
-	// persisted state. A still-unresolved entity must be supplied: a partial resolution
-	// would write a half-bound observation.
 	accountID, wealthAccountID := strings.TrimSpace(cmd.AccountID), strings.TrimSpace(cmd.WealthAccountID)
 	if knownAccount == "" && accountID == "" && !cmd.AllowPartial {
 		return result, ErrFundingAccountRequired
@@ -121,8 +91,6 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status=CASE WHEN $4::boolean THEN 'PENDING' ELSE 'REVIEW' END,updated_at=now() WHERE id=$1 AND household_id=$5`, observationID, accountID, wealthAccountID, result.Complete, cmd.HouseholdID); err != nil {
 		return result, err
 	}
-	// An already-known entity keeps its existing alias; re-learning would let a partial
-	// resolution rewrite an established mapping.
 	if err := LearnEntityAliasIfNew(ctx, tx, cmd.HouseholdID, "ACCOUNT", accountID, fundingHint, knownAccount); err != nil {
 		return result, err
 	}
@@ -142,8 +110,6 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	return result, nil
 }
 
-// ResolveFinancialEmailReview owns partial/terminal entity binding and ignore.
-// All surfaces pass a household-scoped review ID and authenticated actor.
 func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEmailCommand) (FinancialEmailResult, error) {
 	var result FinancialEmailResult
 	var sourceID string
@@ -166,8 +132,6 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 			return result, err
 		}
 		if !result.Complete {
-			// The next Telegram chooser reads the current ReviewDecision; name only
-			// the still-unresolved dimension after persisting this partial pick.
 			_, err = tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{missingFacts}',CASE WHEN $2::text='' THEN '["funding_account"]'::jsonb ELSE '["wealth_account"]'::jsonb END),updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ReviewItemID, result.AccountID, cmd.HouseholdID)
 			return result, err
 		}
@@ -189,7 +153,6 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
 		return result, err
 	}
-	// Record the resolving surface on the canonical review item.
 	actorType := cmd.ActorType
 	if actorType == "" {
 		actorType = "USER"
@@ -200,7 +163,6 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 	if cmd.Ignore {
 		if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='RESOLVED',updated_at=now() WHERE financial_email_observation_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, cmd.ObservationID, cmd.HouseholdID); err == nil {
 			if _, err = tx.Exec(ctx, `UPDATE source_event SET parser_name='financial-email-reconciliation',parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err == nil {
-				// ADR-046: the settled status is derived by the one lifecycle rule.
 				err = MarkSourceIgnored(ctx, tx, cmd.HouseholdID, sourceID)
 			}
 		}
@@ -212,7 +174,6 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 	return result, err
 }
 
-// ValidateFinancialFundingAccount checks a partial choice before it is persisted.
 func ValidateFinancialFundingAccount(ctx context.Context, tx pgx.Tx, householdID, accountID string) error {
 	var valid bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, accountID, householdID).Scan(&valid); err != nil {
@@ -224,8 +185,6 @@ func ValidateFinancialFundingAccount(ctx context.Context, tx pgx.Tx, householdID
 	return nil
 }
 
-// invalidEntityIDError keeps malformed identifier input a client error: an
-// unparseable UUID reaches Postgres as a 22P02 error, which callers map to 400.
 func invalidEntityIDError(err, invalid error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
@@ -234,9 +193,6 @@ func invalidEntityIDError(err, invalid error) error {
 	return err
 }
 
-// LearnEntityAlias records the alias a user supplied for an entity, refusing to
-// overwrite an alias the household set itself: an explicit user choice outranks
-// an inferred one. entityType is ACCOUNT or WEALTH_ACCOUNT.
 func LearnEntityAlias(ctx context.Context, tx pgx.Tx, householdID, entityType, entityID, alias string) error {
 	normalized := normalizeAlias(alias)
 	if normalized == "" {
@@ -250,11 +206,7 @@ func LearnEntityAlias(ctx context.Context, tx pgx.Tx, householdID, entityType, e
 	return err
 }
 
-// LearnEntityAliasIfNew learns an alias only when the entity was not already
-// known before this request. An empty known entity means the alias is new.
 func LearnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, householdID, entityType, entityID, alias, known string) error {
-	// A partial turn leaves the other entity unbound; an empty id must not reach
-	// the alias insert as ''::uuid.
 	if strings.TrimSpace(entityID) == "" {
 		return nil
 	}
@@ -264,8 +216,6 @@ func LearnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, householdID, entityTy
 	return LearnEntityAlias(ctx, tx, householdID, entityType, entityID, alias)
 }
 
-// normalizeAlias folds an alias into its stored comparable form: NFKC, lower case,
-// letters and digits only, single-spaced. Every surface stores this one key.
 func normalizeAlias(value string) string {
 	var b strings.Builder
 	space := false

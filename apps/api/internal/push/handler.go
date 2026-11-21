@@ -14,16 +14,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/pushsupport"
 )
 
-// Handler owns the caller-scoped subscription API. The public key is injected
-// once at startup; an empty key means push is disabled, not an error.
 type Handler struct {
 	pool      *pgxpool.Pool
 	publicKey string
 }
 
-// NewHandler derives the advertised key through the same Parse predicate the
-// worker's sender uses. A private key without a valid subject is disabled, so
-// the client is never told push is on when delivery cannot start.
 func NewHandler(pool *pgxpool.Pool, privateKey, subject string) *Handler {
 	handler := &Handler{pool: pool}
 	if config, err := pushsupport.Parse(privateKey, subject); err == nil {
@@ -32,8 +27,6 @@ func NewHandler(pool *pgxpool.Pool, privateKey, subject string) *Handler {
 	return handler
 }
 
-// PublicKey is unauthenticated by design: browsers need it before subscribing
-// and it is not a secret.
 func (h *Handler) PublicKey(w http.ResponseWriter, _ *http.Request) {
 	if h.publicKey == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
@@ -47,12 +40,6 @@ type subscriptionView struct {
 	Active   bool   `json:"active"`
 }
 
-// List returns the caller's own subscriptions in the caller's household,
-// including retired rows. With ?endpoint= it answers for exactly that endpoint
-// (live or retired) and nothing else, so the client never infers from a list
-// that may be truncated. Without it, the list is paginated with a visible
-// nextOffset. Both forms use the same (user, household) predicate as the
-// sender; an endpoint owned by another user is indistinguishable from absent.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !principal.HasHousehold || principal.UserID == "" || principal.HouseholdID == "" {
@@ -117,8 +104,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"subscriptions": items, "nextOffset": nextOffset})
 }
 
-// pagination parses an optional bounded integer. An empty value returns the
-// default; a value outside [minimum, maximum] is invalid.
 func pagination(raw string, fallback, minimum, maximum int) (int, bool) {
 	if raw == "" {
 		return fallback, false
@@ -157,16 +142,12 @@ func (h *Handler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	id, err := pushsupport.UpsertSubscription(r.Context(), h.pool, principal.UserID, principal.HouseholdID, endpoint,
 		strings.TrimSpace(request.Keys.P256DH), strings.TrimSpace(request.Keys.Auth), truncate(r.UserAgent(), 500))
 	if errors.Is(err, pgx.ErrNoRows) {
-		// No row means either the caller is not an active member or the endpoint
-		// already belongs to another user. Never reveal which.
 		var member bool
 		if checkErr := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM household_member WHERE user_id=$1 AND household_id=$2 AND active)`, principal.UserID, principal.HouseholdID).Scan(&member); checkErr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to save subscription"})
 			return
 		}
 		if member {
-			// The endpoint exists for another user. Never transfer ownership;
-			// the client replaces its browser subscription instead.
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "subscription already registered", "code": "ENDPOINT_OWNED_BY_ANOTHER_USER"})
 			return
 		}
@@ -184,8 +165,6 @@ type endpointRequest struct {
 	Endpoint string `json:"endpoint"`
 }
 
-// Unsubscribe disables only the caller's own row. The row is retained as
-// evidence of the device that used to receive notifications.
 func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || principal.UserID == "" {
@@ -204,8 +183,6 @@ func (h *Handler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Heartbeat records that the device still holds this subscription. It is
-// caller-scoped and optional for clients.
 func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || principal.UserID == "" {

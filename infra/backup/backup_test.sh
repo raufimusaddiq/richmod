@@ -1,6 +1,4 @@
 #!/bin/sh
-# Verifies backup.sh only runs `restic init` for a missing repository and
-# surfaces every other restic failure instead of masking it.
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -58,8 +56,6 @@ grep -q "i/o timeout" "$work/out" || fail "real restic error must be shown"
 
 grep -qx unlock "$work/log" || fail "stale locks should be cleared before the repository check"
 
-# Retention only works when consecutive runs land in the same forget group and
-# can find a parent: host and backed-up paths must be identical across runs.
 run existing || fail "first run should back up"
 grep '^backup ' "$work/log.args" > "$work/first"
 run existing || fail "second run should back up"
@@ -68,7 +64,6 @@ cmp -s "$work/first" "$work/second" || fail "consecutive backups must use the sa
 grep -q -- '--host family-finance' "$work/first" || fail "backup must pin its host"
 grep '^forget ' "$work/log.args" | grep -q -- '--group-by tags' || fail "forget must group by tags"
 
-# A second run while one holds the lock must refuse, not clear the staged dump.
 flock "$work/tmp/family-finance-backup.lock" sleep 3 &
 holder=$!
 sleep 1
@@ -76,10 +71,8 @@ echo keep > "$work/tmp/family-finance-backup/database.dump"
 if run existing; then fail "a concurrent run must refuse"; fi
 grep -q "holds" "$work/out" || fail "concurrent refusal must name the lock"
 [ -s "$work/tmp/family-finance-backup/database.dump" ] || fail "a refused run must not clear the running run's dump"
-# Let the holder release on its own: killing flock would leave sleep holding it.
 wait "$holder"
 
-# Only the script's own files are cleared, and a symlinked staging path is refused.
 run existing || fail "run after lock release should back up"
 echo other > "$work/tmp/family-finance-backup/unrelated"
 run existing || fail "run with a foreign file should back up"

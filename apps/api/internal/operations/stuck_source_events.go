@@ -7,12 +7,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// StuckSourceEventsSQL finds source events the ledger shows as NEEDS_REVIEW
-// that no surface can resolve: none of the active review items (OPEN or
-// PENDING_SEND) reachable from the event points back at it, directly or through
-// its active-evidence transactions, proposals, document (including album pages), wealth observation or provider-email
-// observations. $1 optionally narrows to one household (NULL scans all).
-// docs/runbooks/stuck-source-events.md quotes this text; a test keeps them equal.
 const StuckSourceEventsSQL = `SELECT se.id, se.household_id, se.source_type, se.received_at,
   EXISTS (SELECT 1 FROM review_item ri WHERE ri.household_id = se.household_id
           AND ri.status IN ('RESOLVED','CANCELLED','EXPIRED') AND ri.source_event_id = se.id) AS had_source_review,
@@ -41,7 +35,6 @@ WHERE se.processing_status = 'NEEDS_REVIEW'
         OR ri.financial_email_observation_id IN (SELECT f.id FROM financial_email_observation f WHERE f.source_event_id = se.id)))
 ORDER BY se.received_at, se.id`
 
-// StuckSourceEvent is one source event with no reachable active review item.
 type StuckSourceEvent struct {
 	SourceEventID           string    `json:"sourceEventId"`
 	HouseholdID             string    `json:"householdId"`
@@ -53,8 +46,6 @@ type StuckSourceEvent struct {
 	HasDocument             bool      `json:"hasDocument"`
 }
 
-// StuckSourceEvents runs StuckSourceEventsSQL. An empty householdID scans every
-// household, which is the operator view; it never mutates anything.
 func StuckSourceEvents(ctx context.Context, pool *pgxpool.Pool, householdID string) ([]StuckSourceEvent, error) {
 	var scope *string
 	if householdID != "" {

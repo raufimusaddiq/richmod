@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// Every structured issue the three validators emit must map to a repairable top-level field, or the repair
-// helper fails closed to Review.
 func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	received := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
 	receiptIssues := []string{
@@ -59,7 +57,6 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 			}
 		}
 	}
-	// Validate malformed samples, then assert every emitted {field,code} is repairable or explicitly no-repair.
 	receipt := receiptExtraction{Currency: "USD", Total: "1.2", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: -1, Items: []receiptItem{{Name: "", Amount: "x"}}, TransactionAt: ptr("not-a-date")}
 	_, receiptActual := validateReceiptIssues(receipt, received)
 	assertIssueCoverage(t, "RECEIPT", receiptActual, "receipt")

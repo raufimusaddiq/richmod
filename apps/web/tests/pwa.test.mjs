@@ -7,9 +7,6 @@ import { splashDevices } from "../scripts/splash-devices.mjs";
 const file = path => new URL(`../${path}`, import.meta.url);
 const manifest = JSON.parse(readFileSync(file("public/manifest.webmanifest"), "utf8"));
 
-// Minimal PNG reader for the committed icons: 8-bit RGB/RGBA, non-interlaced,
-// which is what scripts/build-icons.mjs emits. Decoding pixels lets the safe
-// zone be checked instead of trusted.
 function decodePng(buffer) {
   assert.deepEqual([...buffer.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], "PNG signature");
   let offset = 8;
@@ -60,8 +57,6 @@ function decodePng(buffer) {
 test("manifest is installable on iOS Safari and Android Chrome", () => {
   assert.equal(manifest.name, "Richmod — Keuangan keluarga");
   assert.equal(manifest.short_name, "Richmod");
-  // An installed app opens on the login form; a signed-in visitor is redirected
-  // to the dashboard by app/login/page.js.
   assert.equal(manifest.start_url, "/login");
   assert.equal(manifest.scope, "/");
   assert.equal(manifest.display, "standalone");
@@ -109,8 +104,6 @@ test("maskable icon keeps its mark inside the 80% safe circle", () => {
   assert.ok(corner < 100, "maskable icon is full-bleed, not transparent at the corners");
 });
 
-// The launch images are what iOS paints before the first request; a file whose
-// pixels do not match the media query that points at it is silently ignored.
 test("every iOS launch image is a real PNG of the size its media query claims", () => {
   assert.equal(splashDevices.length, 12);
   for (const device of splashDevices) {
@@ -126,8 +119,6 @@ test("every iOS launch image is a real PNG of the size its media query claims", 
 });
 
 test("built export ships the worker and the manifest", { skip: !existsSync(file("out/sw.js")) }, () => {
-  // The worker is a static public file now: no build stamp, no cache, nothing
-  // that can drift from the page.
   assert.equal(readFileSync(file("out/sw.js"), "utf8"), readFileSync(file("public/sw.js"), "utf8"));
   assert.equal(readFileSync(file("out/manifest.webmanifest"), "utf8"), readFileSync(file("public/manifest.webmanifest"), "utf8"));
   for (const device of splashDevices) assert.ok(existsSync(file(`out/splash/${device.file}`)), `${device.file} is exported`);

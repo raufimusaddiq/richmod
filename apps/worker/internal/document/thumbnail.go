@@ -7,10 +7,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/imagethumb"
 )
 
-// ensureThumbnail writes <storage_ref>.thumb.jpg beside the original so the
-// first grid view never waits on a resize. Best effort and idempotent: an
-// existing thumbnail is kept, and a decode or storage failure is logged only,
-// never returned, so it cannot fail or retry the document job.
 func (p *Processor) ensureThumbnail(ctx context.Context, storageRef string, raw []byte) {
 	if p.storage == nil {
 		return
@@ -29,9 +25,6 @@ func (p *Processor) ensureThumbnail(ctx context.Context, storageRef string, raw 
 	}
 }
 
-// BackfillThumbnails writes the missing thumbnails of one household's
-// documents; an empty householdID covers every household. Reads are
-// household-scoped and re-running it is safe: existing thumbnails are kept.
 func (p *Processor) BackfillThumbnails(ctx context.Context, householdID string) error {
 	households := []string{householdID}
 	if householdID == "" {

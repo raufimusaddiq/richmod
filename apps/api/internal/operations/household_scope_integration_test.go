@@ -12,8 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestStatusCountsOnlyTheOwnersHouseholdJobs: one household's failed and queued
-// jobs must neither appear in nor degrade another household's status.
 func TestStatusCountsOnlyTheOwnersHouseholdJobs(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()

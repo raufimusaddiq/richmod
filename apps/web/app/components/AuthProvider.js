@@ -4,8 +4,6 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 const AuthContext = createContext({ user: null, loaded: false });
 
-// A network blip or a 5xx says nothing about the session. Only a 401 means
-// "signed out"; anything else keeps whatever we knew and retries.
 const retryDelay = attempt => Math.min(30000, 2000 * 2 ** attempt);
 
 export default function AuthProvider({ children }) {
@@ -40,7 +38,6 @@ export default function AuthProvider({ children }) {
     };
   }, [attempt]);
 
-  // Never leave a page on a silent "Memuat…": say the session cannot be checked.
   if (unavailable && !loaded) {
     return (
       <main className="loading" role="alert">

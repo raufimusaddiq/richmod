@@ -80,7 +80,6 @@ func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
 	t.Fatal("resolve_review missing")
 }
 
-// The model supplies only arbitrary facts; the canonical purpose is Go-owned and must not appear in the tool contract.
 func TestRecordTransferContractCarriesNoPurpose(t *testing.T) {
 	internal := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", DateReference: "TODAY"}
 	if err := validateTypedArgs(&internal); err != nil {

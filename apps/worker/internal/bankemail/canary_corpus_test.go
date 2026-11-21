@@ -10,8 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Semantic canary corpus: runs the real provider on bounded email shapes, since prompt-text tests miss drift.
-// Opt-in (spends live credits): set RICHMOD_SEMANTIC_CANARY=1; see docs/runbooks/production-deployment.md.
 type canaryCase struct {
 	name  string
 	body  string
@@ -54,7 +52,6 @@ var canaryCases = []canaryCase{
 			"Berlaku sampai 30 September 2026. Syarat dan ketentuan berlaku.\n" +
 			"Pakai kode: HEMAT50.",
 		shape: func(t *testing.T, got Extraction) {
-			// A promo is not a transaction, and a nil-amount transaction would park a review for a non-event.
 			if got.Kind == "TRANSACTION" {
 				t.Fatalf("promo email was read as a transaction: %+v", got)
 			}
@@ -66,7 +63,6 @@ var canaryCases = []canaryCase{
 			"Transaksi terbesar: Rp 750.000\nSaldo akhir bulan: Rp 12.400.000\n" +
 			"Ini bukan bukti transaksi tunggal.",
 		shape: func(t *testing.T, got Extraction) {
-			// A statement summarising many transactions is not itself one.
 			if got.Kind == "TRANSACTION" {
 				t.Fatalf("monthly statement was read as a single transaction: %+v", got)
 			}
@@ -77,7 +73,6 @@ var canaryCases = []canaryCase{
 		body: "Transaksi Berhasil\nMerchant: Bengkel Jaya\nEstimasi: Rp 250.000\nTotal pembayaran: Rp 265.000\nWaktu: 28-08-2026 11:00:00\n" +
 			"Total sudah termasuk biaya layanan.",
 		shape: func(t *testing.T, got Extraction) {
-			// Either amount is defensible; an invented figure appearing nowhere in the email is not.
 			if got.Kind != "TRANSACTION" {
 				t.Fatalf("a completed payment notice must read as a transaction: %+v", got)
 			}
@@ -94,8 +89,6 @@ var canaryCases = []canaryCase{
 		body: "Transaksi Berhasil\nJenis: Pembelian Reksa Dana\nProduk: Reksa Dana Pasar Uang\nNominal: Rp 3.000.000\nWaktu: 28-08-2026 10:00:00\n" +
 			"Dana dipotong dari RDN kamu.",
 		shape: func(t *testing.T, got Extraction) {
-			// SPENDING_ONLY: an investment/internal move is not a household expense; deterministic policy
-			// owns that call.
 			if got.Kind == "TRANSACTION" {
 				if verdict := bankPolicyVerdict(got); verdict.Type != "IGNORE" {
 					t.Fatalf("internal investment move reached the ledger as %s: %+v", verdict.Type, got)
@@ -109,8 +102,6 @@ var canaryCases = []canaryCase{
 			"Referensi: 2026082808301234\n" +
 			"Saldo kamu bertambah.",
 		shape: func(t *testing.T, got Extraction) {
-			// SPENDING_ONLY: incoming money is not household income whatever direction the model reports.
-			// The email has a timestamp and reference so it cannot pass by parking for missing facts.
 			if got.Kind == "TRANSACTION" {
 				if verdict := bankPolicyVerdict(got); verdict.Type != "IGNORE" {
 					t.Fatalf("incoming credit reached the ledger as %s: %+v", verdict.Type, got)
@@ -171,7 +162,6 @@ func wantTransaction(t *testing.T, got Extraction, amount string) {
 	if got.Direction == nil || *got.Direction != "OUTGOING" {
 		t.Fatalf("expected direction OUTGOING, got %s", ptrText(got.Direction))
 	}
-	// Channel may differ for a card payment: both card channels describe the same real event.
 	if got.Channel == nil {
 		t.Fatal("expected a channel, got none")
 	}
@@ -180,7 +170,6 @@ func wantTransaction(t *testing.T, got Extraction, amount string) {
 	}
 }
 
-// assertMerchantNotFabricated: a footer quoting a support phone number must not become the merchant.
 func assertMerchantNotFabricated(t *testing.T, got Extraction, forbidden ...string) {
 	t.Helper()
 	if got.Merchant == nil {
@@ -193,8 +182,6 @@ func assertMerchantNotFabricated(t *testing.T, got Extraction, forbidden ...stri
 	}
 }
 
-// bankPolicyVerdict runs the deterministic SPENDING_ONLY policy so the corpus checks the model and the Go
-// boundary together.
 func bankPolicyVerdict(got Extraction) PolicyResult {
 	return EvaluateBankEmail(Listener{TrackingPolicy: "SPENDING_ONLY"}, got, nil)
 }

@@ -12,8 +12,6 @@ import (
 
 var errEndpointBlocked = errors.New("endpoint is not allowed")
 
-// checkEndpoint pins HTTPS and pre-resolves the host; the dialer rechecks the connected address so a later
-// DNS change cannot reach a private service.
 func checkEndpoint(ctx context.Context, endpoint string) error {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
@@ -23,7 +21,6 @@ func checkEndpoint(ctx context.Context, endpoint string) error {
 	return err
 }
 
-// guardedDialContext rejects blocked answers and dials the already-checked IP instead of re-resolving.
 func guardedDialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
@@ -87,15 +84,15 @@ func blockedAddress(address netip.Addr) bool {
 	}
 	value := address.As4()
 	switch {
-	case value[0] == 0: // "this network" 0.0.0.0/8
+	case value[0] == 0:
 		return true
-	case value[0] == 100 && value[1] >= 64 && value[1] <= 127: // CGNAT 100.64.0.0/10
+	case value[0] == 100 && value[1] >= 64 && value[1] <= 127:
 		return true
-	case value[0] == 192 && value[1] == 0 && value[2] == 0: // IETF protocol assignments
+	case value[0] == 192 && value[1] == 0 && value[2] == 0:
 		return true
-	case value[0] == 198 && (value[1] == 18 || value[1] == 19): // benchmarking 198.18.0.0/15
+	case value[0] == 198 && (value[1] == 18 || value[1] == 19):
 		return true
-	case value[0] >= 240: // reserved, including broadcast
+	case value[0] >= 240:
 		return true
 	default:
 		return false

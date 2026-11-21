@@ -49,7 +49,7 @@ func TestSweepFailedSourcesAddsOneItemPerStuckSource(t *testing.T) {
 		}
 		return n
 	}
-	for run := 0; run < 2; run++ { // second run proves idempotence
+	for run := 0; run < 2; run++ {
 		if _, err := SweepFailedSources(ctx, pool, 1000); err != nil {
 			t.Fatal(err)
 		}

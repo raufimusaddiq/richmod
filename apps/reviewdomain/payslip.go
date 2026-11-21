@@ -25,8 +25,6 @@ type PayslipResult struct {
 	Choice        string
 }
 
-// FinalizePayslip records the same transaction, evidence, salary event and
-// cycle effect for an autonomous slip and a household-resolved slip.
 type PayslipFinalization struct {
 	HouseholdID, UserID, ProposalID, SourceEventID, DocumentID, Choice string
 	Auto                                                               bool
@@ -52,7 +50,6 @@ func FinalizePayslip(ctx context.Context, tx pgx.Tx, cmd PayslipFinalization) (P
 	if status != "NEEDS_REVIEW" || proposedType != "INCOME" || currency != "IDR" || employer == "" || period == "" || at.IsZero() || (cmd.DocumentID != "" && documentType != "PAYSLIP") || (metadataDocumentID != "" && metadataDocumentID != cmd.DocumentID) {
 		return out, ErrPayslipReviewInvalid
 	}
-	// ponytail: one household salary lock; per-employer locks if salary throughput grows.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text),0)`, cmd.HouseholdID); err != nil {
 		return out, err
 	}
@@ -72,8 +69,6 @@ func FinalizePayslip(ctx context.Context, tx pgx.Tx, cmd PayslipFinalization) (P
 			return out, err
 		}
 		if existing != "" {
-			// A different amount or pay date is a material independent-evidence
-			// conflict, never a safe deduplication.
 			if !sameFacts {
 				return out, ErrPayslipReviewInvalid
 			}
@@ -138,8 +133,6 @@ func completePayslipSource(ctx context.Context, tx pgx.Tx, cmd PayslipFinalizati
 	return nil
 }
 
-// ResolvePayslipProposal owns the canonical proposal-to-income mutation. Surface
-// code owns interaction binding and transport.
 func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) (PayslipResult, error) {
 	var out PayslipResult
 	var status, kind string
@@ -157,8 +150,6 @@ func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) 
 		}
 		return out, err
 	}
-	// ponytail: legacy review items may carry no document binding; accept that only when
-	// neither the row nor the caller supplies a document, so a real mismatch fails closed.
 	documentMatches := (document == nil && cmd.DocumentID == "" && documentSource == nil) || (document != nil && *document == cmd.DocumentID && documentSource != nil && *documentSource == cmd.SourceEventID)
 	if (status != "OPEN" && status != "PENDING_SEND") || source == nil || *source != cmd.SourceEventID || reviewSource == nil || *reviewSource != cmd.SourceEventID || !documentMatches || (kind != "PAYSLIP_CONFIRMATION" && kind != "MISSING_PAY_DATE") {
 		return out, ErrPayslipReviewInvalid
@@ -315,9 +306,6 @@ type PayslipPolicyCommand struct {
 	HouseholdID, UserID, ActorType, ReviewItemID, ProposalID, SourceEventID, DocumentID, ReplySourceEventID, Choice string
 }
 
-// SetPayslipPolicy stores the first step of a compound payslip review as a
-// canonical ReviewDecision residual, so Web and Telegram both see only the date
-// still outstanding.
 func SetPayslipPolicy(ctx context.Context, tx pgx.Tx, cmd PayslipPolicyCommand) error {
 	if cmd.Choice != "PRIMARY_SALARY" && cmd.Choice != "ORDINARY_INCOME" {
 		return ErrPayslipReviewInvalid
@@ -420,8 +408,6 @@ func containsAction(actions []string, wanted string) bool {
 	return false
 }
 
-// nullableUUID lets a legacy payslip review write evidence without inventing a
-// document binding it never had.
 func nullableUUID(value string) any {
 	if value == "" {
 		return nil

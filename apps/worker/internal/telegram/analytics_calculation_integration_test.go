@@ -26,7 +26,6 @@ func TestNativeLegacyCycleDatesRefundsAndCategoryCompleteness(t *testing.T) {
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',300,'2026-08-31T23:59:59+07:00',now()),($1,'EXPENSE','CONFIRMED',9999999,'2026-09-11T00:00:00+07:00',now()),($1,'EXPENSE','NEEDS_REVIEW',9999999,'2026-09-01T00:00:00+07:00',NULL)`, f.householdID)
 	mustAgentTest(t, err)
-	// Foreign household data must never affect totals or the truncation count.
 	other := newAgentIntegrationFixture(t, "analytics-foreign")
 	_, err = f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',9999999,'2026-09-01T00:00:00+07:00',now())`, other.householdID)
 	mustAgentTest(t, err)

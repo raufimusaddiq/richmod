@@ -15,10 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// Confirmation accepts the partial supply of a compound stored residual only once both
-// dimensions are present, and the canonical transaction stays NEEDS_REVIEW until
-// then. This is the API path a legacy or stale card would use, so it must be
-// proven at the handler boundary rather than through the blocker helper alone.
 func TestConfirmRefusesPartialCompoundResidualUntilAllSupplied(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

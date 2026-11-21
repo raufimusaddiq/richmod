@@ -179,7 +179,7 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 		t.Fatalf("history=%+v", noHistory.Comparison)
 	}
 	f.anchor(t, "2026-09-01")
-	f.anchor(t, "2026-10-01") // future salary cannot close the active cycle
+	f.anchor(t, "2026-10-01")
 	f.transaction(t, "2026-08-05", "EXPENSE", "CONFIRMED", "1000", true)
 	f.transaction(t, "2026-08-20", "EXPENSE", "CONFIRMED", "9000", true)
 	f.transaction(t, "2026-09-05", "EXPENSE", "CONFIRMED", "1500", true)
@@ -209,8 +209,6 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 			t.Fatalf("a snapshot must never be reported as unchanged against itself: %+v", unchanged.Quality)
 		}
 	}
-	// The only snapshot predates the cycle start, so it is the opening baseline,
-	// never an in-cycle observation: no delta, the blocker, and it stays visible as the latest observation.
 	if unchanged.Wealth.Current != nil || unchanged.Wealth.Previous == nil || unchanged.Wealth.Previous.ID != unchangedSnapshot || unchanged.Wealth.Change != nil || !hasBlocker(unchanged, "WEALTH_SNAPSHOT_BEFORE_CYCLE") {
 		t.Fatalf("wealth=%+v quality=%+v", unchanged.Wealth, unchanged.Quality)
 	}
@@ -261,7 +259,6 @@ func TestClosedCycleRecomputesAfterHistoricalCorrection(t *testing.T) {
 	if before.Cashflow.Expense != "1500" || *before.Comparison.Expense.Previous != "1000" {
 		t.Fatalf("initial facts=%+v", before.Comparison)
 	}
-	// Synthetic correction only; canonical historical records are not deleted.
 	if _, err := f.pool.Exec(context.Background(), `UPDATE transaction SET amount=amount+500 WHERE id=$1 OR id=$2`, previous, current); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +280,7 @@ func TestCycleReviewHistorySeriesWindowAndReconciliation(t *testing.T) {
 	f.transaction(t, "2026-08-05", "EXPENSE", "CONFIRMED", "1500", true)
 	f.transaction(t, "2026-08-06", "TRANSFER", "CONFIRMED", "700", false)
 	f.transaction(t, "2026-09-05", "EXPENSE", "CONFIRMED", "900", true)
-	f.transaction(t, "2026-09-12", "EXPENSE", "CONFIRMED", "9999", true) // after the measured cutoff
+	f.transaction(t, "2026-09-12", "EXPENSE", "CONFIRMED", "9999", true)
 
 	review := f.review(t, "")
 	if len(review.History) != 4 {
@@ -375,8 +372,6 @@ func TestCycleReviewPaceCurvesComeFromServedDailyNetExpense(t *testing.T) {
 	}
 }
 
-// N4: one payee must be one driver row. A null merchant_id resolves through the
-// household merchant alias, and the ledger drill-down for that row agrees.
 func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) {
 	f := cycleReviewFixture(t)
 	ctx := context.Background()
@@ -417,7 +412,6 @@ func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) 
 	if parents != 1 || anonymous != 1 || parentsAmount != "5500000" || parentsID != payee || len(facts.Merchants) != 2 {
 		t.Fatalf("drivers=%+v", facts.Merchants)
 	}
-	// Drill-down by the row's merchant id must reach the same total.
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?merchantId="+parentsID+"&type=SPENDING", nil)
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
 	response := httptest.NewRecorder()

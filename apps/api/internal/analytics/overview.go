@@ -68,16 +68,11 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"period": period.Start.Format("2006-01-02"), "periodKind": period.Kind, "periodStart": period.Start.Format("2006-01-02"), "periodEnd": period.End.Format("2006-01-02"), "currency": "IDR", "income": income, "expense": expense, "netCashflow": net, "savingsRate": savings, "savingsAllocated": savingsAllocated, "savingsAllocationRate": savingsAllocationRate, "unallocatedSurplus": unallocatedSurplus, "reviewCount": review, "confirmedCount": confirmedCount, "previousExpense": previousExpense, "previousDays": previousDays, "expenseDelta": expenseDelta})
 }
-// priorPeriod is the period immediately before the one the overview describes.
 type priorPeriod struct {
 	Start, End time.Time
 	Days       int
 }
 
-// previousPeriod resolves the salary cycle (or calendar month) immediately before period, so the
-// comparison matches the overview's own periodKind. A calendar month only counts as a prior period
-// when it holds confirmed spending, income or refunds; a salary cycle exists whenever an earlier
-// salary anchor does.
 func (h *Handler) previousPeriod(ctx context.Context, household string, period financialperiod.CurrentPeriod) (priorPeriod, bool, error) {
 	if period.Kind == "CURRENT_CYCLE" {
 		var configured bool

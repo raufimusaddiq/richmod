@@ -40,7 +40,7 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 	var start, cycleStart, cycleEnd, income, expense, savings, residual string
 	err = tx.QueryRow(ctx, `WITH bounds AS (SELECT se.pay_date end_date,(SELECT se2.pay_date FROM salary_event se2 JOIN salary_source ss2 ON ss2.id=se2.salary_source_id WHERE se2.household_id=se.household_id AND se2.status='CONFIRMED' AND ss2.is_primary AND se2.pay_date<se.pay_date ORDER BY se2.pay_date DESC LIMIT 1) start_date,(SELECT se2.id FROM salary_event se2 JOIN salary_source ss2 ON ss2.id=se2.salary_source_id WHERE se2.household_id=se.household_id AND se2.status='CONFIRMED' AND ss2.is_primary AND se2.pay_date<se.pay_date ORDER BY se2.pay_date DESC LIMIT 1) start_id FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.id=$1 AND se.household_id=$2 AND se.status='CONFIRMED' AND ss.is_primary) SELECT start_id,b.start_date::text,b.end_date::text,COALESCE(sum(t.amount) FILTER(WHERE t.type='INCOME'),0)::text,COALESCE(sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END),0)::text,COALESCE(sum(t.amount) FILTER(WHERE t.type='TRANSFER' AND t.purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM bounds b LEFT JOIN transaction t ON t.household_id=$2 AND t.status='CONFIRMED' AND t.transaction_at >= (b.start_date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.transaction_at < (b.end_date::timestamp AT TIME ZONE 'Asia/Jakarta') GROUP BY start_id,b.start_date,b.end_date`, v.EndSalaryEventID, v.HouseholdID).Scan(&start, &cycleStart, &cycleEnd, &income, &expense, &savings)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return tx.Commit(ctx) // stale or non-primary jobs are no-ops
+		return tx.Commit(ctx)
 	}
 	if err != nil {
 		return err
@@ -65,7 +65,6 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 			return err
 		}
 	}
-	// The review carries the canonical contract so the Inbox renders policy and residual without re-deriving them.
 	decision, ok := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
 	if !ok {
 		return fmt.Errorf("no review decision preset for CYCLE_RESIDUAL_ALLOCATION")
@@ -83,7 +82,6 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 		}
 		return err
 	}
-	// The shared projection creates the request, picks recipients and renders the policy card.
 	if err = workerTelegram.ProjectReviewMessage(ctx, tx, v.HouseholdID, reviewID, 0, 0); err != nil {
 		return err
 	}

@@ -73,7 +73,6 @@ func TestAnalyticsCycleRangeBucketsAndRefundConsistency(t *testing.T) {
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &daily) != nil || daily.Spent != "200300" || daily.Remaining != "9799700" || daily.Daily[len(daily.Daily)-1]["cumulativeExpense"] != "200300" || daily.Daily[1]["expense"] != "-50000" {
 		t.Fatalf("daily=%s", w.Body.String())
 	}
-	// A 32-day historical cycle must retain its final partial calendar month.
 	previousStart, _ := time.ParseInLocation("2006-01-02", "2026-08-24", clock.HouseholdLocation())
 	previous, err := h.monthly(r.Context(), f.household, previousStart, start)
 	if err != nil || len(previous) != 2 || previous[1].Expense != "1000000" {
@@ -126,7 +125,6 @@ func TestCycleReviewKeepsFullRentHistorySeparateFromElapsedBaseline(t *testing.T
 	if len(c.Merchants) != 1 || *c.Merchants[0].PreviousFull != "1950000" {
 		t.Fatalf("merchant context=%+v", c.Merchants)
 	}
-	// Closed selection reuses full history without altering the primary baseline.
 	f.anchor(t, "2026-07-01")
 	f.transaction(t, "2026-07-15", "EXPENSE", "CONFIRMED", "1950000", true)
 	closed := f.review(t, "?cycle_start=2026-08-01")
@@ -141,7 +139,6 @@ func TestShorterPreviousCycleStaysTheComparisonBaseWhole(t *testing.T) {
 	f.anchor(t, "2026-09-01")
 	f.transaction(t, "2026-08-30", "EXPENSE", "CONFIRMED", "1950000", true)
 	facts := f.review(t, "")
-	// The 4-day previous cycle is shorter than the 10 elapsed days: it is measured whole, not skipped.
 	if facts.Comparison.EligibleCycles != 1 || facts.Comparison.Previous == nil || facts.Comparison.Previous.Start != "2026-08-28" || facts.Comparison.Previous.MeasuredUntil != "2026-09-01" || facts.Comparison.Expense.Median != nil || facts.Comparison.PreviousFullCycle.Start != "2026-08-28" {
 		t.Fatalf("shorter previous cycle=%+v", facts.Comparison)
 	}
@@ -158,9 +155,6 @@ func TestLegacyRankingsDoNotExposeForeignCategoryOrMember(t *testing.T) {
 	foreign := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-01")
 	id := f.transaction(t, "2026-09-02", "EXPENSE", "CONFIRMED", "100", false)
-	// A foreign category can no longer be bound at all: the household-composite
-	// foreign key (migration 00087) rejects it. A foreign member still can be,
-	// since users are not household-scoped, so the read side must hide it.
 	if _, err := f.pool.Exec(context.Background(), `UPDATE transaction SET category_id=$2 WHERE id=$1`, id, foreign.category); err == nil || !strings.Contains(err.Error(), "transaction_category_id_hh_fkey") {
 		t.Fatalf("foreign category binding was not rejected by the database: %v", err)
 	}
@@ -180,8 +174,6 @@ func TestLegacyRankingsDoNotExposeForeignCategoryOrMember(t *testing.T) {
 	}
 }
 
-// Active cycle 12 Aug - now is 30 days elapsed; its immediate previous cycle
-// (15 Jul - 12 Aug) is only 28 days, the two before it are longer.
 func TestShorterPreviousCycleIsBaselineButNeverEntersUnequalMedian(t *testing.T) {
 	f := cycleReviewFixture(t)
 	for _, anchor := range []string{"2026-04-20", "2026-06-01", "2026-07-15", "2026-08-12"} {
@@ -189,8 +181,8 @@ func TestShorterPreviousCycleIsBaselineButNeverEntersUnequalMedian(t *testing.T)
 	}
 	f.transaction(t, "2026-05-01", "EXPENSE", "CONFIRMED", "3000000", true)
 	f.transaction(t, "2026-06-10", "EXPENSE", "CONFIRMED", "4000000", true)
-	f.transaction(t, "2026-07-15", "EXPENSE", "CONFIRMED", "2760000", true) // first day of the 28-day cycle
-	f.transaction(t, "2026-08-11", "EXPENSE", "CONFIRMED", "8199840", true) // its last day
+	f.transaction(t, "2026-07-15", "EXPENSE", "CONFIRMED", "2760000", true)
+	f.transaction(t, "2026-08-11", "EXPENSE", "CONFIRMED", "8199840", true)
 	f.transaction(t, "2026-08-20", "EXPENSE", "CONFIRMED", "500000", true)
 	facts := f.review(t, "")
 	c := facts.Comparison

@@ -7,7 +7,6 @@ import { QUICK_EVENTS } from "../lib/quickRecord";
 
 const QuickRecordContext = createContext({ open: () => {} });
 
-// Opens the global "+ Catat" sheet from anywhere (nav, a page button, a handoff).
 export function openQuickRecord(detail = {}) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(QUICK_EVENTS.open, { detail }));
 }
@@ -22,11 +21,10 @@ export function useQuickRecord() {
 
 const TOAST_MS = 8000;
 
-// Owns the one sheet and the confirmation toast, so both survive a page change.
 export default function QuickRecordProvider({ children }) {
   const { user } = useAuthContext();
   const [request, setRequest] = useState(null);
-  const [toast, setToast] = useState(null); // { id, text, undoing }
+  const [toast, setToast] = useState(null);
   const opener = useRef(null);
   const timer = useRef(0);
   const enabled = Boolean(user?.household);

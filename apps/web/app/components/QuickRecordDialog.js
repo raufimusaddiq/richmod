@@ -22,8 +22,6 @@ async function loadJson(url) {
   } catch { return null; }
 }
 
-// The one "+ Catat" sheet: a modal on desktop, a bottom sheet on a phone. It opens
-// straight onto the manual form; "Foto bukti" swaps the body for the upload view.
 export default function QuickRecordDialog({ request, onClose, onSaved }) {
   const dialogRef = useRef(null), amountRef = useRef(null), formRef = useRef(null);
   const missingWindow = request.missingWindow;
@@ -37,7 +35,6 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) { dialog.showModal(); (mode === "photo" ? dialog.querySelector("input[type=file]") : amountRef.current)?.focus(); }
     return () => { if (dialog?.open) dialog.close(); };
-    // Opens once per request; the key on the provider remounts for the next one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -64,7 +61,6 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
     const digitsBefore = input.value.slice(0, input.selectionStart ?? input.value.length).replace(/\D/g, "").length;
     const formatted = formatRupiahInput(input.value);
     set({ amount: formatted });
-    // Keep the caret after the same digit once React has written the grouped value.
     const caret = caretAfterFormat(formatted, digitsBefore);
     window.requestAnimationFrame(() => { if (document.activeElement === input) input.setSelectionRange(caret, caret); });
   }
@@ -152,7 +148,6 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
   </dialog>;
 }
 
-// Multi-image upload into the same document pipeline as /documents.
 function PhotoProof({ onBack, onClose }) {
   const [files, setFiles] = useState([]), [error, setError] = useState(""), [working, setWorking] = useState(false), [notice, setNotice] = useState("");
   const [recent, setRecent] = useState(null), [retrying, setRetrying] = useState("");

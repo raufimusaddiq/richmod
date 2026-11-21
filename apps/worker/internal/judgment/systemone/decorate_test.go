@@ -47,7 +47,6 @@ func TestInstrumentedEngineRecordsOneAttributedPhase(t *testing.T) {
 	}
 }
 
-// Document calls pass their own document ID as request ID, so the trusted event attached to the context must win.
 func TestInstrumentedEnginePrefersContextSourceEvent(t *testing.T) {
 	const eventID = "22222222-2222-4222-8222-222222222222"
 	var got Metric

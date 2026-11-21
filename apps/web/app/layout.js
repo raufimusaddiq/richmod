@@ -7,7 +7,6 @@ import QuickRecordProvider from "./components/QuickRecordProvider";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 
 
-// viewport-fit=cover makes the safe-area insets real (Home Screen app, landscape).
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#245C54" };
 
 const socialTitle = "Richmod · Keuangan keluarga, tanpa menebak";
@@ -18,14 +17,10 @@ export const metadata = {
   title: socialTitle,
   description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
   manifest: "/manifest.webmanifest",
-  // iOS ignores the manifest for install and reads these instead.
   appleWebApp: {
     capable: true,
     title: "Richmod",
     statusBarStyle: "default",
-    // iOS paints this before it makes any request, so it is the only thing
-    // covering the cold-start gap. One image per distinct phone geometry; the
-    // media query needs the logical size and the pixel ratio or iOS ignores it.
     startupImage: splashDevices.map(device => ({ url: `/splash/${device.file}`, media: device.media })),
   },
   icons: {

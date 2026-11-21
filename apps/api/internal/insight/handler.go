@@ -20,15 +20,10 @@ type Handler struct {
 
 const insightPromptVersion = "cycle-analyst-v5"
 
-// A stale cutoff is not reusable -- return it and the client rejects it -- but it
-// still counts against the hourly cap, so EXISTING matches only the reusable
-// cutoff (a pending job always, a fresh SUCCEEDED row only on the same cutoff).
 const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND input_metrics_json->>'period_end'=$6 AND prompt_version=$5 AND (status='PENDING' OR (status='SUCCEEDED' AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 
-// List preserves historical insight rows verbatim. historical explicitly marks
-// the retired recommendation/aggregate contract; new commentary is natural text.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principal(w, r)
 	if !ok {
@@ -41,8 +36,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Keep audit snapshots/transcripts in PostgreSQL, not the presentation payload.
-	// Filter before LIMIT so older selected cycles remain reachable.
 	rows, err := h.pool.Query(r.Context(), `SELECT id,to_char(period,'YYYY-MM'),status,input_metrics_json-'facts_snapshot'-'tool_reads',gateway_route,model,prompt_version,generated_text,confidence::text,data_completeness::text,created_at,completed_at FROM insight WHERE household_id=$1 AND ($2='' OR input_metrics_json->>'period_start'=$2) ORDER BY created_at DESC LIMIT 12`, household, start)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list insights"})
@@ -114,7 +107,6 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to check insight rate limit"})
 		return
 	}
-	// Different measured days are not reusable, but do not bypass the hourly cap.
 	var limited bool
 	if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')`, household, period, kind, period, insightPromptVersion).Scan(&limited); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to check insight rate limit"})
@@ -125,8 +117,6 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The snapshot is server-side audit evidence only. Models retrieve financial
-	// data through shared native READ tools, never this preloaded JSON.
 	raw, err := json.Marshal(map[string]any{"period_kind": kind, "period_start": period, "period_end": facts.Period.MeasuredUntil, "period_open": facts.Period.State == "ACTIVE", "facts_snapshot": facts})
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to serialize insight facts"})

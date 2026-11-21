@@ -23,7 +23,6 @@ func TestCreateAdditionalHousehold(t *testing.T) {
 	}
 	defer pool.Close()
 	stamp := time.Now().UnixNano()
-	// Guarantee the platform is bootstrapped: one existing owner elsewhere.
 	var existingHousehold, existingUser string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Existing %d", stamp)).Scan(&existingHousehold); err != nil {
 		t.Fatal(err)
@@ -61,7 +60,6 @@ func TestCreateAdditionalHousehold(t *testing.T) {
 		t.Fatal("new household reused an existing one")
 	}
 
-	// An existing user is never moved or attached implicitly (ADR-035).
 	again := in
 	again.HouseholdName = "Third"
 	again.TelegramUserID = 0

@@ -7,9 +7,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The API and worker only see deployment variables that Compose forwards into
-// their containers. A missing entry here makes the API report {enabled:false}
-// even when finance.env has the keys.
 func TestComposeForwardsVAPIDToAPIAndWorker(t *testing.T) {
 	raw, err := os.ReadFile("../../../../compose.yaml")
 	if err != nil {

@@ -165,7 +165,6 @@ func TestClipRunesDoesNotSplitMultibyteCharacters(t *testing.T) {
 }
 
 func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
-	// The next-morning follow-up must work; the scan and budget keep the prompt bounded.
 	if conversationWindow <= time.Hour {
 		t.Fatalf("window %s is not longer than the old one hour", conversationWindow)
 	}
@@ -174,7 +173,6 @@ func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
 	}
 }
 
-// The budget counts characters, not bytes.
 func TestCompactionBudgetCountsCharactersNotBytes(t *testing.T) {
 	var turns []PublicTurn
 	for i := 0; i < 40; i++ {
@@ -226,7 +224,6 @@ func TestDroppingExpiredRefsToleratesEmptyAndOddInput(t *testing.T) {
 	if got := dropExpiredAnalyticsRefs("category.2"); got != "category.2" {
 		t.Fatal("a bare string is not a container and must be returned as is")
 	}
-	// Text that merely resembles a ref is not expired.
 	kept := map[string]any{"note": "category.x", "name": "category.1x"}
 	dropExpiredAnalyticsRefs(kept)
 	if len(kept) != 2 {

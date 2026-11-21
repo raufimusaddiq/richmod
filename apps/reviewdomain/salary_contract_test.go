@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// Web and both Telegram confirm lanes must record salary through the shared
-// operation; no adapter may keep its own salary_source/salary_event mutation SQL.
 func TestTelegramConfirmLanesUseSharedSalaryRecording(t *testing.T) {
 	for _, path := range []string{
 		telegramReviewSourceGlob,
@@ -37,8 +35,6 @@ func TestWebPayslipResolutionUsesSharedProposalTransition(t *testing.T) {
 	}
 }
 
-// The document promotion step is likewise shared, so a future rename or filter
-// change cannot drift between Web and Telegram.
 func TestDocumentPromotionIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		telegramReviewSourceGlob,

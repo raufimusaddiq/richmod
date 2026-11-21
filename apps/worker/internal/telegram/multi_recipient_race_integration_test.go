@@ -1,8 +1,5 @@
 package telegram
 
-// Multi-recipient race: the first valid reply queues the shared completion job once; a later reply on the
-// same card is stale.
-
 import (
 	"context"
 	"encoding/json"
@@ -89,7 +86,6 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Mirror the bank-email producer: insert the OPEN item, then project it to every eligible identity.
 	if err = tx.QueryRow(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{\"version\":1,\"reasonCode\":\"UNKNOWN_BANK_TEMPLATE\",\"allowedActions\":[\"COMPLETE_BANK_FACTS\",\"IGNORE\"]}'::jsonb) RETURNING id", householdID, sourceEventID).Scan(&itemID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
@@ -135,7 +131,6 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply2 := seedTelegramReply(t, pool, householdID, secondChat, 42, 32, "54000 2026-09-23T13:45:00+07:00")
-	// The item is resolved, so the second answer binds to nothing and the model gets no review tool.
 	if err = processor.ProcessAgent(ctx, reply2); err != nil {
 		t.Fatal(err)
 	}

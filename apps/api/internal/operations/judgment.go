@@ -2,14 +2,6 @@ package operations
 
 import "context"
 
-// judgmentAggregate is the "is Jev actually saving work" scoreboard:
-// how many Telegram turns each decision lane resolved, and how many bounded
-// generative tool calls the decision plane made unnecessary. It is computed on
-// read from the two tables the worker already writes, so no new pipeline exists
-// to keep in sync and no history is lost when thresholds change.
-//
-// ponytail: unbounded 30-day scan. Add a materialized rollup when the table
-// outgrows a cheap aggregate, which at one row per Telegram turn is a long way.
 type judgmentAggregate struct {
 	WindowDays int            `json:"windowDays"`
 	Turns      map[string]int `json:"turns"`
@@ -21,8 +13,6 @@ type judgmentAggregate struct {
 func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string) (judgmentAggregate, error) {
 	aggregate := judgmentAggregate{WindowDays: 30, Turns: map[string]int{}, Decisions: map[string]any{}, Phases: map[string]any{}}
 
-	// The three reads are independent; run them concurrently so the aggregate
-	// costs one round trip, not three.
 	err := h.runProbes(ctx,
 		func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, `
@@ -46,8 +36,6 @@ func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string)
 			return rows.Err()
 		},
 		func(ctx context.Context) error {
-			// Every bounded call and consumed decision lands in llm_call as protocol 'systemone'. Only JUDGMENT rows are transport calls,
-			// so failures are counted there (a DECISION row's status is SUCCEEDED/FAILED; the outcome travels in error_class).
 			var calls, failures int
 			var latencyP50 float64
 			if err := h.pool.QueryRow(ctx, `
@@ -67,8 +55,6 @@ func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string)
 			return nil
 		},
 		func(ctx context.Context) error {
-			// Phase telemetry measures model order, not product outcome: transport success is all a phase row knows, so policy and rescue success live in judgment_decision.
-			// The double-pass counter is a candidate only; generative output alone cannot prove Go accepted its category.
 			var jevCalls, generativeCalls, events, residualAttempts, residualSuccess, redundant, mixed int
 			var phaseP50, phaseP95 float64
 			if err := h.pool.QueryRow(ctx, `

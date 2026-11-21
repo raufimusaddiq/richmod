@@ -14,8 +14,6 @@ ALTER TABLE transaction_proposal
 ALTER TABLE transaction_proposal
     DROP CONSTRAINT transaction_proposal_source_key_unique;
 
--- A down migration is intentionally guarded because collapsing multiple valid
--- screenshot rows into one proposal would destroy financial evidence.
 DO $$
 BEGIN
     IF EXISTS (

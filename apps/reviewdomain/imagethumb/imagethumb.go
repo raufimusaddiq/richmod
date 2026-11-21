@@ -1,7 +1,3 @@
-// Package imagethumb renders the small grid preview a document card shows. The
-// worker writes it at ingestion and the API falls back to it, so both share the
-// one implementation and the output stays identical. Stdlib only: no resize
-// dependency.
 package imagethumb
 
 import (
@@ -13,12 +9,8 @@ import (
 	"math"
 )
 
-// MaxEdge is the longest edge of a grid preview. The grid renders at 96x126 CSS
-// px, so 200px stays sharp on 2x screens without shipping the page.
 const MaxEdge = 200
 
-// JPEG decodes an image and box-filters it down to MaxEdge on its longest edge,
-// preserving aspect ratio.
 func JPEG(raw []byte) ([]byte, error) {
 	src, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {

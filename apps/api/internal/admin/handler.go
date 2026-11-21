@@ -125,9 +125,6 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_UPDATE_FAILED")
 		return
 	}
-	// A disabled user loses dashboard sessions now. Telegram access ends too:
-	// intake and the worker require an active user, so the identity stays
-	// intact and comes back if the user is re-enabled.
 	if currentActive && !nextActive {
 		if _, err := tx.Exec(r.Context(), `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
 			writeError(w, 500, "ADMIN_UPDATE_FAILED")
@@ -164,7 +161,6 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Households(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	like := "%" + strings.ToLower(q) + "%"
-	// Each figure is its own indexed subquery: joining the child tables and counting DISTINCT multiplied rows and took minutes on one real household.
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT h.id,h.name,h.timezone,h.created_at,
 			(SELECT count(*) FROM household_member hm WHERE hm.household_id=h.id AND hm.active),

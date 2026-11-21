@@ -9,7 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// Recency is tested against the database clock the production query uses.
 func ageEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, documentID string, minutes int) {
 	t.Helper()
 	_, err := f.pool.Exec(ctx, `UPDATE document SET created_at=now()-make_interval(mins => $2) WHERE id=$1`, documentID, minutes)
@@ -181,7 +180,6 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 		t.Fatal("an extra document_id argument was accepted")
 	}
 
-	// Refs are keyed by document, not call order: re-reading only B must not re-point A's ref.
 	contexts, err := p.loadEvidenceContexts(ctx, f.householdID, f.sourceID, f.update, []canonicalDocumentID{canonicalDocumentID(a.documentID), canonicalDocumentID(b.documentID)})
 	mustAgentTest(t, err)
 	refA, refB := contexts[0]["evidence_ref"].(string), contexts[1]["evidence_ref"].(string)

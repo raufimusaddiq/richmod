@@ -13,7 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// T7: a provider/Jev failure is a machine failure: a retryable error, never a category review.
 func TestT7CategoryProviderErrorIsRetryableMachineFailure(t *testing.T) {
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
@@ -65,17 +64,14 @@ func TestCategoryVerifierAbsenceIsMachineFailureWhenEvidenceExists(t *testing.T)
 	}
 }
 
-// T8: a category DB query failure is also a machine failure; the resolver must return the error, not an empty answer.
 func TestT8CategoryDBQueryFailureIsMachineFailure(t *testing.T) {
 	ctx, pool := categoryBoundaryPool(t)
-	// A bogus household id makes the active-category query fail structurally.
 	category, provenance, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}}))}}}).resolveNewMerchantCategory(ctx, "se", "not-a-uuid", outgoingCard("54000", "Toko"))
 	if err == nil {
 		t.Fatalf("a category DB failure must propagate, got category=%q provenance=%+v", category, provenance)
 	}
 }
 
-// T9: a genuinely undecided answer keeps the residual category review; unlike T7/T8 a bounded answer exists.
 func TestT9UndecidedCategoryKeepsResidualReview(t *testing.T) {
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
@@ -92,7 +88,6 @@ func TestT9UndecidedCategoryKeepsResidualReview(t *testing.T) {
 	}
 }
 
-// T10: a decisive answer resolves the canonical category id and confirms.
 func TestT10DecisiveCategoryConfirms(t *testing.T) {
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
@@ -134,10 +129,6 @@ func createCategoryBoundaryHousehold(t *testing.T, ctx context.Context, pool *pg
 	return householdID
 }
 
-// The category question carries household category names, same-merchant history and local purchase time;
-// other households, unconfirmed transactions and other merchants never count.
-// other households, unconfirmed transactions and other merchants never count.
-// other households, unconfirmed transactions and other merchants never count.
 func TestCategoryQuestionCarriesHouseholdPrecedent(t *testing.T) {
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)

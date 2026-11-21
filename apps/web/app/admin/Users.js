@@ -4,7 +4,6 @@ import { Badge, Pending, useLoad, Table } from "./shared";
 import { useBusyMap } from "../lib/useLoadState";
 import useDialogs from "../components/useDialogs";
 
-// Server error codes from PATCH /api/v1/admin/users/{id}.
 const userErrors = {
   ADMIN_SELF_LOCKOUT: "Kamu tidak bisa menonaktifkan akunmu sendiri atau mencabut Super Admin dari dirimu sendiri.",
   FINAL_SUPER_ADMIN_REQUIRED: "Harus tersisa minimal satu Super Admin aktif.",
@@ -17,7 +16,6 @@ export default function Users({ setError }) {
   const { confirm, dialogs } = useDialogs();
   const [users, refresh, state] = useLoad("/api/v1/admin/users", setError);
   const { busy, run } = useBusyMap();
-  // One busy flag per user so a second click cannot race the first PATCH.
   const mutate = (user, patch, label) => run(user.id, async () => {
     setError("");
     if (!(await confirm(`${label} ${user.email}?`, { confirmLabel: label }))) return;

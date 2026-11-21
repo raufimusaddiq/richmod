@@ -12,7 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// lastReply is the newest conversational reply in the chat, excluding review cards.
 func lastReply(t *testing.T, ctx context.Context, f agentIntegrationFixture) string {
 	t.Helper()
 	var text string
@@ -384,7 +383,6 @@ func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
 	p := NewProcessor(f.pool, model)
 	sourceID, err := runEvidenceTurn(t, ctx, f, p, "kopi kenangan 26.500", 0)
 	mustAgentTest(t, err)
-	// Simulate the reply being lost after the commit.
 	_, err = f.pool.Exec(ctx, `DELETE FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tercatat%'`, f.chatID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `DELETE FROM telegram_conversation_turn WHERE source_event_id=$1 AND role='ASSISTANT'`, sourceID)
@@ -439,7 +437,6 @@ func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
 	}
 }
 
-// The resolve_review audit statement must prepare with every parameter typed; the untyped one failed in production.
 func TestCycleResidualAuditStatementIsTyped(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-42p18")

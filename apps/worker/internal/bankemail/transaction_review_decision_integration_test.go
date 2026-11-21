@@ -12,8 +12,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// A transaction-backed bank review must reach the ReviewDecision contract on the row the Inbox reads; it is
-// written after EnqueueReviewRequest creates the item, an ordering a silent zero-row UPDATE once broke.
 func TestTransactionReviewDecisionIsPersistedOnTheReviewRow(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

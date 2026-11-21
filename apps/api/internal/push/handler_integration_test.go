@@ -30,9 +30,6 @@ func newTestVAPIDKey() string {
 	return base64.RawURLEncoding.EncodeToString(key.Bytes())
 }
 
-// newTestHandler keeps this file runnable against 38276915, whose constructor
-// took a derived public key, and against the fixed constructor that takes the
-// private key and subject. The old branch reproduces the buggy wiring.
 func newTestHandler(pool *pgxpool.Pool, privateKey, subject string) *Handler {
 	fn := reflect.ValueOf(NewHandler)
 	if fn.Type().NumIn() == 3 {
@@ -102,9 +99,6 @@ func TestBlockerResubscribeResetsFailureCountAndSurvivesFailure(t *testing.T) {
 	if failureCount != 0 || disabled {
 		t.Fatalf("after re-subscribe failure_count=%d disabled=%v", failureCount, disabled)
 	}
-	// Same diagnostic update the sender applies to a transient failure. One
-	// failure after the reset must leave the device live and the outbox row
-	// retryable; transient failures never set disabled_at.
 	if _, err := pool.Exec(context.Background(), `UPDATE push_subscriptions SET failure_count=failure_count+1 WHERE id=$1 AND disabled_at IS NULL`, subscriptionID); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +125,6 @@ func TestSubscriptionScopedToCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Another user cannot remove it.
 	if response := unsubscribe(handler, userB, endpoint); response.Code != http.StatusNoContent {
 		t.Fatalf("unsubscribe B=%d", response.Code)
 	}
@@ -144,7 +137,6 @@ func TestSubscriptionScopedToCaller(t *testing.T) {
 		t.Fatal("user B disabled user A's subscription")
 	}
 
-	// Another user cannot take it over by re-subscribing to the same endpoint.
 	otherP256DH, _ := newTestSubscriptionKeys()
 	conflict := subscribe(handler, userB, householdB, endpoint, otherP256DH)
 	if conflict.Code != http.StatusConflict {
@@ -165,7 +157,6 @@ func TestSubscriptionScopedToCaller(t *testing.T) {
 		t.Fatalf("owner=%s key=%s", owner, storedKey)
 	}
 
-	// Heartbeat from another user does not move last_seen_at.
 	if response := heartbeat(handler, userB, endpoint); response.Code != http.StatusNoContent {
 		t.Fatalf("heartbeat B=%d", response.Code)
 	}
@@ -177,7 +168,6 @@ func TestSubscriptionScopedToCaller(t *testing.T) {
 		t.Fatal("user B moved user A's last_seen_at")
 	}
 
-	// The owner can disable the subscription, and the row stays as evidence.
 	if response := unsubscribe(handler, userA, endpoint); response.Code != http.StatusNoContent {
 		t.Fatalf("unsubscribe A=%d", response.Code)
 	}
@@ -406,7 +396,6 @@ func TestListFilterNeverReturnsAnotherUsersEndpoint(t *testing.T) {
 	if len(payload.Subscriptions) != 0 {
 		t.Fatalf("foreign endpoint leaked: %s", recorder.Body.String())
 	}
-	// The caller still sees its own row when filtering for it, with whitespace trimmed.
 	trimmed := listEndpoint(handler, userA, householdA, "  "+own+"  ")
 	if !strings.Contains(trimmed.Body.String(), own) {
 		t.Fatalf("own endpoint not returned: %s", trimmed.Body.String())

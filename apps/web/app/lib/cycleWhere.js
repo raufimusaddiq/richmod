@@ -1,21 +1,13 @@
 import { baselineFor, deltaView } from "./cycleKpi.js";
 import { changeWidth } from "./cycleReview.js";
 
-// View models for the "where / what changed" row. Order, amounts, shares and deltas
-// are served (cycle-review-v1: categoryRanking, categoryChanges, merchantDrivers);
-// nothing here sorts, adds, subtracts or divides money. Bar lengths are a visual
-// mapping of served magnitudes, never a displayed figure.
-
 export const categoryKey = item => item.id || "uncategorized";
 
-// Fraction of the widest served magnitude, 0..1, for bar lengths only.
 function fraction(value, peak) {
   const number = Math.abs(Number(value));
   return peak > 0 && Number.isFinite(number) ? Math.min(1, number / peak) : 0;
 }
 
-// "Ke mana uangnya": rows exactly as served (amount-ranked by the API), plus the served
-// remainder bucket. A row opens the drawer only when its category's evidence is served.
 export function rankingView(facts) {
   const ranking = facts.categoryRanking;
   if (!ranking || !Array.isArray(ranking.rows)) return null;
@@ -28,8 +20,6 @@ export function rankingView(facts) {
   return { rows, other, baseline: basis.label, total: facts.cashflow.expense };
 }
 
-// "Yang berubah": the first five served category changes, in server order, against the
-// baseline that matches the cycle state (same elapsed day while running, full cycle once closed).
 export function changesView(facts, { limit = 5, movers = 3 } = {}) {
   const { comparison, period } = facts;
   const basis = baselineFor(period, facts.spendingShape?.days);
@@ -43,7 +33,6 @@ export function changesView(facts, { limit = 5, movers = 3 } = {}) {
   return { rows, merchants, hasBaseline, baseline: basis.label };
 }
 
-// Daily bars: the running day of an active cycle is only partly measured.
 export function partialDay(period, items = []) {
   return period?.state === "ACTIVE" && items.length ? items[items.length - 1].period : "";
 }

@@ -10,9 +10,6 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
-// TestPresetContractsGolden pins the stored ReviewDecision for every active review
-// reason. The agent, Telegram and the Review Inbox all read this stored shape, so
-// a refactor of where review semantics are declared must leave it byte-identical.
 func TestPresetContractsGolden(t *testing.T) {
 	out := map[string]json.RawMessage{}
 	for _, reason := range ActiveReasons() {

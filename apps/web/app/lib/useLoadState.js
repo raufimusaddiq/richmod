@@ -2,31 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Explicit load states for a page or drawer. A single boolean cannot tell a first load
-// from a reload, so a reload would swap the tree for a skeleton and unmount any form
-// being typed in.
-//   idle       nothing requested yet
-//   loading    first request, nothing to show yet: a skeleton is right
-//   refreshing a reload; already-rendered children stay mounted
-//   error      the last request failed; `error` holds the message
-//   ready      the last request succeeded
 export const LOAD = Object.freeze({ IDLE: "idle", LOADING: "loading", REFRESHING: "refreshing", ERROR: "error", READY: "ready" });
 
-// A reload keeps children mounted; only a load with nothing shown yet may skeleton.
 export const startingStatus = hasLoaded => (hasLoaded ? LOAD.REFRESHING : LOAD.LOADING);
 
 const isAbort = error => error?.name === "AbortError";
 
-// A failure whose message is written for the household. Anything else thrown (a
-// TypeError from fetch, a JSON parse error) is browser jargon, so the hook shows the
-// caller's fallback.
 export class LoadError extends Error {}
 const shown = (failure, fallback) => (failure instanceof LoadError && failure.message ? failure.message : fallback);
 
-// Runs `loader({ signal, current })` with a staleness guard: starting a new run aborts
-// the previous one, and a superseded run can neither set state nor report an error. The
-// loader must apply results only while `current()`. Throw to fail; the message becomes
-// `error`. `onFailure` lets a page drop data that should not stay under the error banner.
 export function useGuardedLoad(loader, { onFailure, fallback = "Data belum dapat dimuat. Coba lagi." } = {}) {
   const [status, setStatus] = useState(LOAD.IDLE);
   const [error, setError] = useState("");
@@ -61,9 +45,6 @@ export function useGuardedLoad(loader, { onFailure, fallback = "Data belum dapat
   return { status, error, hasLoaded, run, loading: status === LOAD.LOADING, refreshing: status === LOAD.REFRESHING, failed: status === LOAD.ERROR };
 }
 
-// A drawer that opens on one record: {closed | loading | error | ready, id, data}.
-// Opening or closing aborts the previous request, so a slow response for record A can
-// never repaint a drawer the user closed or pointed at record B.
 export function useDrawerRecord(fetchRecord, fallback = "Detail belum dapat dimuat. Coba lagi.") {
   const [state, setState] = useState({ status: "closed", id: null, data: null, error: "" });
   const controller = useRef(null), sequence = useRef(0), fetchRef = useRef(fetchRecord);
@@ -95,9 +76,6 @@ export function useDrawerRecord(fetchRecord, fallback = "Detail belum dapat dimu
   return { ...state, open, close, retry: () => state.id != null && open(state.id, state.data) };
 }
 
-// One busy flag per key (a card id, a setting name) instead of one string that card B
-// overwrites while card A is saving. `run` refuses a second start for the same key
-// synchronously, so a double click cannot submit twice, and releases the key in `finally`.
 export function useBusyMap() {
   const [busy, setBusy] = useState({});
   const live = useRef(new Set());
@@ -115,7 +93,6 @@ export function useBusyMap() {
   return { busy, run, isBusy: key => Boolean(busy[key]) };
 }
 
-// Read the server's { error } message out of a failed response.
 export async function responseError(response, fallback) {
   const body = await response.json().catch(() => ({}));
   return body?.error || fallback;

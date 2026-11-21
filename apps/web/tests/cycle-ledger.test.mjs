@@ -239,8 +239,6 @@ test("a reference level that extends the axis gets round ticks, not raw served v
 });
 
 test("the pace marker label is drawn above the plot, so it never overlaps an end-value label", () => {
-  // The end-value labels share the last day's x. A label inside the plot would sit on one
-  // of them at some day of the cycle, so the rule is: the marker label is outside the plot.
   for (const day of [1, 15, 28, 30, 31]) {
     assert.equal(paceMarkerNote({ state: "ACTIVE" }, { day }), `Hari ini · hari ke-${day}`);
   }
@@ -253,11 +251,11 @@ test("the pace marker label is drawn above the plot, so it never overlaps an end
 });
 
 test("Rp-juta tick labels stay distinct when the tick step is small", () => {
-  const small = millionTickFormatter(100_000); // 0,1 juta max, 0,025 juta steps
+  const small = millionTickFormatter(100_000);
   assert.deepEqual([0, 25_000, 50_000, 75_000, 100_000].map(small), ["0,00", "0,03", "0,05", "0,08", "0,10"]);
   const large = millionTickFormatter(4_000_000);
   assert.deepEqual([0, 1_000_000, 2_000_000, 3_000_000, 4_000_000].map(large), ["0,0", "1,0", "2,0", "3,0", "4,0"]);
-  const tiny = millionTickFormatter(20_000); // 0,005 juta steps
+  const tiny = millionTickFormatter(20_000);
   assert.deepEqual([0, 5_000, 10_000, 15_000, 20_000].map(tiny), ["0,000", "0,005", "0,010", "0,015", "0,020"]);
   assert.equal(millionTickFormatter(0)(0), "0,0", "an empty axis keeps one decimal");
 });
@@ -280,7 +278,6 @@ test("no chart is an unnamed focusable surface: accessibilityLayer is off everyw
   for (const component of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "CyclePaceChart", "MonthlyCashflowChart", "CategoryRankingChart", "NetWorthHistoryChart"]) {
     assert.ok(charts.includes(`export function ${component}`), `${component} exists`);
   }
-  // The daily bars stay focusable links, so the drill-down survives without the layer.
   assert.match(charts, /<a href=\{transactionHref\(period/, "daily bars remain links");
   assert.match(charts, /tabIndex=\{0\}/, "and stay in the tab order");
 });
@@ -301,7 +298,6 @@ test("the pace axis covers a comparison curve that ends far above the running cy
     { period: "2026-09-01", cumulativeExpense: "120000" },
     { period: "2026-09-02", cumulativeExpense: "200000" },
   ];
-  // Served curves: the previous cycle runs to 30M over 30 days, the active cycle is on day 2.
   const pace = { previousFullCycle: Array.from({ length: 30 }, (_, index) => String((index + 1) * 1_000_000)), median3: null };
   const data = mapPace(items, pace);
   const ceiling = paceCeiling({ data, last: data.at(-1).exact });

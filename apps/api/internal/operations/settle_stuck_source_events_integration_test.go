@@ -14,16 +14,15 @@ import (
 
 const settleMigration = "00084_settle_stuck_source_events.sql"
 
-// settleFixture seeds the five stuck groups of ticket #356 in one household.
 type settleFixture struct {
 	t          *testing.T
 	pool       *pgxpool.Pool
 	household  string
 	stamp      int64
 	seq        int
-	groups     map[string][]string // group letter -> source event ids
-	matched    string              // the confirmed transaction group E matched
-	receivedAt time.Time           // inside the inspected window unless a test moves it
+	groups     map[string][]string
+	matched    string
+	receivedAt time.Time
 }
 
 func (f *settleFixture) must(err error) {
@@ -93,7 +92,6 @@ func seedSettleFixture(t *testing.T, sizes map[string]int) *settleFixture {
 		f.groups["C"] = append(f.groups["C"], id)
 	}
 	for i := 0; i < sizes["Cbad"]; i++ {
-		// Looks like group C but a live review item points at the event itself.
 		id := f.event("TELEGRAM_IMAGE", "NEEDS_REVIEW", ptr("cloud-llm-gateway"))
 		doc := f.document(id, "WEALTH_OBSERVATION", "EXTRACTED")
 		f.exec(`INSERT INTO wealth_observation(household_id,document_id,institution,account_hint,observed_value_idr,status) VALUES($1,$2,'Fixture','x',1000,'APPLIED')`, f.household, doc)
@@ -226,7 +224,6 @@ func TestSettleStuckSourceEventsRepairsEveryGroupAndLeavesNothingStuck(t *testin
 			t.Fatalf("group D %s: %s", id, status[id])
 		}
 	}
-	// Canonical ledger state is untouched: the repair writes no transaction, evidence or review row.
 	if f.count(`SELECT count(*) FROM transaction WHERE household_id=$1`, f.household) != transactionsBefore ||
 		f.count(`SELECT count(*) FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id WHERE t.household_id=$1`, f.household) != evidenceBefore ||
 		f.count(`SELECT count(*) FROM review_item WHERE household_id=$1`, f.household) != reviewsBefore {
@@ -236,7 +233,6 @@ func TestSettleStuckSourceEventsRepairsEveryGroupAndLeavesNothingStuck(t *testin
 		t.Fatalf("want one audit row per event (15), got %d", got)
 	}
 
-	// Group B's Tindakan item is exactly what the worker writes for a BANK_EMAIL / INVALID failure.
 	title, description := reviewdomain.FailedSourceCopy("BANK_EMAIL", "INVALID")
 	for _, id := range f.groups["B"] {
 		if f.count(`SELECT count(*) FROM integration_action WHERE household_id=$1 AND integration_type=$2 AND action_type=$3 AND status='OPEN' AND dedupe_key=$4 AND title=$5 AND description=$6 AND metadata_json->>'source_event_id'=$4 AND metadata_json->>'source_type'='BANK_EMAIL' AND metadata_json->>'reason'='INVALID'`,
@@ -327,11 +323,11 @@ func TestSettleStuckSourceEventsDownRestoresAndUpRunsAgain(t *testing.T) {
 	if f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT") != 15 {
 		t.Fatalf("one rollback audit row per event, got %d", f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT"))
 	}
-	f.mustMigrate("down") // second down: nothing left to roll back
+	f.mustMigrate("down")
 	if f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT") != 15 {
 		t.Fatal("second down must be a no-op")
 	}
-	f.mustMigrate("up") // Up -> Down -> Up settles everything again
+	f.mustMigrate("up")
 	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 0 || f.jobs() != 0 {
 		t.Fatalf("second up must settle again: stuck=%d jobs=%d err=%v", len(stuck), f.jobs(), err)
 	}
@@ -339,8 +335,6 @@ func TestSettleStuckSourceEventsDownRestoresAndUpRunsAgain(t *testing.T) {
 
 func TestSettleStuckSourceEventsLeavesLaterEventsAlone(t *testing.T) {
 	f := seedSettleFixture(t, fullSizes)
-	// Group A's cause is still live in code: a chat reply received after the inspected
-	// batch must neither block the migration nor be touched by it.
 	f.receivedAt = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 	late := f.event("TELEGRAM_TEXT", "NEEDS_REVIEW", nil)
 	f.mustMigrate("up")
@@ -356,7 +350,6 @@ func TestSettleStuckSourceEventsLeavesLaterEventsAlone(t *testing.T) {
 func TestSettleStuckSourceEventsSettlesAlbumPageMembers(t *testing.T) {
 	sizes := map[string]int{"A": 6, "B": 3, "C": 1, "D": 4}
 	f := seedSettleFixture(t, sizes)
-	// A fifth group D event is an album member: only the primary owns the document.
 	member := f.event("TELEGRAM_IMAGE", "NEEDS_REVIEW", ptr("cloud-llm-gateway"))
 	var doc, attachment string
 	f.must(f.pool.QueryRow(context.Background(), `SELECT d.id::text,d.attachment_id::text FROM document d WHERE d.source_event_id=$1`, f.groups["D"][0]).Scan(&doc, &attachment))
@@ -374,7 +367,6 @@ func TestSettleStuckSourceEventsSettlesAlbumPageMembers(t *testing.T) {
 func TestSettleStuckSourceEventsDownRestoresBankEmailWithAPreexistingItem(t *testing.T) {
 	f := seedSettleFixture(t, fullSizes)
 	existing := f.groups["B"][0]
-	// A failed-source item for this event already exists, so Up's insert is a no-op.
 	f.exec(`INSERT INTO integration_action(household_id,integration_type,action_type,status,title,dedupe_key,metadata_json) VALUES($1,'SOURCE_PROCESSING','SOURCE_FAILED','OPEN','existing',$2,'{}')`, f.household, existing)
 	f.mustMigrate("up")
 	f.mustMigrate("down")
@@ -386,8 +378,6 @@ func TestSettleStuckSourceEventsDownRestoresBankEmailWithAPreexistingItem(t *tes
 	}
 }
 
-// A group already settled by hand (the runbook's expected state between deploys)
-// makes the migration fail loudly rather than settle the others and hide the gap.
 func TestSettleStuckSourceEventsRefusesAPartialMatch(t *testing.T) {
 	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1})
 	err := f.migrate("up")
@@ -403,8 +393,6 @@ func TestSettleStuckSourceEventsRefusesAPartialMatch(t *testing.T) {
 	}
 }
 
-// The two transfer-proof screenshots are not touched: reprocessing them can mint a
-// second CONFIRMED transaction, so the runbook settles them by hand.
 func TestSettleStuckSourceEventsLeavesTransferProofsAlone(t *testing.T) {
 	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1, "D": 5, "E": 2})
 	f.mustMigrate("up")
@@ -450,8 +438,6 @@ func TestSettleStuckSourceEventsUpRunsAfterDownSkippedADismissedEvent(t *testing
 	}
 }
 
-// An event with a live review item pointing at itself is reachable, so group C must
-// not mark it PROCESSED while that review is still open.
 func TestSettleStuckSourceEventsLeavesAnEventWithItsOwnOpenReviewAlone(t *testing.T) {
 	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1, "D": 5, "Cbad": 1})
 	f.mustMigrate("up")
@@ -460,8 +446,6 @@ func TestSettleStuckSourceEventsLeavesAnEventWithItsOwnOpenReviewAlone(t *testin
 	}
 }
 
-// After the repair a worker path finishes some of these chat events for real (it
-// rewrites parser_name). A rollback must not flip those back to NEEDS_REVIEW.
 func TestSettleStuckSourceEventsDownKeepsAnEventAWorkerProcessedSince(t *testing.T) {
 	f := seedSettleFixture(t, fullSizes)
 	f.mustMigrate("up")

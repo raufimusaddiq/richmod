@@ -1,6 +1,3 @@
-// Keluarga hub structure locks: /household and /settings are one workspace with five
-// deep-linkable tabs, an old #anchor opens the tab that holds it, a member sees only
-// Anggota and Notifikasi, and a long list filters in place.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -19,7 +16,6 @@ test("Keluarga has exactly the five deep-linkable tabs", () => {
   assert.match(hub, /aria-current=\{tab === key \? "true" : undefined\}/);
   assert.match(hub, /role="tabpanel" id="settings-panel"/);
   assert.match(hub, /aria-labelledby=\{`settings-tab-\$\{tab\}`\}/);
-  // The real roving tablist: arrows/Home/End move selection and focus together.
   assert.match(hub, /nextTabIndex\(event\.key, index, tabs\.length\)/);
   assert.match(hub, /window\.history\.pushState\(\{\}, "", `\/household\?tab=\$\{key\}`\)/);
 });
@@ -40,9 +36,7 @@ test("an existing anchor opens the tab that holds it", () => {
   assert.deepEqual(tabFromLocation("?tab=anggota", ""), { tab: "anggota", anchor: "" });
   assert.deepEqual(tabFromLocation("?tab=nope", ""), { tab: "anggota", anchor: "" });
   assert.deepEqual(tabFromLocation("", ""), { tab: "anggota", anchor: "" });
-  // An anchor wins over a conflicting ?tab=.
   assert.equal(tabFromLocation("?tab=notifikasi", "#kategori-keluarga").tab, "kategori");
-  // Every id the settings page has ever exposed still maps to a tab.
   for (const id of ["rekening-manual", "akun-kekayaan", "wealth-accounts", "sumber-slip-gaji-utama", "tujuan-transfer-yang-dikenal", "notifikasi-bank", "provider-finansial", "kategori-keluarga", "aturan-kategori-otomatis", "email-telegram-dan-pemrosesan-otomatis", "status-pemrosesan", "notifikasi"]) {
     assert.ok(SETTINGS_SECTIONS.some(([section]) => section === id), id);
   }
@@ -56,7 +50,6 @@ test("a member sees only Anggota and Notifikasi, and cannot deep-link past that"
   assert.deepEqual(tabFromLocation("?tab=sumber", "", allowed), { tab: "anggota", anchor: "" });
   assert.deepEqual(tabFromLocation("", "#notifikasi-bank", allowed), { tab: "anggota", anchor: "" });
   assert.deepEqual(tabFromLocation("?tab=notifikasi", "", allowed), { tab: "notifikasi", anchor: "" });
-  // The settings panels load nothing for a member.
   assert.match(settings, /if \(user && owner\) load\(\)/);
   assert.match(settings, /if \(!owner\) return <NotificationsSection/);
 });
@@ -82,7 +75,6 @@ test("the sticky bar is the tab bar and a section title clears it", () => {
   const css = read("app/styles/08-insights-settings-admin.css");
   assert.match(css, /\.settings-tabs-wrap \{ position: sticky; top: 0;/);
   assert.match(css, /\.settings-section \{ scroll-margin-top: 64px; \}/);
-  // The destructive row action is a text-style button, not a full-width block.
   assert.match(css, /\.danger-quiet \{ border-color: transparent; background: transparent; color: var\(--danger\);/);
   assert.match(css, /\.settings-list article > button \{ justify-self: start; \}/);
   assert.doesNotMatch(settings, /className=\{item\.active \? "danger" : "secondary"\}/);

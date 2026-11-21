@@ -8,8 +8,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// The action vocabulary is keyed by semantic review type, not binding kind: a TRANSACTION binding with a
-// TRANSFER_CLASSIFICATION review gets the transfer set.
 func TestT1TransferClassificationReviewExposesSemanticActions(t *testing.T) {
 	got := reviewdec.AgentActions("TRANSFER_CLASSIFICATION")
 	want := []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"}

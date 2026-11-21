@@ -11,8 +11,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-// linkBankEvidence writes inside the caller's transaction and never commits it; a caller that rolls back
-// leaves no link, proposal or audit row.
 func TestLinkBankEvidenceLeavesCommitToItsCaller(t *testing.T) {
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

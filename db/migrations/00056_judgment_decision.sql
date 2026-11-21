@@ -1,6 +1,4 @@
 -- +goose Up
--- Bounded semantic decision provenance (PRD §15). Stores which policy consumed
--- which bounded answer, not raw financial content.
 CREATE TABLE judgment_decision (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     household_id UUID NOT NULL REFERENCES household(id),

@@ -47,23 +47,21 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 		must(err)
 	}
 
-	bare := event("bare", "NEEDS_REVIEW")          // stuck: nothing linked at all
-	orphanTx := event("orphan-tx", "NEEDS_REVIEW") // stuck: needs-review transaction, no item
+	bare := event("bare", "NEEDS_REVIEW")
+	orphanTx := event("orphan-tx", "NEEDS_REVIEW")
 	transactionFor(orphanTx)
-	resolvedOnly := event("resolved-only", "NEEDS_REVIEW") // stuck: its only item is RESOLVED
+	resolvedOnly := event("resolved-only", "NEEDS_REVIEW")
 	item("source_event_id", resolvedOnly, "RESOLVED")
-	direct := event("direct", "NEEDS_REVIEW") // reachable: item on the event
+	direct := event("direct", "NEEDS_REVIEW")
 	item("source_event_id", direct, "OPEN")
-	viaTx := event("via-tx", "NEEDS_REVIEW") // reachable: item on its transaction
+	viaTx := event("via-tx", "NEEDS_REVIEW")
 	item("transaction_id", transactionFor(viaTx), "OPEN")
-	viaProposal := event("via-proposal", "NEEDS_REVIEW") // reachable: item on its proposal
+	viaProposal := event("via-proposal", "NEEDS_REVIEW")
 	var proposal string
 	must(pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,confidence,proposal_status) VALUES($1,$2,'EXPENSE',100,'IDR',now(),1,'NEEDS_REVIEW') RETURNING id`, household, viaProposal).Scan(&proposal))
 	item("proposal_id", proposal, "PENDING_SEND")
-	event("processed", "PROCESSED") // not unfinished
+	event("processed", "PROCESSED")
 
-	// Album member: only the primary event owns the document; the member is a
-	// document_page row and is reachable through the document's review item.
 	primary, member := event("album-primary", "NEEDS_REVIEW"), event("album-member", "NEEDS_REVIEW")
 	var document, attachment string
 	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,decode(md5($2),'hex'),'image/jpeg',1,1,1,$2) RETURNING id`, household, fmt.Sprintf("album-%d", stamp)).Scan(&attachment))
@@ -72,8 +70,6 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 	must(err)
 	item("document_id", document, "OPEN")
 
-	// Superseded evidence is not a live link: the event is stuck although a
-	// needs-review transaction with an open item is still attached to it.
 	supersededOnly := event("superseded", "NEEDS_REVIEW")
 	supersededTx := transactionFor(supersededOnly)
 	item("transaction_id", supersededTx, "OPEN")
@@ -95,12 +91,10 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 		t.Fatalf("diagnostic columns wrong: %+v", got)
 	}
 
-	// Giving the stuck event a review item removes it from the count.
 	item("source_event_id", bare, "OPEN")
 	if after, err := StuckSourceEvents(ctx, pool, household); err != nil || len(after) != 3 {
 		t.Fatalf("after adding a review item: %d rows, err=%v", len(after), err)
 	}
-	// Another household's stuck events never leak into a scoped scan.
 	var other string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stuck other %d", stamp)).Scan(&other))
 	if none, err := StuckSourceEvents(ctx, pool, other); err != nil || len(none) != 0 {
@@ -108,7 +102,6 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 	}
 }
 
-// The runbook quotes the query verbatim so an operator can paste it into psql.
 func TestStuckSourceEventsRunbookQuotesTheQuery(t *testing.T) {
 	raw, err := os.ReadFile("../../../../docs/runbooks/stuck-source-events.md")
 	if err != nil {

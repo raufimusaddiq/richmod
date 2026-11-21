@@ -1,5 +1,3 @@
-// Package categoryctx gathers household facts for bounded category judgments; the model decides and Go
-// resolves the slug to an ID (ADR-038).
 package categoryctx
 
 import (
@@ -16,7 +14,6 @@ type Querier interface {
 
 const StateKey = "household_history_same_merchant"
 
-// Label renders a category as the household names it, with its parent for sub-categories.
 func Label(name, parentName string) string {
 	name, parentName = strings.TrimSpace(name), strings.TrimSpace(parentName)
 	if parentName == "" {
@@ -25,8 +22,6 @@ func Label(name, parentName string) string {
 	return parentName + " > " + name
 }
 
-// History counts earlier confirmed expenses of the same merchant per offered category, rolling unoffered ones
-// up to an offered parent; nil without a merchant.
 func History(ctx context.Context, q Querier, householdID, merchant string, offered []string) (map[string]any, error) {
 	merchant = strings.TrimSpace(merchant)
 	if merchant == "" {

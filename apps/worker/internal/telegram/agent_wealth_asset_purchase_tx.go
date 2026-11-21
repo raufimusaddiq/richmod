@@ -13,8 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// agentResolveBoundWealthAssetPurchaseAtomic performs the Wealth -> ASSET_PURCHASE transition in one
-// transaction; no transfer commits before the bound review is resolved.
 func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	ctx context.Context,
 	state *agentState,
@@ -141,8 +139,6 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 		}
 		transactionID = candidate.id
 
-		// Reuse a confirmed transfer only when it already has the exact ASSET_PURCHASE semantics; never
-		// overwrite a savings/internal/investment transfer because amount and time match.
 		if candidate.kind == "TRANSFER" && candidate.status == "CONFIRMED" {
 			if candidate.purpose != "ASSET_PURCHASE" || candidate.existingWealth != wealthID {
 				result.Status = "TRANSFER_RECONCILIATION_REQUIRED"
@@ -190,7 +186,6 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 		}
 	}
 
-	// ADR-046: the observation dismissal and evidence reclassification are shared.
 	err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID})
 	if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 		result.Status = "STALE_REVIEW_BINDING"
@@ -234,8 +229,6 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	return result, true, nil
 }
 
-// executeAgentSpecializedSideEffectStrict centralizes safety overrides without changing deterministic
-// callback behavior.
 func (p *Processor) executeAgentSpecializedSideEffectStrict(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	if call.Name == "resolve_merchant_learning" {
 		return p.agentResolveBoundMerchantLearningStrict(ctx, state, call, args)

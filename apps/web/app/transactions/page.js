@@ -29,15 +29,12 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState([]);
   const [wealthAccounts, setWealthAccounts] = useState([]);
   const [members, setMembers] = useState([]);
-  // The drawer is one state machine {closed | loading | error | ready, id, data} whose
-  // request is aborted on close or on opening another row.
   const drawer = useDrawerRecord(async (id, signal) => {
     const [transaction, evidenceResponse, auditResponse] = await Promise.all([fetch(`/api/v1/transactions/${id}`, { signal }), fetch(`/api/v1/transactions/${id}/evidence`, { signal }), fetch(`/api/v1/transactions/${id}/audit`, { signal })]);
     if (!transaction.ok || !evidenceResponse.ok || !auditResponse.ok) throw new LoadError("Detail transaksi belum dapat dimuat. Coba lagi.");
     return { transaction: await transaction.json(), evidence: await evidenceResponse.json(), audit: await auditResponse.json() };
   }, "Detail transaksi belum dapat dimuat. Coba lagi.");
   const closeDetail = () => {
-    // Removing ?open= is what closes the drawer, so a shared link and the back button agree.
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("open")) window.history.replaceState(window.history.state, "", drawerUrl(""));
     drawer.close();
   };
@@ -46,28 +43,15 @@ export default function TransactionsPage() {
   const timeline = originTimeline(drawer.data?.evidence || [], drawer.data?.audit || []);
   const [nextCursor, setNextCursor] = useState("");
   const [cursorHistory, setCursorHistory] = useState([]);
-  // Full match count from the list response; null when the API did not report one.
   const [total, setTotal] = useState(null);
-  // VOIDED rows the API hid for this query (X-Voided-Count), and the current salary cycle for the Periode chip.
   const [voidedHidden, setVoidedHidden] = useState(0), [cycleWindow, setCycleWindow] = useState(null);
-  // The filter bar collapses behind a toggle on narrow screens.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  // Only the row a create returned, and only a filter, may animate; a first load keeps
-  // both empty.
   const [createdId, setCreatedId] = useState(""), [refreshToken, setRefreshToken] = useState(0);
-  // The token marks the filter re-run on screen; the ref is the last one painted. A
-  // render whose values differ is the one fade.
   const consumedRefresh = useRef(0);
   const refreshPending = refreshToken !== consumedRefresh.current;
   const [filterError, setFilterError] = useState(""), [filterKey, setFilterKey] = useState(0);
-  // Adding a transaction is the global "+ Catat" sheet; a missing-transaction handoff opens it
-  // with the date limited to that salary cycle.
-  // Called straight from the provider context, not through a window event: on a cold load this page
-  // effect runs before the provider attaches its listener, so an event would be dropped.
   const { open: openQuickRecord } = useQuickRecord();
   const openCreate = (cycleWindow = null) => openQuickRecord({ missingWindow: cycleWindow });
-  // Edit form: same native modal <dialog> pattern as the add form. The drawer's
-  // own Escape/Tab handler is on document, so the dialog stops key events here.
   const editDialog = useRef(null), editOpener = useRef(null), editStale = useRef(false);
   const [editError, setEditError] = useState(""), [editing, setEditing] = useState(false), [editFieldErrors, setEditFieldErrors] = useState({});
   function openEdit() {
@@ -106,9 +90,6 @@ export default function TransactionsPage() {
     finally { setEditing(false); }
   }
 
-  // Drawer mutations (void, reverse a merge): the confirm dialog, then POST, then re-read the record
-  // and the list. The ref refuses a second start in the same tick; `busyAction` only disables the
-  // buttons. The notice belongs to one record.
   const { confirm, dialogs } = useDialogs();
   const actionPending = useRef(false), openId = useRef(null);
   const [busyAction, setBusyAction] = useState(""), [actionNotice, setActionNotice] = useState(null);
@@ -125,7 +106,6 @@ export default function TransactionsPage() {
         const response = await fetch(url, { method: "POST" });
         outcome = response.ok ? { kind: "success", message: success.message, inbox: success.inbox } : failure(response.status, await response.json().catch(() => ({})));
       } catch { outcome = { kind: "error", message: "Koneksi terputus. Periksa status transaksi sebelum mencoba lagi.", reload: true }; }
-      // A drawer closed or pointed at another row while the request ran is left alone.
       if (openId.current === id) { setActionNotice(outcome); if (outcome.kind === "success" || outcome.reload) drawer.open(id); }
       if (outcome.kind === "success" || outcome.reload) load();
     } finally { actionPending.current = false; setBusyAction(""); }
@@ -133,8 +113,6 @@ export default function TransactionsPage() {
   const voidTransaction = () => canVoidTransaction(selected) && runDrawerAction({ key: "void", confirmText: VOID_CONFIRM_MESSAGE, confirmLabel: "Ya, batalkan", url: `/api/v1/transactions/${selected.id}/void`, success: { message: VOID_SUCCESS_MESSAGE }, failure: voidFailure });
   const reverseMerge = merge => runDrawerAction({ key: merge.id, confirmText: reverseMergeConfirmMessage(merge, money), confirmLabel: "Ya, pisahkan", url: `/api/v1/reconciliation-merges/${merge.id}/reverse`, success: { message: REVERSE_MERGE_SUCCESS_MESSAGE, inbox: true }, failure: reverseMergeFailure });
 
-  // Superseded loads are aborted and ignored. A failure keeps the rows on screen under
-  // the error banner; the first-load skeleton shows only until one load succeeds.
   const loader = useGuardedLoad(async ({ signal, current }, search = window.location.search) => {
     const requestSearch = withVoidedPolicy(listSearch(search));
     const [transactions, categoryResponse, accountResponse, wealthAccountResponse, memberResponse, cycleResponse] = await Promise.all([fetch(`/api/v1/transactions${requestSearch}`, { signal }), fetch("/api/v1/categories", { signal }), fetch("/api/v1/accounts", { signal }), fetch("/api/v1/wealth/accounts", { signal }), fetch("/api/v1/household/members", { signal }), fetch("/api/v1/analytics/cycle", { signal })]);
@@ -153,8 +131,6 @@ export default function TransactionsPage() {
     if (Array.isArray(accountList)) setAccounts(accountList);
     if (Array.isArray(wealthList)) setWealthAccounts(wealthList);
     if (Array.isArray(memberList)) setMembers(memberList);
-  // Keep the visible rows on failure but drop the cursor, which belongs to the previous
-  // query.
   }, { fallback: "Koneksi terputus saat memuat riwayat transaksi. Coba lagi.", onFailure: () => setNextCursor("") });
   const load = loader.run;
   const loading = loader.loading || loader.refreshing;
@@ -168,8 +144,6 @@ export default function TransactionsPage() {
   useEffect(() => {
     const onPopState = event => {
       setCursorHistory(event.state?.cursorHistory || []);
-      // Back/forward is the drawer's history too: ?open= (a row) or ?id= (an evidence
-      // link) opens it, their absence closes it.
       const params = new URLSearchParams(window.location.search);
       const id = params.get("open") || params.get("id");
       if (id) drawer.open(id); else drawer.close();
@@ -177,15 +151,11 @@ export default function TransactionsPage() {
     };
     window.addEventListener("popstate", onPopState); return () => window.removeEventListener("popstate", onPopState);
   }, [load, drawer.open, drawer.close]);
-  // Consume the marker once the commit that painted data-refreshed is done. Mutating the
-  // ref, not state, keeps the attribute on screen for the whole fade; later renders
-  // compare equal and stay still. Skip while loading: the first commit is the skeleton.
   useEffect(() => {
     if (!loading && loader.hasLoaded && refreshPending) consumedRefresh.current = refreshToken;
   }, [loading, loader.hasLoaded, refreshPending, refreshToken]);
   useEffect(() => { if (user) { const params = new URLSearchParams(window.location.search); const id = params.get("open") || params.get("id"); if (id) drawer.open(id); } }, [user, drawer.open]);
   useEffect(() => { if (!user) return; const window_ = cycleEntryWindow(window.location.search); if (window_) openCreate(window_); }, [user, openQuickRecord]);
-  // A transaction recorded (or undone) from the sheet refreshes this list in place.
   useEffect(() => {
     if (!user) return undefined;
     const refresh = event => { setCreatedId(event.detail?.voided ? "" : event.detail?.id || ""); load(); };
@@ -220,8 +190,6 @@ export default function TransactionsPage() {
     const search = `?${query}`; window.history.pushState({ ...window.history.state, cursorHistory: history }, "", `/transactions${search}`); await load(search);
   }
 
-  // Paging is explicit: window.history.back() would pop the drawer's ?open= entry
-  // instead of the previous page, so walk cursorHistory and replace the entry.
   async function previousPage() {
     if (!cursorHistory.length) return;
     const history = cursorHistory.slice(0, -1), previous = cursorHistory[cursorHistory.length - 1];
@@ -232,7 +200,6 @@ export default function TransactionsPage() {
     const search = `?${query}`; window.history.replaceState({ ...window.history.state, cursorHistory: history }, "", `/transactions${search}`); await load(search);
   }
 
-  // Show or hide cancelled rows: a page switch kept in the URL (?showVoided=1), never an API filter.
   async function setShowVoided(show) {
     const next = new URLSearchParams(window.location.search);
     if (show) next.set("showVoided", "1"); else next.delete("showVoided");
@@ -240,7 +207,6 @@ export default function TransactionsPage() {
     const search = next.toString() ? `?${next}` : "";
     window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", `/transactions${search}`); await load(search);
   }
-  // The Periode chip fills from/to from a preset and re-runs the list.
   async function applyPeriod(value) {
     const range = periodRange(value, { cycle: cycleWindow, today: jakartaDay(new Date()) });
     const next = new URLSearchParams(window.location.search);
@@ -256,11 +222,9 @@ export default function TransactionsPage() {
   if (!user) return null;
   const scoped = isScopedToTransaction(typeof window === "undefined" ? "" : window.location.search);
   const query = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
-  // The chips show category, member and account; everything else sits behind "Filter lain" and is counted on it.
   const moreCount = ["type", "status", "source", "from", "to"].filter(key => query.get(key)).length;
   const period = periodValue(`?${query}`, { cycle: cycleWindow, today: jakartaDay(new Date()) });
   const voidedShown = !hidesVoided(`?${query}`) && !query.get("status");
-  // The pager reads the page size the URL asked for, not the default constant.
   const size = pageSize(typeof window === "undefined" ? "" : window.location.search, PAGE_SIZE);
   return <AppShell user={user} eyebrow="Transaksi" title="Riwayat Transaksi" actions={<><button onClick={() => openCreate()}>Tambah transaksi</button><span className="header-meta">{PAGE_SIZE} per halaman · Asia/Jakarta</span></>}>
     {query.get("cycle") && <p className="notice"><a href={selectionHref({ view: "cycle", cycle: query.get("cycle"), category: query.get("categoryId") || "", step: query.get("review") || "" })}>Kembali ke tinjauan siklus</a> · {query.get("from")} sampai {query.get("to")}</p>}
@@ -294,8 +258,6 @@ export default function TransactionsPage() {
   </AppShell>;
 }
 
-// The current list URL with (or without) the open drawer's ?open=, so a row is shareable
-// and the back button closes the drawer. ?id= stays the evidence-link scope.
 function drawerUrl(id) {
   const next = new URLSearchParams(window.location.search);
   if (id) next.set("open", id); else next.delete("open");

@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-// Question is the native System One contract; each primitive has its own criteria shape, so a wrong
-// combination fails locally.
 type Question struct {
 	Type         string
 	Instructions string
@@ -22,7 +20,6 @@ type NoulCriteria struct {
 	False any `json:"false,omitempty"`
 }
 
-// ScoreCriteria is an ordered rubric. Score is not restricted to 0..1.
 type ScoreCriteria []any
 
 func (q Question) MarshalJSON() ([]byte, error) {
@@ -117,10 +114,8 @@ func ChoiceCriteria(descriptions map[string]string) map[string]any {
 	return criteria
 }
 
-// CategoryChoice is an offered category's slug and household label; an empty label gets a neutral description.
 type CategoryChoice struct{ Slug, Label string }
 
-// CategoryCriteria describes each active category by the household's own name plus an escape hatch.
 func CategoryCriteria(active []CategoryChoice) map[string]any {
 	criteria := make(map[string]any, len(active)+1)
 	for _, choice := range active {
@@ -139,8 +134,6 @@ type Request struct {
 	Questions map[string]Question `json:"questions"`
 }
 
-// AnsweredDimensions narrows a bounded result's keys to the dimensions the model returned, sorted; a fact
-// about request shape, never a Go acceptance decision.
 func AnsweredDimensions(questions map[string]Question, answers map[string]Answer) []string {
 	keys := make([]string, 0, len(answers))
 	for key := range answers {
@@ -156,9 +149,8 @@ type phaseContextKey struct{}
 type sourceEventContextKey struct{}
 
 type PhaseMetadata struct {
-	Purpose       string
-	PolicyVersion string
-	// Nil is unknown (including historical phases); an empty slice means no semantic dimension was accepted at entry.
+	Purpose            string
+	PolicyVersion      string
 	AcceptedDimensions []string
 }
 
@@ -213,13 +205,11 @@ type ChoicePolicy struct {
 	MinConfidence float64
 }
 
-// NoulPolicy maps a yes-probability to remember, do-not-remember or clarification.
 type NoulPolicy struct {
 	High float64
 	Low  float64
 }
 
-// AcceptChoice requires a complete, server-consistent distribution; a missing one is never synthesized into a decision.
 func AcceptChoice(answer Answer, criteria map[string]any, policy ChoicePolicy) bool {
 	if answer.Type != "choice" || answer.Choice == "" || len(criteria) < 2 {
 		return false
@@ -258,7 +248,6 @@ func AcceptChoice(answer Answer, criteria map[string]any, policy ChoicePolicy) b
 	return true
 }
 
-// AcceptNoul returns remember (true), do-not-remember (false) or undecided for the middle band.
 func AcceptNoul(answer Answer, policy NoulPolicy) (bool, bool) {
 	if answer.Type != "noul" || !answer.HasNoul || math.IsNaN(answer.Noul) || math.IsInf(answer.Noul, 0) || answer.Noul < 0 || answer.Noul > 1 {
 		return false, false

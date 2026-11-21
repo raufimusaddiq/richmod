@@ -2,7 +2,6 @@ package telegram
 
 import "time"
 
-// Go's time.Format only knows English month names; user-facing dates use Indonesian via these helpers.
 var indonesianMonths = [...]string{"Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"}
 
 func formatIDDate(value time.Time) string {

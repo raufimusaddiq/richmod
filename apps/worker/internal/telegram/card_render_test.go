@@ -59,7 +59,6 @@ func TestUnknownMerchantCardIsCoherent(t *testing.T) {
 	}
 }
 
-// A cycle residual has no IGNORE in its contract, so no Abaikan, only its own dismissal.
 func TestCardOmitsButtonsTheKindCannotExecute(t *testing.T) {
 	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", "c")
 	card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{})
@@ -131,8 +130,7 @@ func TestParseReplyDate(t *testing.T) {
 		"kemarin lusa":      "2026-11-03",
 		"25 September 2026": "2026-09-25",
 		"20 Jan":            "2026-01-20",
-		// More than a month ahead without a year means last year's date.
-		"25 Des": "2025-12-25",
+		"25 Des":            "2025-12-25",
 	} {
 		got, ok := parseReplyDate(input, now)
 		if !ok || got.Format("2006-01-02") != want {

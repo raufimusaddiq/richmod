@@ -1,5 +1,3 @@
-// The global "+ Catat" sheet: live Rp formatting, deterministic suggestions, payload rules and
-// the structure that keeps it a one-form, no-chooser, no-badge entry point.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -147,7 +145,6 @@ test("the provider opens from context even before its window listener exists", (
   const provider = read("app/components/QuickRecordProvider.js");
   assert.match(provider, /<QuickRecordContext\.Provider value=\{\{ open \}\}>/);
   assert.match(provider, /const open = useCallback\(/);
-  // open() only sets state; the dialog renders as soon as the signed-in user is known.
   assert.match(provider, /\{enabled && request && <QuickRecordDialog/);
 });
 

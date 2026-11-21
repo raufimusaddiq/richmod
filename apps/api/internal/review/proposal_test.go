@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// The Inbox is proposal-first. These unit tests fix the render contract
-// on the API side, so the card always has a proposal, a single reason, and the
-// list of genuinely unresolved facts regardless of which pipeline created it.
 func TestProposalFactsFromDecisionCarriesClassAndMissingFacts(t *testing.T) {
 	decision := []byte(`{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","knownFacts":{"amount_idr":"54000"},"proposedFacts":{"categorySlug":"food-and-drink"},"missingFacts":["category"],"whyNotAutoConfirm":"thin margin","allowedActions":["IGNORE"],"interactionMode":"BOUNDED_CHOICE"}`)
 	stored := proposalFacts(decision)
@@ -35,8 +32,6 @@ func TestConfirmationBlockersPreserveOnlyUnresolvedResiduals(t *testing.T) {
 	}
 }
 
-// A review stored before the decision contract existed has no proposal. It must
-// keep working rather than rendering an empty card.
 func TestProposalFactsWithoutDecisionReturnsNoMissingFacts(t *testing.T) {
 	stored := proposalFacts(nil)
 	if len(stored.ProposedFacts) != 0 || len(stored.MissingFacts) != 0 || len(stored.KnownFacts) != 0 {
@@ -48,9 +43,6 @@ func TestProposalFactsWithoutDecisionReturnsNoMissingFacts(t *testing.T) {
 	}
 }
 
-// The card decides what to ask for from the server-provided missing facts, so an
-// interaction mode must never be able to request a field the decision did not
-// name.
 func TestProposalFactsIgnoresFactsNotNamedAsMissing(t *testing.T) {
 	decision := []byte(`{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","knownFacts":{},"missingFacts":["wealth_account"],"provenance":{},"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"interactionMode":"SINGLE_FIELD"}`)
 	missing := proposalFacts(decision).MissingFacts

@@ -13,9 +13,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestHouseholdListCountsEachFigureIndependently gives a household several
-// rows in every child table, so a cartesian join would inflate the figures
-// without DISTINCT and the list must still report exact per-table counts.
 func TestHouseholdListCountsEachFigureIndependently(t *testing.T) {
 	pool := provisionPool(t)
 	ctx := context.Background()
@@ -40,7 +37,6 @@ func TestHouseholdListCountsEachFigureIndependently(t *testing.T) {
 		_, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000,now())`, householdID)
 		must(err)
 	}
-	// Another household's rows must not leak into this one's figures.
 	_, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000,now())`, otherID)
 	must(err)
 	var latest time.Time

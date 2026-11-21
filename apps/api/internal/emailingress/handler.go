@@ -110,7 +110,6 @@ func (h *Handler) Integration(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, address)
 }
 
-// Deliveries lists the household's latest inbound email outcomes for the owner.
 func (h *Handler) Deliveries(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !p.HasHousehold {
@@ -170,8 +169,6 @@ func (h *Handler) change(w http.ResponseWriter, r *http.Request, operation strin
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeActivateError answers a failed activation with a specific 409 when a
-// prerequisite is missing. It reports whether it handled the error.
 func writeActivateError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, ErrAddressRequired), errors.Is(err, pgx.ErrNoRows):

@@ -102,13 +102,11 @@ func TestEvidenceDisputeStagesThenHumanConfirmationSupersedesLinkWithoutLosingEv
 		t.Fatalf("staging must not confirm a second transaction: %v %d", err, confirmedCount)
 	}
 
-	// Retry is idempotent: no second staged row.
 	again, _, _ := stageDisputeForTest(t, ctx, pool, f)
 	if again.Created || again.TransactionID != staged.TransactionID {
 		t.Fatalf("retry staged again: %#v", again)
 	}
 
-	// Generic confirm / merge cannot bypass the dedicated confirmation.
 	generic := func(run func(tx pgx.Tx) error) error {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
@@ -130,7 +128,6 @@ func TestEvidenceDisputeStagesThenHumanConfirmationSupersedesLinkWithoutLosingEv
 		t.Fatalf("generic merge err=%v", err)
 	}
 
-	// Another household cannot stage or resolve against this evidence.
 	other := seedMergedScreenshot(t, ctx, pool, "other")
 	if err = generic(func(tx pgx.Tx) error {
 		_, e := StageEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: other.household, ActorUserID: other.user, DocumentID: f.document, SourceEventID: f.source})
@@ -171,7 +168,6 @@ func TestEvidenceDisputeStagesThenHumanConfirmationSupersedesLinkWithoutLosingEv
 	if newStatus != "CONFIRMED" || linkStatus != "SUPERSEDED" || origProposal != "MERGED" || activeScreenshotLinks != 1 || totalScreenshotLinks != 2 || confirmed != 2 {
 		t.Fatalf("new=%s link=%s proposal=%s active=%d total=%d confirmed=%d", newStatus, linkStatus, origProposal, activeScreenshotLinks, totalScreenshotLinks, confirmed)
 	}
-	// A repeated confirmation callback is stale and mutates nothing.
 	if err = generic(func(tx pgx.Tx) error {
 		return ResolveEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: staged.TransactionID, ReviewItemID: item, RequestID: request}, true)
 	}); !errors.Is(err, ErrAlreadyResolved) {
@@ -244,8 +240,6 @@ func TestEvidenceDisputeFailsClosedForMultiRowOrUnknownDate(t *testing.T) {
 	}
 }
 
-// Only expense evidence may be disputed: an incoming screenshot row may be an
-// own-account transfer and never confirms without transfer classification (ADR-042).
 func TestEvidenceDisputeRefusesIncomeRows(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -271,9 +265,6 @@ func TestEvidenceDisputeRefusesIncomeRows(t *testing.T) {
 	}
 }
 
-// An expense dispute never confirms without a category: unresolved staging
-// needs the household's explicit, household-valid choice, and a refused attempt
-// mutates nothing.
 func TestEvidenceDisputeConfirmRequiresAValidHouseholdCategory(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

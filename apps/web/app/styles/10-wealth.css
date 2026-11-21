@@ -1,4 +1,3 @@
-/* Wealth owns its financial-statement layout; .surface intentionally remains unpadded. */
 .wealth-page { display: grid; gap: 20px; }
 .wealth-page > .surface, .wealth-analysis-grid > .surface { min-width: 0; }
 .wealth-empty { display: grid; justify-items: start; gap: 14px; padding: var(--card-padding); }

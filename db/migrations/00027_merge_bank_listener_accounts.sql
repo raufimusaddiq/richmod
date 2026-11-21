@@ -1,7 +1,4 @@
 -- +goose Up
--- Reuse an existing spending bank account when a listener migration created an
--- empty system-managed duplicate. Historical transactions remain attached to
--- the existing account; only listener linkage and duplicate account state move.
 CREATE TEMP TABLE v4_bank_listener_account_merge ON COMMIT DROP AS
 SELECT l.id AS listener_id,
        l.account_id AS duplicate_account_id,
@@ -52,5 +49,3 @@ WHERE a.id = m.duplicate_account_id
   AND NOT EXISTS (SELECT 1 FROM transaction t WHERE t.account_id = a.id);
 
 -- +goose Down
--- Account consolidation is intentionally not reversed: restoring duplicate
--- accounts would risk breaking canonical transaction attribution.

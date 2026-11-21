@@ -15,8 +15,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// TestDeactivatingMemberRevokesEveryWayBackIn: after removal, the member's
-// pending dashboard invite cannot be accepted and live sessions stop working.
 func TestDeactivatingMemberRevokesEveryWayBackIn(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -66,8 +64,6 @@ func TestDeactivatingMemberRevokesEveryWayBackIn(t *testing.T) {
 	if pendingInvites != 0 || liveSessions != 0 {
 		t.Fatalf("after deactivation: pending invites=%d live sessions=%d", pendingInvites, liveSessions)
 	}
-	// Even an invite left PENDING (written before this fix) must not enroll a
-	// member who is no longer active.
 	if _, err := pool.Exec(ctx, `UPDATE dashboard_account_invite SET status='PENDING',revoked_at=NULL WHERE user_id=$1`, member); err != nil {
 		t.Fatal(err)
 	}

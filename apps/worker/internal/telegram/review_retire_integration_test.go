@@ -20,7 +20,6 @@ type fakeTelegramCall struct {
 	Body   map[string]any
 }
 
-// fakeTelegram records Bot API calls; respond picks the HTTP status and body per method, nil answers ok.
 type fakeTelegram struct {
 	mu      sync.Mutex
 	calls   []fakeTelegramCall
@@ -64,8 +63,6 @@ type retireFixture struct {
 	recipientA, recipientB string
 }
 
-// seedRetireFixture: an OPEN review projected to three chats: two delivered cards (31 with stored text, 32
-// without) and one recipient whose send never completed.
 func seedRetireFixture(t *testing.T) retireFixture {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -132,7 +129,6 @@ func TestClosingReviewRequestQueuesOneRetirementPerDeliveredCard(t *testing.T) {
 	if jobs[1].RecipientID != f.recipientB || jobs[1].ChatID != f.chatB || jobs[1].MessageID != 32 || jobs[1].Status != "RESOLVED" {
 		t.Fatalf("second retirement = %+v", jobs[1])
 	}
-	// A repeated close and a repeated enqueue while the jobs are queued add nothing.
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED' WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `SELECT enqueue_review_card_retirement($1::uuid,NULL)`, f.requestID)
@@ -172,7 +168,6 @@ func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
 	ctx := context.Background()
 	_, err := f.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
-	// Renewed and expired again before the first jobs ran: still one per card.
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=now()+interval '7 days' WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1`, f.requestID)
@@ -181,8 +176,6 @@ func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
 	if len(jobs) != 2 || jobs[0].Status != "EXPIRED" {
 		t.Fatalf("expire/renew/expire queued %+v, want one EXPIRED retirement per card", jobs)
 	}
-	// Replies renew the projection and the replying members' copies before the jobs run (expiry is per copy
-	// since 00094).
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=now()+interval '7 days' WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='SENT',card_expires_at=now()+interval '7 days' WHERE review_request_id=$1 AND telegram_message_id IS NOT NULL`, f.requestID)

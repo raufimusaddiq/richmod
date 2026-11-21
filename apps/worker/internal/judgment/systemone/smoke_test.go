@@ -10,8 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// TestRealLiteRouterSystemOneSmoke is the opt-in live canary for a bounded category decision; it needs
-// SYSTEMONE_SMOKE_BASE_URL and SYSTEMONE_SMOKE_LITEROUTER_KEY, optionally SYSTEMONE_SMOKE_MODEL.
 func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_BASE_URL"))
 	clientKey := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_LITEROUTER_KEY"))
@@ -42,7 +40,6 @@ func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("real LiteRouter call failed: %v", err)
 	}
-	// The concrete versioned model id keeps a stored decision attributable.
 	if strings.TrimSpace(result.Model) == "" {
 		t.Fatal("real LiteRouter response carried no model id")
 	}

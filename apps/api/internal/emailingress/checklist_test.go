@@ -121,7 +121,6 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 	}
 	expect("address", &address, Steps{StepDone, StepCurrent, StepCurrent, StepBlocked})
 
-	// Another household's sender never satisfies this household's prerequisite.
 	if _, err := pool.Exec(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Other','other@test.invalid',$2)`, other, otherUser); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +128,6 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 		t.Fatalf("activate with foreign sender = %v", err)
 	}
 
-	// An inactive listener does not count.
 	var listener string
 	if err := pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,active,created_by_user_id) VALUES($1,'Inactive','inactive@test.invalid',false,$2) RETURNING id`, household, user).Scan(&listener); err != nil {
 		t.Fatal(err)
@@ -138,14 +136,12 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 		t.Fatalf("activate with inactive listener = %v", err)
 	}
 
-	// A control (Gmail confirmation) delivery does not verify forwarding.
 	confirmation := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <checklist-confirm-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 123456789")
 	if err := service.Deliver(ctx, signedInput(confirmation, address.Address, "forwarder@test.invalid", "checklist/confirm-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}
 	expect("confirmation only", &address, Steps{StepDone, StepCurrent, StepCurrent, StepBlocked})
 
-	// A real forwarded email does.
 	real := []byte("From: Test Bank <alerts@test.invalid>\r\nSubject: Payment\r\nMessage-ID: <checklist-real-" + household + "@test.invalid>\r\nContent-Type: text/plain\r\n\r\nAmount IDR 100")
 	if err := service.Deliver(ctx, signedInput(real, address.Address, "forwarder@test.invalid", "checklist/real-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)
@@ -165,7 +161,6 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 		t.Fatalf("second activate = %v", err)
 	}
 
-	// An active financial provider source satisfies the prerequisite too.
 	if _, err := pool.Exec(ctx, `UPDATE bank_email_listener SET active=false WHERE household_id=$1`, household); err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +237,6 @@ func TestRotateSupersedesForwardingVerification(t *testing.T) {
 		t.Fatalf("system audit rows = %d, want 1", audits)
 	}
 
-	// Defense in depth: even a still-OPEN action tied to the disabled address is hidden.
 	if _, err := pool.Exec(ctx, `UPDATE integration_action SET status='OPEN',resolved_at=NULL WHERE id=$1`, pending.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +244,6 @@ func TestRotateSupersedesForwardingVerification(t *testing.T) {
 		t.Fatalf("an action from a disabled address must stay hidden: %+v %v", action, err)
 	}
 
-	// A fresh confirmation on the new address is shown.
 	fresh := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-new-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-new456\">Confirm</a> Confirmation code: 444555666")
 	if err := service.Deliver(ctx, signedInput(fresh, newAddress.Address, "forwarder@test.invalid", "rotate/fresh-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)

@@ -8,12 +8,8 @@ export function ErrorNotice({ message, retry, id }) {
 }
 
 export function Toast({ message, onClose }) {
-  // `shown` outlives `message` by one animation so the exit can play; the
-  // unmount is still owned by the caller through onClose.
   const [shown, setShown] = useState(message);
   const [leaving, setLeaving] = useState(false);
-  // ponytail: the timer lives on the call site because a parent re-creating the
-  // onClose prop restarted this effect; move it back here if onClose is stabilised.
   useEffect(() => {
     if (!message) return undefined;
     setShown(message); setLeaving(false);
