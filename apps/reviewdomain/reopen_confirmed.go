@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // ConfirmedReviewReopenable is the SQL predicate (alias ri = the resolved review_item, t = its
@@ -67,6 +69,25 @@ func reopenTransactionResolution(ctx context.Context, tx pgx.Tx, cmd ReopenComma
 	}
 	if moved.RowsAffected() != 1 {
 		return "", ErrReopenNotReversible
+	}
+	if clearCategory {
+		// Confirm emptied missingFacts and recorded the chosen category as known; the reopened item
+		// must ask for the category again, with no stale answer.
+		var rebuilt reviewdec.Decision
+		if json.Unmarshal(decision, &rebuilt) != nil || rebuilt.ReasonCode == "" {
+			preset, ok := reviewdec.Preset(kind, "transaction", transactionID)
+			if !ok {
+				return "", ErrReopenNotReversible
+			}
+			rebuilt = preset
+		}
+		delete(rebuilt.KnownFacts, "category")
+		if !slices.Contains(rebuilt.MissingFacts, "category") {
+			rebuilt.MissingFacts = append(rebuilt.MissingFacts, "category")
+		}
+		if decision, err = rebuilt.JSON(); err != nil {
+			return "", err
+		}
 	}
 	id, err := insertReopened(ctx, tx, cmd, kind, "transaction_id", transactionID, "transaction", decision)
 	if err != nil {

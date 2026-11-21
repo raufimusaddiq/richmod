@@ -70,6 +70,9 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 	}
 
 	t.Run("confirm_then_undo_restores_an_open_category_question", func(t *testing.T) {
+		// Household history so the reopened card has ranked answers again.
+		_, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,category_id,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',9000,now()-interval '1 day',$2,'Riwayat',now())`, household, category)
+		must(err)
 		transaction := openReview("EXPENSE")
 		original := reviewItemID(transaction)
 		if original == "" {
@@ -115,7 +118,50 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 		if reopened := reviewItemID(transaction); reopened == "" || reopened == original {
 			t.Fatalf("the list must show the fresh item again, got %q", reopened)
 		}
-		// A second undo of the same (now superseded) item is refused.
+		// The reopened item asks for the category again: category missing, no stale known answer,
+		// 1-tap suggestions present, and a fresh confirmation with another category succeeds.
+		var anotherCategory string
+		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Lain','lain') ON CONFLICT DO NOTHING RETURNING id`, household).Scan(&anotherCategory))
+		listed := call(http.MethodGet, "/api/v1/reviews", "", "", handler.List)
+		var items []struct {
+			ID                  string              `json:"id"`
+			MissingFacts        []string            `json:"missingFacts"`
+			KnownFacts          map[string]any      `json:"knownFacts"`
+			SuggestedCategories []suggestedCategory `json:"suggestedCategories"`
+		}
+		must(json.Unmarshal(listed.Body.Bytes(), &items))
+		var seen bool
+		for _, item := range items {
+			if item.ID != transaction {
+				continue
+			}
+			seen = true
+			hasMissing := false
+			for _, fact := range item.MissingFacts {
+				hasMissing = hasMissing || fact == "category"
+			}
+			if !hasMissing {
+				t.Fatalf("reopened item must list category as missing: %+v", item.MissingFacts)
+			}
+			if _, stale := item.KnownFacts["category"]; stale {
+				t.Fatalf("reopened item kept the stale category answer: %+v", item.KnownFacts)
+			}
+			if len(item.SuggestedCategories) == 0 {
+				t.Fatal("reopened item must offer category answers again")
+			}
+		}
+		if !seen {
+			t.Fatal("reopened item missing from the list")
+		}
+		if w := call(http.MethodPost, "/confirm", transaction, fmt.Sprintf(`{"categoryId":%q}`, anotherCategory), handler.Confirm); w.Code != http.StatusNoContent {
+			t.Fatalf("re-confirm %d %s", w.Code, w.Body.String())
+		}
+		var reconfirmed string
+		must(pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, transaction).Scan(&reconfirmed))
+		if reconfirmed != "CONFIRMED" {
+			t.Fatalf("re-confirm left status %s", reconfirmed)
+		}
+		// A second undo of the original (superseded) item is refused.
 		if w := call(http.MethodPost, "/reopen", original, "", handler.Reopen); w.Code != http.StatusConflict {
 			t.Fatalf("second reopen %d", w.Code)
 		}
