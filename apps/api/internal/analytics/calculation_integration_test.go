@@ -135,17 +135,21 @@ func TestCycleReviewKeepsFullRentHistorySeparateFromElapsedBaseline(t *testing.T
 	}
 }
 
-func TestFullPreviousCycleSurvivesIneligibleElapsedHistory(t *testing.T) {
+func TestShorterPreviousCycleStaysTheComparisonBaseWhole(t *testing.T) {
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-28")
 	f.anchor(t, "2026-09-01")
 	f.transaction(t, "2026-08-30", "EXPENSE", "CONFIRMED", "1950000", true)
 	facts := f.review(t, "")
-	if facts.Comparison.EligibleCycles != 0 || facts.Comparison.Previous != nil || facts.Comparison.Expense.Previous != nil || facts.Comparison.Expense.Median != nil || facts.Comparison.PreviousFullCycle.Start != "2026-08-28" {
-		t.Fatalf("ineligible history=%+v", facts.Comparison)
+	// The 4-day previous cycle is shorter than the 10 elapsed days: it is measured whole, not skipped.
+	if facts.Comparison.EligibleCycles != 1 || facts.Comparison.Previous == nil || facts.Comparison.Previous.Start != "2026-08-28" || facts.Comparison.Previous.MeasuredUntil != "2026-09-01" || facts.Comparison.Expense.Median != nil || facts.Comparison.PreviousFullCycle.Start != "2026-08-28" {
+		t.Fatalf("shorter previous cycle=%+v", facts.Comparison)
 	}
-	if len(facts.Categories) != 1 || facts.Categories[0].Amount != "0" || *facts.Categories[0].PreviousFull != "1950000" || *facts.Categories[0].DeltaFull != "-1950000" {
-		t.Fatalf("full-only category=%+v", facts.Categories)
+	if facts.Comparison.Expense.Previous == nil || *facts.Comparison.Expense.Previous != "1950000" || *facts.Comparison.Expense.PreviousFull != "1950000" {
+		t.Fatalf("expense baseline=%+v", facts.Comparison.Expense)
+	}
+	if len(facts.Categories) != 1 || facts.Categories[0].Amount != "0" || *facts.Categories[0].Previous != "1950000" || *facts.Categories[0].Delta != "-1950000" || *facts.Categories[0].PreviousFull != "1950000" || *facts.Categories[0].DeltaFull != "-1950000" {
+		t.Fatalf("category baseline=%+v", facts.Categories)
 	}
 }
 

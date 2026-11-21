@@ -57,6 +57,8 @@ try {
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/v1/**", async route => {
       const url = new URL(route.request().url());
+      // Fire-and-forget UI telemetry is not part of the behaviour under test.
+      if (url.pathname === "/api/v1/telemetry/events") { await route.fulfill({ status: 204 }); return; }
       requests.push({ path: url.pathname, search: url.search, method: route.request().method() });
       let body = [];
       let status = 200;
