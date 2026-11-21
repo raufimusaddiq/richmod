@@ -234,6 +234,9 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		if !equalPtr(&resolved, merchantID) || !equalPtr(&name, merchantCurrent) {
 			newMerchantID = &resolved
 			raw := firstNonBlank(counterparty, merchantCurrent, description)
+			if runes := []rune(raw); len(runes) > maxMerchantNameRunes {
+				raw = string(runes[:maxMerchantNameRunes])
+			}
 			if raw != "" {
 				var oldAlias *string
 				var aliasExisted bool

@@ -179,8 +179,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	suggestions, err := h.suggestCategories(r.Context(), household, items)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to rank suggested categories"})
-		return
+		slog.Warn("review suggested categories unavailable", "household_id", household, "err", err)
+		suggestions = nil
 	}
 	for index := range items {
 		items[index].SuggestedCategories = suggestions[items[index].ID]

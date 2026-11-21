@@ -168,6 +168,27 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 			t.Fatalf("alias audits keyed by alias id=%d", n)
 		}
 	})
+	t.Run("overlong_raw_name_matches_the_truncated_alias", func(t *testing.T) {
+		raw := strings.Repeat("X", 200)
+		var old string
+		must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'LONG OLD') RETURNING id`, household).Scan(&old))
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,created_from_user_confirmation) VALUES($1,$2,$3,true)`, household, raw[:160], old)
+		must(err)
+		id := newTx(household, "EXPENSE", "CONFIRMED", raw)
+		if rec := patch(id, stamp(id), `{"merchantName":"Long New"}`, principal); rec.Code != 200 {
+			t.Fatalf("status %d %s", rec.Code, rec.Body)
+		}
+		var existed, before string
+		must(pool.QueryRow(ctx, `SELECT (after_json->>'existed'),(after_json->>'before') FROM audit_log WHERE action='UPDATE_MERCHANT_ALIAS' AND household_id=$1 AND after_json->>'rawName'=$2`, household, raw[:160]).Scan(&existed, &before))
+		if existed != "true" || before != old {
+			t.Fatalf("existed=%s before=%s want true/%s", existed, before, old)
+		}
+		var n int
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM merchant_alias WHERE household_id=$1 AND left(raw_name,10)='XXXXXXXXXX'`, household).Scan(&n))
+		if n != 1 {
+			t.Fatalf("alias rows=%d", n)
+		}
+	})
 	t.Run("noop_same_merchant_writes_nothing", func(t *testing.T) {
 		id := newTx(household, "EXPENSE", "CONFIRMED", "TOKO A")
 		if rec := patch(id, stamp(id), `{"merchantName":"Toko A"}`, principal); rec.Code != 200 {
