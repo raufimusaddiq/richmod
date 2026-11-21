@@ -71,9 +71,9 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-058](#adr-058-multi-household-tenancy-hardening) | Multi-household tenancy hardening | Accepted, extends ADR-035 and ADR-003 |
 | [ADR-059](#adr-059-super-admin-household-provisioning) | Super Admin household provisioning | Accepted, extends ADR-058 and ADR-021 |
 | [ADR-060](#adr-060-an-active-merge-target-cannot-be-voided) | An active merge target cannot be voided | Accepted, extends ADR-039 |
-| [ADR-061](#adr-061-document-grid-loads-derived-thumbnails) | Document grid loads derived thumbnails | *Accepted, extends ADR-056 |
-| [ADR-062](#adr-062-privacy-safe-ui-telemetry-and-whole-cycle-comparison-base) | Privacy-safe UI telemetry and whole-cycle comparison base | *Accepted |
-| [ADR-063](#adr-063-four-place-navigation-one-global--catat-sheet-one-keluarga-hub) | Four-place navigation, one global + Catat sheet, one Keluarga hub | *Accepted |
+| [ADR-061](#adr-061-document-grid-loads-derived-thumbnails) | Document grid loads derived thumbnails | Accepted, extends ADR-056 |
+| [ADR-062](#adr-062-privacy-safe-ui-telemetry-and-whole-cycle-comparison-base) | Privacy-safe UI telemetry and whole-cycle comparison base | Accepted |
+| [ADR-063](#adr-063-four-place-navigation-one-global--catat-sheet-one-keluarga-hub) | Four-place navigation, one global + Catat sheet, one Keluarga hub | Accepted |
 | [ADR-064](#adr-064-telegram-agent-turn-lifecycle-timeouts-and-failure-replies) | Telegram agent turn lifecycle, timeouts and failure replies | Accepted |
 | [ADR-065](#adr-065-telegram-review-card-answer-binding-and-mutation-invariants) | Telegram review-card answer binding and mutation invariants | Accepted |
 | [ADR-066](#adr-066-telegram-wealth-purchase-and-residual-mutations) | Telegram Wealth purchase and residual mutations | Accepted |
