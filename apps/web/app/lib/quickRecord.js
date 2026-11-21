@@ -44,8 +44,19 @@ export function categoryChips(recentIds, categories, limit = 6) {
   return chips;
 }
 
+const MAX_REPEAT_LABEL = 28;
+
+export function shortRepeatDescription(value, max = MAX_REPEAT_LABEL) {
+  const clean = String(value ?? "").trim().replace(/\s+/g, " ");
+  if (clean.length <= max) return clean;
+  const slice = clean.slice(0, max);
+  const breakAt = slice.lastIndexOf(" ");
+  const cut = breakAt >= Math.floor(max * 0.6) ? slice.slice(0, breakAt) : slice;
+  return `${cut.replace(/[\s,.;:-]+$/, "")}…`;
+}
+
 export function repeatLabel(item, formatAmount = value => value) {
-  return `${item.description} · ${formatAmount(item.amount)}`;
+  return `${shortRepeatDescription(item.description)} · ${formatAmount(item.amount)}`;
 }
 
 export function sanitizeSuggestions(raw, { categories = [], accounts = [] } = {}) {

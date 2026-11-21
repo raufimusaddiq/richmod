@@ -63,7 +63,7 @@
 .chart-tooltip-net { padding-top: 7px; border-top: 1px solid var(--line); color: var(--ink-soft); }
 
 
-.overview-trend { display: flex; flex-direction: column; }
+.overview-trend { display: flex; min-width: 0; flex-direction: column; overflow: hidden; }
 .chart-fill { flex: 1 1 auto; }
 
 .home-card { border: 1.5px solid var(--line-strong); background: var(--surface); box-shadow: none; }

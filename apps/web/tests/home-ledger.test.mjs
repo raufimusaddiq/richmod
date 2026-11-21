@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { FALLBACK_ICON, categoryVisual, normalizeCategoryName } from "../app/lib/categoryIcons.js";
-import { categoryLedgerHref, comparisonLine, dailyChartModel, dayLedgerHref, homeState, rankedCategories, spendingShare } from "../app/lib/home.js";
+import { categoryLedgerHref, clippedBarLabels, comparisonLine, dailyAxis, dailyChartModel, dayLedgerHref, formatDailyTick, homeState, rankedCategories, spendingShare } from "../app/lib/home.js";
 import { groupByDay, jakartaDay } from "../app/lib/ledgerDays.js";
-import { hidesVoided, originTimeline, periodRange, periodValue, withVoidedPolicy } from "../app/lib/transactionView.js";
+import { hidesVoided, originTimeline, periodRange, periodValue, transactionDisplayName, withVoidedPolicy } from "../app/lib/transactionView.js";
 
 test("category names map to a Phosphor icon, never a letter box", () => {
   const expected = { "Kopi & Snack": "Coffee", "Belanja Bulanan": "Basket", Makan: "ForkKnife", "Rumah Tangga": "House", Transportasi: "Car", Kesehatan: "FirstAidKit", Listrik: "Lightning", Langganan: "Repeat", "Orang tua": "Users", Anak: "Baby", Hiburan: "Ticket", Belanja: "ShoppingBag", Tagihan: "Receipt", Liburan: "Airplane", "Tempat Tinggal": "House", "Belanja Bahan Makanan": "Basket", Perjalanan: "Airplane" };
@@ -23,17 +24,73 @@ test("category tone is stable and one of the six chart tones", () => {
 
 const day = (period, expense) => ({ period, expense: String(expense), expenseValue: expense });
 
-test("the daily chart caps bars only when the biggest day exceeds 3x the median day", () => {
+test("the daily chart caps near the 90th-percentile day so at most ~3 bars are clipped", () => {
   const calm = dailyChartModel([day("2026-11-01", 100), day("2026-11-02", 120), day("2026-11-03", 90), day("2026-11-04", 250)]);
-  assert.equal(calm.cap, null, "max 250 is below 3 x median 110");
+  assert.equal(calm.cap, null, "modest spread stays uncapped");
   assert.ok(calm.rows.every(row => !row.capped));
   const spike = dailyChartModel([day("2026-11-01", 100), day("2026-11-02", 120), day("2026-11-03", 90), day("2026-11-04", 5000)]);
-  assert.equal(spike.cap, 330, "3 x the median of 100 and 120 is 330");
+  assert.equal(spike.cap, 150, "p90 of 120 rounds cleanly to 150");
   assert.equal(spike.rows[3].capped, true);
-  assert.equal(spike.rows[3].plotValue, 330);
+  assert.equal(spike.rows[3].plotValue, 150);
   assert.equal(spike.rows[3].expenseValue, 5000, "the real value survives for the label");
   assert.equal(spike.rows[0].plotValue, 100);
   assert.equal(spike.biggest.period, "2026-11-04");
+
+  const realCycle = [2507500, 101885, 0, 975685, 38000, 36500, 250397, 215672, 374640, 2152100, 636507, 296909, 126959, 30000, 86000, 231346, 335250, 47308, 51700, 570920, 40383, 199001, 0, 152411, 193332, 36032, 138750, 47847, 50800, 0]
+    .map((amount, index) => day(`2026-11-${String(index + 1).padStart(2, "0")}`, amount));
+  const model = dailyChartModel(realCycle);
+  const clipped = model.rows.filter(row => row.capped);
+  assert.equal(model.cap, 750_000);
+  assert.ok(clipped.length > 0 && clipped.length <= 3, `expected at most 3 clipped bars, got ${clipped.length}`);
+  assert.deepEqual(model.axis.ticks, [0, 250_000, 500_000, 750_000]);
+  assert.deepEqual(model.axis.ticks.map(formatDailyTick), ["0", "250rb", "500rb", "750rb"]);
+});
+
+test("daily axis produces distinct round ticks with rb below 1 jt and jt at/above 1 jt", () => {
+  const halfMillion = dailyAxis(450_000);
+  assert.deepEqual(halfMillion.ticks, [0, 250_000, 500_000]);
+  assert.deepEqual(halfMillion.ticks.map(formatDailyTick), ["0", "250rb", "500rb"]);
+  const million = dailyAxis(1_200_000);
+  assert.deepEqual(million.ticks, [0, 500_000, 1_000_000, 1_500_000]);
+  assert.deepEqual(million.ticks.map(formatDailyTick), ["0", "500rb", "1 jt", "1,5 jt"]);
+  assert.equal(formatDailyTick(975_685), "976rb");
+  assert.equal(formatDailyTick(2_507_500), "2,5 jt");
+  assert.equal(formatDailyTick(999_600), "1 jt");
+  assert.equal(formatDailyTick(2_500), "2,5rb");
+  assert.equal(formatDailyTick(0), "0");
+});
+
+test("clipped bar labels stagger nearby spikes and label only the largest on narrow widths", () => {
+  const rows = Array.from({ length: 15 }, (_, index) => ({
+    period: `2026-11-${String(index + 1).padStart(2, "0")}`,
+    expenseValue: index === 0 ? 2_500_000 : index === 9 ? 2_150_000 : index === 10 ? 900_000 : 100_000,
+    capped: index === 0 || index === 9 || index === 10,
+  }));
+  const wide = clippedBarLabels(rows, { narrow: false });
+  assert.equal(wide.get(0)?.tier, 0);
+  assert.equal(wide.get(9)?.tier, 0);
+  assert.equal(wide.get(10)?.tier, 1, "adjacent clipped bar staggers onto the upper row");
+  assert.equal(wide.get(10)?.text, "900rb");
+  const narrow = clippedBarLabels(rows, { narrow: true });
+  assert.equal(narrow.size, 1, "narrow widths label only the largest clipped bar");
+  assert.equal(narrow.get(0)?.text, "2,5 jt");
+
+  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
+  assert.match(charts, /fill="var\(--ink-soft\)"/, "daily bars render in neutral ink, not expense red");
+  assert.doesNotMatch(charts.slice(charts.indexOf("function DailyBarShape"), charts.indexOf("export function CycleSpendingPatternChart")), /var\(--chart-expense\)/);
+});
+
+test("transaction display name prefers merchant, then counterparty, then description, and labels transfers", () => {
+  assert.equal(transactionDisplayName({ type: "EXPENSE", merchantName: "Grab", counterpartyName: "GRAB*1234", description: "Payment to GRAB*1234" }), "Grab");
+  assert.equal(transactionDisplayName({ type: "EXPENSE", merchantName: null, counterpartyName: "ShopeeFood", description: "Transaksi menggunakan kartu debit Jago" }), "ShopeeFood");
+  assert.equal(transactionDisplayName({ type: "EXPENSE", merchantName: "", counterpartyName: "", description: "Beli kopi" }), "Beli kopi");
+  assert.equal(transactionDisplayName({ type: "TRANSFER", counterpartyName: "DNID RAUXX MUSXXXXX", description: "You have just transferred IDR300,000 to DNID RAUXX MUSXXXXX." }), "Transfer ke DNID RAUXX MUSXXXXX");
+  assert.equal(transactionDisplayName({ type: "TRANSFER", counterpartyName: "Transfer ke Tabungan", description: "raw" }), "Transfer ke Tabungan");
+  assert.equal(transactionDisplayName({ type: "TRANSFER", counterpartyName: null, description: "Pindah ke tabungan" }), "Pindah ke tabungan");
+  assert.equal(transactionDisplayName({ type: "TRANSFER" }), "Transfer");
+  assert.equal(transactionDisplayName({}), "Transaksi");
+  assert.match(readFileSync(new URL("../app/components/TransactionList.js", import.meta.url), "utf8"), /transactionDisplayName\(item\)/);
+  assert.match(readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8"), /<h2>\{transactionDisplayName\(selected\)\}<\/h2>/);
 });
 
 test("no cap when most days are zero (median 0) and the average is exact integer math", () => {

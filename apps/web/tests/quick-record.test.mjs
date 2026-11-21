@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { MAX_PHOTOS, QUICK_EVENTS, buildQuickPayload, categoryChips, caretAfterFormat, formatRupiahInput, normalizeDescription, photoSelectionError, photoStatus, quickFormErrors, rupiahDigits, sanitizeSuggestions, suggestCategory } from "../app/lib/quickRecord.js";
+import { MAX_PHOTOS, QUICK_EVENTS, buildQuickPayload, categoryChips, caretAfterFormat, formatRupiahInput, normalizeDescription, photoSelectionError, photoStatus, quickFormErrors, repeatLabel, rupiahDigits, sanitizeSuggestions, shortRepeatDescription, suggestCategory } from "../app/lib/quickRecord.js";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -125,6 +125,8 @@ test("the sheet opens on the manual form, with no chooser and no badges", () => 
   assert.match(read("app/components/QuickRecordProvider.js"), /mode: detail\.mode === "photo" \? "photo" : "manual"/);
   assert.match(dialog, /inputMode="numeric"/);
   assert.match(dialog, /onChange=\{onAmount\}/);
+  assert.match(dialog, /const EMPTY_FORM = \{[^}]*amount: ""/);
+  assert.doesNotMatch(dialog, /name="amount"[^>]*placeholder="0"/, "amount uses an example placeholder, never a prefilled-looking 0");
   assert.match(dialog, /aria-label="Ulangi cepat"/);
   assert.match(dialog, /aria-label="Kategori"/);
   assert.match(dialog, /Lainnya…/);
@@ -157,6 +159,13 @@ test("saving closes at once, confirms with an undo, and tells open pages to refr
   assert.match(provider, /\/api\/v1\/transactions\/\$\{toast\.id\}\/void/);
   assert.match(provider, /announceTransactionCreated\(\{ id: body\?\.id \|\| "" \}\);\s*close\(\);/);
   assert.match(read("app/layout.js"), /<QuickRecordProvider>/);
+});
+
+test("repeat labels stay short and clean for quick chips", () => {
+  assert.equal(shortRepeatDescription("  Beli   kopi  "), "Beli kopi");
+  assert.equal(repeatLabel({ description: "Beli kopi", amount: "12000" }, value => `Rp ${value}`), "Beli kopi · Rp 12000");
+  const long = shortRepeatDescription("Beli bahan makanan bulanan di pasar minggu bersama ibu");
+  assert.ok(long.length <= 29 && long.endsWith("…"), `expected truncated short label, got ${long}`);
 });
 
 test("the sheet keeps the Retro Ledger rules: ink border, 16px inputs, sticky save bar, safe area", () => {
