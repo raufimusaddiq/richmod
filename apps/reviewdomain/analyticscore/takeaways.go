@@ -51,7 +51,7 @@ func millionsText(value string) string {
 	hundredths := new(big.Int).Add(abs, big.NewInt(5000))
 	hundredths.Div(hundredths, big.NewInt(10000))
 	whole, fraction := new(big.Int).DivMod(hundredths, big.NewInt(100), new(big.Int))
-	return fmt.Sprintf("%sRp %s,%02d jt", sign, whole.String(), fraction.Int64())
+	return fmt.Sprintf("%sRp %s,%02d jt", sign, thousandsText(whole.String()), fraction.Int64())
 }
 
 func thousandsText(digits string) string {

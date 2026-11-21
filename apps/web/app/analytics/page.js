@@ -57,7 +57,6 @@ function AnalyticsReview() {
   const [drafts, setDrafts] = useState({});
   const trigger = useRef(null);
   const drawerPushed = useRef(false);
-  const comparison = useRef(null);
   const valueNav = useRef(false);
   const [valueUpdated, setValueUpdated] = useState(0);
   useEffect(() => {
@@ -175,7 +174,6 @@ function AnalyticsReview() {
     if (drawerPushed.current) { drawerPushed.current = false; window.history.back(); }
     else navigate({ category: "" }, { replace: true });
   };
-  const openComparison = () => { const panel = comparison.current; if (!panel) return; panel.open = true; panel.scrollIntoView({ block: "start" }); panel.querySelector("summary")?.focus(); };
   const refreshing = selection.view === "cycle" && loading && Boolean(facts);
   const chooseReport = id => {
     if (id === "wealth") navigate({ view: "wealth" });
@@ -221,7 +219,7 @@ function AnalyticsReview() {
           <div className="dash-row"><WhereCard facts={facts} step={step} select={chooseCategory}/>
             <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory}/></div>
           <div className="dash-row dash-row-half dash-row-pace">
-            <ChangesCard facts={facts} step={step} select={chooseCategory} comparisonRef={comparison}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/></ChangesCard>
+            <ChangesCard facts={facts} step={step} select={chooseCategory}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/></ChangesCard>
             <PaceCard facts={facts}/></div>
           <div className="review-stack surface card">
           <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>

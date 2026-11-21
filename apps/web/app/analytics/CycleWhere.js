@@ -66,7 +66,7 @@ function RankRow({ row }) {
   </>;
 }
 
-export function ChangesCard({ facts, step, select, comparisonRef, children }) {
+export function ChangesCard({ facts, step, select, children }) {
   const view = changesView(facts);
   return <section id="changes" className="surface dash-card changes-card" aria-labelledby="changes-title">
     <SectionTitle id="changes-title" title="Yang berubah"/>
@@ -87,7 +87,7 @@ export function ChangesCard({ facts, step, select, comparisonRef, children }) {
         <ul>{view.merchants.map(item => <li key={item.key}>{item.id ? <a href={transactionHref(facts.period, { merchantId: item.id })}>{item.name}</a> : <span>{item.name}</span>}<Delta delta={item.delta}/></li>)}</ul>
       </div>}
     </>}
-    <details className="review-daily" ref={comparisonRef} open={step === "changes" || undefined}>
+    <details className="review-daily" open={step === "changes" || undefined}>
       <summary>Detail ›<span className="visually-hidden"> Perbandingan lengkap · median, persentase &amp; kontribusi</span></summary>
       <p className="dash-caption">Lima perubahan kategori terbesar menurut urutan server, bukan penilaian baik atau buruk. Merah dan hijau hanya menunjukkan arah pengeluaran. Merchant penggerak diurutkan menurut selisih absolut.</p>
       {children}

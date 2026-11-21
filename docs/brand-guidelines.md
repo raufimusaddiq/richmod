@@ -60,9 +60,10 @@ that source; it does not introduce a parallel token file.
 - Accent budget per above-the-fold viewport: primary action, one key metric, and
   active navigation.
 - Data marks (bars, lines, matrix cells) never use the accent: they use `--ink`,
-  `--ink-soft` or the chart tokens. Direction is a sign plus ▲/▼, and a decrease is
-  a hatched neutral bar, never a different hue, so no colour implies good or bad. A
-  selected cycle, row or list item is `--butter`.
+  `--ink-soft` or the chart tokens. Muted `--expense` and `--income` are reserved
+  strictly for spending-change direction, always paired with ▲/▼ and the neutral
+  wording `lebih rendah` / `lebih tinggi` (never `lebih hemat` or `lebih boros`),
+  and appear nowhere else. A selected cycle, row or list item is `--butter`.
 - Chart colour is drawn from `--chart-*`; the categorical ramp (teal, slate,
   ochre, plum, dusk indigo, warm umber) contains no red and no green, so a
   category never reads as a spending direction. Every `--chart-category-1..6`

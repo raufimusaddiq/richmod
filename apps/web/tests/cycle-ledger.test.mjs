@@ -128,7 +128,7 @@ test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day 
   assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
   const page = tree("app/analytics");
   assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
-  assert.match(page, /<details className="review-daily" ref=\{comparisonRef\} open=\{step === "changes" \|\| undefined\}>\s*<summary>Detail ›/);
+  assert.match(page, /<details className="review-daily" open=\{step === "changes" \|\| undefined\}>\s*<summary>Detail ›/);
   for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="diverge"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
   assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
   assert.match(page, /Selisih vs hari yang sama/);

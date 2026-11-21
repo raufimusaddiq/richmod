@@ -124,7 +124,7 @@ func TestTakeawaysChangesNeutralAndSingleSided(t *testing.T) {
 }
 
 func TestMillionsTextUsesIntegerRounding(t *testing.T) {
-	cases := map[string]string{"8620000": "Rp 8,62 jt", "9925000": "Rp 9,93 jt", "850000": "Rp 850.000", "1000000": "Rp 1,00 jt", "0": "Rp 0", "-1500000": "-Rp 1,50 jt"}
+	cases := map[string]string{"8620000": "Rp 8,62 jt", "9925000": "Rp 9,93 jt", "850000": "Rp 850.000", "1000000": "Rp 1,00 jt", "0": "Rp 0", "-1500000": "-Rp 1,50 jt", "1000000000": "Rp 1.000,00 jt", "1234567890": "Rp 1.234,57 jt"}
 	for in, want := range cases {
 		if got := millionsText(in); got != want {
 			t.Errorf("millionsText(%s)=%q want %q", in, got, want)
