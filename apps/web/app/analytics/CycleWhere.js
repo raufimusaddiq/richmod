@@ -121,6 +121,13 @@ export function DailyCard({ facts, step, children }) {
 
 export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectCategory }) {
   const columns = buildLedger(facts.history, facts.period.start, null).columns;
+  const detail = useRef(null);
+  useEffect(() => {
+    const reveal = () => { if (detail.current && ["#history", "#matrix"].includes(window.location.hash)) detail.current.open = true; };
+    reveal();
+    window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, []);
   if (!columns.length) return null;
   return <section id="history" className="surface dash-card history-card" aria-labelledby="history-title">
     <SectionTitle id="history-title" title="Siklus ke siklus"/>
@@ -137,7 +144,7 @@ export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectC
       </li>)}
     </ul>
     <p className="dash-caption">Angka di bawah tanggal: arus kas bersih, Rp juta. Siklus berjalan belum penuh dan tidak sebanding dengan siklus yang sudah ditutup.</p>
-    <details className="review-daily" open={step === "position" || undefined}>
+    <details className="review-daily" ref={detail} open={step === "position" || undefined}>
       <summary>Angka per kategori ›</summary>
       <div id="matrix" className="matrix-detail">
         <h3 id="matrix-title">Kategori × siklus</h3>
