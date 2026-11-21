@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The capture script produces eight product screenshots. `README.md` shows three of them (dashboard, review inbox, phone dashboard):
+The capture script produces eight product screenshots of the redesigned UI. `README.md` shows six of them in two rows: **Beranda** (`dashboard.png`), **Perlu dicek** (`review-inbox.png`, one-tap category answers), the phone Beranda (`dashboard-mobile.png`), **Laporan › Arus kas** (`analytics.png`), **Laporan › Kekayaan** (`wealth.png`) and the day-grouped **Transaksi** ledger on a tablet (`transactions-tablet.png`). The landing and login images are captured for `docs/assets/` only:
 
 - `docs/assets/landing.png`
 - `docs/assets/login.png`
@@ -18,10 +18,12 @@ at `apps/web/scripts/capture-readme.mjs` and uses fixed synthetic API fixtures.
 It never connects to production, sends credentials, reads `finance.env`, or
 uses a real browser session.
 
-Analytics capture uses `tests/fixtures/cycle-review.mjs`, shared with the
-synthetic browser regression suite. It waits for the deterministic **Posisi
-siklus** heading instead of merely the authenticated shell; the old advice
-fixture is retired. CI's `cycle-review-screenshots` artifact also contains
+Laporan › Arus kas capture uses `tests/fixtures/cycle-review.mjs`, shared with the
+synthetic browser regression suite, including its Go-computed `takeaways`. Each
+shot waits for a deterministic element (the Beranda hero figure, **Masuk kategori
+apa?**, **Ke mana uangnya**, **Kekayaan bersih**, the first ledger day) plus
+`document.fonts.ready`, so no image shows a loading skeleton, and it fails on any
+unexpected 4xx response. CI's `cycle-review-screenshots` artifact also contains
 `readme-analytics.png` (1440×1050) from the verified current page. That generated
 asset can replace `docs/assets/analytics.png` without a host-local build.
 
@@ -107,9 +109,10 @@ outside the worktree.
 
 ## Without Docker
 
-Docker is preferred, but a disposable worktree can also capture directly. Keep the
-browser download inside the worktree so cleanup removes it, build the app, serve
-it on the unused port, capture, then stop the server:
+Docker is preferred, but a disposable worktree can also capture directly with
+the static export. Keep the browser download inside the worktree so cleanup
+removes it, build the app, serve the export on the unused port, capture, then
+stop the server:
 
 ```bash
 cd apps/web
@@ -117,12 +120,12 @@ export PLAYWRIGHT_BROWSERS_PATH="$PWD/node_modules/.playwright-browsers"
 npm ci --ignore-scripts --no-audit --no-fund
 npx playwright install chromium
 npm run build
-npm run start -- -p 3002 &
+PORT=3002 node scripts/static-server.mjs &
 RICHMOD_SCREENSHOT_URL=http://127.0.0.1:3002 npm run capture:readme
+kill %1
 ```
 
-Stop the server afterwards (it is the process listening on port `3002`). Then
-remove the worktree as described under cleanup; the browser download goes with it.
+Remove the worktree as described under cleanup; the browser download goes with it.
 
 ## Verify before committing
 
@@ -141,7 +144,7 @@ file docs/assets/landing.png \
   docs/assets/transactions-tablet.png
 ```
 
-Run the web checks from the repository-root mount. Product alignment tests read
+From the repository root, `node scripts/check-comments.mjs` must exit 0: the capture script carries no code comments. Run the web checks from the repository-root mount. Product alignment tests read
 source outside `apps/web`, so mounting only that directory is insufficient.
 
 ```bash

@@ -23,11 +23,11 @@ were removed from the tree and are recoverable from git history.
 | [`runbooks/stuck-source-events.md`](runbooks/stuck-source-events.md) | Detecting source events shown as needing review that have no reachable review item (#356) |
 | [`runbooks/cloudflare-email-ingress.md`](runbooks/cloudflare-email-ingress.md) | The email transport: Workers, R2, Queue, HMAC contract, forwarding setup |
 | [`runbooks/cloudflare-email-cli.md`](runbooks/cloudflare-email-cli.md) | The same Cloudflare setup and its live checks as `cf` and Wrangler commands |
-| [`runbooks/readme-showcase.md`](runbooks/readme-showcase.md) | Regenerating the README screenshots from synthetic data |
+| [`runbooks/readme-showcase.md`](runbooks/readme-showcase.md) | Regenerating the README screenshots (Beranda, Perlu dicek, Laporan, Transaksi) from synthetic data |
 
 ## Architecture and data
 
-- [`adr/`](adr/README.md): the architecture decision log, one short entry per decision. Add an entry for a material architecture or infrastructure change.
+- [`adr/`](adr/README.md): the architecture decision log, one short entry per decision (ADR-001 to ADR-112). Add an entry for a material architecture or infrastructure change.
 - [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md): schema reference and ERD. Schema changes update it in the same branch.
 - [`STATE_MACHINES.md`](STATE_MACHINES.md): every status machine, its legal moves, and where each rule is enforced.
 
