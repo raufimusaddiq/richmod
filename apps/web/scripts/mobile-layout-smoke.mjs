@@ -81,7 +81,16 @@ function fixture(path, currentUser) {
   if (path === "/api/v1/wealth/summary") return { latest: wealthSnapshots[0], previous: wealthSnapshots[1], netWorthChangeIdr: "2000000", confirmedCashflowIdr: "1500000", valuationAndOtherChangeIdr: "500000" };
   if (path === "/api/v1/wealth/current-cycle-savings") return null;
   if (path === "/api/v1/wealth/cycle-recaps" || path === "/api/v1/wealth/observations") return [];
-  if (path === "/api/v1/transactions/quick-suggestions") return { frequent: [{ description: "Kopi susu", amount: "25000", type: "EXPENSE", categoryId: "cat-1", accountId: "acc-1" }], recentCategories: ["cat-1", "cat-2", "cat-3"], descriptionMap: {} };
+  if (path === "/api/v1/transactions/quick-suggestions") return {
+    frequent: [
+      { description: "Kopi susu", amount: "25000", type: "EXPENSE", categoryId: "cat-1", accountId: "acc-1" },
+      { description: "Makan siang", amount: "45000", type: "EXPENSE", categoryId: "cat-2", accountId: "acc-1" },
+      { description: "Parkir harian", amount: "10000", type: "EXPENSE", categoryId: "cat-3", accountId: "acc-1" },
+      { description: "Belanja pasar", amount: "120000", type: "EXPENSE", categoryId: "cat-1", accountId: "acc-2" },
+    ],
+    recentCategories: ["cat-1", "cat-2", "cat-3"],
+    descriptionMap: {},
+  };
   if (/\/api\/v1\/transactions\/[^/]+\/evidence$/.test(path)) return [{ id: "ev-1", evidenceType: "BANK_EMAIL", sourceType: "BANK_EMAIL", receivedAt: "2026-09-28T09:20:00+07:00" }];
   if (/\/api\/v1\/transactions\/[^/]+\/audit$/.test(path)) return [{ id: "audit-1", action: "CONFIRM", actorType: "SYSTEM", createdAt: "2026-09-28T09:21:00+07:00" }];
   if (/\/api\/v1\/transactions\/[^/]+$/.test(path)) return transactions[0];
@@ -162,6 +171,17 @@ try {
       await page.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
       await page.locator("#main-content").waitFor();
       await assertNoHorizontalOverflow(page, `${width}px ${path}`);
+      if (phone) {
+        const smallInputs = await page.evaluate(() => [...document.querySelectorAll("input, select, textarea")].filter(el => {
+          if (el.tagName === "INPUT" && ["hidden", "checkbox", "radio", "file", "button", "submit", "reset"].includes(el.type)) return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== "hidden";
+        }).map(el => ({
+          name: el.name || el.getAttribute("aria-label") || el.tagName,
+          fontSize: Number.parseFloat(getComputedStyle(el).fontSize),
+        })).filter(item => item.fontSize < 16));
+        assert.deepEqual(smallInputs, [], `${width}px ${path} has inputs below 16px: ${JSON.stringify(smallInputs)}`);
+      }
     }
 
     await page.goto(`${baseURL}/`, { waitUntil: "networkidle" });
@@ -304,6 +324,75 @@ try {
     assert.ok(quickMetrics.bodyScrollWidth <= quickMetrics.bodyClientWidth, `${width}px .quick-body scrolls sideways: ${JSON.stringify(quickMetrics)}`);
     assert.ok(quickMetrics.segRight <= quickMetrics.bodyRight + 1, `${width}px segmented control overflows .quick-body: ${JSON.stringify(quickMetrics)}`);
     assert.equal(quickMetrics.htmlOverflowY, "hidden", `${width}px background scroll must lock while Catat dialog is open`);
+    if (width === 360 || width === 390) {
+      const kbHeight = 320;
+      const vvHeight = height - kbHeight;
+      const beforeKb = await quickDialog.evaluate(dialog => {
+        const amount = dialog.querySelector('input[name="amount"]');
+        const repeat = dialog.querySelector('[aria-label="Ulangi cepat"]');
+        const repeatRow = repeat?.querySelector("div");
+        const desc = dialog.querySelector('input[name="description"]');
+        return {
+          focusedName: document.activeElement?.getAttribute("name") || "",
+          amountHint: amount.getAttribute("enterkeyhint"),
+          descHint: desc.getAttribute("enterkeyhint"),
+          amountBottom: amount.getBoundingClientRect().bottom,
+          repeatTop: repeat.getBoundingClientRect().top,
+          repeatBottom: repeat.getBoundingClientRect().bottom,
+          descTop: desc.getBoundingClientRect().top,
+          repeatScrollsX: repeatRow.scrollWidth > repeatRow.clientWidth,
+        };
+      });
+      assert.equal(beforeKb.focusedName, "amount", `${width}px Catat autofocuses amount`);
+      assert.equal(beforeKb.amountHint, "next", `${width}px Catat amount uses enterKeyHint=next`);
+      assert.equal(beforeKb.descHint, "done", `${width}px Catat description uses enterKeyHint=done`);
+      assert.ok(beforeKb.repeatTop >= beforeKb.amountBottom - 2 && beforeKb.repeatBottom <= beforeKb.descTop + 2, `${width}px Ulangi cepat sits directly between amount and description: ${JSON.stringify(beforeKb)}`);
+      assert.equal(beforeKb.repeatScrollsX, true, `${width}px Ulangi cepat chip row scrolls horizontally without widening the sheet`);
+
+      await page.evaluate(simulatedHeight => {
+        Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => simulatedHeight });
+        window.visualViewport.dispatchEvent(new Event("resize"));
+      }, vvHeight);
+      await page.waitForTimeout(50);
+
+      const duringKb = await quickDialog.evaluate(dialog => {
+        const docStyle = getComputedStyle(document.documentElement);
+        const submitBtn = dialog.querySelector('.quick-savebar button[type="submit"]');
+        const amount = dialog.querySelector('input[name="amount"]');
+        const repeat = dialog.querySelector('[aria-label="Ulangi cepat"]');
+        const nav = document.querySelector(".mobile-nav");
+        return {
+          kbInset: docStyle.getPropertyValue("--kb-inset").trim(),
+          vvHeight: docStyle.getPropertyValue("--vv-height").trim(),
+          navDisplay: nav ? getComputedStyle(nav).display : "none",
+          submitRect: submitBtn.getBoundingClientRect().toJSON(),
+          amountRect: amount.getBoundingClientRect().toJSON(),
+          repeatRect: repeat.getBoundingClientRect().toJSON(),
+          dialogOverflow: dialog.scrollWidth > dialog.clientWidth,
+        };
+      });
+      assert.equal(duringKb.kbInset, `${kbHeight}px`, `${width}px --kb-inset matches keyboard height`);
+      assert.equal(duringKb.vvHeight, `${vvHeight}px`, `${width}px --vv-height matches visual viewport height`);
+      assert.equal(duringKb.navDisplay, "none", `${width}px .mobile-nav hides while typing`);
+      assert.equal(duringKb.dialogOverflow, false, `${width}px Catat dialog has no horizontal overflow with keyboard open`);
+      assert.ok(duringKb.submitRect.top >= 0 && duringKb.submitRect.bottom <= vvHeight + 1, `${width}px Catat button must stay inside visual viewport (${vvHeight}px): ${JSON.stringify(duringKb.submitRect)}`);
+      assert.ok(duringKb.amountRect.top >= 0 && duringKb.amountRect.bottom <= vvHeight + 1, `${width}px focused amount stays inside visual viewport: ${JSON.stringify(duringKb.amountRect)}`);
+      assert.ok(duringKb.repeatRect.top >= 0 && duringKb.repeatRect.bottom <= vvHeight + 1, `${width}px Ulangi cepat row stays visible above keyboard: ${JSON.stringify(duringKb.repeatRect)}`);
+
+      await page.keyboard.press("Enter");
+      const afterEnter = await page.evaluate(() => ({
+        focusedName: document.activeElement?.getAttribute("name") || "",
+        dialogOpen: Boolean(document.querySelector("dialog.quick-record[open]")),
+      }));
+      assert.equal(afterEnter.focusedName, "description", `${width}px Enter on amount moves focus to description`);
+      assert.equal(afterEnter.dialogOpen, true, `${width}px Enter on amount never submits half-filled form`);
+
+      await page.evaluate(() => {
+        delete window.visualViewport.height;
+        window.visualViewport.dispatchEvent(new Event("resize"));
+      });
+      await page.waitForTimeout(50);
+    }
     await page.screenshot({ path: fileURLToPath(new URL(`catat-${width}.png`, output)) });
     await page.keyboard.press("Escape");
     await quickDialog.waitFor({ state: "detached" });
@@ -345,6 +434,32 @@ try {
     const scrollDuring = await page.evaluate(() => window.scrollY);
     assert.equal(scrollDuring, scrollBefore, `${width}px background page must not scroll while drawer is open`);
     await page.screenshot({ path: fileURLToPath(new URL(`drawer-${width}.png`, output)) });
+    if (width === 360 || width === 390) {
+      const kbHeight = 320;
+      const vvHeight = height - kbHeight;
+      await detailDrawer.getByRole("button", { name: "Ubah", exact: true }).click();
+      const editDialog = page.locator("dialog.create-dialog[open]");
+      await editDialog.waitFor();
+      await editDialog.locator('input[name="description"]').focus();
+      await page.evaluate(simulatedHeight => {
+        Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => simulatedHeight });
+        window.visualViewport.dispatchEvent(new Event("resize"));
+      }, vvHeight);
+      await page.waitForTimeout(50);
+      const editKb = await editDialog.evaluate(dialog => ({
+        saveRect: dialog.querySelector('.dialog-actions button:last-child').getBoundingClientRect().toJSON(),
+        dialogOverflow: dialog.scrollWidth > dialog.clientWidth,
+      }));
+      assert.equal(editKb.dialogOverflow, false, `${width}px Ubah dialog must not overflow horizontally`);
+      assert.ok(editKb.saveRect.top >= 0 && editKb.saveRect.bottom <= vvHeight + 1, `${width}px Ubah Simpan button stays inside visual viewport (${vvHeight}px): ${JSON.stringify(editKb.saveRect)}`);
+      await page.evaluate(() => {
+        delete window.visualViewport.height;
+        window.visualViewport.dispatchEvent(new Event("resize"));
+      });
+      await page.waitForTimeout(50);
+      await page.keyboard.press("Escape");
+      await editDialog.waitFor({ state: "detached" });
+    }
     await page.keyboard.press("Escape");
     await detailDrawer.waitFor({ state: "detached" });
     assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).overflowY), "hidden", `${width}px scroll unlocks when drawer closes`);

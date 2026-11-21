@@ -59,7 +59,7 @@ button svg, .button svg, .section-title a svg, .review-alert strong svg { width:
 .sidebar-user button:hover:not(:disabled), .drawer-close:hover:not(:disabled), .page-thumbnails button:hover:not(:disabled), .section-title > button[aria-label="Tutup"]:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-muted); color: var(--ink); }
 .section-title > button[aria-label="Tutup"] { display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border-color: var(--line); background: var(--surface); color: var(--ink-soft); }
 
-input, select, textarea { width: 100%; min-height: var(--control-height); padding: 9px 11px; border: 2px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--ink); transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard); }
+input, select, textarea { width: 100%; min-height: var(--control-height); padding: 9px 11px; border: 2px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--ink); scroll-margin-bottom: calc(var(--kb-inset) + 24px); transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard); }
 input[type="date"], input[type="datetime-local"] { min-width: 0; max-width: 100%; }
 textarea { min-height: 84px; resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--faint); }

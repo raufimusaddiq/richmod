@@ -90,10 +90,10 @@ function CreateHousehold({ onCreated, setError }) {
         <span>Pemilik baru diundang lewat tautan</span>
       </div>
       <form className="member-form" onSubmit={submit}>
-        <input aria-label="Nama rumah tangga" name="householdName" placeholder="Nama rumah tangga" maxLength="120" required />
-        <input aria-label="Nama pemilik" name="ownerName" placeholder="Nama pemilik" maxLength="120" required />
-        <input aria-label="Email pemilik" name="ownerEmail" type="email" placeholder="Email pemilik" maxLength="254" required />
-        <input aria-label="Telegram user ID pemilik (opsional)" name="telegramUserId" inputMode="numeric" placeholder="Telegram user ID (opsional)" />
+        <input aria-label="Nama rumah tangga" name="householdName" autoCapitalize="words" enterKeyHint="next" placeholder="Nama rumah tangga" maxLength="120" required />
+        <input aria-label="Nama pemilik" name="ownerName" autoCapitalize="words" enterKeyHint="next" placeholder="Nama pemilik" maxLength="120" required />
+        <input aria-label="Email pemilik" name="ownerEmail" type="email" enterKeyHint="next" placeholder="Email pemilik" maxLength="254" required />
+        <input aria-label="Telegram user ID pemilik (opsional)" name="telegramUserId" inputMode="numeric" enterKeyHint="done" placeholder="Telegram user ID (opsional)" />
         <button disabled={busy}>{busy ? "Membuat…" : "Buat rumah tangga"}</button>
       </form>
     </section>

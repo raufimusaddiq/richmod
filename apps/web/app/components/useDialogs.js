@@ -44,9 +44,9 @@ function DialogView({ request, onSettle }) {
     <form onSubmit={submit}>
       {isConfirm
         ? <h2 id={titleId}>{request.message}</h2>
-        : <><h2 id={titleId}>{request.title}</h2>{request.fields.map((field, index) => <label key={field.name}>{field.label}{field.multiline
-          ? <textarea name={field.name} rows={5} defaultValue={field.defaultValue || ""} required={field.required} autoFocus={index === 0}/>
-          : <input name={field.name} defaultValue={field.defaultValue || ""} required={field.required} autoFocus={index === 0}/>}</label>)}</>}
+        : <><h2 id={titleId}>{request.title}</h2><div className="dialog-fields">{request.fields.map((field, index) => <label key={field.name}>{field.label}{field.multiline
+          ? <textarea name={field.name} rows={5} defaultValue={field.defaultValue || ""} required={field.required} autoFocus={index === 0} autoCapitalize="sentences"/>
+          : <input name={field.name} defaultValue={field.defaultValue || ""} required={field.required} autoFocus={index === 0} autoCapitalize="sentences" enterKeyHint={index === request.fields.length - 1 ? "done" : "next"}/>}</label>)}</div></>}
       <div className="dialog-actions">
         <button type="button" className="secondary" onClick={() => onSettle(isConfirm ? false : null)}>Batal</button>
         <button type="submit" className={request.danger ? "danger" : undefined} autoFocus={isConfirm && !request.danger}>{request.confirmLabel}</button>

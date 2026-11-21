@@ -23,7 +23,7 @@ export default function Logs({ setError }) {
         <select aria-label="Keparahan" value={filters.severity} onChange={(e) => setFilters({...filters, severity:e.target.value})}><option value="">Semua tingkat keparahan</option><option value="WARN">Peringatan</option><option value="ERROR">Galat</option></select>
         <input aria-label="Komponen" placeholder="Komponen" value={filters.component} onChange={(e) => setFilters({...filters, component:e.target.value})} />
         <select aria-label="Rentang log" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
-        <input aria-label="Reference ID" placeholder="Reference ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />
+        <input aria-label="Reference ID" type="search" enterKeyHint="search" placeholder="Reference ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />
       </div>
       <Table
         headers={[

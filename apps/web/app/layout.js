@@ -3,6 +3,7 @@ import "./detail-drawer.css";
 import { splashDevices } from "../scripts/splash-devices.mjs";
 import AuthProvider from "./components/AuthProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
+import KeyboardViewport from "./components/KeyboardViewport";
 import QuickRecordProvider from "./components/QuickRecordProvider";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 
@@ -53,7 +54,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body><meta name="apple-mobile-web-app-capable" content="yes" /><ServiceWorkerRegistrar /><AuthProvider><InboxCountProvider><QuickRecordProvider>{children}</QuickRecordProvider></InboxCountProvider></AuthProvider></body>
+      <body><meta name="apple-mobile-web-app-capable" content="yes" /><ServiceWorkerRegistrar /><KeyboardViewport /><AuthProvider><InboxCountProvider><QuickRecordProvider>{children}</QuickRecordProvider></InboxCountProvider></AuthProvider></body>
     </html>
   );
 }

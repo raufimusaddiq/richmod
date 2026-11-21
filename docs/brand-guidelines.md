@@ -107,7 +107,26 @@ Body family: "Inter" (`--font-body` in CSS).
   `--radius-sm` 12px, `--radius-md` 18px, `--radius-lg` 26px.
 - Depth comes from a 2px ink outline plus an offset shadow (`--shadow`,
   `--shadow-float`). No blur-based glow.
-- Controls keep a 44px minimum height and inputs stay at 16px on mobile.
+- Controls keep a 44px minimum height and every visible input, select, and
+  textarea stays at 16px or larger on mobile to prevent iOS focus zoom.
+- Keyboard-aware mobile forms: a client hook (`KeyboardViewport`) observes
+  `window.visualViewport` (`resize` and `scroll`) to set `--kb-inset` and
+  `--vv-height` on `html`, hides `.mobile-nav` while an editable field is
+  focused or the keyboard is open, and scrolls the focused field to center on
+  focus and viewport resize. On phones (`<= 719px`), bottom sheets and dialogs
+  (Catat, Ubah, `useDialogs` prompts) anchor to `bottom: var(--kb-inset)` with
+  `max-height: min(92dvh, calc(var(--vv-height) - 8px))`, drawers shrink to
+  `var(--vv-height)`, and focused inline form submit bars (Wealth "Perbarui
+  nilai", Keluarga forms, CycleDecisions) stick above `var(--kb-inset)`.
+- Mobile keyboard hints: Catat amount uses `inputMode="numeric"` and
+  `enterKeyHint="next"` (Enter advances to description rather than submitting
+  half-filled), description uses `enterKeyHint="done"` and
+  `autoCapitalize="sentences"`, search fields use `enterKeyHint="search"`,
+  login uses `next`/`go`, merchant/place and member names use
+  `autoCapitalize="words"` (`autoCorrect="off"` on merchant/institution names),
+  note textareas use `autoCapitalize="sentences"`, wealth decimals use
+  `inputMode="decimal"`, and Keluarga account hints use `inputMode="numeric"`
+  with `pattern="[0-9]*"`.
 - Native date/date-time inputs and label tracks must shrink inside their
   container. Transaction dialogs use one padded surface, not nested panels;
   date filters and manual entry stay usable at 320px without horizontal scroll.
@@ -189,9 +208,11 @@ and PRDs; they never appear in user-facing copy.
   at least 44px and the bar clears `env(safe-area-inset-bottom)`.
 - **+ Catat** is one global sheet (modal on desktop, bottom sheet on a phone) that
   opens straight onto the manual form: Pengeluaran | Pemasukan | Transfer, an empty
-  live thousands-grouped Rp amount input (example placeholder, never prefilled `0`),
+  live thousands-grouped Rp amount input (example placeholder, never prefilled `0`,
+  autofocused on open), "Ulangi cepat" in one horizontally scrollable chip row
+  directly under amount so it stays visible above the keyboard,
   a description with a deterministic category suggestion, the six most-used categories
-  as 1-tap chips (+ "Lainnya…"), and "Ulangi cepat" chips from
+  as 1-tap chips (+ "Lainnya…"), with "Ulangi cepat" chips sourced from
   `GET /api/v1/transactions/quick-suggestions` (Go only, no AI; sourced from the
   household's own `WEB_MANUAL` and `TELEGRAM_TEXT` entries, deduplicated by
   type/description/amount, ranked most frequent then most recent, with short labels).
