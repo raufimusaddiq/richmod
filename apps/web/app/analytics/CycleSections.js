@@ -53,18 +53,22 @@ export function ComparisonContext({ comparison, period }) {
 export function ChangesTable({ items, comparison, selected, select }) {
   if (!items.length) return <p className="empty compact">Belum ada pengeluaran kategori pada periode ini atau pembandingnya.</p>;
   const elapsed = comparison.mode === "ELAPSED_DAYS";
+  const prevLabel = elapsed ? "Sebelumnya · hari yang sama" : "Sebelumnya · penuh";
+  const medianLabel = elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus";
   const deltaLabel = elapsed ? "Selisih vs hari yang sama" : "Selisih vs sebelumnya";
+  const medianDeltaLabel = elapsed ? "Selisih vs median · hari yang sama" : "Selisih vs median";
+  const contribLabel = elapsed ? "Kontribusi ke selisih hari yang sama" : "Kontribusi ke selisih total";
   return <>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
     <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —. Sebelumnya · penuh: {measuredLabel(comparison.previousFullCycle)}.</caption>
-    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{elapsed ? "Sebelumnya · hari yang sama" : "Sebelumnya · penuh"}</th><th scope="col">{elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus"}</th><th scope="col">{deltaLabel}</th><th scope="col">{elapsed ? "Selisih vs median · hari yang sama" : "Selisih vs median"}</th><th scope="col">{elapsed ? "Kontribusi ke selisih hari yang sama" : "Kontribusi ke selisih total"}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th></>}</tr></thead>
+    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{prevLabel}</th><th scope="col">{medianLabel}</th><th scope="col">{deltaLabel}</th><th scope="col">{medianDeltaLabel}</th><th scope="col">{contribLabel}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th></>}</tr></thead>
     <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
       <th scope="row"><button className="change-button" type="button" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(item.id || "uncategorized", event.currentTarget)}>{item.name}</button></th>
-      <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>
-      <td>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></td>
-      <td>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></td>
-      <td>{ratioLabel(item.contributionToExpenseChange)}</td>
-      {elapsed && <><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td></>}
+      <td data-label="Siklus ini">{money(item.amount)}</td><td data-label={prevLabel}>{amountLabel(item.previous)}</td><td data-label={medianLabel}>{amountLabel(item.median3)}</td>
+      <td data-label={deltaLabel}><span>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></span></td>
+      <td data-label={medianDeltaLabel}><span>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></span></td>
+      <td data-label={contribLabel}>{ratioLabel(item.contributionToExpenseChange)}</td>
+      {elapsed && <><td data-label="Sebelumnya · penuh">{amountLabel(item.previousFullCycle)}</td><td data-label="Selisih vs siklus sebelumnya (penuh)"><span>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></span></td></>}
     </tr>)}</tbody>
   </table></div></>;
 }
@@ -131,25 +135,25 @@ export function MerchantRanking({ ranking, period }) {
         <tbody>
           {list.rows.map(item => <tr key={item.key}>
             <th scope="row">{name(item)}{item.notNamed && <small>transaksi tanpa nama penerima</small>}{bar(item)}</th>
-            <td>{item.count ?? "—"}</td>
-            <td>{money(item.amount)}</td>
-            <td>{amountLabel(item.previous)}</td>
-            <td><Delta value={item.deltaVsPrevious}/></td>
+            <td data-label="Transaksi">{item.count ?? "—"}</td>
+            <td data-label="Siklus ini">{money(item.amount)}</td>
+            <td data-label={list.compareLabel}>{amountLabel(item.previous)}</td>
+            <td data-label="Selisih"><Delta value={item.deltaVsPrevious}/></td>
           </tr>)}
           {list.other && nonZeroAmount(list.other.amount) && <tr data-other="true">
             <th scope="row">{name({ ...list.other, name: `Merchant lain · ${list.other.merchantCount}` }, true)}{bar(list.other)}</th>
-            <td>{list.other.count ?? "—"}</td>
-            <td>{money(list.other.amount)}</td>
-            <td>{amountLabel(list.other.previous)}</td>
-            <td><Delta value={list.other.deltaVsPrevious}/></td>
+            <td data-label="Transaksi">{list.other.count ?? "—"}</td>
+            <td data-label="Siklus ini">{money(list.other.amount)}</td>
+            <td data-label={list.compareLabel}>{amountLabel(list.other.previous)}</td>
+            <td data-label="Selisih"><Delta value={list.other.deltaVsPrevious}/></td>
           </tr>}
         </tbody>
         {list.total && <tfoot><tr>
           <th scope="row">Total</th>
-          <td>{list.total.count ?? "—"}</td>
-          <td>{money(list.total.amount)}</td>
-          <td>{amountLabel(list.total.previous)}</td>
-          <td><Delta value={list.total.deltaVsPrevious}/></td>
+          <td data-label="Transaksi">{list.total.count ?? "—"}</td>
+          <td data-label="Siklus ini">{money(list.total.amount)}</td>
+          <td data-label={list.compareLabel}>{amountLabel(list.total.previous)}</td>
+          <td data-label="Selisih"><Delta value={list.total.deltaVsPrevious}/></td>
         </tr></tfoot>}
       </table>
     </div>

@@ -36,7 +36,7 @@
 .notice.error, .error-notice { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .error { color: var(--danger); }
 .muted { color: var(--muted); font-size: var(--text-xs); }
-.toast { position: fixed; right: 24px; bottom: 24px; z-index: 100; display: flex; align-items: center; gap: 9px; max-width: min(420px, calc(100vw - 32px)); padding: 12px 14px; border-radius: var(--radius-sm); background: var(--ink); color: #fff; box-shadow: var(--shadow-float); }
+.toast { position: fixed; right: 24px; bottom: 24px; z-index: 100; display: flex; align-items: center; gap: 9px; max-width: min(420px, calc(100% - 32px)); padding: 12px 14px; border-radius: var(--radius-sm); background: var(--ink); color: #fff; box-shadow: var(--shadow-float); }
 .toast button { width: 28px; min-height: 28px; padding: 0; border: 0; background: transparent; }
 
 .upload-card { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(340px, 1.2fr); align-items: end; gap: 30px; margin-bottom: 18px; padding: var(--card-padding); }

@@ -23,6 +23,8 @@ const viewports = [
   ["tablet-small", 700, 900],
   ["tablet-portrait", 768, 1024],
   ["mobile", 390, 844],
+  ["mobile-360", 360, 800],
+  ["mobile-320", 320, 667],
   ["wide", 2560, 1440],
 ];
 
@@ -204,7 +206,7 @@ async function run() {
           console.log(`Visual smoke: ${name} ${path}`);
           await page.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
           await page.locator("#main-content").waitFor();
-          const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+          const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
           assert.equal(overflow, false, `${name} ${path} has horizontal overflow`);
           const clippedAmounts = await page.evaluate(() => [...document.querySelectorAll(".transaction-amount")].filter(element => { const card = element.closest(".surface"); return card && element.getBoundingClientRect().right > card.getBoundingClientRect().right + 1; }).length);
           assert.equal(clippedAmounts, 0, `${name} ${path} clips transaction amounts inside their card`);

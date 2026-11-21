@@ -509,3 +509,25 @@ test("eyebrow source strings are sentence case; the caps come from CSS", () => {
     }
   }
 });
+
+test("no sideways overflow, single drawer scroll, stacked phone tables, and phone Admin entry", () => {
+  const sheet = css();
+  assert.doesNotMatch(sheet, /100vw/, "no 100vw widths that exceed viewport when a scrollbar is visible");
+  assert.doesNotMatch(sheet, /html\s*\{[^}]*min-width:\s*320px/, "html never forces 320px past a scrollbar-narrowed clientWidth");
+  assert.match(sheet, /\.route-fade, \.app-frame \{ width: 100%; max-width: 100%;/);
+  assert.match(sheet, /\.quick-body \{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*overflow-x: hidden;/);
+  assert.match(sheet, /\.quick-body \.segmented button \{[^}]*flex: 1 1 0; min-width: 0;/);
+  assert.match(sheet, /html:has\(dialog\[open\], \.drawer-backdrop, \.admin-drawer\) \{ overflow: hidden;/);
+  assert.match(sheet, /\.detail-drawer, \.admin-drawer \{[^}]*overscroll-behavior: contain;/);
+  assert.match(text("app/styles/11-responsive.css"), /@media \(max-width: 600px\)[\s\S]*\.review-table-wrap td::before, \.merchant-rank td::before \{ content: attr\(data-label\)/);
+  assert.match(text("app/page.js"), /data-label="Pengeluaran"/);
+  assert.match(text("app/analytics/page.js"), /data-label="Total sampai hari ini"/);
+  assert.match(text("app/analytics/CycleDashboard.js"), /data-label="Siklus ini"/);
+  assert.match(text("app/analytics/CycleSections.js"), /data-label="Transaksi"/);
+  const household = text("app/household/page.js");
+  assert.match(household, /me\?\.isSuperAdmin && <Link className="mobile-admin-entry" href="\/admin"[\s\S]*Admin Richmod/);
+  const smoke = text("scripts/visual-smoke.mjs");
+  assert.match(smoke, /\["mobile-360", 360, 800\]/);
+  assert.match(smoke, /\["mobile-320", 320, 667\]/);
+  assert.match(smoke, /document\.documentElement\.scrollWidth > document\.documentElement\.clientWidth\)/);
+});

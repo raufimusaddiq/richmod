@@ -87,8 +87,9 @@
 }
 
 * { box-sizing: border-box; }
-html { min-width: 320px; background: var(--canvas); scroll-behavior: smooth; }
-body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-body); font-size: var(--text-base); line-height: 1.5; text-rendering: optimizeLegibility; }
+html { width: 100%; max-width: 100%; background: var(--canvas); scroll-behavior: smooth; }
+html:has(dialog[open], .drawer-backdrop, .admin-drawer) { overflow: hidden; overscroll-behavior: none; }
+body { width: 100%; max-width: 100%; margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-body); font-size: var(--text-base); line-height: 1.5; text-rendering: optimizeLegibility; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; }

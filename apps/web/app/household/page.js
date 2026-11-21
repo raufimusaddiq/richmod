@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowRight, ShieldChevron } from "@phosphor-icons/react";
 import AppShell from "../components/AppShell";
 import { ErrorNotice, Toast } from "../components/Feedback";
 import useDialogs from "../components/useDialogs";
@@ -190,6 +192,7 @@ export default function HouseholdPage() {
   return <AppShell user={me} eyebrow="Keluarga" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{membersState ? `${members.filter(member => member.active).length} anggota aktif` : "Anggota belum termuat"}</span>}>
     {dialogs}
     <Toast message={toast} onClose={closeToast}/>
+    {me?.isSuperAdmin && <Link className="mobile-admin-entry" href="/admin"><ShieldChevron aria-hidden="true"/><div><b>Admin Richmod</b><small>Konsol operasional &amp; rumah tangga</small></div><ArrowRight aria-hidden="true"/></Link>}
     <nav className="settings-tabs-wrap" aria-label="Bagian keluarga">
       <div className="settings-tabs" role="tablist" aria-label="Bagian keluarga">
         {tabs.map(([key, label], index) => <button key={key} role="tab" id={`settings-tab-${key}`} aria-controls="settings-panel" aria-selected={tab === key} aria-current={tab === key ? "true" : undefined} tabIndex={tab === key ? 0 : -1} className={tab === key ? "active" : "secondary"} onKeyDown={event => tabKeys(event, index)} onClick={() => selectTab(key)}>{label}{key === "sumber" && owner && actionCount > 0 && <b className="nav-badge" aria-label={`${actionCount} tindakan menunggu`}>{actionCount}</b>}</button>)}
