@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-111**, in the heading form `## ADR-111: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-112**, in the heading form `## ADR-112: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -122,6 +122,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-109](#adr-109-static-frontend-build-service-worker-and-css-invariants) | Static frontend build, service worker and CSS invariants | Accepted |
 | [ADR-110](#adr-110-source-comments-are-banned-decisions-live-in-the-adr-log) | Source comments are banned; decisions live in the ADR log | Accepted |
 | [ADR-111](#adr-111-perlu-dicek-answers-merchant-rename-by-alias-dead-states-dropped) | Perlu dicek answers, merchant rename by alias, dead states dropped | Accepted |
+| [ADR-112](#adr-112-laporan-unifies-arus-kas-and-kekayaan-spending-direction-colour-is-separate-from-category-colour) | Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour | Accepted |
 
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
@@ -1139,3 +1140,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** the Inbox should ask one plain question with ready answers instead of a form, a place name fixed once should stay fixed, and states nothing can reach only invite untested paths.
 
 **Consequence:** the Inbox renders history-ranked 1-tap answers and an inline `Urungkan` over the reopen endpoint, addressed by `reviewItemId`; `ReopenReview` may undo a plain `CONFIRM_REVIEW` of a confirmed expense/income/refund only when it is the latest item and no active merge or salary event references the transaction (history is kept, a fresh item opens); the migration refuses to run if a legacy `PENDING`/`ADJUSTMENT` row exists rather than rewriting canonical records.
+
+## ADR-112: Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour
+*Accepted · 2026-11-21*
+
+**Decision:** (1) `/analytics` (`Laporan`) has a top `Arus kas | Kekayaan` switch (`?view=cycle|calendar|wealth`); the whole Kekayaan workspace is one shared component rendered inside `Laporan`, and `/wealth` renders the same page in wealth mode so `?snapshotId=` and `?observationId=` links keep working. (2) `GET /api/v1/analytics/cycle-review` adds an optional `takeaways` object (`where`, `history`, `changes`, `pace`): deterministic Indonesian sentences built in Go from the exact computed facts, with no AI and each key omitted when not computable. (3) Muted `--expense`/`--income` red and green are reserved for spending-change direction, always with ▲/▼ and neutral `lebih rendah`/`lebih tinggi` wording; `--chart-category-1..6` contain no red or green and each clears 4.5:1 on `--surface-strong`.
+
+**Reason:** Kekayaan is a first-class report beside Arus kas rather than a card inside it, one takeaway per card keeps the dashboard calm, and category colours must never be mistaken for good or bad spending.
+
+**Consequence:** `cycle-review-v1` stays backwards compatible (additive field); the KPI strip is four tiles; `Kategori × siklus` lives inside `Siklus ke siklus` and merchants inside `Ke mana uangnya`; the standalone `#matrix` and `#merchants` sections are gone.

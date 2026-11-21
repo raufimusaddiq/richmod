@@ -74,6 +74,7 @@ export function cycleFacts(start = "2026-09-01") {
       current: { id: "snapshot-2", observedAt: closed ? "2026-08-31T10:00:00+07:00" : "2026-09-06T10:00:00+07:00", netWorth: "49000000", ageDays: 1 },
       netWorthChange: "9000000", confirmedCashflow: "7800000", valuationAndOtherChange: "1200000" },
     dataQuality: [{ kind: "OPEN_REVIEWS", count: 2, impact: "ANALYSIS_PARTIAL", action: "/inbox" }],
+    takeaways: { where: "Belanja rumah menghabiskan 60% pengeluaran siklus ini.", history: "Rp 4,10 jt → Rp 4,20 jt (berjalan, hari ke-6)", changes: "Naik paling banyak Belanja rumah.", pace: "Hari ke-6: Rp 4,20 jt · siklus lalu Rp 4,10 jt (6 hari)." },
   };
   if (september25) {
     facts.generatedAt = "2026-10-01T12:00:00+07:00";

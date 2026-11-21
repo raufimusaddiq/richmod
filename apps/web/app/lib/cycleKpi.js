@@ -1,4 +1,4 @@
-import { displayDate, money } from "./format.js";
+import { money } from "./format.js";
 
 const isNegative = value => String(value).trim().startsWith("-");
 const isZero = value => /^[-+]?0+(\.0+)?$/.test(String(value).trim());
@@ -29,15 +29,11 @@ export function baselineFor(period, days) {
   return { field: "previousFullCycle", delta: "deltaVsPreviousFullCycle", relative: "relativeDeltaVsPreviousFullCycle", label: "vs siklus lalu (penuh)", same: "sama dengan siklus lalu (penuh)" };
 }
 
-function comparisonCell(row, basis, lowerIsBetter) {
-  const value = row?.[basis.delta] ?? null;
-  const view = deltaView(value, { relative: row?.[basis.relative] ?? null, lowerIsBetter });
-  const previous = row?.[basis.field];
-  let note;
-  if (view.empty) note = "Belum ada pembanding";
-  else if (view.zero) note = basis.same;
-  else note = previous == null ? basis.label : `${basis.label} (${money(previous)})`;
-  return { ...view, note };
+function spendingDelta(row, basis) {
+  const view = deltaView(row?.[basis.delta] ?? null, { relative: row?.[basis.relative] ?? null, lowerIsBetter: true });
+  if (view.empty) return { ...view, note: "Belum ada pembanding" };
+  if (view.zero) return { ...view, note: basis.same };
+  return { ...view, word: undefined, note: `${view.mark === "▼" ? "lebih rendah" : "lebih tinggi"} ${basis.label}` };
 }
 
 export function averageDailyText(shape) {
@@ -45,22 +41,15 @@ export function averageDailyText(shape) {
 }
 
 export function kpiCells(facts) {
-  const { period, cashflow, comparison, wealth, spendingShape } = facts;
+  const { period, cashflow, comparison, spendingShape } = facts;
   const active = period.state === "ACTIVE";
   const days = spendingShape?.days;
   const basis = baselineFor(period, days);
-  const expense = comparisonCell(comparison?.expense, basis, true);
-  const median = comparison?.expense?.deltaVsMedian3 != null ? { ...deltaView(comparison.expense.deltaVsMedian3, { relative: comparison.expense.relativeDeltaVsMedian3, lowerIsBetter: true }), note: active ? "vs median 3 siklus · hari yang sama" : "vs median 3 siklus" } : null;
-  const snapshot = wealth?.current ?? wealth?.previous ?? null;
-  const worthChange = snapshot && wealth.netWorthChange != null
-    ? { ...deltaView(wealth.netWorthChange), note: wealth.previous ? `vs pengamatan ${displayDate(wealth.previous.observedAt)}` : "vs pengamatan sebelumnya" }
-    : null;
   return [
-    { key: "expense", lead: true, label: `Pengeluaran bersih${active && days ? ` · hari ke-${days}` : ""}`, value: money(cashflow.expense), delta: expense, extra: median },
-    { key: "income", label: "Pemasukan", value: money(cashflow.income), delta: comparisonCell(comparison?.income, basis, false) },
-    { key: "net", label: active ? "Arus kas bersih sejauh ini" : "Arus kas bersih", value: signedValue(cashflow.netCashflow), delta: comparisonCell(comparison?.netCashflow, basis, false), footnote: active ? "belum final" : "" },
-    { key: "unallocated", label: "Belum dialokasikan", value: money(cashflow.unallocatedSurplus), sub: `Ditabung ${money(cashflow.savingsAllocated)}` },
-    { key: "worth", label: "Kekayaan bersih", value: snapshot ? money(snapshot.netWorth) : "—", delta: worthChange || { ...deltaView(null), note: "" }, observed: snapshot ? (wealth.netWorthChange == null || !wealth.current ? "Pengamatan terakhir " : "Pengamatan ") + displayDate(snapshot.observedAt) : "Belum ada pengamatan" },
+    { key: "expense", lead: true, label: `Pengeluaran bersih${active && days ? ` · hari ke-${days}` : ""}`, value: money(cashflow.expense), delta: spendingDelta(comparison?.expense, basis) },
+    { key: "income", label: "Pemasukan", value: money(cashflow.income) },
+    { key: "net", label: active ? "Arus kas bersih sejauh ini" : "Arus kas bersih", value: signedValue(cashflow.netCashflow), footnote: active ? "belum final" : "" },
+    { key: "saved", label: "Ditabung", value: money(cashflow.savingsAllocated), sub: `Belum dialokasikan ${money(cashflow.unallocatedSurplus)}` },
   ];
 }
 

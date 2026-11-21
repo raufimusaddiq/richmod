@@ -88,7 +88,7 @@ test("toast dismissal is owned by a stable callback", () => {
 
 test("overview links to the exact snapshot it summarises", () => {
   assert.match(text("app/page.js"), /href={latestWealth\?\.id \? `\/wealth\?snapshotId=\$\{latestWealth\.id\}` : "\/wealth"}/);
-  assert.match(text("app/wealth/page.js"), /get\("snapshotId"\)/);
+  assert.match(text("app/wealth/WealthWorkspace.js"), /get\("snapshotId"\)/);
 });
 
 test("modal drawers share focus, Escape, and Tab handling", () => {
@@ -97,7 +97,7 @@ test("modal drawers share focus, Escape, and Tab handling", () => {
   assert.match(hook, /event\.key !== "Tab"/);
   assert.match(hook, /opener\.focus\(\)/);
   for (const page of ["transactions", "documents", "wealth"]) {
-    const source = text(`app/${page}/page.js`);
+    const source = text(page === "wealth" ? "app/wealth/WealthWorkspace.js" : `app/${page}/page.js`);
     assert.match(source, /import useDrawerA11y from "\.\.\/components\/useDrawerA11y"/, `${page} imports the drawer hook`);
     assert.match(source, /<aside ref={drawerRef} tabIndex={-1}/, `${page} attaches the drawer ref`);
   }
@@ -385,7 +385,7 @@ test("the visual smoke fails on scrolling regions that keyboard users cannot rea
 
 test("unfinished sources link to the Tindakan tab, which can show and close them", () => {
   const sections = text("app/analytics/CycleDashboard.js");
-  assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
+  assert.match(sections, /blocker\.action === "\/wealth" \? "\/analytics\?view=wealth" : \["\/inbox", "\/inbox\?view=actions", "\/settings"\]\.includes\(blocker\.action\)/);
   assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
   assert.match(text("app/lib/reviewInbox.js"), /view === "actions"\) return "\/household\?tab=sumber#tindakan"/);
   assert.match(text("app/components/SettingsPanels.js"), /tindakan/);

@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
@@ -13,10 +13,29 @@ import { cycleLabel, inclusiveEnd, readReviewSelection, selectionHref, transacti
 import { categoryKey } from "../lib/cycleWhere";
 import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
-import { MeetingNav, ComparisonContext, ChangesTable, CategoryHeatmap, MerchantRanking, HouseholdSection } from "./CycleSections";
+import { MeetingNav, ComparisonContext, ChangesTable, HouseholdSection } from "./CycleSections";
 import { CategoryDrawer, ChangesCard, DailyCard, HistoryCard, WhereCard } from "./CycleWhere";
-import { KpiStrip, NoticeStrip, PaceCard, QualityFooter, SavingsWealthCard } from "./CycleDashboard";
+import { KpiStrip, NoticeStrip, PaceCard, QualityFooter } from "./CycleDashboard";
+import WealthWorkspace from "../wealth/WealthWorkspace";
 import { CalendarReview } from "./CalendarReview";
+
+const reportTabs = [["cycle", "Arus kas"], ["wealth", "Kekayaan"]];
+
+function ReportSwitch({ view, choose }) {
+  const refs = useRef({});
+  const active = view === "wealth" ? "wealth" : "cycle";
+  const move = (event, index) => {
+    const last = reportTabs.length - 1;
+    const next = { ArrowRight: index === last ? 0 : index + 1, ArrowLeft: index === 0 ? last : index - 1, Home: 0, End: last }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    choose(reportTabs[next][0]);
+    refs.current[reportTabs[next][0]]?.focus();
+  };
+  return <div className="report-switch" role="tablist" aria-label="Jenis laporan">
+    {reportTabs.map(([id, label], index) => <button key={id} ref={node => { refs.current[id] = node; }} type="button" role="tab" id={`laporan-tab-${id}`} aria-selected={active === id} aria-controls="laporan-panel" tabIndex={active === id ? 0 : -1} onClick={() => choose(id)} onKeyDown={event => move(event, index)}>{label}</button>)}
+  </div>;
+}
 
 export default function AnalyticsPage() {
   return <Suspense fallback={<main className="loading" role="status">Memuat…</main>}><AnalyticsReview/></Suspense>;
@@ -25,7 +44,8 @@ export default function AnalyticsPage() {
 function AnalyticsReview() {
   const user = useAuth();
   const params = useSearchParams();
-  const selection = readReviewSelection(params.toString());
+  const pathname = usePathname();
+  const selection = readReviewSelection(params.toString(), String(pathname || "").replace(/\/$/, "") === "/wealth" ? "wealth" : "cycle");
   const [facts, setFacts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -157,8 +177,16 @@ function AnalyticsReview() {
   };
   const openComparison = () => { const panel = comparison.current; if (!panel) return; panel.open = true; panel.scrollIntoView({ block: "start" }); panel.querySelector("summary")?.focus(); };
   const refreshing = selection.view === "cycle" && loading && Boolean(facts);
-  return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
-    <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
+  const chooseReport = id => {
+    if (id === "wealth") navigate({ view: "wealth" });
+    else if (selection.view === "wealth") navigate({ view: "cycle" });
+  };
+  const wealthView = selection.view === "wealth";
+  return <AppShell user={user} eyebrow="Analisis" title="Laporan">
+    <div className="analytics-flow">
+      <ReportSwitch view={selection.view} choose={chooseReport}/>
+      {wealthView ? <div className="analytics-panel" role="tabpanel" id="laporan-panel" aria-labelledby="laporan-tab-wealth"><WealthWorkspace user={user}/></div> :
+      <div id="laporan-panel" role="tabpanel" aria-labelledby="laporan-tab-cycle" className="cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
       <div className="range-controls">
         <div className="range-control-group" role="group" aria-label="Tampilan analisis">
           <button type="button" aria-pressed={selection.view === "cycle"} className={selection.view === "cycle" ? "active" : "secondary"} onClick={() => navigate({ view: "cycle" })}>Siklus Gaji</button>
@@ -190,27 +218,13 @@ function AnalyticsReview() {
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
           <NoticeStrip facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
           <KpiStrip facts={facts} updated={valueUpdated}/>
-          <div className="dash-row dash-row-pace"><PaceCard facts={facts}/><SavingsWealthCard facts={facts}/></div>
-          <div className="dash-row dash-row-half"><WhereCard facts={facts} step={step} select={chooseCategory} openComparison={openComparison}/>
-            <ChangesCard facts={facts} step={step} select={chooseCategory} comparisonRef={comparison}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/></ChangesCard></div>
-          <div className="dash-row">
-            <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
-            <HistoryCard facts={facts} onSelect={start => navigate({ cycle: start, category: "", step: "" })}/>
-          </div>
+          <div className="dash-row"><WhereCard facts={facts} step={step} select={chooseCategory}/>
+            <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory}/></div>
+          <div className="dash-row dash-row-half dash-row-pace">
+            <ChangesCard facts={facts} step={step} select={chooseCategory} comparisonRef={comparison}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/></ChangesCard>
+            <PaceCard facts={facts}/></div>
           <div className="review-stack surface card">
-          {facts.history?.length > 0 && <section id="matrix" className="review-section" aria-labelledby="matrix-title">
-            <details className="report-disclosure" open={step === "position" || step === "changes"}>
-            <summary><h2 id="matrix-title" tabIndex={-1}>Kategori × siklus</h2><span>{facts.history.length} siklus · {facts.categoryHistory?.rows?.length || 0} kategori + kategori lain</span></summary>
-            <CategoryHeatmap key={facts.period.start} facts={facts} selectedCategory={selection.category} onSelectCategory={chooseCategory}/>
-            </details>
-          </section>}
-          <section id="merchants" className="review-section" aria-labelledby="merchants-title">
-            <details className="report-disclosure">
-            <summary><h2 id="merchants-title">Merchant pendukung</h2><span>{facts.merchantRanking?.rows?.length || 0} teratas · satu baris per penerima</span></summary>
-            <p className="review-description">Pengeluaran bersih setelah refund, terbesar dulu. Pembanding mengikuti siklus: hari yang sama saat berjalan, siklus penuh saat ditutup.</p>
-            <MerchantRanking ranking={facts.merchantRanking} period={facts.period}/>
-            </details>
-          </section>
+          <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
           <HouseholdSection members={facts.memberAttribution}/>
           <QualityFooter facts={facts} step={step}/>
           <section id="discussion" className="review-section" aria-labelledby="discussion-title">
@@ -224,6 +238,7 @@ function AnalyticsReview() {
           {selectedCategory && (!meeting || step === "drivers") && <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger}/>}
         </>}
       </>}
+      </div>}
     </div>
   </AppShell>;
 }

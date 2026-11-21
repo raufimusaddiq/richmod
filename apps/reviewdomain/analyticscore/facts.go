@@ -225,6 +225,7 @@ type Facts struct {
 	Destinations    []reviewValue    `json:"savingsDestinations"`
 	Wealth          reviewWealth     `json:"wealth"`
 	Quality         []reviewBlocker  `json:"dataQuality"`
+	Takeaways       reviewTakeaways  `json:"takeaways"`
 }
 
 func (f Facts) Completeness() string {
@@ -439,6 +440,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if err := loadReviewWealth(ctx, tx, household, now, &facts); err != nil {
 		return facts, err
 	}
+	facts.Takeaways = buildTakeaways(facts)
 	return facts, tx.Commit(ctx)
 }
 

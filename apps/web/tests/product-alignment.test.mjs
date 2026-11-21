@@ -5,8 +5,10 @@ import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
+const pagePath = page => page === "settings" ? "app/components/SettingsPanels.js" : page === "wealth" ? "app/wealth/WealthWorkspace.js" : `app/${page}/page.js`;
+
 const pageView = page => {
-  const source = text(page === "settings" ? "app/components/SettingsPanels.js" : `app/${page}/page.js`);
+  const source = text(pagePath(page));
   const model = page === "settings" ? source.indexOf("export function notificationState(") : -1;
   assert.ok(page !== "settings" || model > 0, "settings keeps notificationState below the page component");
   return model > 0 ? source.slice(0, model) : source;
@@ -50,9 +52,8 @@ test("analytics commentary is selected-cycle prose, safely rendered after determ
   assert.match(analytics, /pollInsight/);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
   const page = text("app/analytics/page.js");
-  const ordered = ["<NoticeStrip", "<KpiStrip", "<PaceCard", "<WhereCard", "<ChangesCard", "<DailyCard", "<HistoryCard", 'id="matrix"', 'id="merchants"', "<HouseholdSection", "<QualityFooter", 'id="discussion"', "<InsightCard"];
+  const ordered = ["<NoticeStrip", "<KpiStrip", "<WhereCard", "<HistoryCard", "<ChangesCard", "<PaceCard", "<DailyCard", "<HouseholdSection", "<QualityFooter", 'id="discussion"', "<InsightCard"];
   for (let index = 1; index < ordered.length; index += 1) assert.ok(page.indexOf(ordered[index - 1]) < page.indexOf(ordered[index]), ordered[index]);
-  assert.match(page, /<PaceCard facts=\{facts\}\/><SavingsWealthCard/);
 });
 
 test("analytics controls are labelled and charts use theme colour tokens", () => {
@@ -221,7 +222,7 @@ test("the shared load helper names its states and guards against stale responses
 
 test("pages with a reload keep rendered children mounted instead of swapping to a skeleton", () => {
   for (const page of ["inbox", "transactions", "wealth", "documents"]) {
-    const source = text(`app/${page}/page.js`);
+    const source = text(pagePath(page));
     assert.match(source, /useGuardedLoad\(/, `${page} loads through the guarded hook`);
     assert.doesNotMatch(source, /\{loading \? <Skeleton/, `${page} never swaps children for a skeleton on every reload`);
   }
@@ -353,7 +354,7 @@ test("invite: busy flag, network error message, error cleared on edit", () => {
 });
 
 test("wealth: drawer states, guarded saves, and a failed reload drops the old figures", () => {
-  const source = text("app/wealth/page.js");
+  const source = text("app/wealth/WealthWorkspace.js");
   assert.match(source, /useDrawerRecord\(/);
   assert.match(source, /onFailure: \(\) => setData\(empty\)/);
   for (const name of ["saveSnapshot", "correctSnapshot"]) {

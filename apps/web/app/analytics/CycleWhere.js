@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CycleSpendingPatternChart } from "../components/Charts";
 import { baselineFor } from "../lib/cycleKpi";
 import { buildLedger, compactMillions, signedMillions } from "../lib/cycleLedger";
@@ -11,6 +11,9 @@ import { dayLabel } from "../lib/chartData";
 import { dateTime, money, typeLabel } from "../lib/format";
 import { averageDailyText } from "../lib/cycleKpi";
 import { SectionTitle } from "./shared";
+import { CategoryHeatmap, MerchantRanking } from "./CycleSections";
+
+const categoryColor = index => `var(--chart-category-${index % 6 + 1})`;
 
 function Delta({ delta }) {
   return <span className="delta" data-tone={delta.tone}>
@@ -18,23 +21,36 @@ function Delta({ delta }) {
   </span>;
 }
 
-export function WhereCard({ facts, step, select, openComparison }) {
+export function WhereCard({ facts, step, select }) {
   const view = rankingView(facts);
-  const count = facts.categoryChanges.length;
+  const empty = !view || (!view.rows.length && !view.other);
+  const segments = empty ? [] : [...view.rows.map((row, index) => ({ key: row.key, amount: row.amount, color: categoryColor(index) })), ...(view.other ? [{ key: "other", amount: view.other.amount, color: "var(--line-strong)" }] : [])];
   return <section id="where" className="surface dash-card where-card" aria-labelledby="where-title">
-    <SectionTitle id="where-title" about="peringkat kategori" title="Ke mana uangnya" description="Pengeluaran bersih setelah refund, diurutkan menurut jumlah oleh server. Selisih dibandingkan dengan siklus lalu pada hari yang sama saat siklus berjalan, atau siklus lalu penuh setelah ditutup."/>
+    <SectionTitle id="where-title" title="Ke mana uangnya"/>
+    {facts.takeaways?.where && <p className="takeaway">{facts.takeaways.where}</p>}
     <p className="dash-sub">Pengeluaran bersih per kategori · {view ? view.baseline : "pembanding belum tersedia"}</p>
-    {!view || (!view.rows.length && !view.other) ? <p className="empty compact">Belum ada pengeluaran bersih pada periode ini.</p> : <ol className="where-list" aria-label="Kategori menurut jumlah">
-      {view.rows.map(row => <li key={row.key}>
-        {row.openable
-          ? <button type="button" className="where-row" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(row.key, event.currentTarget)}><RankRow row={row}/></button>
-          : <div className="where-row"><RankRow row={row}/></div>}
-      </li>)}
-      {view.other && <li data-other><div className="where-row"><RankRow row={{ ...view.other, name: `${view.other.name} · ${view.other.categoryCount}` }}/></div></li>}
-    </ol>}
+    {empty ? <p className="empty compact">Belum ada pengeluaran bersih pada periode ini.</p> : <>
+      <div className="where-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: Number(segment.amount), background: segment.color }}/>)}</div>
+      <ol className="where-list" aria-label="Kategori menurut jumlah">
+        {view.rows.map((row, index) => <li key={row.key} style={{ "--cat": categoryColor(index) }}>
+          {row.openable
+            ? <button type="button" className="where-row" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(row.key, event.currentTarget)}><RankRow row={row}/></button>
+            : <div className="where-row"><RankRow row={row}/></div>}
+        </li>)}
+        {view.other && <li data-other><div className="where-row"><RankRow row={{ ...view.other, name: `${view.other.name} · ${view.other.categoryCount}` }}/></div></li>}
+      </ol>
+    </>}
     {step === "drivers" && <p className="dash-caption">Pilih kategori untuk membuka rincian merchant dan transaksi.</p>}
+    <details className="review-daily" open={step === "drivers" || undefined}>
+      <summary>Per kategori &amp; merchant ›</summary>
+      <p className="dash-caption">Pengeluaran bersih setelah refund, diurutkan menurut jumlah oleh server. Selisih dibandingkan dengan siklus lalu pada hari yang sama saat siklus berjalan, atau siklus lalu penuh setelah ditutup.</p>
+      <div id="merchants" className="merchant-detail">
+        <h3 id="merchants-title">Merchant pendukung</h3>
+        <p className="review-description">{facts.merchantRanking?.rows?.length || 0} teratas · satu baris per penerima. Pengeluaran bersih setelah refund, terbesar dulu.</p>
+        <MerchantRanking ranking={facts.merchantRanking} period={facts.period}/>
+      </div>
+    </details>
     <div className="card-foot">
-      <button type="button" className="text-button" onClick={openComparison}>Semua {count} kategori</button>
       <a className="card-link" href={transactionHref(facts.period)}>Semua transaksi →</a>
       <p className="where-total"><span>Total</span><strong>{money(facts.cashflow.expense)}</strong></p>
     </div>
@@ -53,10 +69,11 @@ function RankRow({ row }) {
 export function ChangesCard({ facts, step, select, comparisonRef, children }) {
   const view = changesView(facts);
   return <section id="changes" className="surface dash-card changes-card" aria-labelledby="changes-title">
-    <SectionTitle id="changes-title" about="perubahan" title="Yang berubah" description="Lima perubahan kategori terbesar menurut urutan server, bukan penilaian baik atau buruk. Merchant penggerak diurutkan menurut selisih absolut."/>
+    <SectionTitle id="changes-title" title="Yang berubah"/>
+    {facts.takeaways?.changes && <p className="takeaway">{facts.takeaways.changes}</p>}
     <p className="dash-sub">Selisih {view.baseline}</p>
     {!view.hasBaseline ? <p className="empty compact">Belum ada siklus pembanding.</p> : !view.rows.length ? <p className="empty compact">Belum ada perubahan kategori pada periode ini.</p> : <>
-      <p className="changes-hint" aria-hidden="true"><span>◀ lebih hemat</span><span>lebih boros ▶</span></p>
+      <p className="changes-hint" aria-hidden="true"><span>◀ lebih rendah</span><span>lebih tinggi ▶</span></p>
       <ul className="diverge" aria-label="Perubahan kategori terbesar">
         {view.rows.map(row => <li key={row.key} data-side={row.side || undefined}>
           <button type="button" className="diverge-row" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(row.key, event.currentTarget)}>
@@ -71,7 +88,8 @@ export function ChangesCard({ facts, step, select, comparisonRef, children }) {
       </div>}
     </>}
     <details className="review-daily" ref={comparisonRef} open={step === "changes" || undefined}>
-      <summary>Perbandingan lengkap · median, persentase & kontribusi</summary>
+      <summary>Detail ›<span className="visually-hidden"> Perbandingan lengkap · median, persentase &amp; kontribusi</span></summary>
+      <p className="dash-caption">Lima perubahan kategori terbesar menurut urutan server, bukan penilaian baik atau buruk. Merah dan hijau hanya menunjukkan arah pengeluaran. Merchant penggerak diurutkan menurut selisih absolut.</p>
       {children}
     </details>
   </section>;
@@ -81,29 +99,32 @@ export function DailyCard({ facts, step, children }) {
   const average = averageDailyText(facts.spendingShape);
   const shape = facts.spendingShape;
   const partial = partialDay(facts.period, facts.daily);
-  return <section id="daily" className="surface dash-card daily-card" aria-labelledby="daily-title">
-    <div className="dash-card-head">
-      <div>
-        <SectionTitle id="daily-title" about="pengeluaran harian" title="Pengeluaran harian" description="Nilai harian sudah dikurangi refund; transfer tidak termasuk. Hari berjalan belum penuh."/>
-        <p className="dash-sub">Pengeluaran bersih per hari, Rp juta</p>
-      </div>
-      <ul className="dash-legend" aria-label="Keterangan grafik">
-        <li data-series="current"><i aria-hidden="true"/>Pengeluaran</li>
-        {average != null && <li data-series="average"><i aria-hidden="true"/>Rata-rata {money(average)}</li>}
-        {partial && <li data-series="partial"><i aria-hidden="true"/>Hari ini, belum penuh</li>}
-      </ul>
-    </div>
-    <CycleSpendingPatternChart items={facts.daily} period={{ ...facts.period, reviewStep: step }} average={average} partialDay={partial} height={190}/>
-    <p className="dash-caption">{shape.peakDay ? `Hari tertinggi ${dayLabel(shape.peakDay)} · ${money(shape.peakExpense)} (${ratioLabel(shape.peakShareOfExpense)})` : "Belum ada hari tertinggi"} · {shape.zeroSpendDays} hari tanpa pengeluaran bersih</p>
-    {children}
+  const [open, setOpen] = useState(step === "spending-shape");
+  useEffect(() => { if (step === "spending-shape") setOpen(true); }, [step]);
+  return <section id="daily" className="review-section" aria-labelledby="daily-title">
+    <details className="report-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary><h2 id="daily-title" tabIndex={-1}>Pengeluaran harian</h2><span>{average != null ? `rata-rata ${money(average)} · ` : ""}{shape.peakDay ? `hari terbesar ${dayLabel(shape.peakDay)}` : "belum ada hari tertinggi"}</span></summary>
+      {open && <>
+        <p className="review-description">Pengeluaran bersih per hari, Rp juta. Nilai harian sudah dikurangi refund; transfer tidak termasuk. Hari berjalan belum penuh.</p>
+        <ul className="dash-legend" aria-label="Keterangan grafik">
+          <li data-series="current"><i aria-hidden="true"/>Pengeluaran</li>
+          {average != null && <li data-series="average"><i aria-hidden="true"/>Rata-rata {money(average)}</li>}
+          {partial && <li data-series="partial"><i aria-hidden="true"/>Hari ini, belum penuh</li>}
+        </ul>
+        <CycleSpendingPatternChart items={facts.daily} period={{ ...facts.period, reviewStep: step }} average={average} partialDay={partial} height={190}/>
+        <p className="dash-caption">{shape.peakDay ? `Hari tertinggi ${dayLabel(shape.peakDay)} · ${money(shape.peakExpense)} (${ratioLabel(shape.peakShareOfExpense)})` : "Belum ada hari tertinggi"} · {shape.zeroSpendDays} hari tanpa pengeluaran bersih</p>
+        {children}
+      </>}
+    </details>
   </section>;
 }
 
-export function HistoryCard({ facts, onSelect }) {
+export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectCategory }) {
   const columns = buildLedger(facts.history, facts.period.start, null).columns;
   if (!columns.length) return null;
   return <section id="history" className="surface dash-card history-card" aria-labelledby="history-title">
-    <SectionTitle id="history-title" about="riwayat siklus" title="Siklus ke siklus" description="Pengeluaran bersih setiap siklus gaji. Siklus berjalan belum penuh dan tidak sebanding dengan siklus yang sudah ditutup."/>
+    <SectionTitle id="history-title" title="Siklus ke siklus"/>
+    {facts.takeaways?.history && <p className="takeaway">{facts.takeaways.history}</p>}
     <p className="dash-sub">Pengeluaran bersih, Rp juta</p>
     <ul className="history-cols" aria-label="Pengeluaran bersih per siklus">
       {columns.map(column => <li key={column.start} data-selected={column.selected || undefined} data-running={column.running || undefined}>
@@ -115,7 +136,15 @@ export function HistoryCard({ facts, onSelect }) {
         </button>
       </li>)}
     </ul>
-    <p className="dash-caption">Angka di bawah tanggal: arus kas bersih, Rp juta. Siklus berjalan belum penuh.</p>
+    <p className="dash-caption">Angka di bawah tanggal: arus kas bersih, Rp juta. Siklus berjalan belum penuh dan tidak sebanding dengan siklus yang sudah ditutup.</p>
+    <details className="review-daily" open={step === "position" || undefined}>
+      <summary>Angka per kategori ›</summary>
+      <div id="matrix" className="matrix-detail">
+        <h3 id="matrix-title">Kategori × siklus</h3>
+        <p className="review-description">{facts.history.length} siklus · {facts.categoryHistory?.rows?.length || 0} kategori + kategori lain</p>
+        <CategoryHeatmap key={facts.period.start} facts={facts} selectedCategory={selectedCategory} onSelectCategory={onSelectCategory}/>
+      </div>
+    </details>
   </section>;
 }
 
