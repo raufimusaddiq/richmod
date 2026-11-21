@@ -151,7 +151,7 @@ func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	insert := func(household, status, kind, description string, category, account any, amount int) {
-		if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,account_id,category_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,$2,$3,$4,$5,$6,now(),$7,now())`, household, account, category, kind, status, amount, description); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,account_id,category_id,type,status,amount,transaction_at,description,confirmed_at,voided_at) VALUES($1,$2,$3,$4,$5,$6,now(),$7,CASE WHEN $5 = $8 THEN now() END,CASE WHEN $5 = $9 THEN now() END)`, household, account, category, kind, status, amount, description, "CONFIRMED", "VOIDED"); err != nil {
 			t.Fatal(err)
 		}
 	}
