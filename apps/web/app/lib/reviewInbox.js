@@ -44,6 +44,26 @@ export function resolutionSummary(name, body, categories = []) {
   return resolveLabels[body?.action] || "selesai";
 }
 
+// Only what POST /reviews/{id}/reopen can actually reverse is offered as "Urungkan"; a button
+// that is guaranteed to 409 is never rendered. Mirrors reviewdomain.ReopenReview.
+const UNDOABLE_RESOLVE = new Set(["IGNORE", "LEAVE_UNALLOCATED", "SET_WEALTH_ACCOUNT", "SET_FINANCIAL_EMAIL_ENTITIES"]);
+const UNDOABLE_TYPES = new Set(["EXPENSE", "INCOME", "REFUND"]);
+
+export function canUndoResolution(item, name, body) {
+  if (item?.presentation === "NOTICE") return false;
+  if (item?.subjectType) return name === "resolve" && UNDOABLE_RESOLVE.has(body?.action);
+  return name === "confirm" && Boolean(item?.reviewItemId) && UNDOABLE_TYPES.has(item?.type);
+}
+
 export function resolvedLine(item, name, body, categories = []) {
-  return { id: item.id, label: item.merchantName || item.counterparty || item.description || "Transaksi", amount: item.amount || null, summary: resolutionSummary(name, body, categories) };
+  return {
+    id: item.id,
+    // Reopen addresses the review item; a transaction-bound card's own id is the transaction's.
+    reopenId: item.reviewItemId || item.id,
+    transactionId: item.subjectType ? null : item.id,
+    canUndo: canUndoResolution(item, name, body),
+    label: item.merchantName || item.counterparty || item.description || "Transaksi",
+    amount: item.amount || null,
+    summary: resolutionSummary(name, body, categories),
+  };
 }

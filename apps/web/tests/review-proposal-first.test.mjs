@@ -88,7 +88,8 @@ test("legacy items fall back to the API missingFields list", () => {
 test("the asset-purchase affordance is reachable without a dead switch", () => {
   // A useState whose setter has no call site silently removed the asset-purchase
   // form from EXPENSE reviews; it must render on the item type alone.
-  assert.match(source, /\{item\.type === "EXPENSE" && <form onSubmit=\{assetPurchase\}>/);
+  assert.match(source, /\{item\.type === "EXPENSE" && \(showAnswers && !editing \? <details className="review-more"><summary>Atau catat sebagai beli aset<\/summary><form onSubmit=\{assetPurchase\}>/);
+  assert.match(source, /<\/details> : <form onSubmit=\{assetPurchase\}>/, "the form stays reachable outside the 1-tap layout");
   assert.doesNotMatch(source, /setAsset/);
 });
 

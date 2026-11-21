@@ -44,6 +44,7 @@ Last audited: 2026-11 (see ADR-049 amendment, migrations 00097, 00098 and 00100)
 These are CHECK-constraint members nothing writes today. They are harmless;
 remove them only together with a migration and the code that reads them.
 
+- **Undoing a confirmation (`POST /api/v1/reviews/{reviewItemId}/reopen`, "Urungkan"):** a `RESOLVED` transaction review with `resolution_action = 'CONFIRM_REVIEW'` may move its `CONFIRMED` transaction back to `NEEDS_REVIEW` only when it is the transaction's latest review item, the type is `EXPENSE`/`INCOME`/`REFUND`, no `ACTIVE` `reconciliation_merge` references it and no `salary_event` does (`reviewdomain.ConfirmedReviewReopenable`, also what `GET /reviews/resolved` reports as `reopenable`). A category-asking review clears the chosen category; a fresh `OPEN` item is inserted, the resolved item stays as history, open cycle residuals and source lifecycle are refreshed. Anything else is voided, unmerged or corrected through its own path.
 - `review_item` / `review_request`: `CANCELLED` is written (reject/duplicate), `review_item` `EXPIRED` and `CANCELLED` are not.
 - `review_conversation`: `AWAITING_PURPOSE`, `AWAITING_ASSET_WEALTH`.
 - `salary_pending_choice`: the whole table (no producer; the remaining resolver in `agent_specialized_mutations.go` is unreachable). Do not revive without reconciling it with the pending-choice flow.

@@ -342,7 +342,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 			return
 		}
 	}
-		_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
+	_, err = tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL,updated_at=now() WHERE id=$1`, id)
 
 	if errors.Is(reviewdomain.MergeTargetError(err), reviewdomain.ErrMergeTargetActive) {
 		httpx.WriteMergeTargetRefusal(w)

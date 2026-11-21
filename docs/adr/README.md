@@ -400,4 +400,4 @@ The shell had eight destinations plus a mobile overflow panel, two add-transacti
 
 **Reason:** the Inbox should ask one plain question with ready answers instead of a form, a place name fixed once should stay fixed, and states nothing can reach only invite untested paths.
 
-**Consequence:** the Inbox renders history-ranked 1-tap answers and an inline `Urungkan` over the existing reopen endpoint; the migration refuses to run if a legacy `PENDING`/`ADJUSTMENT` row exists rather than rewriting canonical records.
+**Consequence:** the Inbox renders history-ranked 1-tap answers and an inline `Urungkan` over the reopen endpoint, addressed by `reviewItemId`; `ReopenReview` may undo a plain `CONFIRM_REVIEW` of a confirmed expense/income/refund only when it is the latest item and no active merge or salary event references the transaction (history is kept, a fresh item opens); the migration refuses to run if a legacy `PENDING`/`ADJUSTMENT` row exists rather than rewriting canonical records.

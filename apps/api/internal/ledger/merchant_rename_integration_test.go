@@ -97,7 +97,9 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 			t.Fatalf("audit before=%s after=%s", before, after)
 		}
 		var aliasAudit string
-		must(pool.QueryRow(ctx, `SELECT after_json::text FROM audit_log WHERE entity_id=$1 AND action='UPDATE_MERCHANT_ALIAS' AND entity_type='merchant_alias'`, id).Scan(&aliasAudit))
+		var aliasID string
+		must(pool.QueryRow(ctx, `SELECT id::text FROM merchant_alias WHERE household_id=$1 AND raw_name='QRIS GRAB*1234'`, household).Scan(&aliasID))
+		must(pool.QueryRow(ctx, `SELECT after_json::text FROM audit_log WHERE entity_id=$1 AND action='UPDATE_MERCHANT_ALIAS' AND entity_type='merchant_alias'`, aliasID).Scan(&aliasAudit))
 		if !strings.Contains(aliasAudit, "QRIS GRAB*1234") {
 			t.Fatalf("alias audit=%s", aliasAudit)
 		}
@@ -142,13 +144,40 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 			t.Fatalf("merchant rows=%d", n)
 		}
 	})
+	t.Run("case_only_rename_persists_and_is_audited", func(t *testing.T) {
+		id := newTx(household, "EXPENSE", "CONFIRMED", "KOPI KENANGAN 7")
+		if rec := patch(id, stamp(id), `{"merchantName":"KOPI KENANGAN"}`, principal); rec.Code != 200 {
+			t.Fatalf("status %d %s", rec.Code, rec.Body)
+		}
+		var merchantRow string
+		must(pool.QueryRow(ctx, `SELECT merchant_id::text FROM transaction WHERE id=$1`, id).Scan(&merchantRow))
+		if rec := patch(id, stamp(id), `{"merchantName":"Kopi Kenangan"}`, principal); rec.Code != 200 {
+			t.Fatalf("status %d %s", rec.Code, rec.Body)
+		}
+		var name, sameRow string
+		must(pool.QueryRow(ctx, `SELECT m.normalized_name,m.id::text FROM transaction t JOIN merchant m ON m.id=t.merchant_id WHERE t.id=$1`, id).Scan(&name, &sameRow))
+		if name != "Kopi Kenangan" || sameRow != merchantRow {
+			t.Fatalf("case-only rename name=%q row changed=%t", name, sameRow != merchantRow)
+		}
+		var n int
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='UPDATE_DETAILS'`, id).Scan(&n))
+		if n != 2 {
+			t.Fatalf("expected both renames audited, got %d", n)
+		}
+		var aliasID string
+		must(pool.QueryRow(ctx, `SELECT id::text FROM merchant_alias WHERE household_id=$1 AND raw_name='KOPI KENANGAN 7'`, household).Scan(&aliasID))
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='UPDATE_MERCHANT_ALIAS' AND entity_type='merchant_alias'`, aliasID).Scan(&n))
+		if n != 2 {
+			t.Fatalf("alias audits keyed by alias id=%d", n)
+		}
+	})
 	t.Run("noop_same_merchant_writes_nothing", func(t *testing.T) {
 		id := newTx(household, "EXPENSE", "CONFIRMED", "TOKO A")
 		if rec := patch(id, stamp(id), `{"merchantName":"Toko A"}`, principal); rec.Code != 200 {
 			t.Fatalf("status %d", rec.Code)
 		}
 		first := stamp(id)
-		if rec := patch(id, first, `{"merchantName":"toko  a"}`, principal); rec.Code != 200 || stamp(id) != first {
+		if rec := patch(id, first, `{"merchantName":"Toko A"}`, principal); rec.Code != 200 || stamp(id) != first {
 			t.Fatalf("noop changed stamp: %d", rec.Code)
 		}
 		var n int
@@ -164,7 +193,7 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 			t.Fatalf("status %d %s", rec.Code, rec.Body)
 		}
 		var n int
-		must(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='UPDATE_MERCHANT_ALIAS'`, id).Scan(&n))
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND action='UPDATE_MERCHANT_ALIAS' AND after_json->>'after'=(SELECT id::text FROM merchant WHERE household_id=$1 AND normalized_name='Warung')`, household).Scan(&n))
 		if n != 0 {
 			t.Fatalf("alias audits=%d", n)
 		}

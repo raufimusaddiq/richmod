@@ -6,7 +6,7 @@ import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import swc from "next/dist/build/swc/index.js";
-import { categoryAnswers, inboxView, legacyViewTarget, resolutionSummary, resolvedLine } from "../app/lib/reviewInbox.js";
+import { canUndoResolution, categoryAnswers, inboxView, legacyViewTarget, resolutionSummary, resolvedLine } from "../app/lib/reviewInbox.js";
 import { editFormErrors, editPayload, editableFields, editErrorMessage } from "../app/lib/transactionForm.js";
 
 const require = createRequire(import.meta.url);
@@ -97,7 +97,18 @@ test("a card with no suggestions still offers Kategori lain, and no memory optio
 
 test("inline confirmation line: label, amount and what happened, with Urungkan calling reopen", () => {
   const item = { id: "t1", merchantName: "Grab", amount: "25000" };
-  assert.deepEqual(resolvedLine(item, "confirm", { categoryId: "c2" }, categories), { id: "t1", label: "Grab", amount: "25000", summary: "→ Transport" });
+  assert.deepEqual(resolvedLine({ ...item, type: "EXPENSE", reviewItemId: "ri1" }, "confirm", { categoryId: "c2" }, categories), { id: "t1", reopenId: "ri1", transactionId: "t1", canUndo: true, label: "Grab", amount: "25000", summary: "→ Transport" });
+  // Undo is offered only where /reopen can reverse it.
+  const tx = { id: "t1", type: "EXPENSE", reviewItemId: "ri1" };
+  assert.equal(canUndoResolution(tx, "confirm", {}), true);
+  assert.equal(canUndoResolution({ ...tx, reviewItemId: undefined }, "confirm", {}), false, "no review item id, no undo");
+  assert.equal(canUndoResolution({ ...tx, type: "TRANSFER" }, "confirm", {}), false);
+  for (const name of ["merge", "classify-transfer", "reject"]) assert.equal(canUndoResolution(tx, name, {}), false, name);
+  const canonical = { id: "ri9", subjectType: "cycle_residual_case" };
+  for (const action of ["IGNORE", "LEAVE_UNALLOCATED", "SET_WEALTH_ACCOUNT", "SET_FINANCIAL_EMAIL_ENTITIES"]) assert.equal(canUndoResolution(canonical, "resolve", { action }), true, action);
+  for (const action of ["PRIMARY_SALARY", "ORDINARY_INCOME", "ALLOCATE_RETAINED_BALANCE", "MERGE_EXISTING"]) assert.equal(canUndoResolution(canonical, "resolve", { action }), false, action);
+  assert.equal(canUndoResolution({ ...canonical, presentation: "NOTICE" }, "resolve", { action: "IGNORE" }), false, "a notice has nothing to undo");
+  assert.equal(resolvedLine(canonical, "resolve", { action: "IGNORE" }).transactionId, null);
   assert.equal(resolutionSummary("reject", null, categories), "diabaikan");
   assert.equal(resolutionSummary("classify-transfer", { classification: "OWN_ACCOUNT" }), "rekening sendiri");
   assert.equal(resolutionSummary("resolve", { action: "IGNORE" }), "diabaikan");
@@ -105,7 +116,8 @@ test("inline confirmation line: label, amount and what happened, with Urungkan c
   assert.match(inbox, /setResolved\(lines => \[resolvedLine\(item, name, body, categories\)/);
   assert.match(inbox, /Urungkan<\/button>/);
   assert.match(inbox, /\/api\/v1\/reviews\/\$\{id\}\/reopen/);
-  assert.match(inbox, /setResolved\(lines => lines\.filter\(line => line\.id !== id\)\)/);
+  assert.match(inbox, /setResolved\(lines => lines\.filter\(line => line\.reopenId !== id\)\)/);
+  assert.match(inbox, /line\.canUndo \? <button[^>]*onClick=\{\(\) => reopen\(line\.reopenId\)\}>Urungkan<\/button> : line\.transactionId \? <Link[^>]*>Lihat transaksi<\/Link>/);
 });
 
 test("empty state and history", () => {

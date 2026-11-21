@@ -49,6 +49,7 @@ type item struct {
 	CategoryName            *string                   `json:"categoryName"`
 	MerchantName            *string                   `json:"merchantName"`
 	MerchantID              *string                   `json:"-"`
+	ReviewItemID            string                    `json:"reviewItemId,omitempty"`
 	Counterparty            *string                   `json:"counterparty"`
 	SourceType              *string                   `json:"sourceType"`
 	Confidence              *string                   `json:"confidence"`
@@ -131,7 +132,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	// The item ID stays the transaction id because Web actions address /reviews/{transactionId}/...
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
-		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,t.merchant_id::text,
+		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,t.merchant_id::text,ri.id::text,
 		       COALESCE(ri.decision,'null'::jsonb)
 		FROM review_item ri
 		JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
@@ -154,7 +155,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	items := make([]item, 0)
 	for rows.Next() {
 		var value item
-		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus, &value.MerchantID, &value.Decision); err != nil {
+		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus, &value.MerchantID, &value.ReviewItemID, &value.Decision); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 			return
 		}

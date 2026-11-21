@@ -148,7 +148,9 @@ type ReopenCommand struct {
 // projects it to Telegram through PROJECT_TELEGRAM_REVIEW.
 //
 // Reversible (the resolution only changed review or observation state):
-//   - transaction reviews whose transaction is NEEDS_REVIEW again;
+//   - transaction reviews whose transaction is NEEDS_REVIEW again, or whose CONFIRM_REVIEW
+//     confirmation is bounded and undoable (ConfirmedReviewReopenable: latest item, plain
+//     expense/income/refund, no active merge, no salary event);
 //   - wealth observations ACCEPTED or DISMISSED (an APPLIED value is inside a
 //     snapshot; snapshot correction owns that);
 //   - financial email observations IGNORED or still under review (an APPLIED
@@ -175,11 +177,7 @@ func ReopenReview(ctx context.Context, tx pgx.Tx, cmd ReopenCommand) (string, er
 	}
 	switch {
 	case transaction != nil:
-		id, err := reopenTransaction(ctx, tx, cmd.HouseholdID, *transaction, cmd.ActorUserID)
-		if err == nil && id == "" {
-			return "", ErrReopenNotReversible
-		}
-		return id, err
+		return reopenTransactionResolution(ctx, tx, cmd, *transaction, kind, decision)
 	case residual != nil:
 		if resolution == nil || (*resolution != "LEAVE_UNALLOCATED" && *resolution != "TRANSACTION_MISSING" && *resolution != "NO_LONGER_APPLICABLE") {
 			return "", ErrReopenNotReversible

@@ -245,10 +245,11 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	if in.merchantName.set {
 		name := *in.merchantName.value
 		var resolved string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id::text`, household, name).Scan(&resolved); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET normalized_name=excluded.normalized_name,updated_at=CASE WHEN merchant.normalized_name IS DISTINCT FROM excluded.normalized_name THEN now() ELSE merchant.updated_at END RETURNING id::text`, household, name).Scan(&resolved); err != nil {
 			return fmt.Errorf("resolve merchant: %w", err)
 		}
-		if !equalPtr(&resolved, merchantID) {
+		// A case-only rename (GRAB -> Grab) keeps the same merchant row but is still a change.
+		if !equalPtr(&resolved, merchantID) || !equalPtr(&name, merchantCurrent) {
 			newMerchantID = &resolved
 			raw := firstNonBlank(counterparty, merchantCurrent, description)
 			if raw != "" {
@@ -261,10 +262,11 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 				case !errors.Is(err, pgx.ErrNoRows):
 					return fmt.Errorf("read merchant alias: %w", err)
 				}
-				if _, err := tx.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,created_from_user_confirmation) VALUES($1,left(regexp_replace(btrim($2),'[[:space:]]+',' ','g'),160),$3,true) ON CONFLICT(household_id,(lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')))) DO UPDATE SET normalized_merchant_id=excluded.normalized_merchant_id,created_from_user_confirmation=true`, household, raw, resolved); err != nil {
+				var aliasID string
+				if err := tx.QueryRow(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,created_from_user_confirmation) VALUES($1,left(regexp_replace(btrim($2),'[[:space:]]+',' ','g'),160),$3,true) ON CONFLICT(household_id,(lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')))) DO UPDATE SET normalized_merchant_id=excluded.normalized_merchant_id,created_from_user_confirmation=true RETURNING id::text`, household, raw, resolved).Scan(&aliasID); err != nil {
 					return fmt.Errorf("upsert merchant alias: %w", err)
 				}
-				aliasChange = map[string]any{"rawName": raw, "existed": aliasExisted, "before": oldAlias, "after": resolved}
+				aliasChange = map[string]any{"rawName": raw, "existed": aliasExisted, "before": oldAlias, "after": resolved, "aliasId": aliasID}
 			}
 		}
 	}
@@ -305,7 +307,8 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		}
 		if aliasChange != nil {
 			aliasJSON, _ := json.Marshal(aliasChange)
-			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'UPDATE_MERCHANT_ALIAS','merchant_alias',$3,$4::jsonb)`, household, p.UserID, id, string(aliasJSON)); err != nil {
+			aliasID, _ := aliasChange["aliasId"].(string)
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'UPDATE_MERCHANT_ALIAS','merchant_alias',$3,$4::jsonb)`, household, p.UserID, aliasID, string(aliasJSON)); err != nil {
 				return fmt.Errorf("audit merchant alias: %w", err)
 			}
 		}

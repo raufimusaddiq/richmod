@@ -33,7 +33,7 @@ func (h *Handler) Resolved(w http.ResponseWriter, r *http.Request) {
 			n.transaction_id=ri.transaction_id OR n.cycle_residual_case_id=ri.cycle_residual_case_id OR n.wealth_observation_id=ri.wealth_observation_id
 			OR n.financial_email_observation_id=ri.financial_email_observation_id OR n.proposal_id=ri.proposal_id OR n.source_event_id=ri.source_event_id OR n.document_id=ri.document_id))
 		AND (CASE
-			WHEN ri.transaction_id IS NOT NULL THEN t.status='NEEDS_REVIEW'
+			WHEN ri.transaction_id IS NOT NULL THEN (t.status='NEEDS_REVIEW' OR `+reviewdomain.ConfirmedReviewReopenable+`)
 			WHEN ri.cycle_residual_case_id IS NOT NULL THEN ri.resolution_action IN ('LEAVE_UNALLOCATED','TRANSACTION_MISSING','NO_LONGER_APPLICABLE')
 			WHEN ri.wealth_observation_id IS NOT NULL THEN wo.status IN ('ACCEPTED','DISMISSED')
 			WHEN ri.financial_email_observation_id IS NOT NULL THEN feo.status IN ('IGNORED','REVIEW') AND feo.transaction_id IS NULL

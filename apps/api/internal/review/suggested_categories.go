@@ -74,9 +74,9 @@ func (h *Handler) suggestCategories(ctx context.Context, household string, items
 			FROM q
 			JOIN transaction t ON t.household_id=$1 AND t.status='CONFIRMED' AND t.type=q.kind AND t.category_id IS NOT NULL AND t.id<>q.tx_id
 			JOIN category c ON c.id=t.category_id AND c.household_id=$1 AND c.active
-			WHERE (q.merchant_id<>'' AND t.merchant_id=q.merchant_id::uuid)
-			   OR (q.key<>'' AND lower(regexp_replace(btrim(COALESCE(t.counterparty_name,'')),'[[:space:]]+',' ','g'))=q.key)
-			   OR (q.key<>'' AND lower(regexp_replace(btrim(COALESCE(t.description,'')),'[[:space:]]+',' ','g'))=q.key)
+			WHERE (NULLIF(q.merchant_id,'') IS NOT NULL AND t.merchant_id=NULLIF(q.merchant_id,'')::uuid)
+			   OR (q.key<>'' AND lower(btrim(regexp_replace(COALESCE(t.counterparty_name,''),'[[:space:]]+',' ','g')))=q.key)
+			   OR (q.key<>'' AND lower(btrim(regexp_replace(COALESCE(t.description,''),'[[:space:]]+',' ','g')))=q.key)
 			GROUP BY q.tx_id, t.category_id, c.name
 		)
 		SELECT tx_id::text, category_id::text, name, uses
