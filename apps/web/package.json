@@ -3,14 +3,13 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
+  "packageManager": "bun@1.4.4",
   "scripts": {
-    "dev": "next dev",
-    "predev": "node scripts/build-id.mjs",
-    "build": "node scripts/build-id.mjs && next build",
-    "build:embed": "npm run build && node scripts/sync-embed.mjs",
-    "start": "node scripts/static-server.mjs",
-    "pretest": "node scripts/build-id.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "dev": "bun scripts/dev.mjs",
+    "build": "bun scripts/build.mjs",
+    "build:embed": "bun run build && bun scripts/sync-embed.mjs",
+    "start": "bun scripts/static-server.mjs",
+    "test": "bun test tests/",
     "test:mobile-layout": "node scripts/mobile-layout-smoke.mjs",
     "test:motion": "node scripts/motion-one-shot-smoke.mjs",
     "test:visual": "sh scripts/visual-smoke-docker.sh",
@@ -20,7 +19,6 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
-    "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "recharts": "3.10.1"

@@ -16,4 +16,4 @@ exec docker run --rm \
   -e NEXT_TELEMETRY_DISABLED=1 \
   -e UPDATE_VISUAL_BASELINES="${UPDATE_VISUAL_BASELINES:-0}" \
   -v "$root:/src" -w /src/apps/web \
-  "$IMAGE" sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run build && exec node scripts/visual-smoke.mjs "$@"' sh "$@"
+  "$IMAGE" sh -c 'npm install --global --prefix /tmp/richmod-bun bun@1.4.4 && PATH=/tmp/richmod-bun/bin:$PATH && bun install --frozen-lockfile --ignore-scripts && bun run build && exec node scripts/visual-smoke.mjs "$@"' sh "$@"

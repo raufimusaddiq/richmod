@@ -12,7 +12,7 @@ const regressionOutput = new URL("../test-results/visual-regression/", import.me
 const baselines = new URL("../tests/visual-baselines/", import.meta.url);
 const updateBaselines = process.env.UPDATE_VISUAL_BASELINES === "1";
 if (updateBaselines && process.env.RICHMOD_VISUAL_IMAGE !== "1") {
-  console.error("Refusing to rewrite visual baselines outside the pinned image. Run: npm run test:visual:update");
+  console.error("Refusing to rewrite visual baselines outside the pinned image. Run: bun run test:visual:update");
   process.exit(2);
 }
 let comparedBaselines = 0;
@@ -134,7 +134,7 @@ async function waitForServer() {
     try { if ((await fetch(baseURL)).ok) return; } catch {}
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  throw new Error(`Next.js did not start at ${baseURL}`);
+  throw new Error(`Static server did not start at ${baseURL}`);
 }
 
 async function compareScreenshot(page, name) {
