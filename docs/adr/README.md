@@ -125,6 +125,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-112](#adr-112-laporan-unifies-arus-kas-and-kekayaan-spending-direction-colour-is-separate-from-category-colour) | Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour | Accepted |
 | [ADR-113](#adr-113-ci-is-path-targeted-and-images-are-built-only-on-prs-and-by-release-images) | CI is path-targeted and images are built only on PRs and by Release Images | Accepted |
 | [ADR-114](#adr-114-google-oidc-login-invite-bound-enrollment-and-active-only-household-uniqueness) | Google OIDC login, invite-bound enrollment, and active-only household uniqueness | Accepted, amends ADR-035 and ADR-059 |
+| [ADR-116](#adr-116-charts-draw-in-once-per-dataset-and-hero-figures-count-up-to-their-exact-value) | Charts draw in once per dataset and hero figures count up to their exact value | Accepted, supersedes the static-chart stance of commit 7c245e19 except the donut |
 
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
@@ -1169,3 +1170,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** existing and invited users can sign in with Google without turning an owner's untyped, unverified member email into an unauthenticated claim; Google OIDC stays dependency-free in Go; and a Super Admin can assign household-less Google users or removed members to a new household while one active household per user and the historical audit rows are preserved.
 
 **Consequence:** removing a member still deactivates their membership and revokes sessions and invites, but no longer permanently bars that user or their Telegram identity from a new household assignment (this narrows the permanent 1:1 bindings of ADR-059 to one *active* binding); deterministic password login keeps working when the Google OAuth env vars are unset.
+
+## ADR-116: Charts draw in once per dataset and hero figures count up to their exact value
+*Accepted, supersedes the static-chart stance of commit 7c245e19 except the donut, amends the count-up rule in docs/UI_MOTION.md · 2026-11-22*
+
+**Decision:** Recharts bar and line series and the CSS category, share and cycle-history bars draw in over `--motion-chart` (700ms, `--ease-chart`) on first mount and when the dataset identity changes, and never on hover, tooltip, resize or a same-data re-render: `useChartMotion` (`app/lib/useMotion.js`) enables a series' animation only until its dataset key has been on screen for the draw time, and CSS bars replay only when their keyed element remounts. The category donut stays static (the half-drawn ring problem of 7c245e19). Hero money figures (home, cycle KPI strip, wealth position) render through `CountUp`, which tweens only a display number and always ends on the original `money()` string; assistive technology gets that final string, never an intermediate one. Under `prefers-reduced-motion: reduce` charts, bars and counters render their final state immediately; the CSS bar animations are declared only under `no-preference`. Visual smokes run with `reducedMotion: "reduce"`.
+
+**Reason:** the user asked for motion that is clearly visible; a one-shot draw-in explains where a figure came from without ever showing a wrong final value, and keying it to the dataset avoids replaying it on interaction.
+
+**Consequence:** charts and counters animate for about 0.7-0.8s on page load and on cycle or range switches; intermediate count-up frames are display-only and never leave the component; `scripts/chart-motion-smoke.mjs` (`npm run test:chart-motion`, in CI) asserts draw-in, exact end values, no replay on hover and instant state under reduced motion; screenshot baselines must be captured with reduced motion on.

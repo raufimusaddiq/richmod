@@ -1,4 +1,5 @@
 import { CyclePaceChart } from "../components/Charts";
+import CountUp from "../components/CountUp";
 import { paceCurves, paceReferences } from "../lib/cycleLedger";
 import { kpiCells } from "../lib/cycleKpi";
 import { measuredLabel, qualityCopy, transactionHref } from "../lib/cycleReview";
@@ -48,7 +49,7 @@ export function KpiStrip({ facts, updated = 0 }) {
     <dl key={updated} className="surface">
       {cells.map(cell => <div key={cell.key} className="kpi-cell" data-lead={cell.lead || undefined}>
         <dt>{cell.label}</dt>
-        <dd>{cell.value}</dd>
+        <dd><CountUp text={cell.value}/></dd>
         <Delta delta={cell.delta}/>
         {cell.sub && <p className="kpi-sub">{cell.sub}</p>}
         {cell.footnote && <p className="kpi-sub">{cell.footnote}</p>}

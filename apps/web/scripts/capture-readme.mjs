@@ -92,7 +92,7 @@ await mkdir(outputDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 for (const shot of shots) {
   const authenticated = shot.authenticated !== false;
-  const page = await browser.newPage({ viewport: shot.viewport, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: shot.viewport, deviceScaleFactor: 1, reducedMotion: "reduce" });
   const failures = [];
   page.on("response", response => { if (response.status() >= 400 && !(response.status() === 401 && !authenticated)) failures.push(`${response.status()} ${response.url()}`); });
   await page.route("**/api/v1/**", route => fixtureRoute(route, authenticated));

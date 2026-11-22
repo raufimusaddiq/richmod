@@ -37,7 +37,7 @@ export function WhereCard({ facts, step, select, palette = null }) {
     {facts.takeaways?.where && <p className="takeaway">{facts.takeaways.where}</p>}
     <p className="dash-sub">Pengeluaran bersih per kategori</p>
     {empty ? <p className="empty compact">Belum ada pengeluaran bersih pada periode ini.</p> : <>
-      <div className="where-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: segment.amount, background: segment.color }}/>)}</div>
+      <div key={segments.map(segment => `${segment.key}:${segment.amount}`).join("|")} className="where-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: segment.amount, background: segment.color }}/>)}</div>
       <ol className="where-list" aria-label="Kategori menurut jumlah">
         {view.rows.map(row => <li key={row.key} style={row.color ? { "--cat": row.color } : undefined}>
           {row.openable
@@ -160,7 +160,7 @@ export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectC
         <button type="button" aria-pressed={column.selected} aria-label={`Buka siklus ${column.label} ${column.until}: pengeluaran ${money(column.expense)}`} onClick={() => onSelect(column.start)}>
           <em>{compactMillions(column.expense)}</em>
           <span className="history-plot" aria-hidden="true">
-            <span className="history-bar" style={{ height: `${column.expenseLength * 100}%` }}>
+            <span key={`${column.start}:${column.expense}:${column.expenseLength}`} className="history-bar" style={{ height: `${column.expenseLength * 100}%` }}>
               {column.segments.length
                 ? column.segments.map(segment => <i key={segment.key} className="history-seg" style={{ flexGrow: segment.weight, background: segment.color }}/>)
                 : <i className="history-seg" style={{ flexGrow: 1 }}/>}
