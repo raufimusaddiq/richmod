@@ -28,7 +28,13 @@ export function serveDirectory(root, port, label) {
 
   async function resolve(pathname) {
     if (pathname === "/") return "index.html";
-    const path = decodeURIComponent(pathname).replace(/^\/+/, "");
+    let decoded;
+    try {
+      decoded = decodeURIComponent(pathname);
+    } catch {
+      return null;
+    }
+    const path = decoded.replace(/^\/+/, "");
     if (path.includes("..")) return null;
     return (await file(path)) || (await file(`${path}.html`)) || (await file(`${path.replace(/\/$/, "")}/index.html`));
   }
