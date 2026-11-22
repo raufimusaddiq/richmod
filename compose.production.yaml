@@ -10,6 +10,8 @@ services:
 
   api:
     ports: !reset []
+    deploy:
+      replicas: 1
     environment:
       WEB_ORIGIN: https://finance.musaddiqr.com
     volumes:

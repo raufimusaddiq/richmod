@@ -165,7 +165,7 @@ export default function HouseholdPage() {
     const notes = [];
     const loginLabel = member.passwordInitialized ? "Tautan atur ulang kata sandi" : "Undangan masuk";
     if (member.dashboardInviteStatus === "PENDING") notes.push(stillValid(member.dashboardInviteExpiresAt) ? `${loginLabel} berlaku sampai ${untilLabel(member.dashboardInviteExpiresAt)}` : `${loginLabel} sudah kedaluwarsa`);
-    else if (!member.passwordInitialized) notes.push("Belum membuat kata sandi");
+    else if (!member.passwordInitialized) notes.push(member.googleLinked ? "Terhubung dengan Google" : "Belum mengaktifkan akun");
     if (!member.telegramConnected && member.telegramInviteExpiresAt) notes.push(stillValid(member.telegramInviteExpiresAt) ? `Undangan Telegram berlaku sampai ${untilLabel(member.telegramInviteExpiresAt)}` : "Undangan Telegram sudah kedaluwarsa");
     return notes.join(" · ");
   }

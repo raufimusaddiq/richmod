@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useInboxCount } from "./InboxCountProvider";
 import { useQuickRecord } from "./QuickRecordProvider";
 import BuildUpdateNotice from "./BuildUpdateNotice";
+import NoHouseholdIntro from "./NoHouseholdIntro";
 import { trackScreenView } from "../lib/telemetry";
 import { ChartDonut, DotsThree, HouseLine, Plus, Receipt, ShieldChevron, SignOut, Tray, UsersThree } from "@phosphor-icons/react";
 
@@ -37,6 +38,8 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
     await fetch("/api/v1/auth/logout", { method: "POST" });
     window.location.href = "/";
   }
+
+  if (user && !user.household && !pathname.startsWith("/admin")) return <NoHouseholdIntro user={user}/>;
 
   return <div className="app-frame">
     <a className="skip-link" href="#main-content">Lewati ke konten</a>

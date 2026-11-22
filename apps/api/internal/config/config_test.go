@@ -25,6 +25,47 @@ func TestLoadAPIAcceptsRequiredConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadAPIRequiresGoogleCredentialsTogether(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
+	for name, env := range map[string][2]string{
+		"id only":     {"client-id", ""},
+		"secret only": {"", "client-secret"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("GOOGLE_CLIENT_ID", env[0])
+			t.Setenv("GOOGLE_CLIENT_SECRET", env[1])
+			if _, err := LoadAPI(); err == nil {
+				t.Fatal("LoadAPI accepted partial Google credentials")
+			}
+		})
+	}
+}
+
+func TestLoadAPIAcceptsGoogleCredentials(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("GOOGLE_CLIENT_ID", "client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "client-secret")
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatalf("LoadAPI() error = %v", err)
+	}
+	if cfg.GoogleClientID != "client-id" || cfg.GoogleClientSecret != "client-secret" {
+		t.Fatalf("Google credentials = %q/%q", cfg.GoogleClientID, cfg.GoogleClientSecret)
+	}
+}
+
+func TestLoadAPIAllowsGoogleLoginDisabled(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "")
+	if _, err := LoadAPI(); err != nil {
+		t.Fatalf("LoadAPI() error = %v", err)
+	}
+}
+
 func TestLoadAPIWebOriginDefaultsToServedPort(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
