@@ -7,6 +7,29 @@ test.use({ viewport: { width: 1280, height: 800 } });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const leavingGone = page => page.waitForFunction(() => !document.querySelector(".presence[data-presence='leaving']"), null, { timeout: 3000 });
 
+const recordExitFocus = (page, openerSelector) => page.evaluate(selector => {
+  const record = { samples: [], done: false };
+  window.__exitFocus = record;
+  const sample = () => {
+    if (!document.querySelector(".presence[data-presence='leaving']")) return false;
+    const active = document.activeElement;
+    record.samples.push({ body: active === document.body, inOverlay: Boolean(active?.closest(".presence")), opener: active === document.querySelector(selector) });
+    return true;
+  };
+  const observer = new MutationObserver(() => {
+    if (!sample()) return;
+    observer.disconnect();
+    const frame = () => { if (sample()) requestAnimationFrame(frame); else record.done = true; };
+    requestAnimationFrame(frame);
+  });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-presence"] });
+}, openerSelector);
+
+const exitFocusSamples = async page => {
+  await page.waitForFunction(() => window.__exitFocus?.done === true, null, { timeout: 3000 });
+  return page.evaluate(() => window.__exitFocus.samples);
+};
+
 test.beforeEach(async ({ api }) => {
   api.use(request => {
     const { path } = request;
@@ -111,12 +134,12 @@ test("closing the detail drawer returns focus to its opener as the exit starts",
   await row.click();
   await page.waitForSelector(".detail-drawer");
   await pause(500);
+  await recordExitFocus(page, ".ledger-panel button");
   await page.click(".detail-drawer .drawer-close");
-  const exitFocus = () => page.evaluate(() => ({ leaving: Boolean(document.querySelector(".presence[data-presence='leaving']")), body: document.activeElement === document.body, inDrawer: Boolean(document.activeElement?.closest(".presence")), row: document.activeElement === document.querySelector(".ledger-panel button") }));
-  expect(await exitFocus(), "focus returns to the opener the moment the drawer starts leaving").toEqual({ leaving: true, body: false, inDrawer: false, row: true });
-  await pause(120);
-  expect(await exitFocus(), "focus stays on the opener for the rest of the exit").toEqual({ leaving: true, body: false, inDrawer: false, row: true });
-  await leavingGone(page);
+  const samples = await exitFocusSamples(page);
+  expect(samples.length, "the exit was observed while the drawer was leaving").toBeGreaterThan(0);
+  expect(samples[0], "focus returns to the opener the moment the drawer starts leaving").toEqual({ body: false, inOverlay: false, opener: true });
+  expect(samples.filter(sample => !sample.opener || sample.body || sample.inOverlay), "focus stays on the opener for the rest of the exit").toEqual([]);
   expect(await row.evaluate(node => node === document.activeElement), "focus is still on the opener once the drawer is gone").toBe(true);
 });
 
@@ -126,8 +149,9 @@ test("the category drawer hands focus back to its opener as it starts leaving", 
   await category.click();
   await page.waitForSelector("#category-drawer");
   await pause(450);
+  await recordExitFocus(page, "#where .where-list > li:not([data-other]) button");
   await page.click("#category-drawer .drawer-close");
-  const categoryExit = await page.evaluate(() => ({ leaving: Boolean(document.querySelector(".presence[data-presence='leaving'] #category-drawer")), body: document.activeElement === document.body, opener: document.activeElement === document.querySelector("#where .where-list > li:not([data-other]) button") }));
-  expect(categoryExit, "the category drawer hands focus back to its opener as it starts leaving").toEqual({ leaving: true, body: false, opener: true });
-  await leavingGone(page);
+  const samples = await exitFocusSamples(page);
+  expect(samples.length, "the exit was observed while the drawer was leaving").toBeGreaterThan(0);
+  expect(samples[0], "the category drawer hands focus back to its opener as it starts leaving").toEqual({ body: false, inOverlay: false, opener: true });
 });
