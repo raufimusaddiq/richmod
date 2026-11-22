@@ -11,7 +11,7 @@ export default function useRouteReveal(ref) {
     const observer = new MutationObserver(records => {
       for (const record of records) {
         for (const node of record.addedNodes) {
-          if (node instanceof HTMLElement && !node.matches(".skeleton-page, .toast, [role='alert']")) node.setAttribute("data-reveal", "");
+          if (node instanceof HTMLElement && node.isConnected && !node.matches(".skeleton-page, .toast, [role='alert']") && !node.closest("[data-reveal]")) node.setAttribute("data-reveal", "");
         }
       }
       if (!main.querySelector(".skeleton-page")) observer.disconnect();
