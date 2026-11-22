@@ -103,6 +103,21 @@ function PaceTooltip({ active, payload }) {
 }
 
 export function CyclePaceChart({ items, references = [], pace, period, height = 200 }) {
+  const wrapRef = useRef(null);
+  const [measuredHeight, setMeasuredHeight] = useState(height);
+  useEffect(() => {
+    setMeasuredHeight(height);
+    const node = wrapRef.current;
+    if (!node) return undefined;
+    const measure = () => {
+      if (node.clientHeight > 0) setMeasuredHeight(node.clientHeight);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [height]);
   if (!items?.length) return null;
   if (!hasPace(items)) return <p className="empty compact">Total pengeluaran sampai hari ini belum tersedia.</p>;
   const data = mapPace(items, pace);
@@ -111,14 +126,14 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   const tone = reference => (reference.tone === "median" ? "var(--chart-reference)" : "var(--line-strong)");
   const levels = references.filter(reference => reference.shape === "line" && !(reference.tone === "previous" && curves.previous) && !(reference.tone === "median" && curves.median));
   const axis = paceAxis(paceCeiling({ data, levels: levels.map(reference => reference.value), markers: references.filter(reference => reference.shape === "marker").map(reference => reference.value), last: last.exact }));
-  const endLabels = paceEndLabels({ data, last, curves, references, axis, plotHeight: Math.max(80, height - 50) });
+  const endLabels = paceEndLabels({ data, last, curves, references, axis, plotHeight: Math.max(60, measuredHeight - 56) });
   const renderEndLabel = entry => ({ viewBox }) => {
     if (!viewBox || !Number.isFinite(viewBox.x) || !Number.isFinite(viewBox.y)) return null;
     return <text x={viewBox.x + 8} y={viewBox.y + 4 + entry.dy} fill={entry.fill} fontFamily="var(--font-body)" fontSize={12} fontWeight={600} textAnchor="start" data-pace-end={entry.key}>{entry.text}</text>;
   };
   return <div className="cycle-pace">
     <p className="pace-marker-note">{paceMarkerNote(period, last)}</p>
-    <div className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
+    <div ref={wrapRef} className="chart-wrap cycle-pace-chart" role="img" aria-label="Total pengeluaran bersih kumulatif siklus terpilih dibanding siklus sebelumnya, dalam jutaan rupiah" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <LineChart accessibilityLayer={false} data={data} margin={{ top: 26, right: 48, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false}/>

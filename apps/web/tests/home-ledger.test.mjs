@@ -209,6 +209,9 @@ test("Beranda hero numbers stay in ink, desktop wealth aligns to content, phone 
   const dashCss = readFileSync(new URL("../app/styles/03-dashboard-and-charts.css", import.meta.url), "utf8");
   assert.match(dashCss, /\.overview-lower \{[^}]*align-items: start;/, "desktop Kekayaan card hugs its content height");
   assert.doesNotMatch(dashCss, /\.overview-wealth-link \{[^}]*margin-top: auto;/, "no empty space pushed above the wealth link");
+  const dailyChartRule = dashCss.match(/\.daily-spend \.chart-wrap \{[^}]*\}/)?.[0] ?? "";
+  assert.match(dailyChartRule, /flex: 1 1 240px;/, "desktop Pengeluaran harian chart grows to fill card height");
+  assert.doesNotMatch(dailyChartRule, /(?:^|[;\s{])height:\s*240px;/, "Pengeluaran harian chart is not locked to a fixed 240px height");
   const respCss = readFileSync(new URL("../app/styles/11-responsive.css", import.meta.url), "utf8");
   assert.match(respCss, /@media \(max-width: 680px\)[\s\S]*\.overview-trend, \.overview-wealth, \.home-lower-single \{ display: none; \}/, "phone Beranda hides daily chart and Kekayaan card");
 });

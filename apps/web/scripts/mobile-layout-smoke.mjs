@@ -221,8 +221,13 @@ try {
       const lowerBoxes = await page.evaluate(() => ({
         activity: document.querySelector(".overview-activity").getBoundingClientRect().height,
         wealth: document.querySelector(".overview-wealth").getBoundingClientRect().height,
+        trendBottom: document.querySelector(".overview-trend").getBoundingClientRect().bottom,
+        detailsBottom: document.querySelector(".overview-trend .review-daily").getBoundingClientRect().bottom,
+        dailyWrapHeight: document.querySelector(".daily-spend .chart-wrap").getBoundingClientRect().height,
       }));
       assert.ok(lowerBoxes.wealth < lowerBoxes.activity - 40, `${width}px desktop Kekayaan card must not stretch to match Terbaru: ${JSON.stringify(lowerBoxes)}`);
+      assert.ok(lowerBoxes.dailyWrapHeight > 240, `${width}px desktop Pengeluaran harian chart grows to fill card: ${JSON.stringify(lowerBoxes)}`);
+      assert.ok(lowerBoxes.trendBottom - lowerBoxes.detailsBottom <= 32, `${width}px desktop Pengeluaran harian leaves no dead space: ${JSON.stringify(lowerBoxes)}`);
       await page.getByText("Lihat nilai pengeluaran harian", { exact: true }).click();
       await assertNoHorizontalOverflow(page, `${width}px / expanded daily table`);
     }
@@ -240,11 +245,12 @@ try {
       }));
       const plotHeight = document.querySelector("#history .history-plot")?.getBoundingClientRect().height || 0;
       const selectedBg = getComputedStyle(document.querySelector("#history .history-cols > li[data-selected]")).backgroundColor;
+      const paceGrid = document.querySelector("#spending-shape .recharts-cartesian-grid")?.getBoundingClientRect();
       const endLabels = [...document.querySelectorAll("#spending-shape [data-pace-end]")].map(el => {
         const rect = el.getBoundingClientRect();
         return { key: el.getAttribute("data-pace-end"), text: el.textContent, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
       });
-      return { barRects, plotHeight, selectedBg, endLabels };
+      return { barRects, plotHeight, selectedBg, endLabels, paceGrid: paceGrid ? { top: paceGrid.top, bottom: paceGrid.bottom } : null };
     });
     if (width >= 1366) {
       assert.ok(chartPolish.barRects.every(item => item.width >= 56 && item.width <= 76), `${width}px Siklus ke siklus bars should be ~56-72px wide: ${JSON.stringify(chartPolish.barRects)}`);
@@ -254,12 +260,17 @@ try {
     }
     assert.notEqual(chartPolish.selectedBg, "rgba(0, 0, 0, 0)", `${width}px Siklus ke siklus keeps current-cycle highlight`);
     assert.equal(new Set(chartPolish.endLabels.map(item => item.key)).size, chartPolish.endLabels.length, `${width}px Laju pengeluaran has one end label per series: ${JSON.stringify(chartPolish.endLabels)}`);
+    for (const label of chartPolish.endLabels) {
+      if (chartPolish.paceGrid) {
+        assert.ok(label.top >= chartPolish.paceGrid.top - 2 && label.bottom <= chartPolish.paceGrid.bottom + 2, `${width}px Laju pengeluaran end label ${label.text} stays inside plot area`);
+      }
+    }
     for (let i = 0; i < chartPolish.endLabels.length; i += 1) {
       for (let j = i + 1; j < chartPolish.endLabels.length; j += 1) {
         const a = chartPolish.endLabels[i], b = chartPolish.endLabels[j];
         const overlapX = a.left < b.right && b.left < a.right;
-        const overlapY = a.top < b.bottom && b.top < a.bottom;
-        assert.equal(overlapX && overlapY, false, `${width}px Laju pengeluaran end labels overlap: ${JSON.stringify([a, b])}`);
+        const verticalGap = Math.max(a.top - b.bottom, b.top - a.bottom);
+        assert.equal(overlapX && verticalGap < 4, false, `${width}px Laju pengeluaran end labels collide: ${JSON.stringify([a, b])}`);
       }
     }
     const stackRows = await page.evaluate(() => [...document.querySelectorAll(".review-stack .report-disclosure > summary")].map(summary => {
