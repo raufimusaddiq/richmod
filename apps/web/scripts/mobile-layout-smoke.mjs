@@ -15,6 +15,7 @@ const superAdmin = { id: "user-1", displayName: "Rafi", email: "rafi@example.tes
 const regularOwner = { ...superAdmin, isSuperAdmin: false };
 const categories = Array.from({ length: 14 }, (_, index) => ({
   id: `cat-${index + 1}`,
+  parentId: index === 7 ? "cat-1" : null,
   name: index === 0 ? "Belanja Bahan Makanan & Kebutuhan Rumah Tangga" : `Kategori Keluarga ${index + 1}`,
   amount: String((14 - index) * 120000),
   active: true,
@@ -72,8 +73,38 @@ function alignedCycleFacts() {
     ["66666666-6666-4666-8666-666666666666", "cat-3"],
   ]);
   const remap = row => (row?.id && idMap.has(row.id) ? { ...row, id: idMap.get(row.id) } : row);
-  facts.categoryChanges = facts.categoryChanges.map(remap);
-  facts.categoryRanking = { ...facts.categoryRanking, rows: facts.categoryRanking.rows.map(remap) };
+  const travel = {
+    id: "cat-8",
+    name: "Perjalanan",
+    amount: "631000",
+    previous: "0",
+    median3: "0",
+    deltaVsPrevious: "631000",
+    deltaVsMedian3: "631000",
+    relativeDeltaVsPrevious: null,
+    relativeDeltaVsMedian3: null,
+    shareOfExpense: "0.1306",
+    contributionToExpenseChange: "0.3100",
+    count: 2,
+    previousFullCycle: "0",
+    deltaVsPreviousFullCycle: "631000",
+    relativeDeltaVsPreviousFullCycle: null,
+    merchants: [],
+    transactions: [],
+  };
+  facts.categoryChanges = [...facts.categoryChanges.map(remap), travel];
+  facts.categoryRanking = {
+    ...facts.categoryRanking,
+    rows: facts.categoryRanking.rows.map(remap),
+    other: {
+      ...facts.categoryRanking.other,
+      amount: "631000",
+      count: 2,
+      categoryCount: 1,
+      shareOfExpense: "0.1306",
+      rows: [{ id: "cat-8", name: "Perjalanan", amount: "631000", count: 2, shareOfExpense: "0.1306" }],
+    },
+  };
   facts.categoryHistory = {
     ...facts.categoryHistory,
     rows: facts.categoryHistory.rows.map(remap),
@@ -254,6 +285,8 @@ try {
       assert.ok(lowerBoxes.wealth < lowerBoxes.activity - 40, `${width}px desktop Kekayaan card must not stretch to match Terbaru: ${JSON.stringify(lowerBoxes)}`);
       assert.ok(lowerBoxes.dailyWrapHeight > 240, `${width}px desktop Pengeluaran harian chart grows to fill card: ${JSON.stringify(lowerBoxes)}`);
       assert.ok(lowerBoxes.trendBottom - lowerBoxes.detailsBottom <= 32, `${width}px desktop Pengeluaran harian leaves no dead space: ${JSON.stringify(lowerBoxes)}`);
+      const homeDailyFills = await page.evaluate(() => [...document.querySelectorAll(".daily-spend .recharts-bar-rectangle rect")].map(el => getComputedStyle(el).fill));
+      assert.ok(homeDailyFills.length > 0 && homeDailyFills.every(fill => fill === "rgb(47, 74, 109)"), `${width}px Beranda daily bars must all render in single slate navy #2f4a6d: ${JSON.stringify(homeDailyFills)}`);
       await page.getByText("Lihat nilai pengeluaran harian", { exact: true }).click();
       await assertNoHorizontalOverflow(page, `${width}px / expanded daily table`);
     }
@@ -270,6 +303,21 @@ try {
     }));
     assert.deepEqual(laporanColors.where, homeCategoryCheck.ranked.slice(0, 3), `${width}px Laporan Ke mana uangnya shares exact Retro hidup colours with Beranda`);
     assert.deepEqual(laporanColors.history, homeCategoryCheck.ranked.slice(0, 3), `${width}px Laporan Siklus ke siklus shares exact Retro hidup colours with Beranda`);
+    await page.locator("#where .where-other-summary").click();
+    const otherExpanded = await page.evaluate(() => {
+      const subRows = [...document.querySelectorAll("#where .where-other-list > li")];
+      return {
+        count: subRows.length,
+        names: subRows.map(el => el.querySelector(".where-name")?.textContent?.trim()),
+        swatches: subRows.reduce((sum, el) => sum + el.querySelectorAll(".where-swatch").length, 0),
+      };
+    });
+    assert.deepEqual(otherExpanded, { count: 1, names: ["Perjalanan"], swatches: 0 }, `${width}px Kategori lain expands to list remaining categories with no swatches`);
+    await page.locator("#where .where-other-list button", { hasText: "Perjalanan" }).click();
+    await page.locator("#category-drawer").waitFor();
+    assert.equal(await page.locator("#category-drawer .where-swatch").count(), 0, `${width}px category drawer omits sand swatch for non-top-6 category`);
+    await page.keyboard.press("Escape");
+    await page.locator("#category-drawer").waitFor({ state: "detached" });
     const chartPolish = await page.evaluate(() => {
       const barRects = [...document.querySelectorAll("#history .history-bar")].map(el => ({
         width: el.getBoundingClientRect().width,
@@ -338,6 +386,23 @@ try {
     });
     await page.waitForTimeout(100);
     await assertNoHorizontalOverflow(page, `${width}px /analytics all disclosures open`);
+    const laporanSwatchAudit = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--chart-category-other)";
+      document.body.appendChild(probe);
+      const sand = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      const rogueSand = [...document.querySelectorAll("#where .where-swatch, #changes .heat-swatch, #matrix .heat-swatch")]
+        .filter(el => getComputedStyle(el).backgroundColor === sand)
+        .filter(el => !el.closest("li[data-other]") && !el.closest("span[data-muted]"))
+        .length;
+      const dailyBars = [...document.querySelectorAll("#daily .cycle-spending-chart .recharts-bar-rectangle path, #daily .cycle-spending-chart .recharts-bar-rectangle rect")]
+        .map(el => getComputedStyle(el).fill)
+        .filter(fill => fill !== "none" && fill !== "rgba(0, 0, 0, 0)");
+      return { rogueSand, dailyBars };
+    });
+    assert.equal(laporanSwatchAudit.rogueSand, 0, `${width}px no sand swatch appears on any row except Kategori lain`);
+    assert.ok(laporanSwatchAudit.dailyBars.some(fill => fill === "rgb(47, 74, 109)"), `${width}px Laporan daily bars use slate navy #2f4a6d: ${JSON.stringify(laporanSwatchAudit.dailyBars)}`);
     if (phone) {
       const wideTables = await page.evaluate(() => [...document.querySelectorAll(".review-table-wrap, .merchant-rank-scroll")].map(el => ({
         cls: el.className,
@@ -381,6 +446,18 @@ try {
 
     await page.goto(`${baseURL}/transactions`, { waitUntil: "networkidle" });
     await page.locator(".transaction-row").first().waitFor();
+    const iconTones = await page.evaluate(() => {
+      const toneFor = label => {
+        const row = [...document.querySelectorAll(".transaction-row")].find(el => el.textContent.includes(label));
+        return row?.querySelector(".category-icon")?.className || "";
+      };
+      return {
+        childOfTop1: toneFor("Kategori Keluarga 8"),
+        unparentedOther: toneFor("Kategori Keluarga 9"),
+      };
+    });
+    assert.match(iconTones.childOfTop1, /\btone-1\b/, `${width}px Transaksi child of top-6 parent inherits parent tone: ${JSON.stringify(iconTones)}`);
+    assert.match(iconTones.unparentedOther, /\btone-other\b/, `${width}px Transaksi unparented non-top-6 stays sand: ${JSON.stringify(iconTones)}`);
     await assertNoHorizontalOverflow(page, `${width}px /transactions`);
     const filterPrimary = await page.locator("div.filter-primary").evaluate(el => ({
       scrollWidth: el.scrollWidth,

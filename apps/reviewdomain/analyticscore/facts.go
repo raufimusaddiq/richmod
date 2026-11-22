@@ -276,8 +276,9 @@ func newCycleMeasure(period reviewPeriod) cycleMeasure {
 }
 
 const (
-	DefaultHistory = 6
-	MaxHistory     = 12
+	DefaultHistory       = 6
+	MaxHistory           = 12
+	historyTopCategories = 7
 )
 
 func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time) (Facts, error) {
@@ -415,7 +416,11 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	} else {
 		rankBase = full
 	}
-	facts.CategoryRanking = buildCategoryRanking(measures[0], rankBase, facts.Comparison.Mode)
+	topCategoryIDs, err := loadTopCategoryIDs(ctx, tx, household, periods, now)
+	if err != nil {
+		return facts, err
+	}
+	facts.CategoryRanking = buildCategoryRanking(measures[0], rankBase, facts.Comparison.Mode, topCategoryIDs)
 	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense }, full)
 	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income }, full)
 	facts.Comparison.NetCashflow = cashChange(measures, func(c reviewCashflow) string { return c.Net }, full)
@@ -583,8 +588,8 @@ func buildHistory(measures []cycleMeasure, window, sameDay []int, selectedStart 
 		}
 		return ids[a] < ids[b]
 	})
-	if len(ids) > rankingTopCategories {
-		ids = ids[:rankingTopCategories]
+	if len(ids) > historyTopCategories {
+		ids = ids[:historyTopCategories]
 	}
 	matrix := categoryHistory{categoryMatrix: buildMatrix(measures, window, ids, names, selected)}
 	if len(sameDay) == len(window) && len(window) > 0 && selected >= 0 {

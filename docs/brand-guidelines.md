@@ -81,11 +81,21 @@ that source; it does not introduce a parallel token file.
   deterministically by category id); every other category uses
   `--chart-category-other` (sand) and is grouped as `Kategori lain` in charts
   and legends, so no two categories ever share a colour across Beranda "Ke mana
-  uangnya" and transaction icons, Transaksi icons, Laporan "Ke mana uangnya",
-  "Siklus ke siklus", per-category tables, the category drawer, and calendar
-  category bars. All six `--chart-category-1..6` tokens clear WCAG 3:1 non-text
-  contrast against `--surface` (3.5–6.2:1). Daily spending bars stay neutral ink
-  (`--ink-soft`).
+  uangnya", Laporan "Ke mana uangnya", "Siklus ke siklus", per-category tables,
+  the category drawer, and calendar category bars. No individual category row,
+  table row, or category drawer displays a sand swatch — sand is reserved
+  exclusively for the aggregated `Kategori lain` row/segment; remaining
+  categories disclosed inside `Kategori lain` and unranked rows in tables or
+  drawers render without swatches. On Transaksi and Beranda transaction icons,
+  a category outside the top 6 inherits its parent category's top-6 tone when
+  its parent is ranked in the top 6, and falls back to neutral sand otherwise
+  (keyed by category id from the same `CategoryPaletteProvider`, with no new
+  colours). All six `--chart-category-1..6` tokens clear WCAG 3:1 non-text
+  contrast against `--surface` (3.5–6.2:1). Daily spending bars use a single
+  slate navy `--chart-daily` (`#2f4a6d`, 8.8:1 on `--surface`) with no
+  above/below-average colour split, no teal, and no red/green; the dashed
+  average line and clipped-bar labels use `--ink`, and clipped bars keep the
+  break mark.
 - Text tokens must keep WCAG AA 4.5:1 against every surface token. This is
   enforced by `apps/web/tests/ui-audit-locks.test.mjs`; run it before shipping a
   palette change.
@@ -256,17 +266,24 @@ and PRDs; they never appear in user-facing copy.
   empty space underneath. All cards read
   the current period (`categories?period=current_cycle`); category rows and non-zero
   day bars open `/transactions` filtered to that category/day. Daily bars use
-  neutral ink (`--ink-soft`), reserving red for "spent more than last cycle", and
-  cap near the 90th-percentile day (snapped to a round axis top when the peak
-  exceeds twice that cap) so at most ~3 spikes are clipped with a break slash; the
-  y-axis uses round ticks labelled in `rb` below 1 jt (`0`, `250rb`, `500rb`) and
-  clipped bar labels stagger on nearby spikes (or show only the largest on narrow
-  widths). Owners see a one-line butter notice when `actionCount > 0`.
+  a single slate navy `--chart-daily` (`#2f4a6d`, 8.8:1 on `--surface`, no
+  above/below-average split, no teal/green/red), with a dashed `--ink` average
+  line, and cap near the 90th-percentile day (snapped to a round axis top when
+  the peak exceeds twice that cap) so at most ~3 spikes are clipped with a
+  break slash; the y-axis uses round ticks labelled in `rb` below 1 jt (`0`,
+  `250rb`, `500rb`) and clipped bar labels render in `--ink` and stagger on
+  nearby spikes (or show only the largest on narrow widths). Owners see a
+  one-line butter notice when `actionCount > 0`.
 - **Laporan** leads with a 4-tile ink-outlined KPI strip (no Refund/explainer
-  footer line). "Ke mana uangnya" shows category colour, amount, and share (%)
-  only (changes belong to "Yang berubah"). "Siklus ke siklus" draws stacked bars
-  split by category using the same category colours as "Ke mana uangnya", and
-  `Angka per kategori ›` opens the exact per-category table. Below the charts,
+  footer line). "Ke mana uangnya" matches Beranda: it lists the household's
+  coloured top-6 categories with spend in the cycle (amount and share (%) only;
+  changes belong to "Yang berubah"), followed by one sand `Kategori lain` row
+  that expands inline (`<details>`) to list the remaining categories by amount
+  with no swatches. No individual category row, per-category table row, or
+  category drawer shows a sand swatch. "Siklus ke siklus" draws stacked bars
+  split by category using the same category colours as "Ke mana uangnya" (with
+  non-top-6 stacked into sand), and `Angka per kategori ›` opens the exact
+  per-category table. Below the charts,
   one calm card holds uniform collapsed disclosure rows (`14px 16px` padding,
   17px Fraunces title in `--ink`, 13px muted summary on its own line below, `+`
   aligned with the title): `Pengeluaran harian` and `Obrolan keluarga` (grouping
@@ -275,8 +292,9 @@ and PRDs; they never appear in user-facing copy.
 - **Transaksi** is a quiet ledger grouped by Asia/Jakarta day with each day's net spend
   in the header. Rows show a display name preferring merchant name → counterparty
   name → description (and `Transfer ke <name>` for transfers with a counterparty,
-  display-only), a semantic Phosphor category icon (`categoryIcons.js`, six
-  top-category tones plus neutral sand for other categories, never letter boxes), one meta line and the signed amount; a badge
+  display-only), a semantic Phosphor category icon (`categoryIcons.js`, taking
+  its own top-6 tone, else its parent category's top-6 tone if the parent is
+  ranked, else neutral sand, never letter boxes), one meta line and the signed amount; a badge
   appears only for exceptions (Perlu dicek, Dibatalkan). Voided rows are hidden through
   `exclude_voided=true` (response headers `X-Total-Count` and `X-Voided-Count`) unless
   a status filter or `?showVoided=1` is set. Filters are a search box and chips

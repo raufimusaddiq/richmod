@@ -2,14 +2,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuthContext } from "./AuthProvider";
-import { buildCategoryPalette } from "../lib/categoryColors";
+import { buildCategoryPalette, buildCategoryParents } from "../lib/categoryColors";
 
-const EMPTY_PALETTE = new Map();
-const CategoryPaletteContext = createContext(EMPTY_PALETTE);
+const EMPTY_MAP = new Map();
+const CategoryPaletteContext = createContext(EMPTY_MAP);
+const CategoryParentsContext = createContext(EMPTY_MAP);
 
 export default function CategoryPaletteProvider({ children }) {
   const { user } = useAuthContext();
   const [ranked, setRanked] = useState([]);
+  const [categories, setCategories] = useState([]);
   const signedIn = Boolean(user);
 
   const load = useCallback(signal => {
@@ -17,11 +19,16 @@ export default function CategoryPaletteProvider({ children }) {
       .then(response => (response.ok ? response.json() : null))
       .then(list => { if (!signal?.aborted && Array.isArray(list)) setRanked(list); })
       .catch(() => {});
+    fetch("/api/v1/categories", { signal })
+      .then(response => (response.ok ? response.json() : null))
+      .then(list => { if (!signal?.aborted && Array.isArray(list)) setCategories(list); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!signedIn) {
       setRanked([]);
+      setCategories([]);
       return undefined;
     }
     const controller = new AbortController();
@@ -35,9 +42,14 @@ export default function CategoryPaletteProvider({ children }) {
   }, [signedIn, load]);
 
   const palette = useMemo(() => buildCategoryPalette(ranked), [ranked]);
-  return <CategoryPaletteContext.Provider value={palette}>{children}</CategoryPaletteContext.Provider>;
+  const parents = useMemo(() => buildCategoryParents(categories), [categories]);
+  return <CategoryPaletteContext.Provider value={palette}><CategoryParentsContext.Provider value={parents}>{children}</CategoryParentsContext.Provider></CategoryPaletteContext.Provider>;
 }
 
 export function useCategoryPalette() {
   return useContext(CategoryPaletteContext);
+}
+
+export function useCategoryParents() {
+  return useContext(CategoryParentsContext);
 }

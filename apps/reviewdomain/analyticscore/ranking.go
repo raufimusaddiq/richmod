@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	rankingTopCategories = 7
+	rankingTopCategories = 6
 	RankingOtherName     = "Kategori lain"
 )
 
@@ -24,14 +24,15 @@ type rankedCategory struct {
 }
 
 type rankedOther struct {
-	Name          string  `json:"name"`
-	Amount        string  `json:"amount"`
-	Count         int     `json:"count"`
-	CategoryCount int     `json:"categoryCount"`
-	Share         *string `json:"shareOfExpense"`
-	Baseline      *string `json:"baselineAmount"`
-	Delta         *string `json:"deltaVsBaseline"`
-	Relative      *string `json:"relativeDeltaVsBaseline"`
+	Name          string           `json:"name"`
+	Amount        string           `json:"amount"`
+	Count         int              `json:"count"`
+	CategoryCount int              `json:"categoryCount"`
+	Share         *string          `json:"shareOfExpense"`
+	Baseline      *string          `json:"baselineAmount"`
+	Delta         *string          `json:"deltaVsBaseline"`
+	Relative      *string          `json:"relativeDeltaVsBaseline"`
+	Rows          []rankedCategory `json:"rows"`
 }
 
 type categoryRanking struct {
@@ -41,10 +42,32 @@ type categoryRanking struct {
 }
 
 func emptyCategoryRanking() categoryRanking {
-	return categoryRanking{Baseline: "PREVIOUS_FULL", Rows: []rankedCategory{}, Other: rankedOther{Name: RankingOtherName, Amount: "0"}}
+	return categoryRanking{
+		Baseline: "PREVIOUS_FULL",
+		Rows:     []rankedCategory{},
+		Other:    rankedOther{Name: RankingOtherName, Amount: "0", Rows: []rankedCategory{}},
+	}
 }
 
-func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode string) categoryRanking {
+func buildRankedRow(v reviewValue, expense string, baseline *cycleMeasure) (rankedCategory, string) {
+	row := rankedCategory{Name: v.Name, Amount: v.Amount, Count: v.Count, Share: positiveRatio(v.Amount, expense)}
+	if v.ID != "" {
+		id := v.ID
+		row.ID = &id
+	}
+	baseAmount := "0"
+	if baseline != nil {
+		if bv, ok := baseline.categories[v.ID]; ok {
+			baseAmount = bv.Amount
+		}
+		b := baseAmount
+		row.Baseline = &b
+		row.Delta, row.Relative = deltaPair(v.Amount, b)
+	}
+	return row, baseAmount
+}
+
+func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode string, topIDs []string) categoryRanking {
 	out := emptyCategoryRanking()
 	if mode == "ELAPSED_DAYS" {
 		out.Baseline = "SAME_DAY"
@@ -65,32 +88,48 @@ func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode str
 		}
 		return candidates[i].ID < candidates[j].ID
 	})
-	top := candidates
-	if len(top) > rankingTopCategories {
-		top = top[:rankingTopCategories]
+	topSet := map[string]bool{}
+	for _, id := range topIDs {
+		if id == "" {
+			continue
+		}
+		if len(topSet) >= rankingTopCategories {
+			break
+		}
+		topSet[id] = true
+	}
+	top := make([]reviewValue, 0, rankingTopCategories)
+	rest := make([]reviewValue, 0, len(candidates))
+	for _, v := range candidates {
+		positiveCategorized := v.ID != "" && compareAmounts(v.Amount, "0") > 0
+		if len(topSet) > 0 {
+			if positiveCategorized && topSet[v.ID] {
+				top = append(top, v)
+			} else {
+				rest = append(rest, v)
+			}
+			continue
+		}
+		if positiveCategorized && len(top) < rankingTopCategories {
+			top = append(top, v)
+		} else {
+			rest = append(rest, v)
+		}
 	}
 	listed, listedBase := "0", "0"
 	for _, v := range top {
-		row := rankedCategory{Name: v.Name, Amount: v.Amount, Count: v.Count, Share: positiveRatio(v.Amount, expense)}
-		if v.ID != "" {
-			id := v.ID
-			row.ID = &id
-		}
+		row, baseAmount := buildRankedRow(v, expense, baseline)
 		if baseline != nil {
-			b := "0"
-			if bv, ok := baseline.categories[v.ID]; ok {
-				b = bv.Amount
-			}
-			row.Baseline = &b
-			row.Delta, row.Relative = deltaPair(v.Amount, b)
-			listedBase = financialmath.Add(listedBase, b)
+			listedBase = financialmath.Add(listedBase, baseAmount)
 		}
 		listed = financialmath.Add(listed, v.Amount)
 		out.Rows = append(out.Rows, row)
 	}
 	out.Other.Amount = financialmath.Subtract(expense, listed)
 	out.Other.Share = positiveRatio(out.Other.Amount, expense)
-	for _, v := range candidates[len(top):] {
+	for _, v := range rest {
+		row, _ := buildRankedRow(v, expense, baseline)
+		out.Other.Rows = append(out.Other.Rows, row)
 		out.Other.Count += v.Count
 		out.Other.CategoryCount++
 	}

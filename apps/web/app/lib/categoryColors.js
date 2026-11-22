@@ -69,11 +69,38 @@ export function buildCategoryPalette(rankedCategories = []) {
   return palette;
 }
 
+export function buildCategoryParents(categories = []) {
+  const parents = new Map();
+  for (const item of Array.isArray(categories) ? categories : []) {
+    if (!item?.id || !item?.parentId) continue;
+    const id = String(item.id);
+    const parentId = String(item.parentId);
+    if (id && parentId && id !== parentId) parents.set(id, parentId);
+  }
+  return parents;
+}
+
 export function categoryColorFor(item, palette = null) {
   if (!item || item.other || item.remainder) return OTHER_CATEGORY_COLOR;
   const identity = categoryColorIdentity(item);
   if (identity === "uncategorized" || identity === "other") return OTHER_CATEGORY_COLOR;
   if (palette?.has(identity)) return palette.get(identity);
+  return OTHER_CATEGORY_COLOR;
+}
+
+export function categoryIconColorFor(item, palette = null, parents = null) {
+  if (!item || item.other || item.remainder) return OTHER_CATEGORY_COLOR;
+  const identity = categoryColorIdentity(item);
+  if (identity === "uncategorized" || identity === "other") return OTHER_CATEGORY_COLOR;
+  if (palette?.has(identity)) {
+    const own = palette.get(identity);
+    if (own && own !== OTHER_CATEGORY_COLOR) return own;
+  }
+  const parentId = (typeof item === "object" && item.parentId ? String(item.parentId) : "") || parents?.get(identity) || "";
+  if (parentId && palette?.has(parentId)) {
+    const parentColor = palette.get(parentId);
+    if (parentColor && parentColor !== OTHER_CATEGORY_COLOR) return parentColor;
+  }
   return OTHER_CATEGORY_COLOR;
 }
 

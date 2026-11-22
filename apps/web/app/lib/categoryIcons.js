@@ -1,4 +1,4 @@
-import { CATEGORY_COLORS, categoryColorFor, normalizeCategoryKey } from "./categoryColors.js";
+import { CATEGORY_COLORS, categoryIconColorFor, normalizeCategoryKey } from "./categoryColors.js";
 
 const RULES = [
   ["Coffee", ["kopi", "coffee", "cafe", "kafe", "snack", "jajan", "camilan", "minuman", "boba"]],
@@ -29,13 +29,13 @@ export function normalizeCategoryName(value) {
 
 const matches = (text, keyword) => ` ${text} `.includes(` ${keyword} `) || (keyword.length >= 4 && text.includes(keyword));
 
-export function categoryVisual(category, palette = null) {
+export function categoryVisual(category, palette = null, parents = null) {
   const name = typeof category === "string" ? category : category?.name;
   const slug = typeof category === "string" ? "" : category?.slug;
   const haystack = normalizeCategoryName(`${name ?? ""} ${String(slug ?? "").replace(/-/g, " ")}`);
   const rule = RULES.find(([, keywords]) => keywords.some(keyword => matches(haystack, keyword)));
   const icon = rule ? rule[0] : FALLBACK_ICON;
-  const color = categoryColorFor(category, palette);
+  const color = categoryIconColorFor(category, palette, parents);
   const index = CATEGORY_COLORS.indexOf(color);
   const tone = index >= 0 ? index + 1 : "other";
   return { icon, tone, color };

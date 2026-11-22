@@ -55,6 +55,15 @@ test("every text colour clears WCAG AA 4.5:1 on every surface", () => {
   assert.equal(categoryHexes.size, 6, "all six category tokens are distinct");
   assert.doesNotMatch(source, /--chart-category-(?:7|8)\b/, "tokens 7 and 8 are removed");
   assert.ok(token("chart-category-other"), "Kategori lain sand token exists");
+  const dailyHex = token("chart-daily");
+  assert.equal(dailyHex, "#2f4a6d", "daily spending bars use single slate navy #2f4a6d");
+  assert.ok(ratio(dailyHex, token("surface")) >= 4.5, `chart-daily clears 4.5:1 on surface (${ratio(dailyHex, token("surface")).toFixed(2)}:1)`);
+  assert.ok(ratio(dailyHex, token("surface-strong")) >= 4.5, `chart-daily clears 4.5:1 on surface-strong`);
+  const dailyHue = hueOf(dailyHex);
+  assert.ok(!(dailyHue < 15 || dailyHue > 345), `chart-daily is not red (${dailyHue.toFixed(0)}°)`);
+  assert.ok(!(dailyHue >= 75 && dailyHue <= 175), `chart-daily is not green or teal (${dailyHue.toFixed(0)}°)`);
+  assert.notEqual(dailyHex, token("accent"), "chart-daily does not reuse accent");
+  assert.ok(!categoryHexes.has(dailyHex), "chart-daily is distinct from the six category tokens");
 });
 
 test("type scale is tokenised and no text renders below 12px", () => {
@@ -68,7 +77,7 @@ test("type scale is tokenised and no text renders below 12px", () => {
 test("brand fonts are bundled and the guideline matches the existing token source", () => {
   const source = css();
   const guide = text("../../docs/brand-guidelines.md");
-  for (const name of ["canvas", "ink", "accent", "accent-hover", "income", "expense", "warning", "danger", "info"]) {
+  for (const name of ["canvas", "ink", "accent", "accent-hover", "income", "expense", "warning", "danger", "info", "chart-daily"]) {
     const value = source.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))[1];
     assert.ok(guide.includes(value), `brand guideline is stale for --${name}`);
   }
