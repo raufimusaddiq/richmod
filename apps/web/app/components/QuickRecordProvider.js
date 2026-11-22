@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuthContext } from "./AuthProvider";
+import Presence from "./Presence";
 import QuickRecordDialog from "./QuickRecordDialog";
 import { QUICK_EVENTS } from "../lib/quickRecord";
 
@@ -72,7 +73,7 @@ export default function QuickRecordProvider({ children }) {
 
   return <QuickRecordContext.Provider value={{ open }}>
     {children}
-    {enabled && request && <QuickRecordDialog key={request.key} request={request} onClose={close} onSaved={saved}/>}
+    <Presence show={enabled && Boolean(request)}>{() => <QuickRecordDialog key={request.key} request={request} onClose={close} onSaved={saved}/>}</Presence>
     {toast && <div className="toast quick-toast" role="status" aria-live="polite"><span aria-hidden="true">✓</span><b>{toast.text}</b>{toast.id && <button type="button" className="toast-undo" disabled={toast.undoing} onClick={undo}>{toast.undoing ? "Membatalkan…" : "Urungkan"}</button>}<button type="button" aria-label="Tutup notifikasi" onClick={dismiss}><span aria-hidden="true">×</span></button></div>}
   </QuickRecordContext.Provider>;
 }

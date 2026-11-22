@@ -3,6 +3,7 @@ import { usePathname, useSearchParams } from "../router";
 import AppShell from "../components/AppShell";
 import { useCategoryPalette } from "../components/CategoryPaletteProvider";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
+import Presence from "../components/Presence";
 import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
@@ -246,7 +247,7 @@ function AnalyticsReview() {
           </section>
           <QualityFooter facts={facts} step={step}/>
           </div>
-          {selectedCategory && (!meeting || step === "drivers") && <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger} palette={palette}/>}
+          <Presence show={selectedCategory && (!meeting || step === "drivers")}>{() => <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger} palette={palette}/>}</Presence>
         </>}
       </>}
       </div>}

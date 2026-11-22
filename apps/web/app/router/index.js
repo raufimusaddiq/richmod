@@ -1,4 +1,4 @@
-import { createContext, createElement, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, createElement, startTransition, useContext, useEffect, useMemo, useState } from "react";
 import { installHistoryNotifier, isPlainLeftClick, navigate, normalizePath, readLocation, subscribeToLocation } from "./location";
 
 const LocationContext = createContext({ pathname: "/", search: "" });
@@ -15,10 +15,10 @@ export function RouterProvider({ initial = { pathname: "/", search: "" }, childr
 
   useEffect(() => {
     installHistoryNotifier();
-    const sync = () => setLocation(previous => {
+    const sync = () => startTransition(() => setLocation(previous => {
       const next = readLocation(initial);
       return previous.pathname === next.pathname && previous.search === next.search ? previous : next;
-    });
+    }));
     sync();
     return subscribeToLocation(sync);
   }, []);

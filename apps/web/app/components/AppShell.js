@@ -1,10 +1,11 @@
 import { Link } from "../router";
 import { usePathname } from "../router";
-import { useEffect } from "react";
+import { useEffect, useRef, ViewTransition } from "react";
 import { useInboxCount } from "./InboxCountProvider";
 import { useQuickRecord } from "./QuickRecordProvider";
 import BuildUpdateNotice from "./BuildUpdateNotice";
 import NoHouseholdIntro from "./NoHouseholdIntro";
+import useRouteReveal from "./useRouteReveal";
 import { trackScreenView } from "../lib/telemetry";
 import { ChartDonut, DotsThree, HouseLine, Plus, Receipt, ShieldChevron, SignOut, Tray, UsersThree } from "@phosphor-icons/react";
 
@@ -27,6 +28,8 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();
   const reviewCount = useInboxCount();
   const { open } = useQuickRecord();
+  const main = useRef(null);
+  useRouteReveal(main);
   useEffect(() => { trackScreenView(pathname); }, [pathname]);
   const current = activeHref(pathname);
   const isActive = href => href === "/" ? current === href : current.startsWith(href);
@@ -52,7 +55,7 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
       {user?.isSuperAdmin && <Link className="admin-link" href="/admin" aria-current={isActive("/admin") ? "page" : undefined}><ShieldChevron aria-hidden="true"/><span>Admin</span></Link>}
       <div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>{user?.isSuperAdmin ? "Super admin" : "Anggota keluarga"}</small></div><button type="button" aria-label="Keluar" title="Keluar" onClick={logout}><SignOut aria-hidden="true"/></button></div>
     </aside>
-    <main id="main-content" className="app-main"><BuildUpdateNotice/><header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{(actions || reviewCount > 0) && <div className="page-actions">{reviewCount > 0 && <Link className="review-pill" href="/inbox">{reviewCount} perlu dicek ›</Link>}{actions}</div>}</header>{children}</main>
+    <ViewTransition name="app-main" enter="page-swap" exit="page-swap" share="page-swap" default="none"><main ref={main} id="main-content" className="app-main"><BuildUpdateNotice/><header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{(actions || reviewCount > 0) && <div className="page-actions">{reviewCount > 0 && <Link className="review-pill" href="/inbox">{reviewCount} perlu dicek ›</Link>}{actions}</div>}</header>{children}</main></ViewTransition>
     <nav className="mobile-nav" aria-label="Navigasi utama seluler">
       <NavLink item={homeLink} active={isActive(homeLink[0])} inboxCount={reviewCount}/>
       <NavLink item={ledgerLink} active={isActive(ledgerLink[0])} inboxCount={reviewCount}/>

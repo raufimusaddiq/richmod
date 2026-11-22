@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Presence from "../components/Presence";
 import useDialogs from "../components/useDialogs";
 import { time, Badge, Empty, Pending, useDrawerA11y, useLoad, Table } from "./shared";
 
@@ -155,14 +156,14 @@ export default function Households({ setError }) {
           </tr>
         ))}
       </Table>
-      {selected && (
+      <Presence show={Boolean(selected)}>{() => (
         <HouseholdDetail
           key={selected}
           id={selected}
           close={() => setSelected(null)}
           setError={setError}
         />
-      )}
+      )}</Presence>
     </section>
   );
 }
