@@ -19,9 +19,19 @@ export function rankingView(facts, palette = null) {
   const view = row => ({ ...row, delta: deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true }), length: fraction(row.amount, peak) });
   const rows = ranking.rows.map(row => {
     const key = categoryKey(row);
-    return { ...view(row), key, color: colors.get(key) || OTHER_CATEGORY_COLOR, openable: openable.has(key) };
+    const assigned = colors.get(key);
+    const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
+    return { ...view(row), key, color, openable: openable.has(key) };
   });
-  const other = ranking.other && Number(ranking.other.categoryCount) > 0 ? { ...view(ranking.other), key: "other", color: OTHER_CATEGORY_COLOR } : null;
+  const otherRows = Array.isArray(ranking.other?.rows)
+    ? ranking.other.rows.map(row => {
+      const key = categoryKey(row);
+      return { ...view(row), key, color: "", openable: openable.has(key) };
+    })
+    : [];
+  const other = ranking.other && (Number(ranking.other.categoryCount) > 0 || otherRows.length > 0)
+    ? { ...view(ranking.other), key: "other", color: OTHER_CATEGORY_COLOR, rows: otherRows }
+    : null;
   return { rows, other, baseline: basis.label, total: facts.cashflow.expense };
 }
 

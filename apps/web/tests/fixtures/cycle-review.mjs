@@ -1,9 +1,13 @@
 function rankingFor(facts) {
-  const rows = facts.categoryChanges.filter(item => BigInt(item.amount) !== 0n).sort((a, b) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : 0)).slice(0, 7)
+  const ordered = facts.categoryChanges.filter(item => BigInt(item.amount) !== 0n).sort((a, b) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : 0))
     .map(item => ({ id: item.id || null, name: item.name, amount: item.amount, count: item.count ?? 0, shareOfExpense: item.shareOfExpense ?? null, baselineAmount: item.previous ?? null, deltaVsBaseline: item.deltaVsPrevious ?? null, relativeDeltaVsBaseline: item.relativeDeltaVsPrevious ?? null }));
+  const categorized = ordered.filter(item => item.id != null && BigInt(item.amount) > 0n);
+  const rows = categorized.slice(0, 6);
+  const rowIds = new Set(rows.map(row => row.id));
+  const otherRows = ordered.filter(item => !item.id || !rowIds.has(item.id));
   const listed = rows.reduce((sum, row) => sum + BigInt(row.amount), 0n);
   return { baseline: facts.comparison.mode === "ELAPSED_DAYS" ? "SAME_DAY" : "PREVIOUS_FULL", rows,
-    other: { name: "Kategori lain", amount: String(BigInt(facts.cashflow.expense) - listed), count: 0, categoryCount: 0, shareOfExpense: null, baselineAmount: null, deltaVsBaseline: null, relativeDeltaVsBaseline: null } };
+    other: { name: "Kategori lain", amount: String(BigInt(facts.cashflow.expense) - listed), count: otherRows.reduce((sum, row) => sum + row.count, 0), categoryCount: otherRows.length, shareOfExpense: null, baselineAmount: null, deltaVsBaseline: null, relativeDeltaVsBaseline: null, rows: otherRows } };
 }
 
 function merchantRankingFor(facts) {
@@ -154,7 +158,7 @@ export function noSpendingFacts() {
   facts.categoryChanges = [];
   facts.merchantDrivers = [];
   facts.savingsDestinations = [];
-  facts.categoryRanking = { baseline: "SAME_DAY", rows: [], other: { name: "Kategori lain", amount: "0", count: 0, categoryCount: 0 } };
+  facts.categoryRanking = { baseline: "SAME_DAY", rows: [], other: { name: "Kategori lain", amount: "0", count: 0, categoryCount: 0, rows: [] } };
   facts.pace = { previousFullCycle: null, median3: null };
   facts.wealth = { previous: null, current: null, netWorthChange: null, confirmedCashflow: null, valuationAndOtherChange: null };
   return facts;

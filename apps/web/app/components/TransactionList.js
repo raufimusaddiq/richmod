@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/react";
 import CategoryIcon from "./CategoryIcon";
-import { useCategoryPalette } from "./CategoryPaletteProvider";
+import { useCategoryPalette, useCategoryParents } from "./CategoryPaletteProvider";
+import { categoryIconColorFor } from "../lib/categoryColors";
 import { money, typeLabel } from "../lib/format";
 import { groupByDay, timeOfDay } from "../lib/ledgerDays";
 import { transactionDisplayName } from "../lib/transactionView";
 
 const shortDay = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short" });
 
-function Row({ item, compact, onSelect, newId, categoryColors }) {
+function Row({ item, compact, onSelect, newId, categoryColors, categoryParents }) {
   const incoming = item.type === "INCOME" || item.type === "REFUND";
   const neutral = item.type === "TRANSFER" || item.type === "UNCLASSIFIED";
   const Glyph = incoming ? ArrowDownLeft : neutral ? ArrowsLeftRight : ArrowUpRight;
@@ -20,7 +21,7 @@ function Row({ item, compact, onSelect, newId, categoryColors }) {
   const category = item.categoryName || (item.type === "TRANSFER" ? "Transfer" : item.type === "INCOME" ? "Pemasukan" : "Belum dikategorikan");
   const when = compact ? `${shortDay.format(new Date(item.transactionAt))}, ${timeOfDay(item.transactionAt)}` : timeOfDay(item.transactionAt);
   const meta = [category, when, item.accountName, item.memberName && `oleh ${item.memberName}`].filter(Boolean).join(" · ");
-  const iconColor = item.categoryId ? categoryColors?.get(item.categoryId) || "" : "";
+  const iconColor = item.categoryId ? categoryIconColorFor({ id: item.categoryId, name: item.categoryName }, categoryColors, categoryParents) : "";
   const content = <>
     <div className="transaction-main">
       {item.categoryName ? <CategoryIcon category={{ id: item.categoryId, name: item.categoryName }} color={iconColor}/> : <span className={`transaction-icon ${item.type?.toLowerCase()}`}><Glyph aria-hidden="true"/></span>}
@@ -40,13 +41,14 @@ function dayTotal(day) {
 
 export default function TransactionList({ items, compact = false, onSelect, newId = "", hasFilters = false, onClearFilters, categoryColors = null }) {
   const palette = useCategoryPalette();
+  const parents = useCategoryParents();
   const colors = categoryColors || palette;
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     {compact
-      ? items.map(item => <Row key={item.id} item={item} compact onSelect={onSelect} newId={newId} categoryColors={colors}/>)
+      ? items.map(item => <Row key={item.id} item={item} compact onSelect={onSelect} newId={newId} categoryColors={colors} categoryParents={parents}/>)
       : groupByDay(items).map(day => <section className="ledger-day" key={day.day} aria-label={day.heading}>
         <header className="ledger-day-head"><h3>{day.heading}</h3><span>{dayTotal(day)}</span></header>
-        {day.items.map(item => <Row key={item.id} item={item} onSelect={onSelect} newId={newId} categoryColors={colors}/>)}
+        {day.items.map(item => <Row key={item.id} item={item} onSelect={onSelect} newId={newId} categoryColors={colors} categoryParents={parents}/>)}
       </section>)}
     {!items.length && (hasFilters
       ? <div className="empty"><p>Tidak ada transaksi yang cocok dengan filter.</p>{onClearFilters && <button type="button" className="secondary" onClick={onClearFilters}>Hapus filter</button>}</div>

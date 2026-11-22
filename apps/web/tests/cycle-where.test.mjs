@@ -74,12 +74,49 @@ test("the new row does no arithmetic on money", () => {
   }
 });
 
-test("the category drawer is a labelled modal that reuses the shared focus trap", () => {
+test("the category drawer is a labelled modal that reuses the shared focus trap and omits sand swatches", () => {
   const source = text("app/analytics/CycleWhere.js");
   assert.match(source, /from "\.\.\/lib\/focusTrap"/);
   assert.match(source, /role="dialog" aria-modal="true" aria-labelledby="drivers-title"/);
   assert.match(source, /opener\.isConnected/, "focus returns to the trigger");
-  assert.match(source, /className="category-drawer-title"><i className="where-swatch"/, "category drawer shows its shared category swatch");
+  assert.match(source, /className="category-drawer-title">\{swatchColor && <i className="where-swatch"/, "category drawer shows its shared swatch only for ranked top-6 categories");
+  assert.match(source, /className="where-other-details"/, "Kategori lain expands inline to list remaining categories");
+  assert.match(source, /<RankRow row=\{sub\} swatch=\{false\}\/>/, "expanded Kategori lain rows render without swatches");
+  const sections = text("app/analytics/CycleSections.js");
+  assert.match(sections, /const swatch = color && color !== OTHER_CATEGORY_COLOR \? <i className="heat-swatch"/, "ChangesTable omits sand swatches on non-top-6 rows");
+  assert.match(sections, /const swatch = row\.muted \|\| \(color && color !== OTHER_CATEGORY_COLOR\)/, "CategoryHeatmap renders sand swatch only on Kategori lain");
+});
+
+test("rankingView omits sand on non-other rows and maps expandable other.rows with openable flags", () => {
+  const facts = cycleFacts();
+  const extraId = "77777777-7777-4777-8777-777777777777";
+  facts.categoryChanges.push({ ...facts.categoryChanges[0], id: extraId, name: "Perjalanan", amount: "631000" });
+  facts.categoryRanking.other = {
+    name: "Kategori lain",
+    amount: "631000",
+    count: 2,
+    categoryCount: 2,
+    shareOfExpense: "0.1306",
+    rows: [
+      { id: extraId, name: "Perjalanan", amount: "631000", count: 2, shareOfExpense: "0.1306" },
+      { id: null, name: "Belum dikategorikan", amount: "50000", count: 1, shareOfExpense: "0.0103" },
+    ],
+  };
+  const palette = new Map([
+    [facts.categoryRanking.rows[0].id, "var(--chart-category-1)"],
+    [facts.categoryRanking.rows[1].id, "var(--chart-category-2)"],
+  ]);
+  const view = rankingView(facts, palette);
+  assert.equal(view.rows[0].color, "var(--chart-category-1)");
+  assert.equal(view.rows[1].color, "var(--chart-category-2)");
+  assert.equal(view.rows[2].color, "", "unranked row never gets a sand swatch");
+  assert.equal(view.other.color, OTHER_CATEGORY_COLOR, "Kategori lain keeps sand");
+  assert.equal(view.other.rows.length, 2);
+  assert.equal(view.other.rows[0].name, "Perjalanan");
+  assert.equal(view.other.rows[0].color, "", "expanded remaining categories have no swatch");
+  assert.equal(view.other.rows[0].openable, true);
+  assert.equal(view.other.rows[1].key, "uncategorized");
+  assert.equal(view.other.rows[1].openable, false);
 });
 
 test("buildCategoryPalette ranks top 6 by confirmed expense, folds >6 into other, breaks ties deterministically, and handles <6", () => {

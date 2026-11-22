@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { buildCategoryParents, categoryIconColorFor, OTHER_CATEGORY_COLOR } from "../app/lib/categoryColors.js";
 import { FALLBACK_ICON, categoryVisual, normalizeCategoryName } from "../app/lib/categoryIcons.js";
 import { categoryLedgerHref, clippedBarLabels, comparisonLine, dailyAxis, dailyChartModel, dayLedgerHref, formatDailyTick, homeState, rankedCategories, spendingShare } from "../app/lib/home.js";
 import { groupByDay, jakartaDay } from "../app/lib/ledgerDays.js";
@@ -35,6 +36,52 @@ test("category tone uses the six ranked chart tones for top-6 categories and oth
   assert.match(bars, /categoryColorMap\(items, palette\)/, "Beranda Ke mana uangnya shares categoryColorMap");
   assert.match(bars, /row\.other \? OTHER_CATEGORY_COLOR/, "Kategori lain uses sand --chart-category-other");
   assert.doesNotMatch(bars, /var\(--line-strong\)/, "Beranda Kategori lain no longer uses green-grey line-strong");
+});
+
+test("category icon tone falls back from own rank to parent top-6 rank to sand", () => {
+  const palette = new Map([
+    ["parent-food", "var(--chart-category-1)"],
+    ["child-coffee", "var(--chart-category-4)"],
+    ["parent-home", "var(--chart-category-2)"],
+  ]);
+  const parents = buildCategoryParents([
+    { id: "parent-food", parentId: null, name: "Makanan & Minuman" },
+    { id: "child-coffee", parentId: "parent-food", name: "Kopi & Camilan" },
+    { id: "child-delivery", parentId: "parent-food", name: "Pesan Antar" },
+    { id: "parent-unranked", parentId: null, name: "Transportasi" },
+    { id: "child-fuel", parentId: "parent-unranked", name: "Bahan Bakar" },
+    { id: "self-loop", parentId: "self-loop", name: "Self" },
+  ]);
+  assert.equal(parents.get("child-delivery"), "parent-food");
+  assert.equal(parents.has("parent-food"), false);
+  assert.equal(parents.has("self-loop"), false);
+
+  const ownRank = categoryVisual({ id: "child-coffee", name: "Kopi & Camilan" }, palette, parents);
+  assert.equal(ownRank.tone, 4, "top-6 child keeps its own rank tone over its parent");
+  assert.equal(ownRank.color, "var(--chart-category-4)");
+
+  const inherited = categoryVisual({ id: "child-delivery", name: "Pesan Antar" }, palette, parents);
+  assert.equal(inherited.tone, 1, "unranked child inherits top-6 parent tone");
+  assert.equal(inherited.color, "var(--chart-category-1)");
+
+  const inlineParent = categoryVisual({ id: "child-inline", parentId: "parent-home", name: "Utilitas" }, palette);
+  assert.equal(inlineParent.tone, 2, "inline parentId resolves parent tone even without parents map");
+  assert.equal(inlineParent.color, "var(--chart-category-2)");
+
+  const withOtherMap = new Map([...palette, ["child-delivery", OTHER_CATEGORY_COLOR]]);
+  assert.equal(categoryIconColorFor({ id: "child-delivery", name: "Pesan Antar" }, withOtherMap, parents), "var(--chart-category-1)", "sand entry in color map does not block parent fallback");
+
+  const unrankedParent = categoryVisual({ id: "child-fuel", name: "Bahan Bakar" }, palette, parents);
+  assert.equal(unrankedParent.tone, "other", "child whose parent is not top-6 stays sand");
+  assert.equal(unrankedParent.color, OTHER_CATEGORY_COLOR);
+
+  const noParent = categoryVisual({ id: "standalone", name: "Perjalanan" }, palette, parents);
+  assert.equal(noParent.tone, "other");
+  assert.equal(noParent.color, OTHER_CATEGORY_COLOR);
+
+  const uncategorized = categoryVisual({ id: null, name: "Belum dikategorikan" }, palette, parents);
+  assert.equal(uncategorized.tone, "other");
+  assert.equal(uncategorized.color, OTHER_CATEGORY_COLOR);
 });
 
 const day = (period, expense) => ({ period, expense: String(expense), expenseValue: expense });
@@ -91,8 +138,15 @@ test("clipped bar labels stagger nearby spikes and label only the largest on nar
   assert.equal(narrow.get(0)?.text, "2,5 jt");
 
   const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.match(charts, /fill="var\(--ink-soft\)"/, "daily bars render in neutral ink, not expense red");
-  assert.doesNotMatch(charts.slice(charts.indexOf("function DailyBarShape"), charts.indexOf("export function CycleSpendingPatternChart")), /var\(--chart-expense\)/);
+  const berandaDaily = charts.slice(charts.indexOf("function DailyBarShape"), charts.indexOf("export function CycleSpendingPatternChart"));
+  const laporanDaily = charts.slice(charts.indexOf("export function CycleSpendingPatternChart"), charts.indexOf("function PaceTooltip"));
+  assert.match(berandaDaily, /fill="var\(--chart-daily\)"/, "Beranda daily bars use single slate navy --chart-daily");
+  assert.match(berandaDaily, /<ReferenceLine[^>]*stroke="var\(--ink\)"/, "Beranda daily average dashed line stays visible in ink");
+  assert.match(berandaDaily, /fill="var\(--ink\)"[^>]*>\{entry\.text\}/, "clipped bar labels stay in ink");
+  assert.doesNotMatch(berandaDaily, /var\(--chart-expense\)|var\(--chart-category-1\)/);
+  assert.match(laporanDaily, /fill="var\(--chart-daily\)"/, "Laporan daily bars use single slate navy --chart-daily");
+  assert.match(laporanDaily, /<ReferenceLine[^>]*stroke="var\(--ink\)"/, "Laporan daily average dashed line stays visible in ink");
+  assert.doesNotMatch(laporanDaily, /var\(--chart-expense\)|var\(--chart-category-1\)/);
 });
 
 test("transaction display name prefers merchant, then counterparty, then description, and labels transfers", () => {

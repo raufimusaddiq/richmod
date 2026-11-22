@@ -301,6 +301,45 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	return nil
 }
 
+func loadTopCategoryIDs(ctx context.Context, tx pgx.Tx, household string, periods []reviewPeriod, now time.Time) ([]string, error) {
+	var start, end string
+	if len(periods) > 0 && periods[0].Kind == "SALARY_CYCLE" {
+		n := len(periods)
+		if n > 3 {
+			n = 3
+		}
+		start = periods[n-1].Start
+		end = now.AddDate(0, 0, 1).Format("2006-01-02")
+	} else {
+		current := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
+		start = current.AddDate(0, -2, 0).Format("2006-01-02")
+		end = current.AddDate(0, 1, 0).Format("2006-01-02")
+	}
+	rows, err := tx.Query(ctx, `SELECT c.id::text
+		FROM transaction t
+		JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id
+		WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND')
+			AND t.transaction_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta')
+			AND t.transaction_at < ($3::date::timestamp AT TIME ZONE 'Asia/Jakarta')
+		GROUP BY c.id
+		HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) > 0
+		ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC, c.id::text ASC
+		LIMIT $4`, household, start, end, rankingTopCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0, rankingTopCategories)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func sameAccounts(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -38,9 +38,12 @@ test("category colours use the six Retro hidup tokens with no red or green and c
   assert.equal(seen.size, 6, "six distinct category colours exist");
   assert.doesNotMatch(globalCss(), /--chart-category-(?:7|8)\b/, "tokens 7 and 8 are removed");
   assert.equal(token("chart-category-other"), "#cfc9b6", "Kategori lain keeps neutral sand");
+  assert.equal(token("chart-daily"), "#2f4a6d", "daily spending bars use single slate navy #2f4a6d");
+  assert.ok(contrast(token("chart-daily"), token("surface")) >= 4.5, "chart-daily clears 4.5:1 on surface");
   const guide = text("../../docs/brand-guidelines.md");
   assert.match(guide, /Category colours[\s\S]*Retro hidup[\s\S]*contain no red and no\s+green/);
   assert.match(guide, /spent more \/ spent less than last cycle/);
+  assert.match(guide, /--chart-daily.*#2f4a6d/);
 });
 
 test("spending direction colours are the muted income and expense tokens", () => {

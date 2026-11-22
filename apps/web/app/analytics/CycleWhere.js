@@ -27,7 +27,7 @@ export function WhereCard({ facts, step, select, palette = null }) {
     let otherWeight = view.other ? Number(view.other.amount) || 0 : 0;
     for (const row of view.rows) {
       const weight = Number(row.amount) || 0;
-      if (row.color === OTHER_CATEGORY_COLOR) otherWeight += weight;
+      if (!row.color || row.color === OTHER_CATEGORY_COLOR) otherWeight += weight;
       else if (weight > 0) segments.push({ key: row.key, amount: weight, color: row.color });
     }
     if (otherWeight > 0) segments.push({ key: "other", amount: otherWeight, color: OTHER_CATEGORY_COLOR });
@@ -39,12 +39,25 @@ export function WhereCard({ facts, step, select, palette = null }) {
     {empty ? <p className="empty compact">Belum ada pengeluaran bersih pada periode ini.</p> : <>
       <div className="where-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: segment.amount, background: segment.color }}/>)}</div>
       <ol className="where-list" aria-label="Kategori menurut jumlah">
-        {view.rows.map(row => <li key={row.key} style={{ "--cat": row.color }}>
+        {view.rows.map(row => <li key={row.key} style={row.color ? { "--cat": row.color } : undefined}>
           {row.openable
             ? <button type="button" className="where-row" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(row.key, event.currentTarget)}><RankRow row={row}/></button>
             : <div className="where-row"><RankRow row={row}/></div>}
         </li>)}
-        {view.other && <li data-other style={{ "--cat": OTHER_CATEGORY_COLOR }}><div className="where-row"><RankRow row={{ ...view.other, name: `${view.other.name} · ${view.other.categoryCount}` }}/></div></li>}
+        {view.other && <li data-other style={{ "--cat": OTHER_CATEGORY_COLOR }}>
+          {view.other.rows?.length > 0
+            ? <details className="where-other-details">
+              <summary className="where-row where-other-summary"><RankRow row={{ ...view.other, name: `${view.other.name} · ${view.other.categoryCount || view.other.rows.length}`, expandable: true }}/></summary>
+              <ol className="where-other-list" aria-label="Rincian kategori lain">
+                {view.other.rows.map(sub => <li key={sub.key}>
+                  {sub.openable
+                    ? <button type="button" className="where-row where-subrow" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(sub.key, event.currentTarget)}><RankRow row={sub} swatch={false}/></button>
+                    : <div className="where-row where-subrow"><RankRow row={sub} swatch={false}/></div>}
+                </li>)}
+              </ol>
+            </details>
+            : <div className="where-row"><RankRow row={{ ...view.other, name: `${view.other.name} · ${view.other.categoryCount}` }}/></div>}
+        </li>}
       </ol>
     </>}
     {step === "drivers" && <p className="dash-caption">Pilih kategori untuk membuka rincian merchant dan transaksi.</p>}
@@ -64,10 +77,11 @@ export function WhereCard({ facts, step, select, palette = null }) {
   </section>;
 }
 
-function RankRow({ row }) {
+function RankRow({ row, swatch = true }) {
+  const showSwatch = swatch && Boolean(row.color);
   return <>
-    <i className="where-swatch" aria-hidden="true"/>
-    <span className="where-name">{row.name}</span>
+    {showSwatch ? <i className="where-swatch" aria-hidden="true"/> : <span className="where-swatch-gap" aria-hidden="true"/>}
+    <span className="where-name">{row.name}{row.expandable && <span className="where-expand-mark" aria-hidden="true"> ›</span>}</span>
     <span className="where-amount">{money(row.amount)}</span>
     <span className="where-share">{ratioLabel(row.shareOfExpense)}</span>
   </>;
@@ -187,11 +201,12 @@ export function CategoryDrawer({ item, facts, period, close, triggerRef, palette
   }, [triggerRef]);
   const basis = baselineFor(period, facts.spendingShape?.days);
   const key = categoryKey(item);
-  const color = categoryColorMap(facts, palette).colors.get(key) || categoryColorFor(item, palette);
+  const resolvedColor = categoryColorMap(facts, palette).colors.get(key) || categoryColorFor(item, palette);
+  const swatchColor = resolvedColor && resolvedColor !== OTHER_CATEGORY_COLOR ? resolvedColor : "";
   return <div id="drivers" className="drawer-backdrop category-backdrop" onClick={() => close()}>
     <aside ref={ref} id="category-drawer" tabIndex={-1} className="detail-drawer category-drawer" role="dialog" aria-modal="true" aria-labelledby="drivers-title" onClick={event => event.stopPropagation()}>
       <button type="button" className="drawer-close" aria-label="Tutup rincian kategori" onClick={() => close()}>×</button>
-      <h2 id="drivers-title" tabIndex={-1} className="category-drawer-title"><i className="where-swatch" aria-hidden="true" style={{ "--cat": color }}/>{item.name}</h2>
+      <h2 id="drivers-title" tabIndex={-1} className="category-drawer-title">{swatchColor && <i className="where-swatch" aria-hidden="true" style={{ "--cat": swatchColor }}/>}{item.name}</h2>
       <p className="detail-amount">{money(item.amount)}</p>
       <dl className="drawer-facts">
         <div><dt>Porsi pengeluaran</dt><dd>{ratioLabel(item.shareOfExpense)}</dd></div>
