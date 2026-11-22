@@ -6,6 +6,7 @@ import { money, dateTime, displayDate as shortDate, amountTone } from "../lib/fo
 import { cycleRangeLabel } from "../lib/cycleDates";
 import { NetWorthHistoryChart } from "../components/Charts";
 import Presence from "../components/Presence";
+import CountUp from "../components/CountUp";
 import { usageRoleLabel, wealthTypeLabel, snapshotSourceLabel } from "../lib/labels";
 
 const empty = { accounts: [], snapshots: [], latest: null, previous: null, summary: null, currentCycle: null, cycleRecaps: [], observation: null, observations: [] };
@@ -141,10 +142,10 @@ export default function WealthWorkspace({ user }) {
       {!loader.hasLoaded && !loader.failed ? <Skeleton cards={3} rows={3}/> : loader.failed ? null : <>
         {!latest ? <section className="surface wealth-empty"><span className="eyebrow">Mulai dari posisi sekarang</span><h2>Kekayaan belum diatur</h2><p>Tambahkan semua akun aset dan kewajiban, lalu simpan satu catatan lengkap untuk mulai melihat kekayaan bersih dan perubahannya.</p><a className="button secondary" href="/household?tab=akun#wealth-accounts">Siapkan akun kekayaan</a></section> : <>
           <section className="surface wealth-position">
-            <div className="wealth-position-primary"><span className="eyebrow">Posisi terkini</span><h2>Kekayaan bersih</h2><strong data-updated={moved(latest.netWorthIdr, 0) || undefined}>{money(latest.netWorthIdr)}</strong><p>Diamati {dateTime(latest.observedAt)}</p></div>
+            <div className="wealth-position-primary"><span className="eyebrow">Posisi terkini</span><h2>Kekayaan bersih</h2><strong data-updated={moved(latest.netWorthIdr, 0) || undefined}><CountUp text={money(latest.netWorthIdr)}/></strong><p>Diamati {dateTime(latest.observedAt)}</p></div>
             <div className="wealth-balance-summary">
-              <article><span>Total aset</span><strong className={amountTone(latest.assetTotalIdr)} data-updated={moved(latest.assetTotalIdr, 1) || undefined}>{money(latest.assetTotalIdr)}</strong><small>{assets.length} akun pada catatan posisi</small></article>
-              <article><span>Total kewajiban</span><strong className={amountTone(latest.liabilityTotalIdr, true)} data-updated={moved(latest.liabilityTotalIdr, 2) || undefined}>{money(latest.liabilityTotalIdr)}</strong><small>{liabilities.length} akun pada catatan posisi</small></article>
+              <article><span>Total aset</span><strong className={amountTone(latest.assetTotalIdr)} data-updated={moved(latest.assetTotalIdr, 1) || undefined}><CountUp text={money(latest.assetTotalIdr)}/></strong><small>{assets.length} akun pada catatan posisi</small></article>
+              <article><span>Total kewajiban</span><strong className={amountTone(latest.liabilityTotalIdr, true)} data-updated={moved(latest.liabilityTotalIdr, 2) || undefined}><CountUp text={money(latest.liabilityTotalIdr)}/></strong><small>{liabilities.length} akun pada catatan posisi</small></article>
             </div>
           </section>
 

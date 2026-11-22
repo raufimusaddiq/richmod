@@ -197,7 +197,7 @@ async function run() {
     const browser = await chromium.launch({ headless: true });
     try {
       for (const [name, width, height] of viewports) {
-        const page = await browser.newPage({ viewport: { width, height }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        const page = await browser.newPage({ viewport: { width, height }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
         const errors = [];
         await intercept(page);
         page.on("pageerror", error => errors.push(error.message));
@@ -288,7 +288,7 @@ async function run() {
         assert.deepEqual(errors, [], `${name} browser errors:\n${errors.join("\n")}`);
         await page.close();
       }
-      const regressionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      const regressionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
       await intercept(regressionPage);
       for (const [name, path] of [["overview-desktop", "/"], ["transactions-desktop", "/transactions"], ["inbox-desktop", "/inbox"], ["analytics-cycle-desktop", "/analytics"]]) {
         await regressionPage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
@@ -314,7 +314,7 @@ async function run() {
         ["analytics-cycle-nospending-desktop", "/analytics", { noSpending: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
         ["analytics-cycle-full-desktop", "/analytics", { fullCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
       ]) {
-        const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await ready(statePage).waitFor();
@@ -322,7 +322,7 @@ async function run() {
         await compareScreenshot(statePage, name);
         await statePage.close();
       }
-      const wideRegressionPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      const wideRegressionPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
       await intercept(wideRegressionPage);
       await wideRegressionPage.goto(`${baseURL}/`, { waitUntil: "networkidle" });
       await wideRegressionPage.locator("#main-content").waitFor();
@@ -332,7 +332,7 @@ async function run() {
       }), true, "wide authenticated shell reaches the viewport edge");
       await compareScreenshot(wideRegressionPage, "overview-wide-desktop");
       await wideRegressionPage.close();
-      const regressionMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      const regressionMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
       await intercept(regressionMobile);
       await regressionMobile.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
       await regressionMobile.locator("#main-content").waitFor();
@@ -346,7 +346,7 @@ async function run() {
       await compareScreenshot(regressionMobile, "analytics-calendar-mobile");
       await regressionMobile.close();
       for (const [name, scenario] of [["analytics-cycle-first-mobile", { firstCycle: true }], ["analytics-cycle-nowealth-mobile", { noWealth: true }], ["analytics-cycle-nospending-mobile", { noSpending: true }], ["analytics-cycle-full-mobile", { fullCycle: true }]]) {
-        const statePage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        const statePage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
         await intercept(statePage, true, [], scenario);
         await statePage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
         await statePage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
@@ -356,7 +356,7 @@ async function run() {
         await compareScreenshot(statePage, name);
         await statePage.close();
       }
-      const keyboardPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      const keyboardPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
       await intercept(keyboardPage);
       await keyboardPage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
       await keyboardPage.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
@@ -396,7 +396,7 @@ async function run() {
       await login.close();
 
       for (const [name, path, width, height, target] of [["landing-desktop", "/", 1440, 900, "Keuangan keluarga, tanpa menebak."], ["landing-tablet", "/", 1024, 768, "Keuangan keluarga, tanpa menebak."], ["landing-mobile", "/", 390, 844, "Keuangan keluarga, tanpa menebak."], ["login-desktop", "/login", 1440, 900, "Masuk ke Richmod."], ["login-mobile", "/login", 390, 844, "Masuk ke Richmod."]]) {
-        const publicPage = await browser.newPage({ viewport: { width, height }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        const publicPage = await browser.newPage({ viewport: { width, height }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
         const errors = [];
         await intercept(publicPage, false);
         publicPage.on("pageerror", error => errors.push(error.message));
@@ -442,7 +442,7 @@ async function run() {
       }
       await legalPage.close();
 
-      const scrollPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      const scrollPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
       await intercept(scrollPage);
       await scrollPage.route("**/api/v1/documents/*/extraction", route => route.fulfill({ json: [{ stage: "RECEIPT", schemaVersion: 1, validated: true, output: { merchant: "Pasar Minggu", note: "x".repeat(400) } }] }));
       const unreachableByPage = {};
