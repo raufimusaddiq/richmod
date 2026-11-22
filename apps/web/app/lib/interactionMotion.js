@@ -7,6 +7,16 @@ export function slideTarget(container) {
   return container.querySelector(ACTIVE);
 }
 
+const remembered = new Map();
+
+function writeBox(container, box) {
+  const style = container.style;
+  style.setProperty("--slide-x", `${box.x}px`);
+  style.setProperty("--slide-y", `${box.y}px`);
+  style.setProperty("--slide-w", `${box.w}px`);
+  style.setProperty("--slide-h", `${box.h}px`);
+}
+
 function release(container) {
   requestAnimationFrame(() => requestAnimationFrame(() => container.removeAttribute("data-slide-snap")));
 }
@@ -19,21 +29,29 @@ export function placeIndicator(container, snap = false) {
   if (container.getClientRects().length === 0) return false;
   const active = slideTarget(container);
   const first = !container.hasAttribute("data-slide-ready");
+  const key = container.getAttribute("data-slide-memory");
   if (!active) {
+    if (key) remembered.delete(key);
     container.setAttribute("data-slide-none", "");
     container.setAttribute("data-slide-ready", "");
     return true;
   }
-  const snapping = snap || first || container.hasAttribute("data-slide-none");
+  const resumed = first && !snap && key ? remembered.get(key) : undefined;
+  const snapping = !resumed && (snap || first || container.hasAttribute("data-slide-none"));
   if (snapping) container.setAttribute("data-slide-snap", "");
   container.removeAttribute("data-slide-none");
-  const box = active.getBoundingClientRect();
+  const rect = active.getBoundingClientRect();
   const frame = container.getBoundingClientRect();
-  const style = container.style;
-  style.setProperty("--slide-x", `${box.left - frame.left - container.clientLeft + container.scrollLeft}px`);
-  style.setProperty("--slide-y", `${box.top - frame.top - container.clientTop + container.scrollTop}px`);
-  style.setProperty("--slide-w", `${box.width}px`);
-  style.setProperty("--slide-h", `${box.height}px`);
+  const target = { x: rect.left - frame.left - container.clientLeft + container.scrollLeft, y: rect.top - frame.top - container.clientTop + container.scrollTop, w: rect.width, h: rect.height };
+  if (resumed) {
+    writeBox(container, resumed);
+    container.setAttribute("data-slide-snap", "");
+    container.setAttribute("data-slide-ready", "");
+    void getComputedStyle(container, "::before").transform;
+    container.removeAttribute("data-slide-snap");
+  }
+  writeBox(container, target);
+  if (key) remembered.set(key, target);
   container.setAttribute("data-slide-ready", "");
   if (snapping) release(container);
   return true;

@@ -44,6 +44,7 @@ drives a timer from an animation duration.
 | Changed figure | `[data-updated]` on a wealth figure, or on the cycle position | the number the user's save or cycle choice changed is marked, and its `CountUp` tween runs underneath the mark |
 | Drawer, sheet, dialog entry | `.detail-drawer`, `.admin-drawer`, `.mobile-more-panel`, `dialog[open]` | the panel used to cut into place |
 | Page entry | `.route-fade .app-main` fallback in `app/App.js`; `ViewTransition` in `AppShell` where supported | a route change lands, under 200 ms, opacity only |
+| Sheet travel | `dialog` at 719px and below | the sheet slides up by `transform` only and stays opaque for the whole open and close, so the page never shows through it; desktop dialogs keep the fade |
 | Chart draw-in | Recharts bars and lines in `Charts.js`, `.history-bar`, `.where-stack`, `.category-bars-track`, `.home-share` | a series shows where its figures came from, once per dataset (see below) |
 | Hero count-up | `CountUp` on the home hero and figures, the cycle KPI strip, the wealth position | the headline figure lands on its exact value instead of cutting in |
 
@@ -98,8 +99,10 @@ modes.
 
 ## What is deliberately not animated
 
-- **The dimmed backdrop.** It is a full-screen `backdrop-filter`; fading it
-  re-blurs the page every frame on a phone and carries no information.
+- **The dimmed backdrop's own opacity.** The dim of a drawer backdrop animates
+  its `background-color` and `backdrop-filter`, never the backdrop's
+  `opacity`: the drawer is a child of the backdrop, and fading the backdrop
+  would fade the drawer with it.
 - **Drawer and modal exit.** React removes the node, so an exit needs presence
   tracking in every page that mounts one. The value is a short effect that
   delays the user's return to the list they were reading.
@@ -148,3 +151,31 @@ lists that appear without a skeleton, such as a tab's content.
 
 The Performance rule above has one exception: disclosures animate block size,
 so the content below them reflows for the length of the transition.
+
+## Route changes on a phone
+
+`navigate()` in `app/router/location.js` does not scroll. It records a pending
+reset (only when the path changed and the URL has no hash) and `RouterProvider`
+applies it in a `useLayoutEffect` keyed on the location, with
+`behavior: "instant"`. That effect runs inside the view transition's DOM update,
+so the old snapshot keeps the position the user left and the new page starts at
+the top; a smooth scroll issued before the transition (`html { scroll-behavior:
+smooth }`) used to run underneath it and land mid-fade. Back and forward are
+left to the browser.
+
+The fixed `.mobile-nav` has its own `view-transition-name`. Its group sits above
+`app-main` in paint order, has no animation, hides the old image and shows the
+live one, so the bar stays solid and on top of the page for the whole
+transition and in-bar motion stays visible.
+
+The active tab pill reuses the `data-slide` indicator (`.mobile-nav[data-slide]`;
+the bar stays `position: fixed`). Every route renders its own `AppShell`, so the
+bar is a new element after each navigation. `data-slide-memory="mobile-nav"`
+makes the indicator remember where it last sat for that key: the new bar's pill
+starts there with transitions off, then moves to the tapped tab. With no
+remembered position, or on a page with no active tab (`data-slide-none`), it
+snaps or hides as any other `[data-slide]` strip does. The centre add button is
+not a tab and never receives the pill.
+
+`e2e/motion/mobile.spec.js` freezes these mid-flight at 390x844 with touch and
+`no-preference`.
