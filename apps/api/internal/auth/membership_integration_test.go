@@ -47,10 +47,13 @@ func TestDatabaseBindsEachUserToOneHousehold(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE household_member SET active=false,deactivated_at=now() WHERE household_id=$1 AND user_id=$2`, householdA, userID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'MEMBER')`, householdB, userID); err == nil {
-		t.Fatal("a removed member joined another household")
-	} else if pgErr, ok := err.(*pgconn.PgError); !ok || pgErr.Code != "23505" || pgErr.ConstraintName != "household_member_one_household_per_user" {
-		t.Fatalf("membership after removal error = %v", err)
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'MEMBER')`, householdB, userID); err != nil {
+		t.Fatalf("a removed member could not join another household: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE household_member SET active=true,deactivated_at=NULL WHERE household_id=$1 AND user_id=$2`, householdA, userID); err == nil {
+		t.Fatal("a second active membership was reactivated")
+	} else if pgErr, ok := err.(*pgconn.PgError); !ok || pgErr.Code != "23505" || pgErr.ConstraintName != "household_member_one_active_household_per_user" {
+		t.Fatalf("reactivation error = %v", err)
 	}
 }
 

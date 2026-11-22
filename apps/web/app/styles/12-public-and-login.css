@@ -114,4 +114,24 @@
 .login-card-foot { display: block; margin-top: 22px; color: var(--faint); font-size: var(--text-xs); }
 .login-footer { display: flex; max-width: 1120px; margin: 0 auto; align-items: center; gap: 20px; padding: 0 28px 28px; color: var(--faint); font-size: var(--text-xs); }
 .login-footer span { margin-right: auto; }
-
+.public-button-google { display: flex; width: 100%; margin-top: 22px; border-color: var(--ink); background: var(--surface-strong); color: var(--ink); box-shadow: var(--shadow); }
+.public-button-google:hover { border-color: var(--ink); background: var(--surface-muted); color: var(--ink); }
+.public-button-google svg { width: 18px; height: 18px; flex: none; }
+.login-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 0; color: var(--muted); font-size: var(--text-xs); }
+.login-divider::before, .login-divider::after { content: ""; flex: 1; border-top: 1px solid var(--line-strong); }
+.auth-card .login-divider { margin-top: 20px; }
+.no-household-layout { display: grid; max-width: 1120px; min-height: calc(100dvh - 110px); margin: 0 auto; place-items: center; padding: 48px 20px 60px; }
+.no-household-card { width: min(640px, 100%); padding: clamp(24px, 5vw, 40px); border: 2px solid var(--ink); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow); }
+.no-household-card h1 { margin: 12px 0 20px; font-family: var(--font-display); font-size: clamp(34px, 5vw, 48px); font-weight: 500; line-height: 1.12; letter-spacing: 0; }
+.no-household-card p { margin: 0 0 14px; color: var(--ink-soft); font-size: var(--text-base); line-height: 1.7; }
+.no-household-card code { padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); background: var(--surface-strong); color: var(--ink); font-size: var(--text-xs); }
+.no-household-identity { display: grid; gap: 8px; margin: 0 0 20px; padding: 14px 16px; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-strong); }
+.no-household-identity div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.no-household-identity dt { color: var(--muted); font-size: var(--text-xs); }
+.no-household-identity dd { margin: 0; color: var(--ink); font-size: var(--text-base); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.no-household-card .no-household-flow { padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); }
+.no-household-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+@media (max-width: 680px) {
+  .no-household-actions > * { flex: 1 1 100%; }
+  .no-household-identity div { grid-template-columns: 1fr; gap: 2px; }
+}

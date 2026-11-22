@@ -79,16 +79,30 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('richmod.household.create'))`); err != nil {
 		return Household{}, fmt.Errorf("lock household creation: %w", err)
 	}
-	var userExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM "user" WHERE email = $1)`, in.OwnerEmail).Scan(&userExists); err != nil {
+	var existingID string
+	var existingActive, passwordInitialized, googleLinked bool
+	err := tx.QueryRow(ctx, `SELECT id::text, active, password_initialized_at IS NOT NULL, google_sub IS NOT NULL FROM "user" WHERE email = $1 FOR UPDATE`, in.OwnerEmail).Scan(&existingID, &existingActive, &passwordInitialized, &googleLinked)
+	userExists := true
+	if errors.Is(err, pgx.ErrNoRows) {
+		userExists = false
+	} else if err != nil {
 		return Household{}, fmt.Errorf("check existing user: %w", err)
 	}
 	if userExists {
-		return Household{}, ErrUserExists
+		if !existingActive {
+			return Household{}, ErrUserExists
+		}
+		var hasActiveHousehold bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM household_member WHERE user_id = $1 AND active)`, existingID).Scan(&hasActiveHousehold); err != nil {
+			return Household{}, fmt.Errorf("check existing membership: %w", err)
+		}
+		if hasActiveHousehold {
+			return Household{}, ErrUserExists
+		}
 	}
 	if in.TelegramUserID > 0 {
 		var linked bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM telegram_identity WHERE telegram_user_id = $1)`, in.TelegramUserID).Scan(&linked); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM telegram_identity WHERE telegram_user_id = $1 AND NOT (NOT active AND user_id::text = $2))`, in.TelegramUserID, existingID).Scan(&linked); err != nil {
 			return Household{}, fmt.Errorf("check Telegram identity: %w", err)
 		}
 		if linked {
@@ -99,8 +113,8 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	if err := tx.QueryRow(ctx, `INSERT INTO household (name) VALUES ($1) RETURNING id`, in.HouseholdName).Scan(&created.ID); err != nil {
 		return Household{}, fmt.Errorf("create household: %w", err)
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO "user" (email, display_name, password_hash, password_initialized_at) VALUES ($1, $2, $3, CASE WHEN $4::boolean THEN now() END) RETURNING id`, in.OwnerEmail, in.OwnerName, in.PasswordHash, in.PasswordSet).Scan(&created.OwnerUserID); err != nil {
-		return Household{}, fmt.Errorf("create owner user: %w", err)
+	if err := upsertOwnerUser(ctx, tx, &created, in, existingID, userExists, passwordInitialized || googleLinked); err != nil {
+		return Household{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO household_member (household_id, user_id, role) VALUES ($1, $2, 'OWNER')`, created.ID, created.OwnerUserID); err != nil {
 		return Household{}, fmt.Errorf("create owner membership: %w", err)
@@ -127,10 +141,33 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	return created, nil
 }
 
+func upsertOwnerUser(ctx context.Context, tx pgx.Tx, created *Household, in HouseholdInput, existingID string, userExists, enrolled bool) error {
+	if !userExists {
+		if err := tx.QueryRow(ctx, `INSERT INTO "user" (email, display_name, password_hash, password_initialized_at) VALUES ($1, $2, $3, CASE WHEN $4::boolean THEN now() END) RETURNING id`, in.OwnerEmail, in.OwnerName, in.PasswordHash, in.PasswordSet).Scan(&created.OwnerUserID); err != nil {
+			return fmt.Errorf("create owner user: %w", err)
+		}
+		return nil
+	}
+	created.OwnerUserID = existingID
+	var err error
+	switch {
+	case in.PasswordSet:
+		_, err = tx.Exec(ctx, `UPDATE "user" SET display_name = $1, password_hash = $2, password_initialized_at = now(), updated_at = now() WHERE id = $3`, in.OwnerName, in.PasswordHash, existingID)
+	case !enrolled:
+		_, err = tx.Exec(ctx, `UPDATE "user" SET display_name = $1, password_hash = $2, updated_at = now() WHERE id = $3`, in.OwnerName, in.PasswordHash, existingID)
+	default:
+		_, err = tx.Exec(ctx, `UPDATE "user" SET display_name = $1, updated_at = now() WHERE id = $2`, in.OwnerName, existingID)
+	}
+	if err != nil {
+		return fmt.Errorf("update owner user: %w", err)
+	}
+	return nil
+}
+
 func BindTelegramIdentity(ctx context.Context, tx pgx.Tx, telegramUserID int64, householdID, userID string) error {
 	tag, err := tx.Exec(ctx, `INSERT INTO telegram_identity (telegram_user_id,household_id,user_id) VALUES ($1,$2,$3)
-		ON CONFLICT (telegram_user_id) DO UPDATE SET active=true,updated_at=now()
-		WHERE NOT telegram_identity.active AND telegram_identity.user_id=EXCLUDED.user_id AND telegram_identity.household_id=EXCLUDED.household_id`, telegramUserID, householdID, userID)
+		ON CONFLICT (telegram_user_id) DO UPDATE SET household_id=EXCLUDED.household_id,active=true,updated_at=now()
+		WHERE NOT telegram_identity.active AND telegram_identity.user_id=EXCLUDED.user_id`, telegramUserID, householdID, userID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

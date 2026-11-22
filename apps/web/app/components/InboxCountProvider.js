@@ -28,7 +28,7 @@ export default function InboxCountProvider({ children }) {
   const [counts, setCounts] = useState({ reviewCount: 0, actionCount: 0 });
   const lastLoad = useRef(0);
   const loading = useRef(false);
-  const signedIn = Boolean(user);
+  const signedIn = Boolean(user?.household);
 
   const load = useCallback(async () => {
     if (loading.current) return;

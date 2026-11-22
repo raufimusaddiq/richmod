@@ -19,6 +19,7 @@ import { cycleRangeLabel } from "./lib/cycleDates";
 import { categoryColorMap } from "./lib/categoryColors";
 import { comparisonLine, dayLedgerHref, homeState, spendingShare } from "./lib/home";
 import LandingPage from "./components/LandingPage";
+import NoHouseholdIntro from "./components/NoHouseholdIntro";
 
 const sections = [
   ["ringkasan", "/api/v1/analytics/overview"],
@@ -47,7 +48,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.household) return;
     setLoading(true);
     try {
       const responses = await Promise.all(sections.map(([, url]) => fetch(url)));
@@ -79,6 +80,7 @@ export default function Home() {
 
   if (user === null) return <Loading />;
   if (user === false) return <LandingPage />;
+  if (!user.household) return <NoHouseholdIntro user={user} />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
   const cycleName = cycle?.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender";
   const cycleDates = cycle ? cycleRangeLabel({ start: cycle.start, end: cycle.end, active: cycle.kind === "CURRENT_CYCLE" }) : "Periode belum tersedia";

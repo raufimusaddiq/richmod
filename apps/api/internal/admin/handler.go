@@ -42,7 +42,7 @@ func (h *Handler) Require(next http.Handler) http.Handler {
 
 func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT u.id,u.email,u.display_name,u.active,u.is_super_admin,u.password_initialized_at,u.created_at,
+		SELECT u.id,u.email,u.display_name,u.active,u.is_super_admin,u.password_initialized_at,u.google_sub IS NOT NULL,u.created_at,
 		       count(hm.user_id) FILTER (WHERE hm.active)
 		FROM "user" u LEFT JOIN household_member hm ON hm.user_id=u.id
 		GROUP BY u.id ORDER BY u.created_at DESC`)
@@ -54,15 +54,15 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id, email, name string
-		var active, super bool
+		var active, super, googleLinked bool
 		var initialized *time.Time
 		var created time.Time
 		var households int
-		if err := rows.Scan(&id, &email, &name, &active, &super, &initialized, &created, &households); err != nil {
+		if err := rows.Scan(&id, &email, &name, &active, &super, &initialized, &googleLinked, &created, &households); err != nil {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
 		}
-		out = append(out, map[string]any{"id": id, "email": email, "displayName": name, "active": active, "isSuperAdmin": super, "passwordInitialized": initialized != nil, "createdAt": created, "households": households})
+		out = append(out, map[string]any{"id": id, "email": email, "displayName": name, "active": active, "isSuperAdmin": super, "passwordInitialized": initialized != nil, "googleLinked": googleLinked, "createdAt": created, "households": households})
 	}
 	writeJSON(w, 200, out)
 }

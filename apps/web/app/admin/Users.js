@@ -66,7 +66,7 @@ export default function Users({ setError }) {
               <Badge value={user.active ? "ACTIVE" : "INACTIVE"} />
             </td>
             <td>{user.households}</td>
-            <td>{user.passwordInitialized ? "Diatur" : "Belum"}</td>
+            <td>{user.passwordInitialized ? (user.googleLinked ? "Diatur · Google" : "Diatur") : (user.googleLinked ? "Google" : "Belum")}</td>
             <td>{user.isSuperAdmin ? "Super Admin" : "User"}</td>
             <td className="admin-actions">
               <button

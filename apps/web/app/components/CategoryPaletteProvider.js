@@ -12,7 +12,7 @@ export default function CategoryPaletteProvider({ children }) {
   const { user } = useAuthContext();
   const [ranked, setRanked] = useState([]);
   const [categories, setCategories] = useState([]);
-  const signedIn = Boolean(user);
+  const signedIn = Boolean(user?.household);
 
   const load = useCallback(signal => {
     fetch("/api/v1/analytics/categories?period=last_3_cycles", { signal })
