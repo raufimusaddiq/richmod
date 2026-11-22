@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestEditTransactionDetails(t *testing.T) {
@@ -35,7 +36,7 @@ func TestEditTransactionDetails(t *testing.T) {
 	var household, foreign, user, category, otherCategory, foreignCategory, account, inactive, foreignAccount string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Edit own') RETURNING id`).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Edit foreign') RETURNING id`).Scan(&foreign))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Editor','unused') RETURNING id`, fmt.Sprintf("edit-%d@example.test", uniqueStamp())).Scan(&user))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Editor','unused') RETURNING id`, fmt.Sprintf("edit-%d@example.test", testsupport.UniqueStamp())).Scan(&user))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, household).Scan(&category))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Gaji','gaji') RETURNING id`, household).Scan(&otherCategory))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Asing','asing') RETURNING id`, foreign).Scan(&foreignCategory))

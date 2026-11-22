@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestReprocessQueuesFailedDocumentOnceAndAudits(t *testing.T) {
@@ -25,7 +26,7 @@ func TestReprocessQueuesFailedDocumentOnceAndAudits(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, sourceID, attachmentID, documentID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Reprocess %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

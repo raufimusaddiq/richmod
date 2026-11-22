@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestReopenTransactionReviewConcurrentReversals(t *testing.T) {
@@ -23,7 +24,7 @@ func TestReopenTransactionReviewConcurrentReversals(t *testing.T) {
 	}
 	defer pool.Close()
 	var household, transaction string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Reopen race %d", uniqueStamp())).Scan(&household); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Reopen race %d", testsupport.UniqueStamp())).Scan(&household); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now(),'Warung') RETURNING id`, household).Scan(&transaction); err != nil {

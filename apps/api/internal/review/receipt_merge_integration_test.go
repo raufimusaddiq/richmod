@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestReceiptDuplicateCandidateMergesThroughReviewAction(t *testing.T) {
@@ -28,7 +29,7 @@ func TestReceiptDuplicateCandidateMergesThroughReviewAction(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	var sourceID, receiptID, targetID string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("receipt-merge-%d", stamp), []byte(fmt.Sprintf("receipt-merge-%d", stamp))).Scan(&sourceID); err != nil {

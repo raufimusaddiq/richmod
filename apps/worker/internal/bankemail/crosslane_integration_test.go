@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
@@ -40,7 +41,7 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := uniqueStamp()
+			stamp := testsupport.UniqueStamp()
 			var household, owner, account, category, source, otherSource, existing string
 			must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Cross-lane bank %d", stamp)).Scan(&household))
 			must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("crosslane-%d@test.invalid", stamp)).Scan(&owner))
@@ -127,7 +128,7 @@ func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, owner, account, listenerID, source, otherSource, existing, merchantID, item string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Complete retry %d", stamp)).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("retry-%d@test.invalid", stamp)).Scan(&owner))
@@ -170,7 +171,7 @@ func TestAutoConfirmedBankEmailReopensAWaitingResidual(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, owner, category, source, salarySource, salaryEventSource, start, end, caseID string
 	listener := Listener{TrackingPolicy: "SPENDING_ONLY", Active: true}
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank residual %d", stamp)).Scan(&household))

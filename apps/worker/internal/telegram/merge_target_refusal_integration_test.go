@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -34,7 +35,7 @@ func newMergeTargetFixture(t *testing.T, kind, reviewType string) *mergeTargetFi
 	}
 	t.Cleanup(pool.Close)
 	f := &mergeTargetFixture{t: t, ctx: ctx, pool: pool}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	f.chat = stamp
 	must := func(err error) {
 		t.Helper()

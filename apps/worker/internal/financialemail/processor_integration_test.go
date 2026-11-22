@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -35,7 +36,7 @@ func TestFinancialEmailProviderReferenceIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	_ = h
 	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-07T10:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"","provider_reference":"reference-1","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
 	p := NewProcessor(pool, &integrationGateway{raw: raw})
@@ -92,7 +93,7 @@ func TestFinancialEmailPreviewUsesProductionPlanWithoutMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, user, account, wealth, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	household, user, account, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var financialSource, existing, preview string
 	if err := pool.QueryRow(ctx, `SELECT financial_source_id::text FROM financial_email_event WHERE source_event_id=$1`, source).Scan(&financialSource); err != nil {
 		t.Fatal(err)
@@ -149,7 +150,7 @@ func TestFinancialEmailWithdrawalClearsCanonicalWealthRelation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, user, _, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	household, user, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var financialSource, preview string
 	if err := pool.QueryRow(ctx, `SELECT financial_source_id::text FROM financial_email_event WHERE source_event_id=$1`, source).Scan(&financialSource); err != nil {
 		t.Fatal(err)
@@ -198,7 +199,7 @@ func TestFinancialEmailMultipleObservationsKeepIndependentReviewBindings(t *test
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, account, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, account, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	for _, amount := range []string{"100", "200"} {
 		if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,purpose) VALUES($1,$2,'UNCLASSIFIED','NEEDS_REVIEW',$3,'2026-09-07T10:00:00+07:00','GENERAL')`, h, account, amount); err != nil {
 			t.Fatal(err)
@@ -235,7 +236,7 @@ func TestFinancialEmailZeroObservationExtractionIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	g := &integrationGateway{raw: `{"observations":[]}`}
 	p := NewProcessor(pool, g)
 	if err := p.Process(ctx, Payload{SourceEventID: source}); err != nil {
@@ -278,7 +279,7 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Unresolved funding","provider_account_hint":"","provider_reference":"mixed-1","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99},{"kind":"WEALTH_VALUE","movement_type":null,"amount_idr":null,"occurred_at":null,"funding_account_hint":null,"provider_account_hint":null,"provider_reference":null,"account_hint":"","value_idr":"42700000","observed_date":"2026-09-08","confidence":0.99}]}`
 	p := NewProcessor(pool, &integrationGateway{raw: raw})
 	if err := p.Process(ctx, Payload{SourceEventID: source}); err != nil {
@@ -335,7 +336,7 @@ func TestSelectedAccountConflictingSourceHintFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	household, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var other string
 	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Other Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&other); err != nil {
 		t.Fatal(err)
@@ -400,7 +401,7 @@ func TestFinancialEmailProviderReferenceSemanticConflictsRequireReview(t *testin
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, _, wealthA, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, _, wealthA, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var financialSource string
 	if err := pool.QueryRow(ctx, `SELECT financial_source_id::text FROM financial_email_event WHERE source_event_id=$1`, source).Scan(&financialSource); err != nil {
 		t.Fatal(err)
@@ -455,7 +456,7 @@ func TestFinancialEmailReusesCompatibleBankTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var transaction string
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',3000000,'2026-09-08T10:00:00+07:00','INVESTMENT_CONTRIBUTION',$3,now()) RETURNING id`, h, account, wealth).Scan(&transaction); err != nil {
 		t.Fatal(err)
@@ -488,7 +489,7 @@ func TestFinancialEmailDisabledQueuedSourceStopsWithoutRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	if _, err := pool.Exec(ctx, `UPDATE financial_email_source SET status='DISABLED' WHERE id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)`, source); err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +525,7 @@ func TestFinancialEmailInactiveConfiguredDefaultFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, _, _, wealthA, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	household, _, _, wealthA, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	if _, err = pool.Exec(ctx, `UPDATE wealth_account SET active=false WHERE id=$1`, wealthA); err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +561,7 @@ func TestFinancialEmailWithoutConfiguredDefaultUsesUniqueHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, _, _, wealth, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	household, _, _, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	if _, err = pool.Exec(ctx, `UPDATE financial_email_source SET default_wealth_account_id=NULL WHERE id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)`, source); err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +591,7 @@ func TestFinancialEmailWhitespaceZeroRequiresReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, _, _, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	household, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":" 0 ","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago","provider_account_hint":"Investasi","provider_reference":"zero","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
 	if err = NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
 		t.Fatal(err)
@@ -640,7 +641,7 @@ func seedFinancialEmail(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool, household, financialSource string) string {
 	t.Helper()
 	var source string
-	id := fmt.Sprintf("financial-event-%d", uniqueStamp())
+	id := fmt.Sprintf("financial-event-%d", testsupport.UniqueStamp())
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, id, []byte(id)).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +663,7 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var observationID string
 	if err = pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}'::jsonb,'PENDING') RETURNING id`, h, source).Scan(&observationID); err != nil {
 		t.Fatal(err)
@@ -731,7 +732,7 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, account, wealth string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("resolution-%d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -792,7 +793,7 @@ func TestFinancialEmailTerminalFailureFinalizesSourceAndPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h, user, _, _, source := seedFinancialEmail(t, ctx, pool, uniqueStamp(), "ACTIVE")
+	h, user, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
 	var previewID string
 	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_preview(household_id,financial_source_id,subject,body,status,created_by_user_id,source_config_version)
 		SELECT $1,e.financial_source_id,'s','b','PROCESSING',$3,fs.config_version FROM financial_email_event e JOIN financial_email_source fs ON fs.id=e.financial_source_id WHERE e.source_event_id=$2 RETURNING id`, h, source, user).Scan(&previewID); err != nil {

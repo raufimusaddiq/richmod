@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestOldUIEventsDoNotClearPreMigrationTelemetryHistory(t *testing.T) {
@@ -23,7 +24,7 @@ func TestOldUIEventsDoNotClearPreMigrationTelemetryHistory(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	var household string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("UI history %d", uniqueStamp())).Scan(&household); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("UI history %d", testsupport.UniqueStamp())).Scan(&household); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO product_telemetry_event(household_id,event_type,screen,action,occurred_at) VALUES($1,'UI_EVENT','home','SCREEN_VIEW',now()-interval '40 days')`, household); err != nil {

@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestStatusCountsOnlyTheOwnersHouseholdJobs(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var own, other string
 	for _, target := range []*string{&own, &other} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Ops scope %d", stamp)).Scan(target); err != nil {

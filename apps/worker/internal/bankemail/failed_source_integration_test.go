@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type failedBankFixture struct {
@@ -31,7 +32,7 @@ func newFailedBankFixture(t *testing.T) *failedBankFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	f := &failedBankFixture{t: t, pool: pool, ctx: ctx, stamp: uniqueStamp()}
+	f := &failedBankFixture{t: t, pool: pool, ctx: ctx, stamp: testsupport.UniqueStamp()}
 	var user string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Failed source %d", f.stamp)).Scan(&f.household); err != nil {
 		t.Fatal(err)

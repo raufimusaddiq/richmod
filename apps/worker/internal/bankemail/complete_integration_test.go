@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
@@ -27,7 +28,7 @@ func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, accountID, listenerID, sourceEventID, itemID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank complete %d", stamp)).Scan(&householdID))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-complete-%d@example.test", stamp)).Scan(&userID))

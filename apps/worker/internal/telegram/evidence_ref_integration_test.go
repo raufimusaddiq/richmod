@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type evidenceSeed struct {
@@ -22,7 +24,7 @@ type evidenceSeedOptions struct {
 func seedEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, label string, o evidenceSeedOptions) evidenceSeed {
 	t.Helper()
 	var s evidenceSeed
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED',NULLIF($4::bigint,0),CASE WHEN $4::bigint>0 THEN $5::bigint END) RETURNING id`,
 		f.householdID, fmt.Sprintf("ev-%s-%d", label, stamp), []byte(fmt.Sprintf("ev-%s-%d", label, stamp)), o.messageID, f.chatID).Scan(&s.sourceID))
 	payload, _ := json.Marshal(map[string]any{"caption": o.caption, "telegram_user_id": f.chatID})

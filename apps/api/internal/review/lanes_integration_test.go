@@ -17,6 +17,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type laneFixture struct {
@@ -37,7 +38,7 @@ func newLaneFixture(t *testing.T) *laneFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	return &laneFixture{t: t, pool: pool, household: household, user: user, stamp: stamp}
 }

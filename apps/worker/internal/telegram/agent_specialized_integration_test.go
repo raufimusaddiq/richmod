@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -33,7 +34,7 @@ func newAgentIntegrationFixture(t *testing.T, label string) agentIntegrationFixt
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, sourceID string
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("agent %s %d", label, stamp)).Scan(&householdID))

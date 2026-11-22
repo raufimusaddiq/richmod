@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
@@ -23,7 +24,7 @@ func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, reviewID, itemID string
 	must := func(err error) {
@@ -91,7 +92,7 @@ func TestCategoryOnlyReviewSelectionCompletesReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, categoryID, transactionID, reviewID, itemID string
 	must := func(err error) {

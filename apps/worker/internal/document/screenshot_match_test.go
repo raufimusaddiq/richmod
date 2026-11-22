@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestScreenshotDifferentPrintedTimeCreatesSeparateTransaction(t *testing.T) {
@@ -22,7 +23,7 @@ func TestScreenshotDifferentPrintedTimeCreatesSeparateTransaction(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Screenshot time %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

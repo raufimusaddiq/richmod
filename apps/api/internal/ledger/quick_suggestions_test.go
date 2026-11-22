@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBuildQuickSuggestionsEmpty(t *testing.T) {
@@ -113,7 +114,7 @@ func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	newHousehold := func(label string) (household, user string) {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Quick %s %d", label, stamp)).Scan(&household); err != nil {
 			t.Fatal(err)

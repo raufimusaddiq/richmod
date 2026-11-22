@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, source string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("SAVR closure %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -58,7 +59,7 @@ func TestResidualContractFidelityFlagsUndeclaredHumanWork(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, source string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("SAVR fidelity %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)

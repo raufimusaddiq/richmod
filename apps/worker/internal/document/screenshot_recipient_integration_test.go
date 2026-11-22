@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestScreenshotFallbackRecipients(t *testing.T) {
@@ -41,7 +43,7 @@ func TestScreenshotFallbackRecipients(t *testing.T) {
 				wantCards, wantSummary = []int64{f.chatID}, []int64{f.chatID}
 			}
 			if strings.HasPrefix(mode, "source_") && mode != "source_no_eligible" {
-				chat := uniqueStamp()
+				chat := testsupport.UniqueStamp()
 				var user string
 				if err := f.pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Fallback','test-only-hash') RETURNING id`, fmt.Sprintf("screenshot-fallback-%d@test.invalid", chat)).Scan(&user); err != nil {
 					t.Fatal(err)

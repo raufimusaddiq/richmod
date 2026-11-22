@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestDatabaseBindsEachUserToOneHousehold(t *testing.T) {
@@ -24,7 +25,7 @@ func TestDatabaseBindsEachUserToOneHousehold(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdA, householdB, userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Invariant A %d", stamp)).Scan(&householdA); err != nil {
 		t.Fatal(err)
@@ -69,7 +70,7 @@ func TestDatabaseBindsTelegramIDAndUserOneToOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdA, householdB, userA, userB string
 	for _, target := range []*string{&householdA, &householdB} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Binding %d", stamp)).Scan(target); err != nil {

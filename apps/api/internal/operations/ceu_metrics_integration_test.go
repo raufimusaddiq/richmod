@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCEUBindingOutcomesAreCountedPerHouseholdInTheWindow(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, other, quiet string
 	for index, target := range []*string{&household, &other, &quiet} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("CEU metrics %d-%d", stamp, index)).Scan(target); err != nil {

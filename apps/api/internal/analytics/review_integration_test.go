@@ -12,8 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type reviewFixture struct {
@@ -34,7 +35,7 @@ func cycleReviewFixture(t *testing.T) reviewFixture {
 	}
 	t.Cleanup(pool.Close)
 	f := reviewFixture{pool: pool}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	insert := func(target *string, sql string, args ...any) {
 		t.Helper()
 		if err := pool.QueryRow(ctx, sql, args...).Scan(target); err != nil {

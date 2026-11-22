@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type disputeFixture struct {
@@ -24,7 +25,7 @@ func seedMergedScreenshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 			t.Fatal(err)
 		}
 	}
-	stamp := fmt.Sprintf("%s-%d", label, uniqueStamp())
+	stamp := fmt.Sprintf("%s-%d", label, testsupport.UniqueStamp())
 	var f disputeFixture
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id::text`, "Dispute "+stamp).Scan(&f.household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Dispute Owner','unused') RETURNING id::text`, stamp+"@example.test").Scan(&f.user))
@@ -46,7 +47,7 @@ func seedMergedScreenshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 func stageDisputeForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f disputeFixture) (EvidenceDisputeResult, string, string) {
 	t.Helper()
 	var chatEvent string
-	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'PROCESSING') RETURNING id::text`, f.household, fmt.Sprintf("dispute-%s-%d", f.source, uniqueStamp()), []byte(fmt.Sprintf("dispute-%d", uniqueStamp()))).Scan(&chatEvent); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'PROCESSING') RETURNING id::text`, f.household, fmt.Sprintf("dispute-%s-%d", f.source, testsupport.UniqueStamp()), []byte(fmt.Sprintf("dispute-%d", testsupport.UniqueStamp()))).Scan(&chatEvent); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)

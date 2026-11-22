@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
@@ -31,7 +32,7 @@ func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Small pool %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

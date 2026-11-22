@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestResolveMerchantIDTreatsCaseAndWhitespaceAsOneIdentity(t *testing.T) {
@@ -23,7 +24,7 @@ func TestResolveMerchantIDTreatsCaseAndWhitespaceAsOneIdentity(t *testing.T) {
 	defer pool.Close()
 
 	var householdID string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Merchant identity %d", uniqueStamp())).Scan(&householdID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Merchant identity %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -65,7 +66,7 @@ func TestLoadMerchantMemoryRequiresOneUnambiguousNormalizedRule(t *testing.T) {
 	}
 	defer pool.Close()
 	var householdID, categoryID, merchantID string
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Merchant memory %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}

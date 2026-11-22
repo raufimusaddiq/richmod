@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestUIEventsAreHouseholdScopedAndConstrainedByTheDatabase(t *testing.T) {
@@ -21,7 +22,7 @@ func TestUIEventsAreHouseholdScopedAndConstrainedByTheDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var a, b string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("UI telemetry A %d", stamp)).Scan(&a); err != nil {
 		t.Fatal(err)

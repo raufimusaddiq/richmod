@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestMergeDuplicateAcceptsCarriedPriorMatchOutsideAmountAndWindow(t *testing.T) {
@@ -22,7 +23,7 @@ func TestMergeDuplicateAcceptsCarriedPriorMatchOutsideAmountAndWindow(t *testing
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	must := func(err error) {
 		t.Helper()
 		if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type lifecycleFixture struct {
@@ -29,7 +30,7 @@ func newLifecycleFixture(t *testing.T) *lifecycleFixture {
 	}
 	t.Cleanup(pool.Close)
 	f := &lifecycleFixture{t: t, ctx: ctx, pool: pool}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	f.must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Lifecycle followups %d", stamp)).Scan(&f.household))
 	f.must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("lifecycle-%d@test.invalid", stamp)).Scan(&f.user))
 	return f
@@ -51,7 +52,7 @@ func (f *lifecycleFixture) id(sql string, args ...any) string {
 
 func (f *lifecycleFixture) source(kind string) string {
 	f.t.Helper()
-	stamp := fmt.Sprint(uniqueStamp())
+	stamp := fmt.Sprint(testsupport.UniqueStamp())
 	return f.id(`INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'NEEDS_REVIEW') RETURNING id`, f.household, kind, stamp, []byte(stamp))
 }
 

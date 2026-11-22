@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBankCategoryCallbackPreservesProposalDate(t *testing.T) {
@@ -20,7 +21,7 @@ func TestBankCategoryCallbackPreservesProposalDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var household, user, category, bankSource, proposal, transaction, item, request string
 	must := func(err error) {

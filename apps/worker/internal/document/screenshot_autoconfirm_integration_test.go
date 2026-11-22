@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -35,7 +36,7 @@ func seedScreenshotFixture(t *testing.T, label string) screenshotFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	fixture := screenshotFixture{pool: pool, categorySlug: "food-and-drink", secondCategorySlug: "groceries"}
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("%s %d", label, stamp)).Scan(&fixture.householdID); err != nil {
 		t.Fatal(err)

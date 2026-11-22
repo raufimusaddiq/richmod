@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func integrationPool(t *testing.T) *pgxpool.Pool {
@@ -58,7 +59,7 @@ func TestCreateHouseholdAdoptsGoogleUserWithoutHousehold(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	email := fmt.Sprintf("google-owner-%d@example.test", stamp)
 	var userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,google_sub,google_linked_at) VALUES($1,'Google Name','google-only-hash',$2,now()) RETURNING id::text`, email, fmt.Sprintf("sub-%d", stamp)).Scan(&userID); err != nil {
@@ -91,7 +92,7 @@ func TestCreateHouseholdAdoptsUnenrolledExistingUserWithNewPlaceholderHash(t *te
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	email := fmt.Sprintf("bare-owner-%d@example.test", stamp)
 	var userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Bare','old-hash') RETURNING id::text`, email).Scan(&userID); err != nil {
@@ -115,7 +116,7 @@ func TestCreateHouseholdWithPasswordOverwritesExistingCredentials(t *testing.T) 
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	email := fmt.Sprintf("password-owner-%d@example.test", stamp)
 	var userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,google_sub,google_linked_at) VALUES($1,'G','old-hash',$2,now()) RETURNING id::text`, email, fmt.Sprintf("sub-pw-%d", stamp)).Scan(&userID); err != nil {
@@ -142,7 +143,7 @@ func TestCreateHouseholdReassignsDeactivatedMemberAndRebindsTelegram(t *testing.
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	email := fmt.Sprintf("reassigned-%d@example.test", stamp)
 	telegramID := stamp%6_000_000_000 + 101
 	var oldHousehold, userID string
@@ -195,7 +196,7 @@ func TestCreateHouseholdRefusesUserWithActiveHouseholdOrInactiveAccount(t *testi
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	activeEmail := fmt.Sprintf("member-%d@example.test", stamp)
 	inactiveEmail := fmt.Sprintf("disabled-%d@example.test", stamp)
 	var household, activeUser string

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func replyUpdate(update telegramUpdate, messageID int64) telegramUpdate {
@@ -104,7 +106,7 @@ func TestAlbumMemberReplyResolvesToTheAlbumDocument(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "reply-album")
 	first := seedEvidence(t, ctx, f, "first", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 201})
 	var secondSource string
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id,telegram_media_group_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED',202,$4,'album-1') RETURNING id`,
 		f.householdID, fmt.Sprintf("album-%d", stamp), []byte(fmt.Sprintf("album-%d", stamp)), f.chatID).Scan(&secondSource))
 	_, err := f.pool.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,1)`, first.documentID, secondSource, first.attachmentID)

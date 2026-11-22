@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestVoidWebManualTransaction(t *testing.T) {
@@ -35,7 +36,7 @@ func TestVoidWebManualTransaction(t *testing.T) {
 	var household, foreign, user string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void own') RETURNING id`).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void foreign') RETURNING id`).Scan(&foreign))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Voider','unused') RETURNING id`, fmt.Sprintf("void-%d@example.test", uniqueStamp())).Scan(&user))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Voider','unused') RETURNING id`, fmt.Sprintf("void-%d@example.test", testsupport.UniqueStamp())).Scan(&user))
 	h := NewHandler(pool)
 	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	as := func(r *http.Request, p auth.Principal) *http.Request {
@@ -120,9 +121,9 @@ func TestVoidWebManualTransaction(t *testing.T) {
 	t.Run("void_updates_salary_event_and_open_cycle_review", func(t *testing.T) {
 		var hh, usr, source, salarySource, startEvent, endEvent, startTx, expenseTx, caseID, review string
 		must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void cycle') RETURNING id`).Scan(&hh))
-		must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Cycle voider','unused') RETURNING id`, fmt.Sprintf("void-cycle-%d@example.test", uniqueStamp())).Scan(&usr))
+		must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Cycle voider','unused') RETURNING id`, fmt.Sprintf("void-cycle-%d@example.test", testsupport.UniqueStamp())).Scan(&usr))
 		p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true}
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(uniqueStamp())).Scan(&source))
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(testsupport.UniqueStamp())).Scan(&source))
 		must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Test','test',true) RETURNING id`, hh, usr).Scan(&salarySource))
 		for _, row := range []struct {
 			date string
@@ -198,9 +199,9 @@ func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
 	}
 	var hh, usr, source, salarySource, startEvent, endEvent, caseID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void reopen') RETURNING id`).Scan(&hh))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Reopener','unused') RETURNING id`, fmt.Sprintf("void-reopen-%d@example.test", uniqueStamp())).Scan(&usr))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Reopener','unused') RETURNING id`, fmt.Sprintf("void-reopen-%d@example.test", testsupport.UniqueStamp())).Scan(&usr))
 	p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true}
-	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(uniqueStamp())).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(testsupport.UniqueStamp())).Scan(&source))
 	must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Test','test',true) RETURNING id`, hh, usr).Scan(&salarySource))
 	for _, row := range []struct {
 		date string

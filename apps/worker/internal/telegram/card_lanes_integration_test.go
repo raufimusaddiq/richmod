@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type cardFixture struct {
@@ -33,7 +34,7 @@ func newCardFixture(t *testing.T) *cardFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	f := &cardFixture{t: t, ctx: ctx, pool: pool, chat: uniqueStamp()}
+	f := &cardFixture{t: t, ctx: ctx, pool: pool, chat: testsupport.UniqueStamp()}
 	f.row(`INSERT INTO household(name) VALUES($1) RETURNING id`, []any{&f.household}, fmt.Sprintf("Cards %d", f.chat))
 	f.row(`INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, []any{&f.user}, fmt.Sprintf("cards-%d@example.test", f.chat))
 	f.exec(`INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, f.household, f.user)

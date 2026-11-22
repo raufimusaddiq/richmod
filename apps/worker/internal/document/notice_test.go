@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestNoticeAmountGroupsWholeRupiahAndDropsAnythingElse(t *testing.T) {
@@ -67,7 +68,7 @@ func noticeFixture(t *testing.T, ctx context.Context, withChat bool, sourceType 
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, sourceID, attachmentID, documentID string
 	must := func(err error) {
 		t.Helper()

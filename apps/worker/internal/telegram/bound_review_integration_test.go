@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -30,7 +31,7 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, categoryID, merchantID, transactionID, reviewID, sourceID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Remembered review %d", stamp)).Scan(&householdID); err != nil {
@@ -109,7 +110,7 @@ func TestTelegramCategoryCallbackDoesNotReopenCategoryOnlyReview(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, categoryID, transactionID, reviewID, itemID, sourceID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Category-only callback %d", stamp)).Scan(&householdID); err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func integrationPool(t *testing.T) *pgxpool.Pool {
@@ -34,7 +35,7 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 func seedIdentity(t *testing.T, pool *pgxpool.Pool, role string) (string, string, auth.Principal) {
 	t.Helper()
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Household %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -66,7 +67,7 @@ func TestOwnerAddsMemberAndMemberCannot(t *testing.T) {
 	pool := integrationPool(t)
 	householdID, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	response := httptest.NewRecorder()
 	handler.Members(response, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Spouse", "email": fmt.Sprintf("spouse-%d@example.test", stamp)}, owner))
 	if response.Code != http.StatusCreated {
@@ -132,7 +133,7 @@ func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Token == "" {
 		t.Fatalf("token=%q err=%v", created.Token, err)
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	telegramID := stamp%8_000_000_000 + 1_000_000_000
 	linked, err := telegram.NewPostgreSQLStore(pool).Link(ctx, telegram.CaptureInput{UpdateID: stamp, TelegramUserID: telegramID}, created.Token)
 	if err != nil || !linked {
@@ -153,7 +154,7 @@ func TestDuplicateMemberEmailExplainsWhy(t *testing.T) {
 	_, _, owner := seedIdentity(t, pool, "OWNER")
 	_, _, otherOwner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
-	email := fmt.Sprintf("dup-%d@example.test", uniqueStamp())
+	email := fmt.Sprintf("dup-%d@example.test", testsupport.UniqueStamp())
 	add := func(p auth.Principal) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		handler.Members(w, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, p))
@@ -191,7 +192,7 @@ func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
 	}
 	t.Cleanup(small.Close)
 	handler := NewHandler(small, "richmod_bot")
-	email := fmt.Sprintf("small-%d@example.test", uniqueStamp())
+	email := fmt.Sprintf("small-%d@example.test", testsupport.UniqueStamp())
 	for i, want := range []int{http.StatusCreated, http.StatusConflict} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		req := requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, owner).WithContext(auth.ContextWithPrincipal(ctx, owner))
@@ -212,7 +213,7 @@ func TestMemberListShowsInviteState(t *testing.T) {
 	pool := integrationPool(t)
 	householdID, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
-	email := fmt.Sprintf("invitee-%d@example.test", uniqueStamp())
+	email := fmt.Sprintf("invitee-%d@example.test", testsupport.UniqueStamp())
 	add := httptest.NewRecorder()
 	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Invitee", "email": email}, owner))
 	if add.Code != http.StatusCreated {
@@ -271,7 +272,7 @@ func TestOwnerResetsMemberPasswordWithInvite(t *testing.T) {
 	_, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
 	add := httptest.NewRecorder()
-	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Lupa", "email": fmt.Sprintf("lupa-%d@example.test", uniqueStamp())}, owner))
+	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Lupa", "email": fmt.Sprintf("lupa-%d@example.test", testsupport.UniqueStamp())}, owner))
 	var created struct{ ID string }
 	_ = json.Unmarshal(add.Body.Bytes(), &created)
 	invite := func() map[string]any {

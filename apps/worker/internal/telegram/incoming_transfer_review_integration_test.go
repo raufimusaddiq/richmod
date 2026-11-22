@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
@@ -38,7 +39,7 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.callback, func(t *testing.T) {
-			stamp := uniqueStamp()
+			stamp := testsupport.UniqueStamp()
 			chatID := stamp
 			must := func(err error) {
 				t.Helper()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -249,7 +250,7 @@ func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
 	_, err := f.pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TELEGRAM_TEXT')`, selfTx, f.sourceID)
 	mustAgentTest(t, err)
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',90000,'IDR',now(),'Toko Bank',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&bankTx))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'PROCESSED') RETURNING id`, f.householdID, fmt.Sprintf("bank-%d", uniqueStamp()), []byte("bank")).Scan(&bankSource))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'PROCESSED') RETURNING id`, f.householdID, fmt.Sprintf("bank-%d", testsupport.UniqueStamp()), []byte("bank")).Scan(&bankSource))
 	_, err = f.pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, bankTx, bankSource)
 	mustAgentTest(t, err)
 	p := NewProcessor(f.pool, nil)
@@ -499,7 +500,7 @@ func TestRecentTransactionsPreferTheMembersOwnEntries(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-recent")
 	var otherUser string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Other','unused') RETURNING id`, fmt.Sprintf("other-%d@example.test", uniqueStamp())).Scan(&otherUser))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Other','unused') RETURNING id`, fmt.Sprintf("other-%d@example.test", testsupport.UniqueStamp())).Scan(&otherUser))
 	_, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,created_at,confirmed_at) VALUES
 		($1,'EXPENSE','CONFIRMED',1000,'IDR',now(),'mine',$2,now()-interval '5 minutes',now()),
 		($1,'EXPENSE','CONFIRMED',2000,'IDR',now(),'theirs',$3,now(),now())`, f.householdID, f.userID, otherUser)

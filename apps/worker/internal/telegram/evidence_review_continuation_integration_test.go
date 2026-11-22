@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -47,7 +48,7 @@ func seedPayslipReview(t *testing.T, ctx context.Context) payslipReviewWorld {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	w := payslipReviewWorld{pool: pool, chatID: stamp, gw: &contGateway{}}
 	var userID, attachmentID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Continuation %d", stamp)).Scan(&w.householdID))
@@ -77,7 +78,7 @@ func (w payslipReviewWorld) answerPolicy(t *testing.T, ctx context.Context) {
 		t.Fatal(err)
 	}
 	var sourceID string
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	if err := w.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, w.householdID, fmt.Sprintf("cont-policy-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func (w payslipReviewWorld) reply(t *testing.T, ctx context.Context, text string
 		t.Fatal(err)
 	}
 	var sourceID string
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	if err := w.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, w.householdID, fmt.Sprintf("cont-reply-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}

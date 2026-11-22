@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCreateCategoryRejectsAnotherHouseholdsParent(t *testing.T) {
@@ -25,7 +26,7 @@ func TestCreateCategoryRejectsAnotherHouseholdsParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var own, other, ownParent, otherParent string
 	for _, target := range []*string{&own, &other} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Category scope %d", stamp)).Scan(target); err != nil {
@@ -40,7 +41,7 @@ func TestCreateCategoryRejectsAnotherHouseholdsParent(t *testing.T) {
 	}
 	principal := auth.Principal{UserID: "00000000-0000-4000-8000-000000000001", HasHousehold: true, HouseholdID: own, HouseholdRole: "OWNER"}
 	create := func(parent string) *httptest.ResponseRecorder {
-		body := fmt.Sprintf(`{"name":"Listrik","slug":"listrik-%d","parentId":%q}`, uniqueStamp(), parent)
+		body := fmt.Sprintf(`{"name":"Listrik","slug":"listrik-%d","parentId":%q}`, testsupport.UniqueStamp(), parent)
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/categories", bytes.NewBufferString(body))
 		request = request.WithContext(auth.ContextWithPrincipal(ctx, principal))
 		response := httptest.NewRecorder()

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestLedgerActionsCannotBypassReview(t *testing.T) {
@@ -33,7 +34,7 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Synthetic foreign boundary') RETURNING id`).Scan(&foreignHousehold); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Synthetic actor','unused') RETURNING id`, fmt.Sprintf("boundary-%d@example.test", uniqueStamp())).Scan(&user); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Synthetic actor','unused') RETURNING id`, fmt.Sprintf("boundary-%d@example.test", testsupport.UniqueStamp())).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
 	principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}

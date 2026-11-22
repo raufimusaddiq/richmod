@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBankEmailPersistRecipients(t *testing.T) {
@@ -31,7 +32,7 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := uniqueStamp()
+			stamp := testsupport.UniqueStamp()
 			var household, foreign, owner, source, category string
 			listener := Listener{TrackingPolicy: "SPENDING_ONLY", Active: true}
 			must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Notice fixture') RETURNING id`).Scan(&household))

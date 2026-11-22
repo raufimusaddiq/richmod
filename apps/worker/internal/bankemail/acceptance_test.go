@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -44,7 +45,7 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 	defer pool.Close()
 
 	var householdID string
-	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("B2 %d", uniqueStamp())).Scan(&householdID); err != nil {
+	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("B2 %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
 	var foodID string

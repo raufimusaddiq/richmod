@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func callbackUpdate(chatID, messageID int64, data string) telegramUpdate {
@@ -36,7 +37,7 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, sourceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stale callback %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -93,7 +94,7 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, reviewID, itemID, sourceID string
 	must := func(err error) {
@@ -161,7 +162,7 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, targetID, reviewID, itemID string
 	must := func(err error) {
@@ -228,7 +229,7 @@ func TestExpenseTransferChooserOmitsInvalidClassifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, reviewID, itemID string
 	must := func(err error) {

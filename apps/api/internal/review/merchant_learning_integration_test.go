@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
@@ -26,7 +27,7 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	var merchantID string
 	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, householdID, fmt.Sprintf("Merchant %d", stamp)).Scan(&merchantID); err != nil {
@@ -87,7 +88,7 @@ func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	var merchantID string
 	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, householdID, "Kopi Kenangan").Scan(&merchantID); err != nil {
@@ -179,7 +180,7 @@ func TestBankReviewAllowsCategoryOnlyConfirmation(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	var sourceID, transactionID string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("bank-review-%d", stamp), []byte(fmt.Sprintf("bank-review-%d", stamp))).Scan(&sourceID); err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestWebReviewRoutesRefuseActiveMergeTarget(t *testing.T) {
@@ -31,7 +32,7 @@ func TestWebReviewRoutesRefuseActiveMergeTarget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, user, target, item, duplicate string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("web merge target %d", stamp)).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("web-merge-target-%d@example.test", stamp)).Scan(&user))

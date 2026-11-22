@@ -15,6 +15,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestVoidRefusesActiveMergeTarget(t *testing.T) {
@@ -37,10 +38,12 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 	}
 	var household, user string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Merge void') RETURNING id`).Scan(&household))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Merger','unused') RETURNING id`, fmt.Sprintf("merge-void-%d@example.test", uniqueStamp())).Scan(&user))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Merger','unused') RETURNING id`, fmt.Sprintf("merge-void-%d@example.test", testsupport.UniqueStamp())).Scan(&user))
 	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	h, rh := NewHandler(pool), review.NewHandler(pool)
-	as := func(r *http.Request) *http.Request { return r.WithContext(auth.ContextWithPrincipal(r.Context(), principal)) }
+	as := func(r *http.Request) *http.Request {
+		return r.WithContext(auth.ContextWithPrincipal(r.Context(), principal))
+	}
 
 	newTarget := func() string {
 		t.Helper()

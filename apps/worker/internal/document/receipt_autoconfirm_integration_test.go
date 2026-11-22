@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -196,7 +197,7 @@ func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	fixture := receiptFixture{pool: pool}
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("%s %d", label, stamp)).Scan(&fixture.householdID); err != nil {
 		t.Fatal(err)
@@ -247,7 +248,7 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	value.Confidence = .35
 	value.Tax = ptr("5000")
 	validation.ArithmeticOK = false
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var secondSource, attachmentID, secondDocument string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, fixture.householdID, fmt.Sprintf("receipt-repeat-%d", stamp), []byte(fmt.Sprintf("receipt-repeat-%d", stamp))).Scan(&secondSource); err != nil {
 		t.Fatal(err)
@@ -562,7 +563,7 @@ func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) 
 	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt notice")
 	ctx := context.Background()
-	chat := uniqueStamp() % 9_000_000_000
+	chat := testsupport.UniqueStamp() % 9_000_000_000
 	if _, err := fixture.pool.Exec(ctx, `UPDATE source_event SET telegram_chat_id=$2,telegram_message_id=555 WHERE id=$1`, fixture.sourceID, chat); err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +599,7 @@ func TestLinkedReceiptQueuesALinkedNoticeAndStillCreatesNoDuplicate(t *testing.T
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, category); err != nil {
 		t.Fatal(err)
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chat := stamp % 9_000_000_000
 	var secondSource, attachmentID, secondDocument string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_chat_id,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING',$4,556) RETURNING id`, fixture.householdID, fmt.Sprintf("link-notice-%d", stamp), []byte(fmt.Sprintf("link-notice-%d", stamp)), chat).Scan(&secondSource); err != nil {

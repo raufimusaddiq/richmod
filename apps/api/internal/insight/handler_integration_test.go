@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
@@ -28,7 +29,7 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, sourceID, transactionID, salarySourceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Insight %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

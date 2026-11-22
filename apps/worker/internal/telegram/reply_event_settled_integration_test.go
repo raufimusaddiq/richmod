@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
@@ -37,7 +38,7 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := uniqueStamp()
+			stamp := testsupport.UniqueStamp()
 			household, user, chat, _, _, _, request, item := seedDuplicateReview(t, pool, stamp)
 			var bankSource string
 			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("reask-%d", stamp), []byte(fmt.Sprintf("reask-%d", stamp))).Scan(&bankSource))

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTelegramIgnoreReviewCallback(t *testing.T) {
@@ -28,7 +29,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := uniqueStamp()
+			stamp := testsupport.UniqueStamp()
 			household, user, chat, _, transaction, _, request, item := seedDuplicateReview(t, pool, stamp)
 			var bankSource string
 			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("ignore-%d", stamp), []byte(fmt.Sprintf("ignore-%d", stamp))).Scan(&bankSource))
@@ -57,7 +58,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 			}
 			callback := func() string {
 				return seedTelegramRaw(t, pool, callbackHousehold, "TELEGRAM_CALLBACK", map[string]any{"callback_query": map[string]any{
-					"id": fmt.Sprint(uniqueStamp()), "data": "review:ignore", "from": map[string]any{"id": actor},
+					"id": fmt.Sprint(testsupport.UniqueStamp()), "data": "review:ignore", "from": map[string]any{"id": actor},
 					"message": map[string]any{"message_id": message, "chat": map[string]any{"id": chat}},
 				}})
 			}

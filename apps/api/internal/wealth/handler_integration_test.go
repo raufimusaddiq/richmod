@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCorrectSnapshotPreservesHistoricalMembership(t *testing.T) {
@@ -26,7 +27,7 @@ func TestCorrectSnapshotPreservesHistoricalMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, user, oldAccount, currentAccount, laterAccount, snapshot string
 	must := func(err error) {
 		if err != nil {
@@ -83,7 +84,7 @@ func TestActiveFinancialSourceBlocksWealthDeactivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, user, wealth string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("wealth-source-%d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -127,7 +128,7 @@ func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, user, account string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("wealth-accepted-%d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -179,7 +180,7 @@ func TestDocumentObservationSnapshotSettlesSourceEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)

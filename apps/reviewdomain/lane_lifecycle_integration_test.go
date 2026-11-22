@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestFinancialEmailIgnoreSettlesThroughTheSharedLifecycle(t *testing.T) {
@@ -28,7 +29,7 @@ func TestFinancialEmailIgnoreSettlesThroughTheSharedLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := uniqueStamp()
+			stamp := testsupport.UniqueStamp()
 			var household, user, source, observation, item string
 			must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Lane lifecycle %d", stamp)).Scan(&household))
 			must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("lane-%d@test.invalid", stamp)).Scan(&user))

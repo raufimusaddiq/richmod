@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -23,7 +24,7 @@ func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, sourceID, attachmentID, documentID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Document failure %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -82,7 +83,7 @@ func TestTelegramDocumentProjectionIsIdempotent(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, sourceID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Wealth prompt %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

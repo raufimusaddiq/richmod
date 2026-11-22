@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func seedDuplicateReview(t *testing.T, pool *pgxpool.Pool, stamp int64) (household, userID string, chatID int64, sourceID, duplicateID, targetID, reviewID, dupItemID string) {
@@ -57,7 +58,7 @@ func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	household, _, chatID, _, duplicateID, targetID, reviewID, dupItemID := seedDuplicateReview(t, pool, stamp)
 	if _, err := pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,1)`, reviewID, chatID); err != nil {
 		t.Fatal(err)
@@ -109,7 +110,7 @@ func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, _, _, _, duplicateID, targetID, _, dupItemID := seedDuplicateReview(t, pool, uniqueStamp())
+	household, _, _, _, duplicateID, targetID, _, dupItemID := seedDuplicateReview(t, pool, testsupport.UniqueStamp())
 	var drifted string
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',58000,'IDR',now()-interval '200 hours','Indomaret',now()) RETURNING id`, household).Scan(&drifted); err != nil {
 		t.Fatal(err)

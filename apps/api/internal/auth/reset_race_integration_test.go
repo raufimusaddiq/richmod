@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
@@ -24,7 +25,7 @@ func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	email := fmt.Sprintf("race-%d@example.test", stamp)
 	oldHash, err := HashPassword("old-password-123456")
 	if err != nil {

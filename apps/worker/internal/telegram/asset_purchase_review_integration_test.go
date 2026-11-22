@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTelegramReviewClassifiesAssetPurchase(t *testing.T) {
@@ -22,7 +23,7 @@ func TestTelegramReviewClassifiesAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp, chatID := uniqueStamp(), uniqueStamp()
+	stamp, chatID := testsupport.UniqueStamp(), testsupport.UniqueStamp()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)
@@ -72,7 +73,7 @@ func TestTelegramExpenseReviewReclassifiesAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp, chatID := uniqueStamp(), uniqueStamp()
+	stamp, chatID := testsupport.UniqueStamp(), testsupport.UniqueStamp()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)

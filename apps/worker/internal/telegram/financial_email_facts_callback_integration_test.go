@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
@@ -27,7 +28,7 @@ func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, sourceID, observationID, itemID, requestID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("facts callback %d", stamp)).Scan(&householdID))

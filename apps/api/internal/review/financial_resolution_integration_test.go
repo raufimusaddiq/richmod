@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type financialResolutionFixture struct {
@@ -32,7 +33,7 @@ func seedFinancialResolution(t *testing.T, resolved bool) financialResolutionFix
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	fixture := financialResolutionFixture{pool: pool, household: household, user: user}
 	must := func(err error) {

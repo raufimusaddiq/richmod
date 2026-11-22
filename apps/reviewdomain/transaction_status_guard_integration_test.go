@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTransactionStatusMachineAndSalaryEventSync(t *testing.T) {
@@ -31,7 +32,7 @@ func TestTransactionStatusMachineAndSalaryEventSync(t *testing.T) {
 		t.Fatal("a confirmed transaction went back to pending")
 	}
 	var salarySource, salaryEvent string
-	stamp := fmt.Sprintf("%d", uniqueStamp())
+	stamp := fmt.Sprintf("%d", testsupport.UniqueStamp())
 	must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,'Acme '||$2,'acme '||$2,true) RETURNING id::text`, f.household, stamp).Scan(&salarySource))
 	must(pool.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,'2026-10-01','2026-10-25',7500,$3,'CONFIRMED',$4) RETURNING id::text`, salarySource, f.household, f.original, f.source).Scan(&salaryEvent))
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 )
@@ -36,7 +37,7 @@ func newTerminalFixture(t *testing.T) *terminalFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	f := &terminalFixture{t: t, pool: pool, ctx: ctx, stamp: stamp, chatID: stamp%1_000_000_000 + 7_000_000_000}
 	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("Terminal text %d", stamp)).Scan(&f.householdID); err != nil {
 		t.Fatal(err)

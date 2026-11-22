@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestReopenConfirmedCategoryReview(t *testing.T) {
@@ -33,7 +34,7 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	household, user, category := seedTransferReviewOwner(t, pool, uniqueStamp())
+	household, user, category := seedTransferReviewOwner(t, pool, testsupport.UniqueStamp())
 	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	handler := NewHandler(pool)
 	call := func(method, path, id, body string, fn http.HandlerFunc) *httptest.ResponseRecorder {

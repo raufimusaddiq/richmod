@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 
 	seedHousehold := func(label string) string {
 		var householdID string

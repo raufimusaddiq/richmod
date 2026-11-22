@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTransactionBackedReviewExposesStoredDecision(t *testing.T) {
@@ -27,7 +28,7 @@ func TestTransactionBackedReviewExposesStoredDecision(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, user, source, transactionID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("inbox decision %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)

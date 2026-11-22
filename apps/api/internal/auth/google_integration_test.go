@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 var googleSeq atomic.Int64
@@ -42,7 +43,7 @@ func newGoogleEnv(t *testing.T) *googleEnv {
 		service: service,
 		handler: newTestHandler(fake, service),
 		fake:    fake,
-		stamp:   uniqueStamp()*1000 + googleSeq.Add(1),
+		stamp:   testsupport.UniqueStamp()*1000 + googleSeq.Add(1),
 	}
 }
 

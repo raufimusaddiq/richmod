@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type deliveryFixture struct {
@@ -37,7 +38,7 @@ func seedDeliveryFixture(t *testing.T) *deliveryFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	f := &deliveryFixture{pool: pool, ctx: ctx, stamp: stamp, chatA: stamp, chatB: stamp + 1}
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Delivery %d", stamp)).Scan(&f.householdID))
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Rina','unused') RETURNING id`, fmt.Sprintf("delivery-a-%d@example.test", stamp)).Scan(&f.userA))

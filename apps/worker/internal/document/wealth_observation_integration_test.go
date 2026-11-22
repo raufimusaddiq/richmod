@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -60,7 +61,7 @@ func TestWealthObservationAppliesWithoutReviewWhenAccountResolves(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, wealthAccountID := seedWealthDocument(t, ctx, pool, stamp)
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	storage, err := blob.NewLocal(filepath.Join(t.TempDir(), "documents"))
@@ -103,7 +104,7 @@ func TestUnresolvedWealthObservationCreatesOnlyAccountResolutionReview(t *testin
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, _ := seedWealthDocument(t, ctx, pool, stamp)
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	if _, err = pool.Exec(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Bibit Cash','Bibit','ASSET','BANK','SAVINGS')`, householdID); err != nil {

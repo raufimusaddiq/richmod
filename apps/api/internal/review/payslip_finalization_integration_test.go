@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestPayslipFinalizerLinksExactDuplicateAndRejectsConflict(t *testing.T) {
@@ -33,7 +34,7 @@ func testPayslipFinalizerDuplicateConflict(t *testing.T, url, tz string) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	if _, err := pool.Exec(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Existing','existing',true)`, household, user); err != nil {
 		t.Fatal(err)

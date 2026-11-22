@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCaptureRejectsDisabledUserAndRemovedMember(t *testing.T) {
@@ -23,7 +24,7 @@ func TestCaptureRejectsDisabledUserAndRemovedMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Access %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -75,7 +76,7 @@ func TestLinkNeverRebindsABoundTelegramID(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household, formerUser, newMember, owner string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Relink %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)

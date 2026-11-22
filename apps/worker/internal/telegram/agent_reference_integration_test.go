@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -63,7 +64,7 @@ func TestAgentRecordedTransactionRefsAreScopedAcrossTurns(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT transaction_id FROM transaction_evidence WHERE source_event_id=$1 AND evidence_type='TELEGRAM_TEXT' LIMIT 1`, f.sourceID).Scan(&firstTransactionID))
 
 	var secondSourceID string
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, f.householdID, fmt.Sprintf("agent-recorded-ref-second-%d", stamp), []byte(fmt.Sprintf("agent-recorded-ref-second-%d", stamp))).Scan(&secondSourceID))
 	secondUpdate := f.update
 	secondUpdate.Message.MessageID = 2

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func reviewTestHTTP(t *testing.T, pool *pgxpool.Pool, principal auth.Principal) func(string, string, map[string]any) *httptest.ResponseRecorder {
@@ -54,8 +55,8 @@ func TestWebTransferClassificationPersistsFallbackResidual(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			household, user, _ := seedTransferReviewOwner(t, pool, uniqueStamp())
-			transaction, source, proposal := seedUnclassifiedTransfer(t, pool, household, uniqueStamp())
+			household, user, _ := seedTransferReviewOwner(t, pool, testsupport.UniqueStamp())
+			transaction, source, proposal := seedUnclassifiedTransfer(t, pool, household, testsupport.UniqueStamp())
 			_, err := pool.Exec(ctx, `UPDATE transaction SET type='INCOME' WHERE id=$1`, transaction)
 			must(err)
 			_, err = pool.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='INCOME',metadata_json='{"date_known":false}' WHERE id=$1`, proposal)
@@ -130,8 +131,8 @@ func TestWebLegacyAccountReplacementRequiresRepairableClassification(t *testing.
 					t.Fatal(err)
 				}
 			}
-			household, user, _ := seedTransferReviewOwner(t, pool, uniqueStamp())
-			transaction, _, _ := seedUnclassifiedTransfer(t, pool, household, uniqueStamp())
+			household, user, _ := seedTransferReviewOwner(t, pool, testsupport.UniqueStamp())
+			transaction, _, _ := seedUnclassifiedTransfer(t, pool, household, testsupport.UniqueStamp())
 			var oldAccount, replacement string
 			must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Synthetic old account','ASSET','GOLD','INVESTMENT') RETURNING id`, household).Scan(&oldAccount))
 			must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Synthetic replacement','ASSET','GOLD','INVESTMENT') RETURNING id`, household).Scan(&replacement))

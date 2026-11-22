@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 const stuckTestDecision = `{"version":1,"reasonCode":"MANUAL_CORRECTION","allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionClass":"EVIDENCE_GAP","whyNotAutoConfirm":"x","knownFacts":{},"missingFacts":["correction_details"]}`
@@ -12,7 +14,7 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var household string
 	must := func(err error) {
 		t.Helper()

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type recordingQueryer struct {
@@ -36,7 +38,7 @@ func TestProductAggregateSkipsBoundedChoiceSumWithoutCanonicalEvents(t *testing.
 	pool := integrationPool(t)
 	ctx := context.Background()
 	var householdID string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Empty product %d", uniqueStamp())).Scan(&householdID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Empty product %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
 	recorder := &recordingQueryer{pool: poolQueryer{pool: pool}}
@@ -59,7 +61,7 @@ func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, otherHousehold, sourceID, otherSourceID string
 	for _, row := range []struct {
 		name string
@@ -100,7 +102,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Product Aggregate %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

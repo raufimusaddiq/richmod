@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type fakeTelegramCall struct {
@@ -74,7 +75,7 @@ func seedRetireFixture(t *testing.T) retireFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	f := retireFixture{pool: pool, chatA: stamp, chatB: stamp + 1, chatC: stamp + 2}
 	var transactionID, itemID string
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Retire cards %d", stamp)).Scan(&f.householdID))
@@ -312,7 +313,7 @@ func TestMerchantLearningQuestionIsSeparateFromRetiredCard(t *testing.T) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	mustAgentTest(t, err)
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, categoryID, merchantID, transactionID, reviewID, confirmSourceID, rememberSourceID string
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Learning card %d", stamp)).Scan(&householdID))
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("learning-card-%d@example.test", stamp)).Scan(&userID))

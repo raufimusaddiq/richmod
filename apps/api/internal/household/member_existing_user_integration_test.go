@@ -10,11 +10,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func seedStandaloneUser(t *testing.T, pool *pgxpool.Pool, label string, active, superAdmin bool) (string, string) {
 	t.Helper()
-	email := fmt.Sprintf("%s-%d@example.test", label, uniqueStamp())
+	email := fmt.Sprintf("%s-%d@example.test", label, testsupport.UniqueStamp())
 	var id string
 	if err := pool.QueryRow(context.Background(), `INSERT INTO "user"(email,display_name,password_hash,active,is_super_admin,google_sub,google_linked_at) VALUES($1,'Google Name','unused',$2,$3,$4,now()) RETURNING id`, email, active, superAdmin, "sub-"+email).Scan(&id); err != nil {
 		t.Fatal(err)

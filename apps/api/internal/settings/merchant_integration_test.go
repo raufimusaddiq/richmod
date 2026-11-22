@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestMerchantAliasCanBeDisabledOnlyWithinHousehold(t *testing.T) {
@@ -25,7 +26,7 @@ func TestMerchantAliasCanBeDisabledOnlyWithinHousehold(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 
 	seed := func(suffix string) (string, string, string) {
 		t.Helper()

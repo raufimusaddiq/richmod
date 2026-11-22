@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type reviewUIItem struct {
@@ -32,7 +33,7 @@ func TestPayslipMissingDateListsOnlyCurrentResidualAndPolicy(t *testing.T) {
 	pool, household, user := reviewUIFixture(t)
 	ctx := context.Background()
 	var source, attachment, proposal, documentID, reviewID string
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("payslip-%d", stamp), []byte(fmt.Sprintf("payslip-%d", stamp))).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +79,7 @@ func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	return pool, household, user
 }
@@ -86,7 +87,7 @@ func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
 func seedCategoryReview(t *testing.T, pool *pgxpool.Pool, household string) string {
 	t.Helper()
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var source, review string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("ui-review-%d", stamp), []byte(fmt.Sprintf("ui-review-%d", stamp))).Scan(&source); err != nil {
 		t.Fatal(err)
@@ -131,7 +132,7 @@ func TestReviewListUsesStoredDecisionForBankTransactionReview(t *testing.T) {
 	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	ctx := context.Background()
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var source, transaction, review string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("bank-contract-%d", stamp), []byte(fmt.Sprintf("bank-contract-%d", stamp))).Scan(&source); err != nil {
 		t.Fatal(err)

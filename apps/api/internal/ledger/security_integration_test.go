@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTransactionAccessIsHouseholdScopedAndInjectionSafe(t *testing.T) {
@@ -26,7 +27,7 @@ func TestTransactionAccessIsHouseholdScopedAndInjectionSafe(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	password := "integration-password"
 	hash, err := auth.HashPassword(password)
 	if err != nil {

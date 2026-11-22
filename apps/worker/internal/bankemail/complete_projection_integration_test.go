@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
@@ -27,7 +28,7 @@ func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, accountID, listenerID, sourceEventID, itemID, requestID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank projection %d", stamp)).Scan(&householdID))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-projection-%d@example.test", stamp)).Scan(&userID))

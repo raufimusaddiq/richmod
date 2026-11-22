@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
@@ -23,7 +24,7 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, transactionID string
 	if err = pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("tg decision %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -133,7 +134,7 @@ func TestTelegramReviewStoresSingleFieldDecision(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var householdID, transactionID string
 	if err = pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("tg free text %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

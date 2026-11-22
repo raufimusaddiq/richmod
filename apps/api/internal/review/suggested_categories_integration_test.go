@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
@@ -33,13 +34,13 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	foreign, foreignUser, foreignCategory := seedTransferReviewOwner(t, pool, stamp+1)
 	_ = foreignUser
 	category := func(owner, name string, active bool) string {
 		var id string
-		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug,active) VALUES($1,$2,$3,$4) RETURNING id`, owner, name, fmt.Sprintf("c%d-%s", uniqueStamp(), strings.ToLower(name)), active).Scan(&id))
+		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug,active) VALUES($1,$2,$3,$4) RETURNING id`, owner, name, fmt.Sprintf("c%d-%s", testsupport.UniqueStamp(), strings.ToLower(name)), active).Scan(&id))
 		return id
 	}
 	food, transport, shopping, bills, retired := category(household, "Makan", true), category(household, "Transport", true), category(household, "Belanja", true), category(household, "Tagihan", true), category(household, "Lama", false)

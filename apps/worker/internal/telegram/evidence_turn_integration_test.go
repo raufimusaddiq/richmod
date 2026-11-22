@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -73,7 +74,7 @@ func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixtur
 	}
 	raw, err := json.Marshal(update)
 	mustAgentTest(t, err)
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	var sourceID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`,
 		f.householdID, fmt.Sprintf("turn-%d-%d", stamp, turnCounter), []byte(fmt.Sprintf("turn-%d-%d", stamp, turnCounter))).Scan(&sourceID))

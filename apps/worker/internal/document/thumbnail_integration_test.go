@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -86,7 +87,7 @@ func TestProcessWritesThumbnailBeforeTheGatewayCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, thumbnailPNG(t, 600, 900))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	gw := &thumbnailGateway{storage: storage, thumbRef: ref + ".thumb.jpg"}
@@ -125,7 +126,7 @@ func TestProcessKeepsAnExistingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, thumbnailPNG(t, 600, 900))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	if err := storage.Put(ctx, ref+".thumb.jpg", []byte("existing"), "image/jpeg"); err != nil {
@@ -157,7 +158,7 @@ func TestUndecodableImageDoesNotFailTheDocumentJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, []byte("not an image"))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	gw := &thumbnailGateway{storage: storage, thumbRef: ref + ".thumb.jpg"}
@@ -192,7 +193,7 @@ func TestBackfillThumbnailsSkipsExistingAndStaysHouseholdScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := uniqueStamp()
+	stamp := testsupport.UniqueStamp()
 	householdID, _, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, thumbnailPNG(t, 600, 900))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	otherHouseholdID, _, otherRef := seedThumbnailDocument(t, ctx, pool, storage, stamp+1, thumbnailPNG(t, 600, 900))
