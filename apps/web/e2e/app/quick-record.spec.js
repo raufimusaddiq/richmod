@@ -48,7 +48,7 @@ test("the sheet opens on the manual form with no chooser, an example amount and 
   expect((await chip.textContent()).length, "a long description is shortened on its chip").toBeLessThan(60);
 });
 
-test("the amount groups thousands as it is typed and a typed description suggests the household's category", async ({ page, api }) => {
+test("the amount groups thousands as it is typed and a typed description suggests the household's category", { tag: "@desktop-only" }, async ({ page, api }) => {
   quickApi(api);
   await open(page);
   const dialog = sheet(page);
@@ -78,7 +78,7 @@ test("saving posts what the API accepts, closes at once, and confirms with an un
   await expect.poll(() => api.calls("/api/v1/transactions/tx-new/void", "POST").length).toBe(1);
 });
 
-test("an empty submit names what is missing and sends nothing", async ({ page, api }) => {
+test("an empty submit names what is missing and sends nothing", { tag: "@desktop-only" }, async ({ page, api }) => {
   quickApi(api);
   await open(page);
   const dialog = sheet(page);
@@ -100,7 +100,7 @@ test("the sheet is a native modal that traps Tab and returns focus to the button
   await expect(page.getByRole("button", { name: "Tambah transaksi", exact: true }), "focus returns to the opener").toBeFocused();
 });
 
-test("Foto bukti opens the photo flow with its limits and recent uploads in Indonesian", async ({ page, api }) => {
+test("Foto bukti opens the photo flow with its limits and recent uploads in Indonesian", { tag: "@desktop-only" }, async ({ page, api }) => {
   quickApi(api);
   await open(page);
   const dialog = sheet(page);
@@ -111,7 +111,7 @@ test("Foto bukti opens the photo flow with its limits and recent uploads in Indo
   await expect(dialog.getByRole("link", { name: /Lihat semua riwayat foto bukti/ }).or(dialog.getByRole("button", { name: /Lihat semua riwayat foto bukti/ }))).toBeVisible();
 });
 
-test("a missing-transaction handoff limits the time to the residual cycle", async ({ page, api }) => {
+test("a missing-transaction handoff limits the time to the residual cycle", { tag: "@desktop-only" }, async ({ page, api }) => {
   quickApi(api);
   await page.goto("/transactions?record=missing&from=2026-08-25&to=2026-09-24", { waitUntil: "networkidle" });
   const dialog = sheet(page);
@@ -128,7 +128,7 @@ test("a missing-transaction handoff limits the time to the residual cycle", asyn
   expect(api.calls("/api/v1/transactions", "POST"), "a time outside the cycle is refused").toHaveLength(0);
 });
 
-test("an upload that the server rejects keeps the form and says so", async ({ page, api }) => {
+test("an upload that the server rejects keeps the form and says so", { tag: "@desktop-only" }, async ({ page, api }) => {
   quickApi(api);
   api.on("/api/v1/transactions", () => reply({ error: "amount must be positive" }, { status: 422 }), { method: "POST" });
   await open(page);
@@ -141,7 +141,7 @@ test("an upload that the server rejects keeps the form and says so", async ({ pa
   await expect(dialog.locator('input[name="description"]')).toHaveValue("Kopi");
 });
 
-test("a transfer asks for its purpose and source account, and a savings purpose also asks for the wealth account", async ({ page, api }) => {
+test("a transfer asks for its purpose and source account, and a savings purpose also asks for the wealth account", { tag: "@desktop-only" }, async ({ page, api }) => {
   quickApi(api);
   api.on("/api/v1/wealth/accounts", () => [{ id: "wa-1", name: "Tabungan utama", wealthType: "BANK", active: true }]);
   await open(page);

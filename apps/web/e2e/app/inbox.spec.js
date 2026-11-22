@@ -52,7 +52,7 @@ test("a one-tap category answer resolves the card, confirms in a line with Urung
   await expect(page.getByText("Warung Bu Tini").first()).toBeVisible();
 });
 
-test("a refused resolution is shown and the card stays", async ({ page, api }) => {
+test("a refused resolution is shown and the card stays", { tag: "@desktop-only" }, async ({ page, api }) => {
   api.on("/api/v1/reviews", () => [review()]);
   api.on(/^\/api\/v1\/reviews\/r1\/[a-z-]+$/, () => reply({ error: "Kategori tidak valid." }, { status: 422 }), { method: "POST" });
   await page.goto("/inbox", { waitUntil: "networkidle" });
@@ -61,7 +61,7 @@ test("a refused resolution is shown and the card stays", async ({ page, api }) =
   await expect(page.getByText("Warung Bu Tini").first()).toBeVisible();
 });
 
-test("an expense card offers the asset-purchase route without a dead switch", async ({ page, api }) => {
+test("an expense card offers the asset-purchase route without a dead switch", { tag: "@desktop-only" }, async ({ page, api }) => {
   api.on("/api/v1/reviews", () => [review()]);
   await page.goto("/inbox", { waitUntil: "networkidle" });
   const more = page.locator("details.review-more");
@@ -70,7 +70,7 @@ test("an expense card offers the asset-purchase route without a dead switch", as
   await expect(more.getByRole("button").first()).toBeVisible();
 });
 
-test("an empty list says everything is recorded and links on, and history lists the last 30 days", async ({ page, api }) => {
+test("an empty list says everything is recorded and links on, and history lists the last 30 days", { tag: "@desktop-only" }, async ({ page, api }) => {
   api.on("/api/v1/reviews", () => []);
   await page.goto("/inbox", { waitUntil: "networkidle" });
   await expect(page.getByRole("heading", { name: "Semua sudah tercatat rapi" })).toBeVisible();
@@ -81,7 +81,7 @@ test("an empty list says everything is recorded and links on, and history lists 
   await expect(page.getByRole("tab", { name: "Riwayat 30 hari" })).toHaveAttribute("aria-selected", "true");
 });
 
-test("a card with a missing transaction date asks for one native date", async ({ page, api }) => {
+test("a card with a missing transaction date asks for one native date", { tag: "@desktop-only" }, async ({ page, api }) => {
   api.on("/api/v1/reviews", () => [review({ reason: "MISSING_TRANSACTION_DATE", missingFacts: ["transaction_at"], suggestedCategories: [], proposedFacts: {} })]);
   await page.goto("/inbox", { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Ubah detail" }).click();

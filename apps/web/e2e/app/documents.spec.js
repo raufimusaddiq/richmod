@@ -35,7 +35,7 @@ test("the list shows twelve at a time behind one 'Tampilkan lebih banyak', with 
   await expect(page.locator(".document-card")).toHaveCount(24);
 });
 
-test("status filters expose their state and say when nothing loaded matches", async ({ page, api }) => {
+test("status filters expose their state and say when nothing loaded matches", { tag: "@desktop-only" }, async ({ page, api }) => {
   documentsApi(api, [document(1), document(2)]);
   await page.goto("/documents", { waitUntil: "networkidle" });
   const filters = page.getByRole("group", { name: "Filter status dokumen" });
@@ -45,7 +45,7 @@ test("status filters expose their state and say when nothing loaded matches", as
   await expect(page.getByRole("heading", { name: "Tidak ada dokumen pada filter ini" })).toBeVisible();
 });
 
-test("a failed card never claims success, shows Indonesian labels, and Proses ulang posts to the reprocess endpoint", async ({ page, api }) => {
+test("a failed card never claims success, shows Indonesian labels, and Proses ulang posts to the reprocess endpoint", { tag: "@desktop-only" }, async ({ page, api }) => {
   documentsApi(api, [document(1, { status: "FAILED", confidence: 0.9, summary: { merchant: "Tidak boleh tampil", amount: "1000" } }), document(2, { status: "EXTRACTED" })]);
   api.on("/api/v1/documents/doc-1/reprocess", () => ({}), { method: "POST" });
   await page.goto("/documents", { waitUntil: "networkidle" });
@@ -62,7 +62,7 @@ test("a failed card never claims success, shows Indonesian labels, and Proses ul
   await expect.poll(() => api.calls("/api/v1/documents/doc-1/reprocess", "POST").length).toBe(1);
 });
 
-test("upload waits for a file and states the limits up front", async ({ page, api }) => {
+test("upload waits for a file and states the limits up front", { tag: "@desktop-only" }, async ({ page, api }) => {
   documentsApi(api, []);
   await page.goto("/documents", { waitUntil: "networkidle" });
   await expect(page.getByText("JPG atau PNG · maksimal 10 MB total · maksimal 10 gambar")).toBeVisible();
@@ -87,7 +87,7 @@ test("the document drawer is a labelled modal and its extraction text is a named
   await expect(page.locator(".document-card").first(), "Escape returns focus to the card").toBeFocused();
 });
 
-test("a failed list can be retried and a failed drawer load says so", async ({ page, api }) => {
+test("a failed list can be retried and a failed drawer load says so", { tag: "@desktop-only" }, async ({ page, api }) => {
   let healthy = false;
   documentsApi(api, [document(1)]);
   api.on("/api/v1/documents", () => (healthy ? undefined : reply({}, { status: 500 })), { method: "GET" });
@@ -101,7 +101,7 @@ test("a failed list can be retried and a failed drawer load says so", async ({ p
   await expect(page.getByRole("dialog", { name: "Detail dokumen" }).getByRole("alert")).toBeVisible();
 });
 
-test("a card title names the merchant and amount, counts extra rows, and falls back to source and date", async ({ page, api }) => {
+test("a card title names the merchant and amount, counts extra rows, and falls back to source and date", { tag: "@desktop-only" }, async ({ page, api }) => {
   documentsApi(api, [
     document(1, { documentType: "EWALLET_SCREENSHOT", summary: { transactions: [{ merchant: "Kopi Kenangan", amount: "45000" }, { merchant: "X", amount: "1" }] } }),
     document(2, { summary: { merchant: "Toko", total: "45000.00" } }),
@@ -116,7 +116,7 @@ test("a card title names the merchant and amount, counts extra rows, and falls b
   expect(titles[3], "a failed card ignores its summary").toMatch(/^Unggahan web 6 Sep 2026/);
 });
 
-test("the drawer shows a payment-neutral summary line and the shared labels", async ({ page, api }) => {
+test("the drawer shows a payment-neutral summary line and the shared labels", { tag: "@desktop-only" }, async ({ page, api }) => {
   documentsApi(api, [document(1, { status: "NEEDS_REVIEW", needsReview: true, summary: { merchant: "Indomaret", total: "34000" } })]);
   await page.goto("/documents", { waitUntil: "networkidle" });
   const card = page.locator(".document-card").first();

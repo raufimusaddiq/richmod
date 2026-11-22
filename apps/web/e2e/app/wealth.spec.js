@@ -41,7 +41,7 @@ test("a snapshot is saved with exact decimal strings, a manual source and a Jaka
   expect(body.items[1]).toMatchObject({ wealthAccountId: "liability-1", source: "MANUAL" });
 });
 
-test("a failed save keeps the form and the old figures", async ({ page, api }) => {
+test("a failed save keeps the form and the old figures", { tag: "@desktop-only" }, async ({ page, api }) => {
   wealthApi(api);
   api.on("/api/v1/wealth/snapshots", () => reply({ error: "x" }, { status: 500 }), { method: "POST" });
   await page.goto("/wealth", { waitUntil: "networkidle" });
@@ -66,7 +66,7 @@ test("a snapshot link opens its drawer, and a correction is sent to that snapsho
   expect(api.calls("/api/v1/wealth/snapshots/wealth-1", "PUT")[0].body.items[0]).toMatchObject({ wealthAccountId: "asset-1", valueIdr: "1200000" });
 });
 
-test("the snapshot drawer shows an Indonesian source label, not the raw MANUAL value", async ({ page, api }) => {
+test("the snapshot drawer shows an Indonesian source label, not the raw MANUAL value", { tag: "@desktop-only" }, async ({ page, api }) => {
   const latest = { ...snapshot("wealth-1", "1000000"), items: [{ wealthAccountId: "asset-1", name: "Tabungan", side: "ASSET", valueIdr: "1000000", source: "MANUAL" }] };
   wealthApi(api, { latest });
   await page.goto("/wealth?snapshotId=wealth-1", { waitUntil: "networkidle" });

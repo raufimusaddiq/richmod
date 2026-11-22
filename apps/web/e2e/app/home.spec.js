@@ -26,7 +26,7 @@ test("a failed section is named and the rest of Beranda stays", async ({ page, a
   await expect(page.locator(".transaction-row")).toHaveCount(2);
 });
 
-test("the dashboard asks for the current cycle and offers no photo upload of its own", async ({ page, api }) => {
+test("the dashboard asks for the current cycle and offers no photo upload of its own", { tag: "@desktop-only" }, async ({ page, api }) => {
   homeApi(api);
   await page.goto("/", { waitUntil: "networkidle" });
   await page.locator(".home-hero-amount").waitFor();
@@ -34,7 +34,7 @@ test("the dashboard asks for the current cycle and offers no photo upload of its
   await expect(page.getByText("Unggah bukti"), "+ Catat owns photo upload").toHaveCount(0);
 });
 
-test("the wealth card links to the exact snapshot it summarises, and says so when none exists", async ({ page, api }) => {
+test("the wealth card links to the exact snapshot it summarises, and says so when none exists", { tag: "@desktop-only" }, async ({ page, api }) => {
   homeApi(api);
   await page.goto("/", { waitUntil: "networkidle" });
   test.skip(page.viewportSize().width <= 680, "the phone layout hides the wealth card");
@@ -46,7 +46,7 @@ test("the wealth card links to the exact snapshot it summarises, and says so whe
   await expect(page.locator("a.overview-wealth strong")).toHaveText("—");
 });
 
-test("the daily chart is a named image with a value table behind it", async ({ page, api }) => {
+test("the daily chart is a named image with a value table behind it", { tag: "@desktop-only" }, async ({ page, api }) => {
   homeApi(api);
   await page.goto("/", { waitUntil: "networkidle" });
   test.skip(page.viewportSize().width <= 680, "the phone layout hides the daily chart");
@@ -67,7 +67,7 @@ test("with no data it welcomes the household, and 'Foto bukti' opens the photo f
   await expect(page.locator("dialog.quick-record[open]")).toContainText(/10 MB/);
 });
 
-test("saving a transaction elsewhere refreshes the dashboard", async ({ page, api }) => {
+test("saving a transaction elsewhere refreshes the dashboard", { tag: "@desktop-only" }, async ({ page, api }) => {
   homeApi(api);
   await page.goto("/", { waitUntil: "networkidle" });
   await page.locator(".home-hero-amount").waitFor();
@@ -76,7 +76,7 @@ test("saving a transaction elsewhere refreshes the dashboard", async ({ page, ap
   await expect.poll(() => api.calls("/api/v1/analytics/overview").length).toBeGreaterThan(before);
 });
 
-test("setup work waiting is offered to the owner with a link to the right tab", async ({ page, api }) => {
+test("setup work waiting is offered to the owner with a link to the right tab", { tag: "@desktop-only" }, async ({ page, api }) => {
   homeApi(api);
   api.on("/api/v1/integration-actions", () => [{ id: "a1" }, { id: "a2" }]);
   await page.goto("/", { waitUntil: "networkidle" });

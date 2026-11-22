@@ -63,19 +63,19 @@ test("the inbox count is fetched once for the shell, not once per navigation", a
   expect(api.calls("/api/v1/reviews").length - before, "in-app navigation never re-fetches the review count").toBeLessThanOrEqual(1);
 });
 
-test("a screen view is reported as a bounded screen key, never a path or id", async ({ page, api }) => {
+test("a screen view is reported as a bounded screen key, never a path or id", { tag: "@desktop-only" }, async ({ page, api }) => {
   await page.goto("/transactions?q=secret", { waitUntil: "networkidle" });
   await page.locator("#main-content").waitFor();
   await expect.poll(() => api.telemetry.length).toBeGreaterThan(0);
   expect(api.telemetry[0]).toEqual({ screen: "transactions", action: "SCREEN_VIEW" });
 });
 
-test("the page extends under the notch", async ({ page }) => {
+test("the page extends under the notch", { tag: "@desktop-only" }, async ({ page }) => {
   await page.goto("/", { waitUntil: "networkidle" });
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
 });
 
-test("a platform admin sees the Admin link in the sidebar and a member does not", async ({ page, api }) => {
+test("a platform admin sees the Admin link in the sidebar and a member does not", { tag: "@desktop-only" }, async ({ page, api }) => {
   test.skip(isPhone(page), "the sidebar is a wide-screen control");
   api.user = superAdmin();
   await page.goto("/", { waitUntil: "networkidle" });
@@ -87,7 +87,7 @@ test("a platform admin sees the Admin link in the sidebar and a member does not"
 });
 
 test.describe("the session", () => {
-  test("a session that cannot be checked says so and retries, instead of signing the user out", async ({ page, api }) => {
+  test("a session that cannot be checked says so and retries, instead of signing the user out", { tag: "@desktop-only" }, async ({ page, api }) => {
     let healthy = false;
     api.on("/api/v1/auth/me", () => (healthy ? undefined : reply({}, { status: 503 })));
     await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -98,13 +98,13 @@ test.describe("the session", () => {
     await page.locator("#main-content").waitFor();
   });
 
-  test("only a 401 shows the landing page", async ({ page, api }) => {
+  test("only a 401 shows the landing page", { tag: "@desktop-only" }, async ({ page, api }) => {
     api.on("/api/v1/auth/me", () => reply({}, { status: 401 }));
     await page.goto("/", { waitUntil: "networkidle" });
     await expect(page.getByRole("heading", { name: "Keuangan keluarga, tanpa menebak." })).toBeVisible();
   });
 
-  test("an account without a household sees the waiting screen, can check again and sign out", async ({ page, api }) => {
+  test("an account without a household sees the waiting screen, can check again and sign out", { tag: "@desktop-only" }, async ({ page, api }) => {
     api.user = superAdmin();
     api.user = { ...api.user, household: null };
     let activated = false;
@@ -123,14 +123,14 @@ test.describe("the session", () => {
   });
 });
 
-test("an unknown address shows the Indonesian not-found page with a way back to Beranda", async ({ page }) => {
+test("an unknown address shows the Indonesian not-found page with a way back to Beranda", { tag: "@desktop-only" }, async ({ page }) => {
   await page.goto("/tidak-ada-halaman", { waitUntil: "networkidle" });
   await expect(page.getByText("Halaman tidak ditemukan").first()).toBeVisible();
   await expect(page.getByRole("link", { name: /Kembali ke Beranda/ })).toHaveAttribute("href", "/");
   await expect(page).toHaveTitle("Halaman tidak ditemukan · Richmod");
 });
 
-test("a household-less account makes no household-scoped requests", async ({ page, api }) => {
+test("a household-less account makes no household-scoped requests", { tag: "@desktop-only" }, async ({ page, api }) => {
   api.user = { ...superAdmin(), household: null };
   await page.goto("/", { waitUntil: "networkidle" });
   await expect(page.getByText("RUANG KELUARGA BELUM AKTIF")).toBeVisible();
