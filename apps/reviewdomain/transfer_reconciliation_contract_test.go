@@ -21,7 +21,7 @@ func TestReconcileTransferOwnsCaseMutation(t *testing.T) {
 
 func TestTransferIgnoreBypassesTheCandidateCap(t *testing.T) {
 	source := sourceFile(t, "transfer_reconciliation.go")
-	capAt := strings.Index(source, "len(candidates) > TransferCandidateLimit")
+	capAt := strings.Index(source, "TransferCandidateOverflow(")
 	commit := strings.Index(source, `if cmd.Action != "IGNORE" {`)
 	merge := strings.Index(source, `if cmd.Action == "MERGE_EXISTING" {`)
 	if capAt < 0 || commit < 0 || merge < 0 {

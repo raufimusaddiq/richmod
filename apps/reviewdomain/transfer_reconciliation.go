@@ -40,7 +40,7 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	}
 	var id string
 	if cmd.Action != "IGNORE" {
-		if cmd.Action == "CONFIRM_NEW_TRANSFER" && observationID != "" && len(candidates) > TransferCandidateLimit {
+		if cmd.Action == "CONFIRM_NEW_TRANSFER" && TransferCandidateOverflow(observationID != "", len(candidates)) {
 			return "", ErrTransferCaseUnavailable
 		}
 		var target TransferMergeCandidate
@@ -146,6 +146,10 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 }
 
 const TransferCandidateLimit = 10
+
+func TransferCandidateOverflow(financialCase bool, candidateCount int) bool {
+	return financialCase && candidateCount > TransferCandidateLimit
+}
 
 var TransferPurposes = []string{"INTERNAL_TRANSFER", "SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT"}
 

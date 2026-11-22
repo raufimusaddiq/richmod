@@ -54,20 +54,11 @@ func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentSta
 	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
 	state.ResidualDimensions = unresolvedTransactionDimensions(value.Type, categoryKnown)
 	decision := TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: decisionPolicyVersion}
-	if len(state.ResidualDimensions) == 1 && state.ResidualDimensions[0] == "category" {
-		if complete, ok := directAcceptanceDecision(withCategory(value, categories), categories, state.Now); ok {
-			decision.RouteAccepted, decision.TransactionType, decision.TypeAccepted = true, complete.TransactionType, true
-			decision.AmountSupported, decision.DateSupported = true, true
-		}
+	if len(state.ResidualDimensions) == 1 && state.ResidualDimensions[0] == "category" && directNonCategoryFieldsAccepted(value, state.Now) {
+		decision.RouteAccepted, decision.TransactionType, decision.TypeAccepted = true, value.Type, true
+		decision.AmountSupported, decision.DateSupported = true, true
 	}
 	return decision, nil
-}
-
-func withCategory(value validatedExtraction, categories []string) validatedExtraction {
-	if len(categories) > 0 {
-		value.CategorySlug = categories[0]
-	}
-	return value
 }
 
 func contains(values []string, target string) bool {
@@ -86,18 +77,22 @@ func appendIfMissing(values []string, target string) []string {
 	return append(values, target)
 }
 
-func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time) (TransactionSemanticDecision, bool) {
+func directNonCategoryFieldsAccepted(value validatedExtraction, now time.Time) bool {
 	if value.Type != "INCOME" && value.Type != "EXPENSE" {
-		return TransactionSemanticDecision{}, false
+		return false
 	}
 	amount, ok := new(big.Int).SetString(value.Amount, 10)
 	if !ok || amount.Sign() <= 0 || amount.String() != value.Amount {
-		return TransactionSemanticDecision{}, false
+		return false
 	}
 	if !acceptableTransactionTime(value, now) || value.TransactionAt.IsZero() || now.IsZero() {
-		return TransactionSemanticDecision{}, false
+		return false
 	}
-	if value.Ambiguous {
+	return !value.Ambiguous
+}
+
+func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time) (TransactionSemanticDecision, bool) {
+	if !directNonCategoryFieldsAccepted(value, now) {
 		return TransactionSemanticDecision{}, false
 	}
 	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)

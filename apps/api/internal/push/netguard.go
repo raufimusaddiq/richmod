@@ -9,7 +9,23 @@ import (
 	"strings"
 )
 
-var errEndpointBlocked = errors.New("endpoint is not allowed")
+var (
+	errEndpointBlocked = errors.New("endpoint is not allowed")
+
+	thisNetworkPrefix             = netip.MustParsePrefix("0.0.0.0/8")
+	carrierGradeNATPrefix         = netip.MustParsePrefix("100.64.0.0/10")
+	ietfProtocolAssignmentsPrefix = netip.MustParsePrefix("192.0.0.0/24")
+	benchmarkingPrefix            = netip.MustParsePrefix("198.18.0.0/15")
+	reservedIPv4Prefix            = netip.MustParsePrefix("240.0.0.0/4")
+
+	blockedIPv4Prefixes = []netip.Prefix{
+		thisNetworkPrefix,
+		carrierGradeNATPrefix,
+		ietfProtocolAssignmentsPrefix,
+		benchmarkingPrefix,
+		reservedIPv4Prefix,
+	}
+)
 
 func validateEndpoint(ctx context.Context, endpoint string) error {
 	parsed, err := url.Parse(endpoint)
@@ -57,19 +73,10 @@ func blockedAddress(address netip.Addr) bool {
 	if !address.Is4() {
 		return false
 	}
-	value := address.As4()
-	switch {
-	case value[0] == 0:
-		return true
-	case value[0] == 100 && value[1] >= 64 && value[1] <= 127:
-		return true
-	case value[0] == 192 && value[1] == 0 && value[2] == 0:
-		return true
-	case value[0] == 198 && (value[1] == 18 || value[1] == 19):
-		return true
-	case value[0] >= 240:
-		return true
-	default:
-		return false
+	for _, prefix := range blockedIPv4Prefixes {
+		if prefix.Contains(address) {
+			return true
+		}
 	}
+	return false
 }

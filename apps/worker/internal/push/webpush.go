@@ -19,7 +19,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/pushsupport"
 )
 
-const recordSize = 4096
+const (
+	recordSize                 = 4096
+	recordDelimiterLastRFC8188 = byte(0x02)
+)
 
 type VAPID struct{ config *pushsupport.VAPID }
 
@@ -133,7 +136,7 @@ func encryptRecord(payload, uaPublic, authSecret []byte, ephemeral *ecdh.Private
 	cek := hmacSHA256(prk, append([]byte("Content-Encoding: aes128gcm\x00"), 1))[:16]
 	nonce := hmacSHA256(prk, append([]byte("Content-Encoding: nonce\x00"), 1))[:12]
 
-	record := append(append([]byte(nil), payload...), 2)
+	record := append(append([]byte(nil), payload...), recordDelimiterLastRFC8188)
 	block, err := aes.NewCipher(cek)
 	if err != nil {
 		return nil, err

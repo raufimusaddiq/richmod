@@ -48,11 +48,11 @@ func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
 			}
 			date := "2026-09-25"
 			slip := payslipExtraction{Period: "2026-09", Employer: "Employer", NetPay: "16000000", Currency: "IDR", PayDate: &date, Confidence: .21}
-			at, arithmetic, err := validatePayslip(slip)
+			at, parsedPeriod, arithmetic, err := validatePayslip(slip)
 			if err != nil || arithmetic {
 				t.Fatalf("valid but arithmetic-unproved slip: %v %t", err, arithmetic)
 			}
-			if err := (&Processor{pool: f.pool}).persistPayslip(ctx, f.documentID, f.householdID, f.sourceID, slip, "test-model", at, slip.Period, true, arithmetic); err != nil {
+			if err := (&Processor{pool: f.pool}).persistPayslip(ctx, f.documentID, f.householdID, f.sourceID, slip, "test-model", at, parsedPeriod.Format("2006-01"), true, arithmetic); err != nil {
 				t.Fatal(err)
 			}
 			var reviews, incomes, events int

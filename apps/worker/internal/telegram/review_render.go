@@ -192,49 +192,70 @@ func cardActions(decision reviewdec.Decision, reviewType string) []string {
 	return reviewdec.TelegramActions(reviewType)
 }
 
+type reviewMarkupBuilder func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject, actions []string) (*InlineKeyboardMarkup, error)
+
+var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
+	"category": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0), nil
+	},
+	"income": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
+		return incomeConfirmMarkup(), nil
+	},
+	"transfer": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, _ reviewdec.Decision, _ reviewCard, subject reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		if subject.Reconciliation {
+			return transferReconciliationMarkup(ctx, tx, reviewID)
+		}
+		return reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0), nil
+	},
+	"reply": func(_ context.Context, _ pgx.Tx, _, reviewType string, decision reviewdec.Decision, card reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		row := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
+		if card.State == "AWAITING_MERCHANT" && merchantAssetOption(decision, reviewType) {
+			row = []InlineKeyboardButton{{Text: "Beli aset", CallbackData: "review:asset"}, row[0]}
+		}
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{row}}, nil
+	},
+	"cycle": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, actions []string) (*InlineKeyboardMarkup, error) {
+		if contains(actions, "LEAVE_UNALLOCATED") {
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Biarkan saja", CallbackData: "review:leave"}}}}, nil
+		}
+		return nil, nil
+	},
+	"duplicate": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, decision reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		if decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true {
+			return evidenceDisputeMarkup(), nil
+		}
+		return projectDuplicateChoices(ctx, tx, reviewID)
+	},
+	"salary": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, actions []string) (*InlineKeyboardMarkup, error) {
+		return salaryPolicyMarkup(actions), nil
+	},
+	"document": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
+		return documentReviewMarkup(), nil
+	},
+	"financial_email": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, decision reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		return financialEmailEntityMarkup(ctx, tx, reviewID, decision, 0)
+	},
+	"receipt_quality": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Terima total", CallbackData: "review:quality:confirm"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
+	},
+	"financial_email_facts": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
+	},
+}
+
+func reviewMarkupModeHandled(mode string) bool {
+	_, ok := reviewMarkupBuilders[mode]
+	return ok
+}
+
 func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject) (*InlineKeyboardMarkup, error) {
 	actions := cardActions(decision, reviewType)
 	ignore := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
 	var markup *InlineKeyboardMarkup
 	var err error
-	switch card.Mode {
-	case "category":
-		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
-	case "income":
-		markup = incomeConfirmMarkup()
-	case "transfer":
-		if subject.Reconciliation {
-			markup, err = transferReconciliationMarkup(ctx, tx, reviewID)
-			break
-		}
-		markup = reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0)
-	case "reply":
-		row := ignore
-		if card.State == "AWAITING_MERCHANT" && merchantAssetOption(decision, reviewType) {
-			row = []InlineKeyboardButton{{Text: "Beli aset", CallbackData: "review:asset"}, ignore[0]}
-		}
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{row}}
-	case "cycle":
-		if contains(actions, "LEAVE_UNALLOCATED") {
-			markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Biarkan saja", CallbackData: "review:leave"}}}}
-		}
-	case "duplicate":
-		if decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true {
-			markup = evidenceDisputeMarkup()
-			break
-		}
-		markup, err = projectDuplicateChoices(ctx, tx, reviewID)
-	case "salary":
-		markup = salaryPolicyMarkup(actions)
-	case "document":
-		markup = documentReviewMarkup()
-	case "financial_email":
-		markup, err = financialEmailEntityMarkup(ctx, tx, reviewID, decision, 0)
-	case "receipt_quality":
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Terima total", CallbackData: "review:quality:confirm"}, ignore[0]}}}
-	case "financial_email_facts":
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{ignore}}
-	default:
+	if builder, ok := reviewMarkupBuilders[card.Mode]; ok {
+		markup, err = builder(ctx, tx, reviewID, reviewType, decision, card, subject, actions)
+	} else {
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, ignore[0]}}}
 	}
 	if err != nil {

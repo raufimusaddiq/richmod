@@ -10,24 +10,24 @@ func TestValidatePayslipIDRArithmetic(t *testing.T) {
 	date := "2026-08-25"
 	gross := "17500000"
 	value := payslipExtraction{Period: "2026-08", Employer: "Example", GrossPay: &gross, Deductions: []moneyLine{{Name: "Tax", Amount: "1500000"}}, NetPay: "16000000", Currency: "IDR", PayDate: &date, Confidence: .97}
-	transactionAt, arithmeticOK, err := validatePayslip(value)
+	transactionAt, period, arithmeticOK, err := validatePayslip(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !arithmeticOK || transactionAt.Location().String() != "Asia/Jakarta" || transactionAt.Day() != 25 {
-		t.Fatalf("unexpected validation: %v %v", transactionAt, arithmeticOK)
+	if !arithmeticOK || transactionAt.Location().String() != "Asia/Jakarta" || transactionAt.Day() != 25 || period.Format("2006-01") != "2026-08" {
+		t.Fatalf("unexpected validation: %v %v %v", transactionAt, period, arithmeticOK)
 	}
 }
 
 func TestValidatePayslipRejectsFractionalOrNonIDR(t *testing.T) {
 	gross := "18500000"
 	value := payslipExtraction{Period: "2026-08", GrossPay: &gross, NetPay: "16000000.50", Currency: "IDR", Confidence: .9}
-	if _, _, err := validatePayslip(value); err == nil {
+	if _, _, _, err := validatePayslip(value); err == nil {
 		t.Fatal("expected fractional rupiah rejection")
 	}
 	value.NetPay = "16000000"
 	value.Currency = "USD"
-	if _, _, err := validatePayslip(value); err == nil {
+	if _, _, _, err := validatePayslip(value); err == nil {
 		t.Fatal("expected non-IDR rejection")
 	}
 }
@@ -53,19 +53,19 @@ func TestPayslipPeriodRequiresCanonicalMonth(t *testing.T) {
 	}
 	date := "2026-09-25"
 	missingGross := payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "-250000"}}, Currency: "IDR", PayDate: &date, Confidence: .96}
-	transactionAt, arithmeticOK, err := validatePayslip(missingGross)
-	if err != nil || transactionAt.IsZero() || transactionAt.Month() != 9 {
-		t.Fatalf("a real payroll range must survive validation: %v %v", transactionAt, err)
+	transactionAt, validatedPeriod, arithmeticOK, err := validatePayslip(missingGross)
+	if err != nil || transactionAt.IsZero() || transactionAt.Month() != 9 || validatedPeriod.Format("2006-01") != "2026-09" {
+		t.Fatalf("a real payroll range must survive validation: %v %v %v", transactionAt, validatedPeriod, err)
 	}
 	if arithmeticOK {
 		t.Fatal("an unproven breakdown is a quality signal, not a proven reconciliation")
 	}
 	gross := "15500000"
 	missingGross.GrossPay, missingGross.OtherComponents = &gross, nil
-	if _, arithmeticOK, err := validatePayslip(missingGross); err != nil || arithmeticOK {
+	if _, _, arithmeticOK, err := validatePayslip(missingGross); err != nil || arithmeticOK {
 		t.Fatalf("a printed net exceeding a labeled gross is a quality signal, not an invalid net: arithmetic=%t err=%v", arithmeticOK, err)
 	}
-	if _, _, err := validatePayslip(payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "250.000"}}, Currency: "IDR", Confidence: .96}); err == nil {
+	if _, _, _, err := validatePayslip(payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "250.000"}}, Currency: "IDR", Confidence: .96}); err == nil {
 		t.Fatal("a component amount that is not whole rupiah must be rejected")
 	}
 }
@@ -73,7 +73,7 @@ func TestPayslipPeriodRequiresCanonicalMonth(t *testing.T) {
 func TestPayslipPayDateRequiresCanonicalISO(t *testing.T) {
 	for _, date := range []string{"2026-09-28", "gajian tanggal dua puluh delapan september", "salary was paid last Friday"} {
 		value := payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "1", Currency: "IDR", Confidence: .2, PayDate: &date}
-		_, _, err := validatePayslip(value)
+		_, _, _, err := validatePayslip(value)
 		if date == "2026-09-28" && err != nil {
 			t.Fatalf("canonical date rejected: %v", err)
 		}

@@ -165,7 +165,7 @@ func (p *Processor) TerminalCallbackFailureTx(ctx context.Context, tx pgx.Tx, so
 	if err := enqueueReply(ctx, tx, update, terminalCallbackFailureMessage); err != nil {
 		return err
 	}
-	if err := enqueueRetireButtons(withCallbackQuestion(ctx, payloadText), tx, update, "Tidak berhasil diproses."); err != nil {
+	if err := enqueueRetireButtons(ctx, tx, update, "Tidak berhasil diproses."); err != nil {
 		return err
 	}
 	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{

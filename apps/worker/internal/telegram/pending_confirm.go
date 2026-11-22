@@ -91,27 +91,6 @@ type jobExecer interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
-type callbackQuestionKey struct{}
-
-func withCallbackQuestion(ctx context.Context, rawPayload string) context.Context {
-	var payload struct {
-		CallbackQuery struct {
-			Message struct {
-				Text string `json:"text"`
-			} `json:"message"`
-		} `json:"callback_query"`
-	}
-	if json.Unmarshal([]byte(rawPayload), &payload) != nil || strings.TrimSpace(payload.CallbackQuery.Message.Text) == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, callbackQuestionKey{}, payload.CallbackQuery.Message.Text)
-}
-
-func callbackQuestion(ctx context.Context) string {
-	text, _ := ctx.Value(callbackQuestionKey{}).(string)
-	return text
-}
-
 func retiredMessageText(original, outcome string) string {
 	original = strings.TrimSpace(original)
 	if original == "" {
@@ -128,7 +107,7 @@ func enqueueRetireButtons(ctx context.Context, db jobExecer, update telegramUpda
 	if update.CallbackQuery == nil {
 		return nil
 	}
-	text := retiredMessageText(callbackQuestion(ctx), outcome)
+	text := retiredMessageText(update.CallbackQuery.Message.Text, outcome)
 	if text == "" || update.CallbackQuery.Message.MessageID == 0 {
 		return nil
 	}

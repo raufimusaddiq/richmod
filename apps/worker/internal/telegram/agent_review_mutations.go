@@ -14,10 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
-func (p *Processor) agentResolveReview(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
-	return p.agentResolveBoundReview(ctx, state, call, args)
-}
-
 type agentTransactionReview struct {
 	reviewID, transactionID, transactionType, reviewType, conversationState, merchantID string
 	messageID                                                                           int64

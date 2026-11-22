@@ -143,7 +143,7 @@ func TestAgentReviewConfirmationReturnsStructuredResultWithoutCannedReply(t *tes
 	}
 	f.state.ReviewBinding = binding
 	f.state.ReviewBindingCount = count
-	result, synthesize, err := p.agentResolveReview(ctx, f.state, gateway.ToolCall{CallID: "call-review", Name: "resolve_review"}, map[string]any{"action": "CONFIRM", "category_slug": "dining"})
+	result, synthesize, err := p.agentResolveBoundReview(ctx, f.state, gateway.ToolCall{CallID: "call-review", Name: "resolve_review"}, map[string]any{"action": "CONFIRM", "category_slug": "dining"})
 	mustAgentTest(t, err)
 	if !synthesize || result.Status != "RESOLVED" || result.Mutation["action"] != "REVIEW_CONFIRMED" {
 		t.Fatalf("unexpected review result: synthesize=%v result=%+v", synthesize, result)

@@ -123,53 +123,52 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		}
 		result = patched
 	}
-	transactionAt, arithmeticOK, err := validatePayslip(result)
+	transactionAt, period, arithmeticOK, err := validatePayslip(result)
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, err)
 	}
 	autoConfirm := result.PayDate != nil
-	period, _ := parsePayslipPeriod(result.Period)
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, period.Format("2006-01"), autoConfirm, arithmeticOK)
 }
 
-func validatePayslip(value payslipExtraction) (time.Time, bool, error) {
+func validatePayslip(value payslipExtraction) (time.Time, time.Time, bool, error) {
 	if value.Currency != "IDR" || value.Confidence < 0 || value.Confidence > 1 {
-		return time.Time{}, false, fmt.Errorf("invalid payslip currency or confidence")
+		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip currency or confidence")
 	}
 	netPay, ok := wholeMoney(value.NetPay, true)
 	if !ok {
-		return time.Time{}, false, fmt.Errorf("invalid payslip net pay")
+		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip net pay")
 	}
 	var gross *big.Int
 	if value.GrossPay != nil {
 		var ok bool
 		gross, ok = wholeMoney(*value.GrossPay, true)
 		if !ok {
-			return time.Time{}, false, fmt.Errorf("invalid payslip gross pay")
+			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip gross pay")
 		}
 	}
 	period, err := parsePayslipPeriod(value.Period)
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("invalid payslip period")
+		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip period")
 	}
 	allowances, deductions := big.NewInt(0), big.NewInt(0)
 	for _, line := range value.Allowances {
 		amount, ok := wholeMoney(line.Amount, false)
 		if !ok {
-			return time.Time{}, false, fmt.Errorf("invalid allowance")
+			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid allowance")
 		}
 		allowances.Add(allowances, amount)
 	}
 	for _, line := range value.Deductions {
 		amount, ok := wholeMoney(line.Amount, false)
 		if !ok {
-			return time.Time{}, false, fmt.Errorf("invalid deduction")
+			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid deduction")
 		}
 		deductions.Add(deductions, amount)
 	}
 	for _, line := range value.OtherComponents {
 		if !validPayrollComponent(line.Amount) {
-			return time.Time{}, false, fmt.Errorf("invalid payroll component")
+			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payroll component")
 		}
 	}
 	arithmeticOK := false
@@ -180,11 +179,11 @@ func validatePayslip(value payslipExtraction) (time.Time, bool, error) {
 	if value.PayDate != nil {
 		parsed, err := time.ParseInLocation("2006-01-02", *value.PayDate, jakarta())
 		if err != nil || parsed.Format("2006-01-02") != *value.PayDate || parsed.Before(period.AddDate(0, 0, -7)) || parsed.After(period.AddDate(0, 2, 7)) {
-			return time.Time{}, false, fmt.Errorf("invalid payslip pay date")
+			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip pay date")
 		}
 		transactionAt = parsed.Add(12 * time.Hour)
 	}
-	return transactionAt, arithmeticOK, nil
+	return transactionAt, period, arithmeticOK, nil
 }
 
 func parsePayslipPeriod(value string) (time.Time, error) {

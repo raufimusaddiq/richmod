@@ -109,7 +109,7 @@ func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (recei
 }
 
 func payslipValidationIssues(value payslipExtraction) validationIssues {
-	_, _, err := validatePayslip(value)
+	_, _, _, err := validatePayslip(value)
 	if err == nil {
 		return nil
 	}
