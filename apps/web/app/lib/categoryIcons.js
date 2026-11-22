@@ -1,4 +1,4 @@
-import { CATEGORY_COLORS, categoryColorFor, categoryColorIdentity, categoryToneIndex, normalizeCategoryKey } from "./categoryColors.js";
+import { CATEGORY_COLORS, categoryColorFor, normalizeCategoryKey } from "./categoryColors.js";
 
 const RULES = [
   ["Coffee", ["kopi", "coffee", "cafe", "kafe", "snack", "jajan", "camilan", "minuman", "boba"]],
@@ -37,6 +37,6 @@ export function categoryVisual(category, palette = null) {
   const icon = rule ? rule[0] : FALLBACK_ICON;
   const color = categoryColorFor(category, palette);
   const index = CATEGORY_COLORS.indexOf(color);
-  const tone = (index >= 0 ? index : categoryToneIndex(categoryColorIdentity(category), CATEGORY_COLORS.length)) + 1;
+  const tone = index >= 0 ? index + 1 : "other";
   return { icon, tone, color };
 }

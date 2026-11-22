@@ -57,6 +57,16 @@ test("history columns carry stacked category segments using the shared Where col
   const earlier = columns[0];
   assert.equal(earlier.segments.at(-1).key, "other");
   assert.equal(earlier.segments.at(-1).color, "var(--chart-category-other)");
+
+  const partialColors = new Map([
+    [order[0], "var(--chart-category-1)"],
+    [order[1], "var(--chart-category-2)"],
+    [order[2], "var(--chart-category-other)"],
+  ]);
+  const folded = buildLedger(facts.history, facts.period.start, facts.categoryHistory, { colors: partialColors, order }).columns.at(-1);
+  assert.deepEqual(folded.segments.map(seg => seg.key), [order[0], order[1], "other"], "categories outside top 6 fold into the single Kategori lain segment");
+  assert.equal(folded.segments.at(-1).color, "var(--chart-category-other)");
+  assert.equal(folded.segments.at(-1).weight, Number(facts.categoryHistory.rows[2].amounts.at(-1)) + Number(facts.categoryHistory.other.amounts.at(-1)));
 });
 
 test("previous and next follow the served newest-first cycle list", () => {

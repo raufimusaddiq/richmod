@@ -82,43 +82,79 @@ test("the category drawer is a labelled modal that reuses the shared focus trap"
   assert.match(source, /className="category-drawer-title"><i className="where-swatch"/, "category drawer shows its shared category swatch");
 });
 
-test("categoryColorMap assigns one stable distinct colour per category across screens, subsets, and icons", () => {
-  const eight = [
+test("buildCategoryPalette ranks top 6 by confirmed expense, folds >6 into other, breaks ties deterministically, and handles <6", () => {
+  const ten = [
     { id: "c-ortu", name: "Orang Tua", amount: "4500000" },
     { id: "c-tinggal", name: "Tempat Tinggal", amount: "3200000" },
+    { id: "c-langganan", name: "Langganan", amount: "1900000" },
     { id: "c-kopi", name: "Kopi & Camilan", amount: "1400000" },
     { id: "c-jalan", name: "Perjalanan", amount: "1100000" },
-    { id: "c-makan", name: "Makan di Luar", amount: "900000" },
     { id: "c-belanja", name: "Belanja Bahan Makanan", amount: "750000" },
     { id: "c-keluarga", name: "Keluarga", amount: "600000" },
     { id: "c-hiburan", name: "Hiburan", amount: "200000" },
+    { id: "c-zero", name: "Nol", amount: "0" },
+    { id: null, name: "Belum dikategorikan", amount: "9999999" },
   ];
-  const five = eight.slice(0, 5);
-  const palette = buildCategoryPalette(eight);
-  const paletteReversed = buildCategoryPalette([...eight].reverse());
-  const berandaFive = categoryColorMap(five, palette);
-  const berandaEight = categoryColorMap(eight, palette);
-  const laporan = categoryColorMap({ categoryRanking: { rows: eight.slice(0, 7) }, categoryHistory: { rows: eight } }, palette);
-  const reordered = categoryColorMap({ categoryRanking: { rows: [...eight.slice(0, 7)].reverse() }, categoryHistory: { rows: [...eight].reverse() } }, paletteReversed);
-  const assigned = new Set();
-  for (const row of eight.slice(0, 7)) {
-    const color = laporan.colors.get(row.id);
-    assert.ok(color && color !== OTHER_CATEGORY_COLOR, `${row.name} gets a category colour`);
-    assert.equal(berandaEight.colors.get(row.id), color, `${row.name} keeps the same colour on Beranda and Laporan`);
-    assert.equal(reordered.colors.get(row.id), color, `${row.name} keeps the same colour when list order changes`);
-    assert.equal(categoryColorFor(row, palette), color, `${row.name} categoryColorFor matches chart map`);
-    assert.equal(categoryVisual(row, palette).color, color, `${row.name} CategoryIcon visual matches chart map`);
-    assigned.add(color);
+  const palette = buildCategoryPalette(ten);
+  const paletteShuffled = buildCategoryPalette([...ten].reverse());
+  assert.deepEqual([...palette.entries()], [...paletteShuffled.entries()], "palette depends on amount rank, not input order");
+  assert.equal(palette.size, 6, "at most six categories receive a category colour");
+  assert.deepEqual([...palette.entries()], [
+    ["c-ortu", "var(--chart-category-1)"],
+    ["c-tinggal", "var(--chart-category-2)"],
+    ["c-langganan", "var(--chart-category-3)"],
+    ["c-kopi", "var(--chart-category-4)"],
+    ["c-jalan", "var(--chart-category-5)"],
+    ["c-belanja", "var(--chart-category-6)"],
+  ]);
+  assert.equal(new Set(palette.values()).size, 6, "all six ranked categories have distinct colours with no repeats");
+
+  const berandaFive = categoryColorMap(ten.slice(0, 5), palette);
+  const berandaEight = categoryColorMap(ten.slice(0, 8), palette);
+  const laporan = categoryColorMap({ categoryRanking: { rows: ten.slice(0, 7) }, categoryHistory: { rows: ten } }, palette);
+  for (const row of ten.slice(0, 6)) {
+    const color = palette.get(row.id);
+    assert.equal(laporan.colors.get(row.id), color, `${row.name} keeps rank colour in Laporan`);
+    assert.equal(berandaEight.colors.get(row.id), color, `${row.name} keeps rank colour on Beranda`);
+    assert.equal(categoryColorFor(row, palette), color, `${row.name} categoryColorFor matches palette`);
+    assert.equal(categoryVisual(row, palette).color, color, `${row.name} CategoryIcon visual matches palette`);
   }
-  for (const row of five) {
-    assert.equal(berandaFive.colors.get(row.id), berandaEight.colors.get(row.id), `${row.name} keeps the same colour across 5- and 8-category subsets`);
-    assert.equal(categoryVisual(row, palette).color, berandaFive.colors.get(row.id), `${row.name} icon matches 5-category subset`);
-    assert.equal(categoryColorMap(five).colors.get(row.id), categoryColorMap(eight).colors.get(row.id), `${row.name} stays stable across subsets even without a household palette`);
-    assert.equal(categoryVisual(row).color, categoryColorMap(eight).colors.get(row.id), `${row.name} icon matches chart map even without a household palette`);
+  for (const row of ten.slice(0, 5)) {
+    assert.equal(berandaFive.colors.get(row.id), berandaEight.colors.get(row.id), `${row.name} stays stable across subsets`);
   }
-  assert.equal(assigned.size, 7, "all seven ranked categories have distinct colours with no repeats");
-  assert.notEqual(laporan.colors.get("c-keluarga"), laporan.colors.get("c-ortu"));
-  assert.notEqual(berandaEight.colors.get("c-kopi"), berandaEight.colors.get("c-jalan"));
-  assert.equal(new Set(eight.map(row => laporan.colors.get(row.id))).size, 8, "all eight categories stay distinct");
-  assert.equal(categoryVisual(eight[7], palette).color, laporan.colors.get("c-hiburan"), "8th category icon matches chart map");
+  for (const extra of [ten[6], ten[7], ten[8], ten[9]]) {
+    const key = extra.id || "uncategorized";
+    assert.equal(categoryColorFor(extra, palette), OTHER_CATEGORY_COLOR, `${extra.name} outside top 6 uses sand`);
+    assert.equal(laporan.colors.get(key), OTHER_CATEGORY_COLOR, `${extra.name} uses sand in Laporan`);
+    assert.equal(categoryVisual(extra, palette).color, OTHER_CATEGORY_COLOR, `${extra.name} icon uses sand`);
+    assert.equal(categoryVisual(extra, palette).tone, "other", `${extra.name} icon uses other tone`);
+  }
+
+  const tiedA = buildCategoryPalette([
+    { id: "cat-b", name: "Beta", amount: "500000" },
+    { id: "cat-a", name: "Alpha", amount: "500000" },
+    { id: "cat-c", name: "Gamma", amount: "500000" },
+  ]);
+  const tiedB = buildCategoryPalette([
+    { id: "cat-c", name: "Gamma", amount: "500000" },
+    { id: "cat-a", name: "Alpha", amount: "500000" },
+    { id: "cat-b", name: "Beta", amount: "500000" },
+  ]);
+  assert.deepEqual([...tiedA.entries()], [...tiedB.entries()], "ties break deterministically regardless of input order");
+  assert.deepEqual([...tiedA.entries()], [
+    ["cat-a", "var(--chart-category-1)"],
+    ["cat-b", "var(--chart-category-2)"],
+    ["cat-c", "var(--chart-category-3)"],
+  ]);
+
+  const fewer = buildCategoryPalette([
+    { id: "cat-only-1", name: "Satu", amount: "120000" },
+    { id: "cat-only-2", name: "Dua", amount: "80000.50" },
+    { id: "cat-neg", name: "Refund", amount: "-5000" },
+  ]);
+  assert.equal(fewer.size, 2, "fewer than 6 categories only fills available positive ranks");
+  assert.equal(fewer.get("cat-only-1"), "var(--chart-category-1)");
+  assert.equal(fewer.get("cat-only-2"), "var(--chart-category-2)");
+  assert.equal(categoryColorFor({ id: "cat-neg", name: "Refund" }, fewer), OTHER_CATEGORY_COLOR);
+  assert.equal(buildCategoryPalette([]).size, 0, "empty input produces an empty palette");
 });

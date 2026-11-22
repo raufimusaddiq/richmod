@@ -133,12 +133,15 @@ export function categoryLedgerHref(id, window) {
   return `/transactions?${params}`;
 }
 
-export function rankedCategories(items = [], limit = 6) {
+export function rankedCategories(items = [], limit = 6, palette = null) {
   const positive = items.filter(item => toRupiahInt(item.amount) > 0n);
   const total = positive.reduce((sum, item) => sum + toRupiahInt(item.amount), 0n);
   const toShare = amount => (total > 0n ? Number((amount * 10000n) / total) / 10000 : 0);
-  const top = positive.slice(0, limit).map(item => ({ ...item, share: toShare(toRupiahInt(item.amount)) }));
-  const rest = positive.slice(limit);
+  const hasPalette = Boolean(palette && palette.size > 0);
+  const eligible = hasPalette ? positive.filter(item => item.id && palette.has(String(item.id))) : positive;
+  const excluded = hasPalette ? positive.filter(item => !item.id || !palette.has(String(item.id))) : [];
+  const top = eligible.slice(0, limit).map(item => ({ ...item, share: toShare(toRupiahInt(item.amount)) }));
+  const rest = [...eligible.slice(limit), ...excluded];
   if (rest.length) {
     const amount = rest.reduce((sum, item) => sum + toRupiahInt(item.amount), 0n);
     top.push({ id: "other", name: "Kategori lain", amount: amount.toString(), share: toShare(amount), other: true });

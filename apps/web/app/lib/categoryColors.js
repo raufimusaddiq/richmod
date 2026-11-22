@@ -5,13 +5,11 @@ export const CATEGORY_COLORS = [
   "var(--chart-category-4)",
   "var(--chart-category-5)",
   "var(--chart-category-6)",
-  "var(--chart-category-7)",
-  "var(--chart-category-8)",
 ];
 
 export const OTHER_CATEGORY_COLOR = "var(--chart-category-other)";
 
-const PRIMARY_LIMIT = 7;
+export const TOP_CATEGORY_LIMIT = CATEGORY_COLORS.length;
 
 export function normalizeCategoryKey(value) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -23,62 +21,68 @@ export function categoryColorIdentity(item) {
   if (!item) return "uncategorized";
   if (typeof item === "string") return normalizeCategoryKey(item) || "uncategorized";
   if (item.id) return String(item.id);
+  if (item.id === null || item.id === "") return "uncategorized";
   return normalizeCategoryKey(item.slug || item.name) || "uncategorized";
 }
 
-export function categoryToneIndex(identity, count = CATEGORY_COLORS.length) {
-  let hash = 2166136261;
-  const text = String(identity || "uncategorized");
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  return hash % count;
+function parseExactAmount(value) {
+  if (typeof value === "bigint") return value * 10000n;
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0n;
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return 0n;
+  const sign = match[1] === "-" ? -1n : 1n;
+  const whole = BigInt(match[2]);
+  const frac = (match[3] || "").slice(0, 4).padEnd(4, "0");
+  return sign * (whole * 10000n + BigInt(frac));
 }
 
 function compareKeys(left, right) {
   const a = String(left);
   const b = String(right);
-  const ma = /^(.+?)(\d+)$/.exec(a);
-  const mb = /^(.+?)(\d+)$/.exec(b);
-  if (ma && mb && ma[1] === mb[1]) {
-    const diff = Number(ma[2]) - Number(mb[2]);
-    if (diff !== 0) return diff;
-  }
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-export function buildCategoryPalette(categories = []) {
-  const seen = new Set();
-  const keys = [];
-  for (const item of Array.isArray(categories) ? categories : []) {
+export function buildCategoryPalette(rankedCategories = []) {
+  const byKey = new Map();
+  for (const item of Array.isArray(rankedCategories) ? rankedCategories : []) {
     if (!item || item.other || item.remainder) continue;
-    const key = categoryColorIdentity(item);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    keys.push(key);
+    if (!item.id) continue;
+    const key = String(item.id);
+    if (key === "other" || key === "uncategorized") continue;
+    const amount = parseExactAmount(item.amount);
+    if (amount <= 0n) continue;
+    const existing = byKey.get(key);
+    if (!existing || amount > existing.amount) {
+      byKey.set(key, { key, amount });
+    }
   }
-  keys.sort(compareKeys);
+  const sorted = [...byKey.values()].sort((left, right) => {
+    if (right.amount > left.amount) return 1;
+    if (right.amount < left.amount) return -1;
+    return compareKeys(left.key, right.key);
+  });
   const palette = new Map();
-  keys.forEach((key, index) => {
-    palette.set(key, CATEGORY_COLORS[index % CATEGORY_COLORS.length]);
+  sorted.slice(0, TOP_CATEGORY_LIMIT).forEach((entry, index) => {
+    palette.set(entry.key, CATEGORY_COLORS[index]);
   });
   return palette;
 }
 
 export function categoryColorFor(item, palette = null) {
-  if (item?.other || item?.remainder) return OTHER_CATEGORY_COLOR;
+  if (!item || item.other || item.remainder) return OTHER_CATEGORY_COLOR;
   const identity = categoryColorIdentity(item);
+  if (identity === "uncategorized" || identity === "other") return OTHER_CATEGORY_COLOR;
   if (palette?.has(identity)) return palette.get(identity);
-  return CATEGORY_COLORS[categoryToneIndex(identity, CATEGORY_COLORS.length)];
+  return OTHER_CATEGORY_COLOR;
 }
 
 function extractLists(source) {
   if (Array.isArray(source)) {
-    const positive = source.filter(item => item && !item.other && !item.remainder && (item.amount == null || Number(item.amount) > 0));
+    const positive = source.filter(item => item && !item.other && !item.remainder && (item.amount == null || parseExactAmount(item.amount) > 0n));
     return {
-      primary: positive.slice(0, PRIMARY_LIMIT),
-      secondary: positive.slice(PRIMARY_LIMIT),
+      primary: positive,
+      secondary: [],
       history: [],
     };
   }
@@ -103,16 +107,21 @@ function uniqueKeys(rows, exclude = null) {
 
 export function categoryColorMap(source, palette = null) {
   const { primary, secondary, history } = extractLists(source);
+  const effectivePalette = palette && palette.size > 0 ? palette : buildCategoryPalette(primary);
   const primaryKeys = uniqueKeys(primary);
   const primarySet = new Set(primaryKeys);
   const secondaryKeys = uniqueKeys(secondary, primarySet);
   const colors = new Map();
-  if (palette && palette.size > 0) {
-    for (const [key, color] of palette.entries()) colors.set(key, color);
+  for (const [key, color] of effectivePalette.entries()) {
+    colors.set(key, color);
   }
   for (const key of [...primaryKeys, ...secondaryKeys]) {
-    if (!colors.has(key)) colors.set(key, categoryColorFor({ id: key }, palette));
+    if (!colors.has(key)) colors.set(key, OTHER_CATEGORY_COLOR);
   }
-  const order = [...primaryKeys, ...uniqueKeys(history, primarySet)];
+  const rankedKeys = [...effectivePalette.keys()];
+  const rankedSet = new Set(rankedKeys);
+  const remainingPrimary = primaryKeys.filter(key => !rankedSet.has(key));
+  const seenOrder = new Set([...rankedKeys, ...remainingPrimary]);
+  const order = [...rankedKeys, ...remainingPrimary, ...uniqueKeys(history, seenOrder)];
   return { colors, order };
 }

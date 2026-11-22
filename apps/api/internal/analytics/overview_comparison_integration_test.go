@@ -108,3 +108,41 @@ func TestCategoriesCurrentCycleMatchesOverviewWindow(t *testing.T) {
 		})
 	}
 }
+
+func TestCategoriesLast3CyclesRanksHouseholdAndBreaksTiesDeterministically(t *testing.T) {
+	f := cycleReviewFixture(t)
+	for _, d := range []string{"2026-06-25", "2026-07-25", "2026-08-25", "2026-09-25"} {
+		f.anchor(t, d)
+	}
+	f.categorized(t, "Old Cycle Only", "2026-07-01", "EXPENSE", "9000000")
+	f.categorized(t, "Top One", "2026-07-26", "EXPENSE", "500000")
+	f.categorized(t, "Top One", "2026-09-26", "EXPENSE", "400000")
+	f.categorized(t, "Tie Beta", "2026-08-26", "EXPENSE", "300000")
+	f.categorized(t, "Tie Alpha", "2026-08-26", "EXPENSE", "300000")
+	f.categorized(t, "With Refund", "2026-09-26", "EXPENSE", "250000")
+	f.categorized(t, "With Refund", "2026-09-27", "REFUND", "100000")
+
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, clock.HouseholdLocation())
+	h := NewCycleHandler(f.pool, func() time.Time { return now })
+	r := httptest.NewRequest("GET", "/api/v1/analytics/categories?period=last_3_cycles", nil)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{HouseholdID: f.household, HasHousehold: true}))
+	w := httptest.NewRecorder()
+	h.Categories(w, r)
+	var rows []struct {
+		ID     *string `json:"id"`
+		Name   string  `json:"name"`
+		Amount string  `json:"amount"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &rows) != nil {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("X-Window-Kind") != "SALARY_CYCLES" || w.Header().Get("X-Window-Cycles") != "3" || w.Header().Get("X-Window-Start") != "2026-07-25" {
+		t.Fatalf("headers kind=%q cycles=%q start=%q", w.Header().Get("X-Window-Kind"), w.Header().Get("X-Window-Cycles"), w.Header().Get("X-Window-Start"))
+	}
+	if len(rows) != 4 || rows[0].Name != "Top One" || rows[0].Amount != "900000" || rows[3].Name != "With Refund" || rows[3].Amount != "150000" {
+		t.Fatalf("rows=%+v", rows)
+	}
+	if rows[1].ID == nil || rows[2].ID == nil || *rows[1].ID >= *rows[2].ID {
+		t.Fatalf("ties must be ordered by category id ascending: %+v", rows[1:3])
+	}
+}

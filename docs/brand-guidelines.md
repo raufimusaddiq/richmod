@@ -67,20 +67,25 @@ that source; it does not introduce a parallel token file.
   with ▲/▼ and the neutral wording `lebih rendah` / `lebih tinggi` (never
   `lebih hemat` or `lebih boros`), and appear nowhere else in category or hero
   figures. A selected cycle, row or list item is `--butter`.
-- Category colours (`--chart-category-1..8`: slate `#3a5867`, ochre `#73561e`,
-  violet `#705268`, light slate `#536e80`, dusk indigo `#544d73`, warm sand
-  `#6b5842`, dusty blue `#435c86`, muted plum `#6a4c78`; plus pale sand
-  `--chart-category-other` `#cfc9b6` for `Kategori lain`) contain no red, no green,
-  and no accent teal, so a category never reads as a spending direction.
-  One shared household-wide registry (`buildCategoryPalette` via
-  `CategoryPaletteProvider`, sorted deterministically by category identity
-  rather than spend rank or displayed subset, and consumed through
-  `categoryColorMap` / `categoryVisual`) drives Beranda "Ke mana uangnya" and
-  transaction icons, Transaksi icons, Laporan "Ke mana uangnya", "Siklus ke
-  siklus", per-category tables, the category drawer, and calendar category
-  bars, so each category keeps one colour across screens, subsets, and cycles;
-  `Kategori lain` always uses `--chart-category-other` (sand). Every
-  `--chart-category-1..8` token clears WCAG AA 4.5:1 against `--surface-strong`.
+- Category colours ("Retro hidup", `--chart-category-1..6`, in household rank
+  order: deep teal `#1f6f68`, mustard `#b07d12`, dusty blue `#4a78a8`, plum
+  `#8a4f86`, terracotta `#b8602a`, lavender `#7d68b3`; plus pale sand
+  `--chart-category-other` `#cfc9b6` for `Kategori lain`) contain no red and no
+  green, so a category never reads as a spending direction (red and green stay
+  exclusively for spent more / spent less than last cycle). One shared
+  household-wide registry (`buildCategoryPalette` via
+  `CategoryPaletteProvider`, reading confirmed expenses over the last 3 salary
+  cycles from `GET /api/v1/analytics/categories?period=last_3_cycles` and
+  consumed through `categoryColorMap` / `categoryVisual`) assigns tokens 1–6 to
+  the household's top 6 categories keyed by category id (with ties broken
+  deterministically by category id); every other category uses
+  `--chart-category-other` (sand) and is grouped as `Kategori lain` in charts
+  and legends, so no two categories ever share a colour across Beranda "Ke mana
+  uangnya" and transaction icons, Transaksi icons, Laporan "Ke mana uangnya",
+  "Siklus ke siklus", per-category tables, the category drawer, and calendar
+  category bars. All six `--chart-category-1..6` tokens clear WCAG 3:1 non-text
+  contrast against `--surface` (3.5–6.2:1). Daily spending bars stay neutral ink
+  (`--ink-soft`).
 - Text tokens must keep WCAG AA 4.5:1 against every surface token. This is
   enforced by `apps/web/tests/ui-audit-locks.test.mjs`; run it before shipping a
   palette change.
@@ -270,8 +275,8 @@ and PRDs; they never appear in user-facing copy.
 - **Transaksi** is a quiet ledger grouped by Asia/Jakarta day with each day's net spend
   in the header. Rows show a display name preferring merchant name → counterparty
   name → description (and `Transfer ke <name>` for transfers with a counterparty,
-  display-only), a semantic Phosphor category icon (`categoryIcons.js`, eight
-  category tones, never letter boxes), one meta line and the signed amount; a badge
+  display-only), a semantic Phosphor category icon (`categoryIcons.js`, six
+  top-category tones plus neutral sand for other categories, never letter boxes), one meta line and the signed amount; a badge
   appears only for exceptions (Perlu dicek, Dibatalkan). Voided rows are hidden through
   `exclude_voided=true` (response headers `X-Total-Count` and `X-Voided-Count`) unless
   a status filter or `?showVoided=1` is set. Filters are a search box and chips

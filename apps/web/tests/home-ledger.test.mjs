@@ -15,11 +15,22 @@ test("category names map to a Phosphor icon, never a letter box", () => {
   assert.equal(normalizeCategoryName("Késehatan & Obat"), "kesehatan obat");
 });
 
-test("category tone is stable and one of the eight chart tones", () => {
-  const first = categoryVisual("Dana darurat"), again = categoryVisual("Dana darurat");
+test("category tone uses the six ranked chart tones for top-6 categories and other for the rest", () => {
+  const ranked = [
+    { id: "c1", name: "Dana darurat", amount: "900000" },
+    { id: "c2", name: "Kopi", amount: "400000" },
+  ];
+  const palette = new Map([["c1", "var(--chart-category-1)"], ["c2", "var(--chart-category-2)"]]);
+  const first = categoryVisual(ranked[0], palette), again = categoryVisual(ranked[0], palette);
   assert.deepEqual(first, again);
-  assert.ok(first.tone >= 1 && first.tone <= 8);
-  assert.equal(first.color, `var(--chart-category-${first.tone})`);
+  assert.equal(first.tone, 1);
+  assert.equal(first.color, "var(--chart-category-1)");
+  const unranked = categoryVisual({ id: "c9", name: "Hiburan" }, palette);
+  assert.equal(unranked.tone, "other");
+  assert.equal(unranked.color, "var(--chart-category-other)");
+  const noPalette = categoryVisual("Dana darurat");
+  assert.equal(noPalette.tone, "other");
+  assert.equal(noPalette.color, "var(--chart-category-other)");
   const bars = readFileSync(new URL("../app/components/CategoryBars.js", import.meta.url), "utf8");
   assert.match(bars, /categoryColorMap\(items, palette\)/, "Beranda Ke mana uangnya shares categoryColorMap");
   assert.match(bars, /row\.other \? OTHER_CATEGORY_COLOR/, "Kategori lain uses sand --chart-category-other");
@@ -138,6 +149,11 @@ test("ranked categories keep the top six and fold the rest into Kategori lain", 
   assert.deepEqual([rows[6].name, rows[6].amount, rows[6].other], ["Kategori lain", "300", true]);
   assert.ok(Math.abs(rows.reduce((sum, row) => sum + row.share, 0) - 1) < 0.001);
   assert.deepEqual(rankedCategories([{ id: "a", name: "A", amount: "0" }, { id: "b", name: "B", amount: "-5" }]), []);
+
+  const palette = new Map([["c0", "var(--chart-category-1)"], ["c2", "var(--chart-category-2)"]]);
+  const filtered = rankedCategories(items, 6, palette);
+  assert.deepEqual(filtered.map(row => row.id), ["c0", "c2", "other"]);
+  assert.equal(filtered[2].amount, String(700 + 500 + 400 + 300 + 200 + 100));
 });
 
 test("drilldown links keep the active window and uncategorized spend", () => {

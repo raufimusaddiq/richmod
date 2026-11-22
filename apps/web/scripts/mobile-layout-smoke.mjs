@@ -64,9 +64,27 @@ const wealthSnapshots = [
   { id: "wealth-1", observedAt: "2026-09-08T10:00:00+07:00", netWorthIdr: "48000000", assetTotalIdr: "48000000", liabilityTotalIdr: "0", items: wealthItems },
 ];
 
+function alignedCycleFacts() {
+  const facts = cycleFacts();
+  const idMap = new Map([
+    ["11111111-1111-4111-8111-111111111111", "cat-1"],
+    ["55555555-5555-4555-8555-555555555555", "cat-2"],
+    ["66666666-6666-4666-8666-666666666666", "cat-3"],
+  ]);
+  const remap = row => (row?.id && idMap.has(row.id) ? { ...row, id: idMap.get(row.id) } : row);
+  facts.categoryChanges = facts.categoryChanges.map(remap);
+  facts.categoryRanking = { ...facts.categoryRanking, rows: facts.categoryRanking.rows.map(remap) };
+  facts.categoryHistory = {
+    ...facts.categoryHistory,
+    rows: facts.categoryHistory.rows.map(remap),
+    sameDay: facts.categoryHistory.sameDay ? { ...facts.categoryHistory.sameDay, rows: facts.categoryHistory.sameDay.rows.map(remap) } : null,
+  };
+  return facts;
+}
+
 function fixture(path, currentUser) {
   if (path === "/api/v1/auth/me") return currentUser;
-  if (path === "/api/v1/analytics/cycle-review") return cycleFacts();
+  if (path === "/api/v1/analytics/cycle-review") return alignedCycleFacts();
   if (path === "/api/v1/analytics/cycle-decisions") return { items: [], previous: [], previousCycleStart: "2026-08-26" };
   if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", daysElapsed: 12, daysTotal: 30, daily };
@@ -201,6 +219,14 @@ try {
         sand,
       };
     });
+    assert.deepEqual(homeCategoryCheck.ranked, [
+      "rgb(31, 111, 104)",
+      "rgb(176, 125, 18)",
+      "rgb(74, 120, 168)",
+      "rgb(138, 79, 134)",
+      "rgb(184, 96, 42)",
+      "rgb(125, 104, 179)",
+    ], `${width}px Beranda category bars use the six Retro hidup colours in rank order`);
     assert.equal(new Set(homeCategoryCheck.ranked).size, homeCategoryCheck.ranked.length, `${width}px Beranda category bars repeat no colour: ${JSON.stringify(homeCategoryCheck.ranked)}`);
     assert.equal(homeCategoryCheck.otherSwatch, homeCategoryCheck.sand, `${width}px Beranda Kategori lain swatch uses sand`);
     assert.equal(homeCategoryCheck.otherBar, homeCategoryCheck.sand, `${width}px Beranda Kategori lain bar uses sand`);
@@ -238,6 +264,12 @@ try {
     assert.equal(await page.locator("#where .where-delta").count(), 0, `${width}px Ke mana uangnya omits delta column`);
     assert.ok(await page.locator("#where .where-share").count() >= 1, `${width}px Ke mana uangnya shows share percentages`);
     assert.ok(await page.locator("#history .history-bar .history-seg").count() >= 1, `${width}px Siklus ke siklus draws category-stacked bars`);
+    const laporanColors = await page.evaluate(() => ({
+      where: [...document.querySelectorAll("#where .where-list > li:not([data-other]) .where-swatch")].map(el => getComputedStyle(el).backgroundColor),
+      history: [...document.querySelectorAll("#history .history-cols > li:last-child .history-seg")].map(el => getComputedStyle(el).backgroundColor),
+    }));
+    assert.deepEqual(laporanColors.where, homeCategoryCheck.ranked.slice(0, 3), `${width}px Laporan Ke mana uangnya shares exact Retro hidup colours with Beranda`);
+    assert.deepEqual(laporanColors.history, homeCategoryCheck.ranked.slice(0, 3), `${width}px Laporan Siklus ke siklus shares exact Retro hidup colours with Beranda`);
     const chartPolish = await page.evaluate(() => {
       const barRects = [...document.querySelectorAll("#history .history-bar")].map(el => ({
         width: el.getBoundingClientRect().width,

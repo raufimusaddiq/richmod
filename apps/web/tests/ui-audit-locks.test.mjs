@@ -35,13 +35,25 @@ test("every text colour clears WCAG AA 4.5:1 on every surface", () => {
   assert.ok(ratio(token("surface-strong"), token("accent-hover")) >= 4.5, "primary button hover remains readable");
   assert.ok(ratio(token("line-strong"), token("surface-strong")) >= 3, "input outlines remain visible");
   assert.ok(ratio(token("accent"), token("canvas")) >= 3, "keyboard focus remains visible");
+  const hueOf = hex => {
+    const [r, g, b] = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return 0;
+    const raw = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (raw * 60 + 360) % 360;
+  };
   const categoryHexes = new Set();
-  for (let index = 1; index <= 8; index++) {
+  for (let index = 1; index <= 6; index++) {
     const hex = token(`chart-category-${index}`);
     categoryHexes.add(hex);
-    assert.ok(ratio(hex, token("surface-strong")) >= 4.5, `chart-category-${index} clears 4.5:1 on surface-strong`);
+    assert.ok(ratio(hex, token("surface")) >= 3, `chart-category-${index} clears 3:1 on surface`);
+    assert.ok(ratio(hex, token("surface-strong")) >= 3, `chart-category-${index} clears 3:1 on surface-strong`);
+    const h = hueOf(hex);
+    assert.ok(!(h < 15 || h > 345), `chart-category-${index} is not red (${h.toFixed(0)}°)`);
+    assert.ok(!(h >= 75 && h <= 160), `chart-category-${index} is not green (${h.toFixed(0)}°)`);
   }
-  assert.equal(categoryHexes.size, 8, "all eight category tokens are distinct");
+  assert.equal(categoryHexes.size, 6, "all six category tokens are distinct");
+  assert.doesNotMatch(source, /--chart-category-(?:7|8)\b/, "tokens 7 and 8 are removed");
   assert.ok(token("chart-category-other"), "Kategori lain sand token exists");
 });
 
