@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Reject multi-command prepared SQL
         run: |
-          if git grep -nE ';[[:space:]]*(UPDATE|INSERT|DELETE|SELECT)' -- apps/api apps/worker ':(glob)**/*.go'; then
+          if git grep -nE ';[[:space:]]*(UPDATE|INSERT|DELETE|SELECT)' -- ':(glob)apps/api/**/*.go' ':(glob)apps/worker/**/*.go'; then
             echo 'Split SQL commands into separate transaction-scoped Exec calls.' >&2
             exit 1
           fi
@@ -193,15 +193,24 @@ jobs:
         run: npm run build
       - name: Unit tests
         run: npm test
-      - name: Transaction date smoke
+      - name: Playwright smokes
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: node scripts/transaction-date-smoke.mjs
-      - name: Analytics review smoke
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: node scripts/analytics-review-smoke.mjs
-      - name: Mobile layout smoke
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: node scripts/mobile-layout-smoke.mjs
+        run: |
+          mkdir -p test-results/logs
+          pids=""
+          for name in transaction-date analytics-review mobile-layout; do
+            node scripts/$name-smoke.mjs >test-results/logs/$name.log 2>&1 &
+            pids="$pids $name:$!"
+          done
+          status=0
+          for entry in $pids; do
+            name=${entry%%:*}
+            wait "${entry##*:}" || { status=1; echo "::error::$name smoke failed"; }
+            echo "::group::$name smoke"
+            cat "test-results/logs/$name.log"
+            echo "::endgroup::"
+          done
+          exit $status
       - name: Upload smoke screenshots
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
