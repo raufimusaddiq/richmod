@@ -6,10 +6,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestScreenshotFallbackRecipients(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"active_member", "inactive_identity", "inactive_member", "no_identities", "source_active_member", "source_inactive_member", "source_inactive_identity", "source_missing_identity", "source_no_eligible", "source_foreign_household"} {
 		t.Run(mode, func(t *testing.T) {
 			f := seedScreenshotFixture(t, "Screenshot recipient "+mode)
@@ -41,7 +43,7 @@ func TestScreenshotFallbackRecipients(t *testing.T) {
 				wantCards, wantSummary = []int64{f.chatID}, []int64{f.chatID}
 			}
 			if strings.HasPrefix(mode, "source_") && mode != "source_no_eligible" {
-				chat := time.Now().UnixNano()
+				chat := testsupport.UniqueStamp()
 				var user string
 				if err := f.pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Fallback','test-only-hash') RETURNING id`, fmt.Sprintf("screenshot-fallback-%d@test.invalid", chat)).Scan(&user); err != nil {
 					t.Fatal(err)

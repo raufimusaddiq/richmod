@@ -70,6 +70,7 @@ func runTypedScreenshot(t *testing.T, label, documentType string, extraction scr
 }
 
 func TestIncidentDuplicateReferenceNumbersStillRecordThePayment(t *testing.T) {
+	t.Parallel()
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	f, gw, _ := runIdentityScreenshot(t, "Identity duplicate kinds", screenshotExtraction{Confidence: .99, Transactions: []screenshotRow{incidentRow(at)}})
 	ctx := context.Background()
@@ -104,6 +105,7 @@ func TestIncidentDuplicateReferenceNumbersStillRecordThePayment(t *testing.T) {
 }
 
 func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
+	t.Parallel()
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	row := incidentRow(at)
 	row.TransactionIdentifiers = []screenshotIdentifier{{"ACCOUNT_NUMBER", "123456"}, {"REFERENCE_NUMBER", "a"}, {"REFERENCE_NUMBER", "b"}}
@@ -159,6 +161,7 @@ func TestUnrecoverableScreenshotIdentityOpensAReview(t *testing.T) {
 }
 
 func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
+	t.Parallel()
 	f, _, _ := runTypedScreenshot(t, "Unpaid invoice", "BILL_OR_INVOICE", screenshotExtraction{Confidence: .97, PaymentStatus: "UNPAID", Transactions: []screenshotRow{}})
 	ctx := context.Background()
 	var document, source string
@@ -175,6 +178,7 @@ func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
 }
 
 func TestReprocessFromScreenshotReviewRerunsTheDocument(t *testing.T) {
+	t.Parallel()
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	bad := incidentRow(at)
 	bad.TransactionIdentifiers = []screenshotIdentifier{{"ACCOUNT_NUMBER", "123456"}}

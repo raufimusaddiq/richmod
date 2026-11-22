@@ -37,6 +37,7 @@ func seedDuplicateEvidence(t *testing.T, ctx context.Context, f agentIntegration
 }
 
 func TestPossibleDuplicateEvidenceOffersOpaqueCandidatesAndNoIds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-context")
 	s := seedDuplicateEvidence(t, ctx, f, "a", 101, 301)
@@ -95,6 +96,7 @@ func mergeCallFromContext(t *testing.T, request gateway.AgentRequest, useRef str
 }
 
 func TestReceiptReplyMergesIntoTheNamedExistingTransactionWithoutADuplicate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-merge")
 	s := seedDuplicateEvidence(t, ctx, f, "a", 101, 301)
@@ -134,6 +136,7 @@ func TestReceiptReplyMergesIntoTheNamedExistingTransactionWithoutADuplicate(t *t
 }
 
 func TestMergeRefusesRefsThatAreNotTheReviewsCurrentCandidates(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-refuse")
 	s := seedDuplicateEvidence(t, ctx, f, "a", 101, 301)
@@ -178,6 +181,7 @@ func TestMergeRefusesRefsThatAreNotTheReviewsCurrentCandidates(t *testing.T) {
 }
 
 func TestMergeExistingIsOnlyAvailableForPossibleDuplicateReviews(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "cand-type")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})

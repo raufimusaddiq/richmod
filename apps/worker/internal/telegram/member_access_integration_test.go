@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func memberAccessPool(t *testing.T) *pgxpool.Pool {
@@ -32,7 +32,7 @@ type accessFixture struct {
 func newAccessFixture(t *testing.T, pool *pgxpool.Pool) accessFixture {
 	t.Helper()
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var f accessFixture
 	for _, target := range []*string{&f.household, &f.otherHousehold} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Member access %d", stamp)).Scan(target); err != nil {
@@ -53,6 +53,7 @@ func newAccessFixture(t *testing.T, pool *pgxpool.Pool) accessFixture {
 }
 
 func TestTelegramMemberAuthorized(t *testing.T) {
+	t.Parallel()
 	pool := memberAccessPool(t)
 	ctx := context.Background()
 	f := newAccessFixture(t, pool)
@@ -80,6 +81,7 @@ func TestTelegramMemberAuthorized(t *testing.T) {
 }
 
 func TestQueuedTurnFromRemovedMemberIsIgnoredSilently(t *testing.T) {
+	t.Parallel()
 	pool := memberAccessPool(t)
 	ctx := context.Background()
 	f := newAccessFixture(t, pool)

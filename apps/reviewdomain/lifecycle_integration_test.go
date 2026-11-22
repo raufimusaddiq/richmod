@@ -9,6 +9,7 @@ import (
 )
 
 func TestAuditLifecycleSettlesAllOutstandingWork(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -84,6 +85,7 @@ func TestAuditLifecycleSettlesAllOutstandingWork(t *testing.T) {
 }
 
 func TestLifecycleRefreshIsHouseholdScoped(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}

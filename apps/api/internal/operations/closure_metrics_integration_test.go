@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, source string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("SAVR closure %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -36,7 +37,7 @@ func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 		($1,'GENERATIVE','EXTRACTION',ARRAY['amount'],ARRAY['amount'],5,'SUCCEEDED',NULL)`, household); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, household)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, household)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,9 +56,10 @@ func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 }
 
 func TestResidualContractFidelityFlagsUndeclaredHumanWork(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, source string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("SAVR fidelity %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -82,7 +84,7 @@ func TestResidualContractFidelityFlagsUndeclaredHumanWork(t *testing.T) {
 	seed("MISSING_PAY_DATE", `{"version":1,"reasonCode":"MISSING_PAY_DATE","allowedActions":["SET_PAY_DATE","IGNORE"],"decisionClass":"EVIDENCE_GAP","whyNotAutoConfirm":"x","knownFacts":{},"missingFacts":["category"]}`, "SET_PAY_DATE", nil)
 	seed("RECEIPT_MISMATCH", `{"version":1,"reasonCode":"RECEIPT_MISMATCH","allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionClass":"CORRECTION_CONFIRMATION","validationConsequence":"QUALITY_SIGNAL","whyNotAutoConfirm":"x","knownFacts":{},"missingFacts":["amount"]}`, "", nil)
 	seed("MANUAL_CORRECTION", `{"version":1,"reasonCode":"MANUAL_CORRECTION","allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionClass":"CORRECTION_CONFIRMATION","whyNotAutoConfirm":"x","knownFacts":{},"missingFacts":["correction_details"]}`, "CONFIRM_REVIEW", []string{"amount"})
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, household)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, household)
 	if err != nil {
 		t.Fatal(err)
 	}

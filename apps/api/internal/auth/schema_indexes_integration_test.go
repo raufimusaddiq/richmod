@@ -43,6 +43,7 @@ WHERE d.noexpr AND k.noexpr AND NOT d.pk AND (
 ORDER BY 1`
 
 func TestSchemaHasNoRedundantIndexes(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

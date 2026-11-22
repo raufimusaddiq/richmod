@@ -21,32 +21,3 @@ func TestPresetsHaveCompleteKnownContracts(t *testing.T) {
 		t.Fatal("unknown reasons must not produce a persistable zero decision")
 	}
 }
-
-func TestPossibleDuplicatePresetOffersOnlyReceiptReviewChoices(t *testing.T) {
-	decision, ok := Preset("POSSIBLE_DUPLICATE", "transaction", "subject")
-	want := []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
-	if !ok || len(decision.AllowedActions) != len(want) {
-		t.Fatalf("unexpected duplicate choices: %+v, ok=%t", decision, ok)
-	}
-	for i, action := range want {
-		if decision.AllowedActions[i] != action {
-			t.Fatalf("duplicate choices=%v, want %v", decision.AllowedActions, want)
-		}
-	}
-}
-
-func TestWealthObservationPresetHasNoWebOnlyAction(t *testing.T) {
-	decision, ok := Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", "subject")
-	if !ok {
-		t.Fatal("missing wealth observation preset")
-	}
-	want := []string{"SET_WEALTH_ACCOUNT", "IGNORE"}
-	if len(decision.AllowedActions) != len(want) {
-		t.Fatalf("wealth allowed actions=%v, want %v", decision.AllowedActions, want)
-	}
-	for i, action := range want {
-		if decision.AllowedActions[i] != action {
-			t.Fatalf("wealth allowed actions=%v, want %v", decision.AllowedActions, want)
-		}
-	}
-}

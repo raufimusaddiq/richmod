@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestActiveCycleLongerThanPreviousComparesAgainstWholePreviousCycle(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -29,7 +31,7 @@ func TestActiveCycleLongerThanPreviousComparesAgainstWholePreviousCycle(t *testi
 		}
 		return id
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household := insert(`INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Cycle compare %d", stamp))
 	user := insert(`INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Member','unused') RETURNING id`, fmt.Sprintf("cycle-compare-%d@example.test", stamp))
 	salary := insert(`INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Fixture salary','fixture salary',true) RETURNING id`, household, user)

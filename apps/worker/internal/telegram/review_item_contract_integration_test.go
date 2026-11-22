@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCreateTransactionReviewItemWritesCompleteContractOnce(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -28,7 +29,7 @@ func TestCreateTransactionReviewItemWritesCompleteContractOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdID, transactionID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("review contract %d", stamp)).Scan(&householdID))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,now()) RETURNING id`, householdID).Scan(&transactionID))
@@ -84,6 +85,7 @@ func TestCreateTransactionReviewItemWritesCompleteContractOnce(t *testing.T) {
 }
 
 func TestReviewItemDecisionTriggerGuardsNewRowsOnly(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -94,7 +96,7 @@ func TestReviewItemDecisionTriggerGuardsNewRowsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdID, sourceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("review trigger %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

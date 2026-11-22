@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func replyUpdate(update telegramUpdate, messageID int64) telegramUpdate {
@@ -17,6 +18,7 @@ func replyUpdate(update telegramUpdate, messageID int64) telegramUpdate {
 type seedExpect struct{ documentID, amount string }
 
 func TestReplyToUploadBindsOnlyThatEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-upload")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -46,6 +48,7 @@ func TestReplyToUploadBindsOnlyThatEvidence(t *testing.T) {
 }
 
 func TestUnresolvedReplyNeverFallsBackToRecentEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-unresolved")
 	seedEvidence(t, ctx, f, "recent", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -68,6 +71,7 @@ func TestUnresolvedReplyNeverFallsBackToRecentEvidence(t *testing.T) {
 }
 
 func TestReplyBindingIsScopedToTheChat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-chat")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -97,11 +101,12 @@ func TestReplyBindingIsScopedToTheChat(t *testing.T) {
 }
 
 func TestAlbumMemberReplyResolvesToTheAlbumDocument(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-album")
 	first := seedEvidence(t, ctx, f, "first", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 201})
 	var secondSource string
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id,telegram_media_group_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED',202,$4,'album-1') RETURNING id`,
 		f.householdID, fmt.Sprintf("album-%d", stamp), []byte(fmt.Sprintf("album-%d", stamp)), f.chatID).Scan(&secondSource))
 	_, err := f.pool.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,1)`, first.documentID, secondSource, first.attachmentID)
@@ -118,6 +123,7 @@ func TestAlbumMemberReplyResolvesToTheAlbumDocument(t *testing.T) {
 }
 
 func TestReplyToBoundNoticeResolvesItsDocumentAndStaysHouseholdScoped(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-notice")
 	other := newAgentIntegrationFixture(t, "reply-notice-other")
@@ -154,6 +160,7 @@ func linkReceiptReview(t *testing.T, ctx context.Context, f agentIntegrationFixt
 }
 
 func TestReplyToUploadBindsItsOpenReceiptReview(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-review")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -179,6 +186,7 @@ func TestReplyToUploadBindsItsOpenReceiptReview(t *testing.T) {
 }
 
 func TestReplyToReviewCardKeepsItsBindingAndAttachesEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-card")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -196,6 +204,7 @@ func TestReplyToReviewCardKeepsItsBindingAndAttachesEvidence(t *testing.T) {
 }
 
 func TestUniqueActiveReviewGainsEvidenceContextOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "reply-active")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -277,6 +286,7 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 }
 
 func TestMessageBindingRejectsDanglingAndCrossHouseholdDocuments(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "binding-fk")
 	other := newAgentIntegrationFixture(t, "binding-fk-other")

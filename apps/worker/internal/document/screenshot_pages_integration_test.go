@@ -43,6 +43,7 @@ func (g *screenshotPagesGateway) NativeToolCall(_ context.Context, _ string, _ s
 }
 
 func TestScreenshotExtractionReadsEveryPage(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"web_multipage", "telegram_album", "legacy_primary", "unreadable_secondary"} {
 		t.Run(mode, func(t *testing.T) {
 			f := seedScreenshotFixture(t, "Synthetic screenshot pages")

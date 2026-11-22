@@ -7,15 +7,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func seedStandaloneUser(t *testing.T, pool *pgxpool.Pool, label string, active, superAdmin bool) (string, string) {
 	t.Helper()
-	email := fmt.Sprintf("%s-%d@example.test", label, time.Now().UnixNano())
+	email := fmt.Sprintf("%s-%d@example.test", label, testsupport.UniqueStamp())
 	var id string
 	if err := pool.QueryRow(context.Background(), `INSERT INTO "user"(email,display_name,password_hash,active,is_super_admin,google_sub,google_linked_at) VALUES($1,'Google Name','unused',$2,$3,$4,now()) RETURNING id`, email, active, superAdmin, "sub-"+email).Scan(&id); err != nil {
 		t.Fatal(err)
@@ -31,6 +31,7 @@ func addMember(t *testing.T, handler *Handler, owner auth.Principal, email strin
 }
 
 func TestOwnerAddsExistingHouseholdlessGoogleUserAsMember(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	householdID, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
@@ -59,6 +60,7 @@ func TestOwnerAddsExistingHouseholdlessGoogleUserAsMember(t *testing.T) {
 }
 
 func TestOwnerCanAddUserRemovedFromAnotherHousehold(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	otherHouseholdID, otherUserID, _ := seedIdentity(t, pool, "MEMBER")
 	if _, err := pool.Exec(context.Background(), `UPDATE household_member SET active=false,deactivated_at=now() WHERE household_id=$1 AND user_id=$2`, otherHouseholdID, otherUserID); err != nil {
@@ -84,6 +86,7 @@ func TestOwnerCanAddUserRemovedFromAnotherHousehold(t *testing.T) {
 }
 
 func TestOwnerCannotClaimUnavailableExistingAccounts(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	_, _, owner := seedIdentity(t, pool, "OWNER")
 	householdID := owner.Household.HouseholdID

@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBankEmailPersistRecipients(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"all_active", "inactive_identity", "inactive_member", "foreign_household", "no_identities", "retry_after_pruning", "concurrent_retry", "rollback_after_notice", "review_inactive_member", "review_active_members", "completion_no_notice", "source_household_mismatch", "review_source_household_mismatch"} {
 		t.Run(mode, func(t *testing.T) {
 			if os.Getenv("TEST_DATABASE_URL") == "" {
@@ -30,7 +32,7 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := time.Now().UnixNano()
+			stamp := testsupport.UniqueStamp()
 			var household, foreign, owner, source, category string
 			listener := Listener{TrackingPolicy: "SPENDING_ONLY", Active: true}
 			must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Notice fixture') RETURNING id`).Scan(&household))

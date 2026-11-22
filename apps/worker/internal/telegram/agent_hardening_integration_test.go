@@ -10,6 +10,7 @@ import (
 )
 
 func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "no-implicit-correction")
 	var categoryID string
@@ -49,6 +50,7 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 }
 
 func TestAgentStageBatchStagesUnknownCategoryForReview(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "batch-invalid-category")
 	p := NewProcessor(f.pool, nil)
@@ -88,6 +90,7 @@ func TestAgentStageBatchStagesUnknownCategoryForReview(t *testing.T) {
 }
 
 func TestAgentWealthAssetPurchaseCommitsOneAtomicOutcome(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "wealth-asset-atomic")
 	var accountID, wealthID string
@@ -131,6 +134,7 @@ func TestAgentWealthAssetPurchaseCommitsOneAtomicOutcome(t *testing.T) {
 }
 
 func TestAgentWealthAssetPurchaseRollsBackTransferWhenLaterWriteFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "wealth-asset-rollback")
 	var accountID, wealthID string

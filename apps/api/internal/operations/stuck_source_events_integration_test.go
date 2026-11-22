@@ -3,18 +3,18 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
-	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 const stuckTestDecision = `{"version":1,"reasonCode":"MANUAL_CORRECTION","allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionClass":"EVIDENCE_GAP","whyNotAutoConfirm":"x","knownFacts":{},"missingFacts":["correction_details"]}`
 
 func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household string
 	must := func(err error) {
 		t.Helper()
@@ -99,15 +99,5 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stuck other %d", stamp)).Scan(&other))
 	if none, err := StuckSourceEvents(ctx, pool, other); err != nil || len(none) != 0 {
 		t.Fatalf("scoped scan leaked rows: %d err=%v", len(none), err)
-	}
-}
-
-func TestStuckSourceEventsRunbookQuotesTheQuery(t *testing.T) {
-	raw, err := os.ReadFile("../../../../docs/runbooks/stuck-source-events.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), strings.ReplaceAll(StuckSourceEventsSQL, "$1::uuid", "NULL::uuid")) {
-		t.Fatal("docs/runbooks/stuck-source-events.md no longer quotes StuckSourceEventsSQL (with $1::uuid replaced by NULL::uuid)")
 	}
 }

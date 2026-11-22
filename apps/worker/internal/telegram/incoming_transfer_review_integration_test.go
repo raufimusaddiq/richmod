@@ -7,12 +7,13 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -38,7 +39,7 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.callback, func(t *testing.T) {
-			stamp := time.Now().UnixNano()
+			stamp := testsupport.UniqueStamp()
 			chatID := stamp
 			must := func(err error) {
 				t.Helper()

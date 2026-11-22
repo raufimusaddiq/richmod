@@ -9,13 +9,14 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestEditTransactionMerchantRename(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -35,7 +36,7 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 	var household, foreign, user, category string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Rename own') RETURNING id`).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Rename foreign') RETURNING id`).Scan(&foreign))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Renamer','unused') RETURNING id`, fmt.Sprintf("rename-%d@example.test", time.Now().UnixNano())).Scan(&user))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Renamer','unused') RETURNING id`, fmt.Sprintf("rename-%d@example.test", testsupport.UniqueStamp())).Scan(&user))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Transport','transport') RETURNING id`, household).Scan(&category))
 	h := NewHandler(pool)
 	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}

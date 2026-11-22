@@ -9,9 +9,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestLinkBankEvidenceLeavesCommitToItsCaller(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -27,7 +29,7 @@ func TestLinkBankEvidenceLeavesCommitToItsCaller(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	at := time.Date(2026, 10, 19, 6, 30, 0, 0, time.UTC)
 	var household, owner, account, source, existing string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Link ownership %d", stamp)).Scan(&household))

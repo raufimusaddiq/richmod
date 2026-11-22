@@ -9,6 +9,7 @@ import (
 )
 
 func TestAgentStageTransferReviewCreatesChatScopedBinding(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "transfer-stage-binding")
 	var accountID string

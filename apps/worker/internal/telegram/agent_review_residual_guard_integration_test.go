@@ -9,6 +9,7 @@ import (
 )
 
 func TestAgentConfirmRefusesWhenStoredResidualDateIsUnsupplied(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "residual-guard")
 	var categoryID string

@@ -28,6 +28,7 @@ func seedAttributionReview(t *testing.T, kind, reason string, dateKnown bool) (a
 }
 
 func TestAuditF05DistinctDuplicateRequiresCategory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f, transaction, proposal, _ := seedAttributionReview(t, "EXPENSE", "POSSIBLE_DUPLICATE", true)
 	raw, err := json.Marshal(callbackUpdate(f.chatID, 99, "review:dup:new"))
@@ -51,6 +52,7 @@ func TestAuditF05DistinctDuplicateRequiresCategory(t *testing.T) {
 }
 
 func TestAuditF06DateThenCategoryCompletes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f, transaction, proposal, request := seedAttributionReview(t, "EXPENSE", "TRANSACTION_FACTS_MISSING", false)
 	var category string
@@ -70,6 +72,7 @@ func TestAuditF06DateThenCategoryCompletes(t *testing.T) {
 }
 
 func TestAuditF07IncomeCannotConfirmFallbackDate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f, transaction, _, request := seedAttributionReview(t, "INCOME", "TRANSFER_CLASSIFICATION", false)
 	raw, err := json.Marshal(callbackUpdate(f.chatID, 99, "review:income"))
@@ -90,6 +93,7 @@ func TestAuditF07IncomeCannotConfirmFallbackDate(t *testing.T) {
 }
 
 func TestTransferClassificationSurvivesDateContinuation(t *testing.T) {
+	t.Parallel()
 	for _, choice := range []struct{ callback, relationship string }{
 		{"review:own", "OWN_ACCOUNT"},
 		{"review:household", "HOUSEHOLD_ACCOUNT"},

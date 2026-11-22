@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -50,6 +50,7 @@ func seedWealthDocument(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 }
 
 func TestWealthObservationAppliesWithoutReviewWhenAccountResolves(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -60,7 +61,7 @@ func TestWealthObservationAppliesWithoutReviewWhenAccountResolves(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, wealthAccountID := seedWealthDocument(t, ctx, pool, stamp)
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	storage, err := blob.NewLocal(filepath.Join(t.TempDir(), "documents"))
@@ -92,6 +93,7 @@ func TestWealthObservationAppliesWithoutReviewWhenAccountResolves(t *testing.T) 
 }
 
 func TestUnresolvedWealthObservationCreatesOnlyAccountResolutionReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -102,7 +104,7 @@ func TestUnresolvedWealthObservationCreatesOnlyAccountResolutionReview(t *testin
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	householdID, documentID, _ := seedWealthDocument(t, ctx, pool, stamp)
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	if _, err = pool.Exec(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Bibit Cash','Bibit','ASSET','BANK','SAVINGS')`, householdID); err != nil {

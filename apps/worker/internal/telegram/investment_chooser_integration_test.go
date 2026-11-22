@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -22,7 +24,7 @@ func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	chat := stamp
 	var household, user, account, later, review, item string
 	var eligibleIDs []string

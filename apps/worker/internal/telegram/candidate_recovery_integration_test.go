@@ -10,6 +10,7 @@ import (
 )
 
 func TestTelegramDateRecoversDeactivatedPartialClassificationCandidate(t *testing.T) {
+	t.Parallel()
 	for _, choice := range []struct{ classification, role, fact string }{
 		{"ASSET_PURCHASE", "OTHER", "wealth_account"},
 		{"INVESTMENT_ACCOUNT", "INVESTMENT", "wealth_account"},
@@ -101,6 +102,7 @@ func TestTelegramDateRecoversDeactivatedPartialClassificationCandidate(t *testin
 }
 
 func TestTypedAssetClassificationRetainsDateResidual(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f, transaction, _, request := seedAttributionReview(t, "UNCLASSIFIED", "TRANSFER_CLASSIFICATION", false)
 	var account string

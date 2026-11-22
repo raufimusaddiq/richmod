@@ -9,13 +9,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCorrectSnapshotPreservesHistoricalMembership(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -26,7 +27,7 @@ func TestCorrectSnapshotPreservesHistoricalMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, user, oldAccount, currentAccount, laterAccount, snapshot string
 	must := func(err error) {
 		if err != nil {
@@ -72,6 +73,7 @@ func TestCorrectSnapshotPreservesHistoricalMembership(t *testing.T) {
 }
 
 func TestActiveFinancialSourceBlocksWealthDeactivation(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -82,7 +84,7 @@ func TestActiveFinancialSourceBlocksWealthDeactivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, user, wealth string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("wealth-source-%d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -115,6 +117,7 @@ func TestActiveFinancialSourceBlocksWealthDeactivation(t *testing.T) {
 }
 
 func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -125,7 +128,7 @@ func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, user, account string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("wealth-accepted-%d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -166,6 +169,7 @@ func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
 }
 
 func TestDocumentObservationSnapshotSettlesSourceEvent(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -176,7 +180,7 @@ func TestDocumentObservationSnapshotSettlesSourceEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)

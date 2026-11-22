@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type deliveryFixture struct {
@@ -37,7 +38,7 @@ func seedDeliveryFixture(t *testing.T) *deliveryFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	f := &deliveryFixture{pool: pool, ctx: ctx, stamp: stamp, chatA: stamp, chatB: stamp + 1}
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Delivery %d", stamp)).Scan(&f.householdID))
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Rina','unused') RETURNING id`, fmt.Sprintf("delivery-a-%d@example.test", stamp)).Scan(&f.userA))
@@ -115,6 +116,7 @@ func (f *deliveryFixture) resolve(t *testing.T, requestID string) {
 }
 
 func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	own, spouse := f.sends(t, requestID, f.chatA), f.sends(t, requestID, f.chatB)
@@ -138,6 +140,7 @@ func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 }
 
 func TestEnqueueReviewRequestReusesTheOpenProjection(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	transactionID := f.transaction(t, "TELEGRAM_TEXT")
 	requestID := f.enqueue(t, transactionID, f.chatA, 77)
@@ -227,6 +230,7 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 }
 
 func TestDeliverSendRetryAfterBindFailureDoesNotResend(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	send := f.sends(t, requestID, f.chatA)[0]
@@ -257,6 +261,7 @@ func TestDeliverSendRetryAfterBindFailureDoesNotResend(t *testing.T) {
 }
 
 func TestTerminalCardSendFailureIsRecordedAndReleasesTheSlot(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	var requests []string
 	for i := 0; i < 4; i++ {
@@ -279,6 +284,7 @@ func TestTerminalCardSendFailureIsRecordedAndReleasesTheSlot(t *testing.T) {
 }
 
 func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 610, "🟡 Perlu ditinjau"))
@@ -329,6 +335,7 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 }
 
 func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 700, "🟡 Perlu ditinjau"))
@@ -390,6 +397,7 @@ func TestDeliverEditNotModifiedAndUneditableCard(t *testing.T) {
 }
 
 func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 801, "🟡 Perlu ditinjau"))
@@ -430,6 +438,7 @@ func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 }
 
 func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 900, "🟡 Perlu ditinjau"))
@@ -500,6 +509,7 @@ func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 }
 
 func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	var live []string
 	for i := 0; i < 3; i++ {
@@ -537,6 +547,7 @@ func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 }
 
 func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	var unset bool
@@ -562,6 +573,7 @@ func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
 }
 
 func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1300, "🟡 Perlu ditinjau"))
@@ -582,7 +594,7 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 		var done bool
 		expired <- f.pool.QueryRow(ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done)
 	}()
-	time.Sleep(300 * time.Millisecond)
+	waitUntilBlockedBy(t, f.pool, failing)
 	ctx, cancel := context.WithTimeout(f.ctx, 3*time.Second)
 	defer cancel()
 	if _, err := failing.Exec(ctx, `UPDATE review_request_recipient SET delivery_error=delivery_error WHERE id=$1`, recipientA); err != nil {
@@ -598,6 +610,7 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 }
 
 func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	for round := 0; round < 10; round++ {
 		var transactions [2]string
@@ -637,6 +650,7 @@ func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 }
 
 func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1400, "🟡 Perlu ditinjau"))
@@ -663,6 +677,7 @@ func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
 }
 
 func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1500, "🟡 Perlu ditinjau"))
@@ -687,6 +702,7 @@ func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
 }
 
 func TestFinalFailureAfterDeliveryBindsTheRecordedMessage(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	send := f.sends(t, requestID, f.chatA)[0]
@@ -723,6 +739,7 @@ func TestSweepRepairsPendingCopyWithoutASendJob(t *testing.T) {
 }
 
 func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	send := f.sends(t, requestID, f.chatA)[0]
@@ -744,6 +761,7 @@ func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
 }
 
 func TestEditResendRetryBindsAfterTheCopyExpired(t *testing.T) {
+	t.Parallel()
 	f := seedDeliveryFixture(t)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1800, "🟡 Perlu ditinjau"))

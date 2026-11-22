@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestCEUBindingOutcomesAreCountedPerHouseholdInTheWindow(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, other, quiet string
 	for index, target := range []*string{&household, &other, &quiet} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("CEU metrics %d-%d", stamp, index)).Scan(target); err != nil {
@@ -34,7 +36,7 @@ func TestCEUBindingOutcomesAreCountedPerHouseholdInTheWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, household)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, household)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +50,11 @@ func TestCEUBindingOutcomesAreCountedPerHouseholdInTheWindow(t *testing.T) {
 		}
 	}
 
-	theirs, err := NewHandler(pool).loadProductAggregate(ctx, other)
+	theirs, err := aggregateHandler(pool).loadProductAggregate(ctx, other)
 	if err != nil || len(theirs.CEUBinding) != 1 || theirs.CEUBinding["EXACT_REPLY_BINDING"] != 1 {
 		t.Fatalf("other household ceuBinding=%v err=%v", theirs.CEUBinding, err)
 	}
-	none, err := NewHandler(pool).loadProductAggregate(ctx, quiet)
+	none, err := aggregateHandler(pool).loadProductAggregate(ctx, quiet)
 	if err != nil || none.CEUBinding == nil || len(none.CEUBinding) != 0 {
 		t.Fatalf("quiet household ceuBinding=%v err=%v, want an empty non-nil map", none.CEUBinding, err)
 	}

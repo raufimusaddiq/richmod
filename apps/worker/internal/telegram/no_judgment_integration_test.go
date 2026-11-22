@@ -11,6 +11,7 @@ import (
 )
 
 func TestTelegramRecordsExpenseWithoutAJudgmentPlane(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -40,6 +41,7 @@ func TestTelegramRecordsExpenseWithoutAJudgmentPlane(t *testing.T) {
 }
 
 func TestTelegramUniqueReviewAnswerResolvesWithoutAJudgmentPlane(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}

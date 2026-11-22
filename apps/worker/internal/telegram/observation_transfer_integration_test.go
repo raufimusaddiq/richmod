@@ -9,6 +9,7 @@ import (
 )
 
 func TestAuditF12ObservationTransferDoesNotOfferTransactionButtons(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "observation-transfer")
 	var observation, item string

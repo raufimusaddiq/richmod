@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,7 +29,7 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	var source, salarySource, start, end, review, account, foreign string
 	must := func(err error) {
@@ -86,6 +88,7 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 }
 
 func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -96,7 +99,7 @@ func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -130,6 +133,7 @@ func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
 }
 
 func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -140,7 +144,7 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -182,6 +186,7 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 }
 
 func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -192,7 +197,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -231,7 +236,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 	}
 	var reviews []struct {
 		ID, ReviewType, CycleStart, CycleEnd, WealthObservationID, ResolvedWealthAccountID, Institution, AccountHint string
-		AllowedActions []string `json:"allowedActions"`
+		AllowedActions                                                                                               []string `json:"allowedActions"`
 	}
 	must(json.Unmarshal(res.Body.Bytes(), &reviews))
 	var gotWealth, gotResidual bool
@@ -259,6 +264,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 }
 
 func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -269,7 +275,7 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -447,6 +453,7 @@ dualListed:
 }
 
 func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -457,7 +464,7 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -534,6 +541,9 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 	if candidates != 11 || overflowStatus != 2 {
 		t.Fatalf("overflow candidates=%d transactions=%d", candidates, overflowStatus)
 	}
+	if res := resolve(overflowReview, `{"action":"IGNORE","values":{}}`); res.Code != http.StatusNoContent {
+		t.Fatalf("ignoring an overflowing case status=%d body=%s", res.Code, res.Body.String())
+	}
 	ignoreSource, ignoreObservation, ignoreReview := newCase("ignore", []string{existing})
 	if res := resolve(ignoreReview, `{"action":"IGNORE","values":{}}`); res.Code != http.StatusNoContent {
 		t.Fatalf("ignore status=%d body=%s", res.Code, res.Body.String())
@@ -546,6 +556,7 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 }
 
 func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -557,7 +568,7 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	householdID, userID, _ := seedTransferReviewOwner(t, pool, stamp)
 	var sourceID, reviewID string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("unknown-bank-%d", stamp), []byte(fmt.Sprintf("unknown-bank-%d", stamp))).Scan(&sourceID); err != nil {
@@ -586,6 +597,7 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 }
 
 func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -596,7 +608,7 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, category := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -650,6 +662,7 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 }
 
 func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -660,7 +673,7 @@ func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, category := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {
@@ -693,6 +706,7 @@ func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
 }
 
 func TestResolveFinancialEmailMalformedAccountIsClientError(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -703,7 +717,7 @@ func TestResolveFinancialEmailMalformedAccountIsClientError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		if err != nil {

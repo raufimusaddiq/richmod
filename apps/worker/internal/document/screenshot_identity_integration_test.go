@@ -25,6 +25,7 @@ func seedScreenshotIdentityCandidate(t *testing.T, f screenshotFixture, metadata
 }
 
 func TestScreenshotIdentityLegacyTimeConflict(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Synthetic legacy screenshot identity")
 	at := screenshotRowTime()
 	id := seedScreenshotIdentityCandidate(t, f, `{"date_known":true}`, at.Add(-10*time.Minute))
@@ -39,6 +40,7 @@ func TestScreenshotIdentityLegacyTimeConflict(t *testing.T) {
 }
 
 func TestScreenshotF02IdentitylessPaymentsStayDistinct(t *testing.T) {
+	t.Parallel()
 	for _, precision := range []string{"DATE", "TIME", ""} {
 		t.Run("precision_"+precision, func(t *testing.T) {
 			f := seedScreenshotFixture(t, "Synthetic identityless payments")
@@ -78,6 +80,7 @@ func TestScreenshotF02IdentitylessPaymentsStayDistinct(t *testing.T) {
 }
 
 func TestScreenshotIdentityDifferentCloseEvents(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Synthetic distinct screenshot identities")
 	at := screenshotRowTime()
 	seedScreenshotIdentityCandidate(t, f, `{"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"SYNTHETIC-A"}],"date_known":true,"transaction_time_precision":"TIME"}`, at.Add(-10*time.Minute))
@@ -112,6 +115,7 @@ func TestScreenshotIdentityDifferentCloseEvents(t *testing.T) {
 }
 
 func TestScreenshotIdentityRepeatAndCanonicalBoundaries(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Synthetic repeat screenshot identity")
 	other := seedScreenshotFixture(t, "Synthetic other household identity")
 	at := screenshotRowTime()
@@ -164,6 +168,7 @@ func TestScreenshotIdentityRepeatAndCanonicalBoundaries(t *testing.T) {
 }
 
 func TestScreenshotIdentityEvidenceBinding(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"superseded", "foreign proposal", "foreign source", "unbound proposal"} {
 		t.Run(mode, func(t *testing.T) {
 			f := seedScreenshotFixture(t, fmt.Sprintf("Synthetic %s identity", mode))

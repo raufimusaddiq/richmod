@@ -7,13 +7,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestRejectReviewUsesSharedCanonicalTransition(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -25,7 +26,7 @@ func TestRejectReviewUsesSharedCanonicalTransition(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	householdID, userID, _ := seedTransferReviewOwner(t, pool, stamp)
 	var proposalID, transactionID, reviewItemID, requestID, sourceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("reject-%d", stamp), []byte(fmt.Sprintf("reject-%d", stamp))).Scan(&sourceID); err != nil {

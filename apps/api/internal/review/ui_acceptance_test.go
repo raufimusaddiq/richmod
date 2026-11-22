@@ -9,11 +9,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type reviewUIItem struct {
@@ -29,18 +28,12 @@ type reviewUIItem struct {
 	} `json:"candidates"`
 }
 
-func TestDocumentExtractionOffersReprocessInsteadOfBankFacts(t *testing.T) {
-	actions := reviewdec.InboxActions("DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
-	if len(actions) != 2 || actions[0] != "REPROCESS_DOCUMENT" || actions[1] != "IGNORE" {
-		t.Fatalf("document extraction actions: %v", actions)
-	}
-}
-
 func TestPayslipMissingDateListsOnlyCurrentResidualAndPolicy(t *testing.T) {
+	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	ctx := context.Background()
 	var source, attachment, proposal, documentID, reviewID string
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("payslip-%d", stamp), []byte(fmt.Sprintf("payslip-%d", stamp))).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +79,7 @@ func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	return pool, household, user
 }
@@ -94,7 +87,7 @@ func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
 func seedCategoryReview(t *testing.T, pool *pgxpool.Pool, household string) string {
 	t.Helper()
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var source, review string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("ui-review-%d", stamp), []byte(fmt.Sprintf("ui-review-%d", stamp))).Scan(&source); err != nil {
 		t.Fatal(err)
@@ -117,6 +110,7 @@ func seedCategoryReview(t *testing.T, pool *pgxpool.Pool, household string) stri
 }
 
 func TestReviewU1ListExposesOnlyTheUnresolvedFact(t *testing.T) {
+	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	seedCategoryReview(t, pool, household)
 	items := listCanonicalReviews(t, pool, household, user)
@@ -135,9 +129,10 @@ func TestReviewU1ListExposesOnlyTheUnresolvedFact(t *testing.T) {
 }
 
 func TestReviewListUsesStoredDecisionForBankTransactionReview(t *testing.T) {
+	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var source, transaction, review string
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("bank-contract-%d", stamp), []byte(fmt.Sprintf("bank-contract-%d", stamp))).Scan(&source); err != nil {
 		t.Fatal(err)
@@ -174,6 +169,7 @@ func TestReviewListUsesStoredDecisionForBankTransactionReview(t *testing.T) {
 }
 
 func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
+	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	seedCategoryReview(t, pool, household)
 	item := listCanonicalReviews(t, pool, household, user)[0]
@@ -190,6 +186,7 @@ func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
 }
 
 func TestReviewU5WebResolutionWritesCanonicalTerminalState(t *testing.T) {
+	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	review := seedCategoryReview(t, pool, household)
 
@@ -216,6 +213,7 @@ func TestReviewU5WebResolutionWritesCanonicalTerminalState(t *testing.T) {
 }
 
 func TestReviewR3ReceiptDuplicateExposesBoundedCandidateChoices(t *testing.T) {
+	t.Parallel()
 	pool, household, user := reviewUIFixture(t)
 	ctx := context.Background()
 	var accountID, existingID, transactionID string

@@ -10,9 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestTransactionReviewDecisionIsPersistedOnTheReviewRow(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -24,7 +26,7 @@ func TestTransactionReviewDecisionIsPersistedOnTheReviewRow(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, accountID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("bank decision %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

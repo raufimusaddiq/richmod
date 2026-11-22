@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -54,6 +55,7 @@ func sendTypedReviewReply(t *testing.T, ctx context.Context, f agentIntegrationF
 }
 
 func TestTypedDetailReplyCompletesReview(t *testing.T) {
+	t.Parallel()
 	for _, reviewType := range []string{"UNKNOWN_PURPOSE", "MANUAL_CORRECTION"} {
 		for _, mode := range typedReplyModes {
 			t.Run(reviewType+"/"+mode.name, func(t *testing.T) {
@@ -89,6 +91,7 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 }
 
 func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
+	t.Parallel()
 	for _, mode := range typedReplyModes {
 		t.Run(mode.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -96,7 +99,7 @@ func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 			var accountID, listenerID, bankSourceID, itemID, reviewID string
 			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Rekening','BANK','FULL_LEDGER') RETURNING id", f.householdID).Scan(&accountID))
 			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) VALUES($1,'Bank','notifikasi@bank.test',$2,$3) RETURNING id", f.householdID, accountID, f.userID).Scan(&listenerID))
-			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id", f.householdID, fmt.Sprintf("typed-bank-%d", time.Now().UnixNano()), []byte("bank")).Scan(&bankSourceID))
+			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id", f.householdID, fmt.Sprintf("typed-bank-%d", testsupport.UniqueStamp()), []byte("bank")).Scan(&bankSourceID))
 			_, err := f.pool.Exec(ctx, "INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'IMAP','v1','{}'::jsonb,'VALID')", bankSourceID, listenerID)
 			mustAgentTest(t, err)
 			decision, _ := reviewdec.Preset("UNKNOWN_BANK_TEMPLATE", "source_event", bankSourceID)
@@ -127,6 +130,7 @@ func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 }
 
 func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
+	t.Parallel()
 	for _, mode := range typedReplyModes {
 		t.Run(mode.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -155,6 +159,7 @@ func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 }
 
 func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "typed-purpose-chooser")
 	var categoryID, transactionID, reviewID string
@@ -187,12 +192,13 @@ func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 }
 
 func TestTypedAmountReplyRecordsScreenshotRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "typed-amount")
 	var categoryID, imageSourceID, attachmentID, documentID, proposalID, itemID, reviewID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Groceries','groceries') RETURNING id`, f.householdID).Scan(&categoryID))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.householdID, fmt.Sprintf("typed-amount-%d", time.Now().UnixNano()), []byte("image")).Scan(&imageSourceID))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO attachment(household_id,storage_ref,media_type,byte_size,content_hash,width,height) VALUES($1,$2,'image/png',10,$3,10,10) RETURNING id`, f.householdID, fmt.Sprintf("test/screenshot-%d.png", time.Now().UnixNano()), []byte(fmt.Sprint(time.Now().UnixNano()))).Scan(&attachmentID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.householdID, fmt.Sprintf("typed-amount-%d", testsupport.UniqueStamp()), []byte("image")).Scan(&imageSourceID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO attachment(household_id,storage_ref,media_type,byte_size,content_hash,width,height) VALUES($1,$2,'image/png',10,$3,10,10) RETURNING id`, f.householdID, fmt.Sprintf("test/screenshot-%d.png", testsupport.UniqueStamp()), []byte(fmt.Sprint(testsupport.UniqueStamp()))).Scan(&attachmentID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status,document_type) VALUES($1,$2,$3,'NEEDS_REVIEW','EWALLET_SCREENSHOT') RETURNING id`, f.householdID, imageSourceID, attachmentID).Scan(&documentID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,confidence,proposal_status,metadata_json)
 		VALUES($1,$2,'row-001','EXPENSE',NULL,'IDR','2026-10-03T12:00:00+07:00','Indomaret',$3,0.9,'NEEDS_REVIEW',jsonb_build_object('date_known',true,'row_index',0,'document_id',$4::text)) RETURNING id`, f.householdID, imageSourceID, categoryID, documentID).Scan(&proposalID))

@@ -8,13 +8,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestFinancialSourceEditChangesAndClearsDefaultWealth(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -25,7 +26,7 @@ func TestFinancialSourceEditChangesAndClearsDefaultWealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var household, user, wealthA, wealthB, source string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Financial source settings %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
@@ -78,6 +79,7 @@ func TestFinancialSourceEditChangesAndClearsDefaultWealth(t *testing.T) {
 }
 
 func TestAccountAndCategoryLifecyclePreservesRecords(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -88,7 +90,7 @@ func TestAccountAndCategoryLifecyclePreservesRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdID, userID, accountID, categoryID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Settings lifecycle %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

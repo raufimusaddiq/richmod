@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 
 	seedHousehold := func(label string) string {
 		var householdID string
@@ -69,7 +71,7 @@ func TestProductAggregateRHICEBindsMergeAndFinancialEmailEvidencePerHousehold(t 
 	householdID := seed("RHICE binding")
 	seed("RHICE binding other")
 
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}

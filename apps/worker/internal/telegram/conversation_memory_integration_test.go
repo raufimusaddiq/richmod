@@ -23,6 +23,7 @@ func (f *terminalFixture) updateFor(messageID int64) telegramUpdate {
 }
 
 func TestRetriedTurnSavesTheUserAndAssistantRowsOnce(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	event := f.event(61)
@@ -58,6 +59,7 @@ func TestRetriedTurnSavesTheUserAndAssistantRowsOnce(t *testing.T) {
 }
 
 func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	insert := func(event, role, text, tool string, minutesAgo int, context string) {
@@ -122,6 +124,7 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 }
 
 func TestRecentConversationIsBoundedForALongChat(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	event := f.event(81)
@@ -148,6 +151,7 @@ func TestRecentConversationIsBoundedForALongChat(t *testing.T) {
 }
 
 func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	event := f.event(91)
@@ -178,6 +182,7 @@ func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
 }
 
 func TestReplayedToolResultsCarryNoExpiredCategoryRefs(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	event := f.event(95)
