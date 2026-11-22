@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { globalCss } from "./source.mjs";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
-import { tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const token = name => globalCss().match(new RegExp(`--${name}: (#[0-9a-f]{6});`))[1];
@@ -47,19 +47,8 @@ test("category colours use the six Retro hidup tokens with no red or green and c
 });
 
 test("spending direction colours are the muted income and expense tokens", () => {
-  const styles = globalCss();
-  assert.match(styles, /\.kpi-delta\[data-tone="good"\] strong \{ color: var\(--income\); \}/);
-  assert.match(styles, /\.kpi-delta\[data-tone="bad"\] strong \{ color: var\(--expense\); \}/);
-  assert.match(styles, /\.diverge-value \.delta\[data-tone="bad"\] \{ color: var\(--expense\); \}/);
   assert.equal(token("expense"), "#8b4437");
   assert.equal(token("income"), "#315b3f");
-});
-
-test("direction wording is neutral everywhere in the report", () => {
-  const source = tree("app/analytics") + text("app/lib/cycleKpi.js");
-  assert.match(source, /◀ lebih rendah/);
-  assert.match(source, /lebih tinggi ▶/);
-  assert.doesNotMatch(source, /hemat|boros/);
 });
 
 test("Laporan selection: Kekayaan is a view, /wealth defaults to it, and the URL stays clean", () => {
@@ -68,54 +57,4 @@ test("Laporan selection: Kekayaan is a view, /wealth defaults to it, and the URL
   assert.equal(readReviewSelection("", "wealth").view, "wealth");
   assert.equal(readReviewSelection("view=calendar", "wealth").view, "calendar");
   assert.equal(selectionHref({ ...readReviewSelection("view=wealth&snapshotId=x&cycle=2026-08-26") }), "/analytics?view=wealth");
-});
-
-test("Laporan renders an accessible Arus kas | Kekayaan tablist above both workspaces", () => {
-  const page = text("app/analytics/page.js");
-  assert.match(page, /role="tablist" aria-label="Jenis laporan"/);
-  assert.match(page, /role="tab"/);
-  for (const key of ["ArrowRight", "ArrowLeft", "Home", "End"]) assert.ok(page.includes(key), key);
-  assert.match(page, /aria-selected=\{active === id\}/);
-  assert.match(page, /tabIndex=\{active === id \? 0 : -1\}/);
-  assert.match(page, /<WealthWorkspace user=\{user\}\/>/);
-  assert.match(page, /title="Laporan"/);
-});
-
-test("/wealth keeps working by rendering the same Laporan page in wealth mode", () => {
-  assert.equal(text("app/wealth/page.js").trim(), 'export { default } from "../analytics/page";');
-  assert.match(text("app/analytics/page.js"), /=== "\/wealth" \? "wealth" : "cycle"/);
-  const workspace = text("app/wealth/WealthWorkspace.js");
-  assert.match(workspace, /get\("snapshotId"\)/);
-  assert.match(workspace, /get\("observationId"\)/);
-  assert.match(workspace, /dropQueryParam\("snapshotId"\)/);
-  assert.match(workspace, /dropQueryParam\("observationId"\)/);
-  assert.match(workspace, /href="\/household\?tab=akun#wealth-accounts"/);
-  assert.doesNotMatch(workspace, /AppShell/);
-});
-
-test("each cycle card shows its Go takeaway above one Detail disclosure, with no duplicate sections", () => {
-  const source = tree("app/analytics");
-  for (const key of ["where", "history", "changes", "pace"]) assert.ok(source.includes(`facts.takeaways?.${key}`), key);
-  assert.doesNotMatch(source, /<section id="matrix"|<section id="merchants"|SavingsWealthCard/);
-  assert.match(source, /Angka per kategori ›/);
-  assert.match(source, /Per kategori &amp; merchant ›/);
-  const kpi = text("app/lib/cycleKpi.js");
-  assert.doesNotMatch(kpi, /key: "worth"|key: "unallocated"/);
-});
-
-test("supporting cards are calm; the KPI strip keeps the ink border and shadow without a refund footer", () => {
-  const styles = globalCss();
-  assert.match(styles, /\.dash-card, \.cycle-review \.review-stack \{ border: 1\.5px solid var\(--line-strong\); background: var\(--surface\); box-shadow: none; \}/);
-  assert.match(styles, /\.kpi-strip dl \{ border: 2px solid var\(--ink\); box-shadow: var\(--shadow\); \}/);
-  const dashboard = text("app/analytics/CycleDashboard.js");
-  assert.doesNotMatch(dashboard, /kpi-note|Tentang posisi siklus/);
-});
-
-test("Ke mana uangnya shows amount and share only, with no delta column", () => {
-  const where = text("app/analytics/CycleWhere.js");
-  const rankRow = where.slice(where.indexOf("function RankRow"), where.indexOf("export function ChangesCard"));
-  assert.match(rankRow, /className="where-swatch"/);
-  assert.match(rankRow, /className="where-amount"/);
-  assert.match(rankRow, /className="where-share">\{ratioLabel\(row\.shareOfExpense\)\}/);
-  assert.doesNotMatch(rankRow, /where-delta|<Delta/);
 });

@@ -64,8 +64,8 @@ while the page is loading, because the first commit after a filter or save is
 the skeleton, before the panel or figures exist. The next unrelated render -
 pagination, a create, a retry - then compares equal and stays still. There is
 no timer, so the CSS duration remains the only source of timing.
-`scripts/motion-one-shot-smoke.mjs` (`bun run test:motion`) drives the real
-export to assert the first render animates and the next one does not.
+`e2e/motion/one-shot.spec.js` drives the real export to assert the first render
+animates and the next one does not.
 
 ### Chart draw-in and count-up
 
@@ -90,8 +90,7 @@ still fading in; both finish at their real values and neither hides the other.
 Under `prefers-reduced-motion: reduce` none of this runs: the hook and the
 counter see the preference through `useSyncExternalStore` (server and first
 hydration render as reduced), and the CSS bar animations are declared only
-under `no-preference`. `scripts/chart-motion-smoke.mjs`
-(`npm run test:chart-motion`) samples every animation frame to assert both
+under `no-preference`. `e2e/motion/charts.spec.js` samples every animation frame to assert both
 modes.
 
 ## What is deliberately not animated
@@ -136,9 +135,8 @@ the symmetric curve used for anything that changes size or position. A list
 staggers at most its first eight items: later items share the eighth item's
 delay, so nothing waits more than 315 ms. A list staggers only the first time
 it has items; pagination, a filter re-query and a re-render do not replay it.
-`scripts/motion-interactions-smoke.mjs` (also run by `npm run test:motion`)
-asserts the slide, the panel fade, both disclosure kinds, stagger-once and
-reduced motion against the static export.
+`e2e/motion/interactions.spec.js` asserts the slide, the panel fade, both
+disclosure kinds, stagger-once and reduced motion against the static export.
 
 A list that mounts inside a `[data-reveal]` region (skeleton to content on route
 entry) does not stagger: the 420 ms reveal is already the entrance, and a

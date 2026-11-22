@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import test from "node:test";
 import { component } from "./support/component.mjs";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-
 
 const { EmailOnboardingChecklist } = component("app/components/SettingsPanels.js");
 const render = props => renderToStaticMarkup(React.createElement(EmailOnboardingChecklist, props));
@@ -64,13 +62,4 @@ test("members see progress but no actions", () => {
   const html = render({ ingress: ingress({ address: "done", sender: "current", forwarding: "current", activated: "blocked" }), owner: false });
   assert.deepEqual(states(html), { address: "done", sender: "current", forwarding: "current", activated: "blocked" });
   assert.doesNotMatch(html, /href="#notifikasi-bank"|>Aktifkan<\/button>|>Buat alamat<\/button>/);
-});
-
-test("rotation warns that forwarding rules must be redone; activation errors map to next steps", () => {
-  const source = fs.readFileSync("app/components/SettingsPanels.js", "utf8");
-  assert.match(source, /ROTATE_CONFIRM = "[^"]*[Aa]turan penerusan[^"]*dibuat ulang/);
-  assert.match(source, /confirm\(ROTATE_CONFIRM,/);
-  assert.match(source, /SENDER_REQUIRED: "Tambahkan minimal satu pengirim/);
-  assert.match(source, /ACTIVATE_ERROR_TEXT\[body\?\.code\]/);
-  assert.match(source, /"active sender already exists": "[^"]+"/, "duplicate sender gets plain-language copy");
 });

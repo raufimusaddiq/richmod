@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildCategoryParents, categoryColorFor, categoryColorMap, categoryIconColorFor, OTHER_CATEGORY_COLOR } from "../app/lib/categoryColors.js";
 import { FALLBACK_ICON, categoryVisual, normalizeCategoryName } from "../app/lib/categoryIcons.js";
@@ -32,10 +31,6 @@ test("category tone uses the six ranked chart tones for top-6 categories and oth
   const noPalette = categoryVisual("Dana darurat");
   assert.equal(noPalette.tone, "other");
   assert.equal(noPalette.color, "var(--chart-category-other)");
-  const bars = readFileSync(new URL("../app/components/CategoryBars.js", import.meta.url), "utf8");
-  assert.match(bars, /categoryColorMap\(items, palette\)/, "Beranda Ke mana uangnya shares categoryColorMap");
-  assert.match(bars, /row\.other \? OTHER_CATEGORY_COLOR/, "Kategori lain uses sand --chart-category-other");
-  assert.doesNotMatch(bars, /var\(--line-strong\)/, "Beranda Kategori lain no longer uses green-grey line-strong");
 });
 
 test("category icon tone falls back from own rank to highest-ranked top-6 member in the same family to sand", () => {
@@ -200,16 +195,6 @@ test("clipped bar labels stagger nearby spikes and label only the largest on nar
   assert.equal(narrow.size, 1, "narrow widths label only the largest clipped bar");
   assert.equal(narrow.get(0)?.text, "2,5 jt");
 
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  const berandaDaily = charts.slice(charts.indexOf("function DailyBarShape"), charts.indexOf("export function CycleSpendingPatternChart"));
-  const laporanDaily = charts.slice(charts.indexOf("export function CycleSpendingPatternChart"), charts.indexOf("function PaceTooltip"));
-  assert.match(berandaDaily, /fill="var\(--chart-daily\)"/, "Beranda daily bars use single slate navy --chart-daily");
-  assert.match(berandaDaily, /<ReferenceLine[^>]*stroke="var\(--ink\)"/, "Beranda daily average dashed line stays visible in ink");
-  assert.match(berandaDaily, /fill="var\(--ink\)"[^>]*>\{entry\.text\}/, "clipped bar labels stay in ink");
-  assert.doesNotMatch(berandaDaily, /var\(--chart-expense\)|var\(--chart-category-1\)/);
-  assert.match(laporanDaily, /fill="var\(--chart-daily\)"/, "Laporan daily bars use single slate navy --chart-daily");
-  assert.match(laporanDaily, /<ReferenceLine[^>]*stroke="var\(--ink\)"/, "Laporan daily average dashed line stays visible in ink");
-  assert.doesNotMatch(laporanDaily, /var\(--chart-expense\)|var\(--chart-category-1\)/);
 });
 
 test("transaction display name prefers merchant, then counterparty, then description, and labels transfers", () => {
@@ -221,8 +206,6 @@ test("transaction display name prefers merchant, then counterparty, then descrip
   assert.equal(transactionDisplayName({ type: "TRANSFER", counterpartyName: null, description: "Pindah ke tabungan" }), "Pindah ke tabungan");
   assert.equal(transactionDisplayName({ type: "TRANSFER" }), "Transfer");
   assert.equal(transactionDisplayName({}), "Transaksi");
-  assert.match(readFileSync(new URL("../app/components/TransactionList.js", import.meta.url), "utf8"), /transactionDisplayName\(item\)/);
-  assert.match(readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8"), /<h2>\{transactionDisplayName\(selected\)\}<\/h2>/);
 });
 
 test("no cap when most days are zero (median 0) and the average is exact integer math", () => {
@@ -333,18 +316,4 @@ test("Asal-usul & bukti reads evidence and creation events oldest first; the res
   assert.equal(origin[0].title, "Email bank");
   assert.deepEqual(changes.map(item => item.key), ["a-a2"]);
   for (const item of [...origin, ...changes]) assert.doesNotMatch(`${item.title} ${item.detail}`, /[A-Z]{3,}_[A-Z]{3,}/, "no raw enum is shown");
-});
-
-test("Beranda hero numbers stay in ink, desktop wealth aligns to content, phone hides daily chart and wealth card", () => {
-  const home = readFileSync(new URL("../app/page.js", import.meta.url), "utf8");
-  assert.doesNotMatch(home, /home-hero-amount (?:expense|\$\{amountTone)/, "Sisa/Keluar hero numbers stay in ink");
-  assert.doesNotMatch(home, /<dd className="(?:income|expense)">/, "hero figures stay in ink");
-  const dashCss = readFileSync(new URL("../app/styles/03-dashboard-and-charts.css", import.meta.url), "utf8");
-  assert.match(dashCss, /\.overview-lower \{[^}]*align-items: start;/, "desktop Kekayaan card hugs its content height");
-  assert.doesNotMatch(dashCss, /\.overview-wealth-link \{[^}]*margin-top: auto;/, "no empty space pushed above the wealth link");
-  const dailyChartRule = dashCss.match(/\.daily-spend \.chart-wrap \{[^}]*\}/)?.[0] ?? "";
-  assert.match(dailyChartRule, /flex: 1 1 240px;/, "desktop Pengeluaran harian chart grows to fill card height");
-  assert.doesNotMatch(dailyChartRule, /(?:^|[;\s{])height:\s*240px;/, "Pengeluaran harian chart is not locked to a fixed 240px height");
-  const respCss = readFileSync(new URL("../app/styles/11-responsive.css", import.meta.url), "utf8");
-  assert.match(respCss, /@media \(max-width: 680px\)[\s\S]*\.overview-trend, \.overview-wealth, \.home-lower-single \{ display: none; \}/, "phone Beranda hides daily chart and Kekayaan card");
 });

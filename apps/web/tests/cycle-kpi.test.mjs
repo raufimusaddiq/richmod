@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { averageDailyText, baselineFor, deltaTone, deltaView, kpiCells } from "../app/lib/cycleKpi.js";
@@ -78,10 +77,6 @@ test("the daily average is the served rounded figure, never rounded in the brows
 test("a missing served rounded average is null: no Rp 0 row and no reference line", () => {
   assert.equal(averageDailyText({ averageDailyExpense: "700000.40" }), null);
   assert.equal(averageDailyText(undefined), null);
-  const daily = readFileSync(new URL("../app/analytics/CycleWhere.js", import.meta.url), "utf8");
-  assert.ok(daily.includes("average != null &&"), "no served average, no Rp 0 legend entry");
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.ok(charts.includes("suppliedAverage == null ? Number.NaN"), "no average, no reference line");
 });
 
 test("delta direction is also text for screen readers, beside the aria-hidden glyph", () => {
@@ -89,25 +84,6 @@ test("delta direction is also text for screen readers, beside the aria-hidden gl
   assert.equal(deltaView("750000").word, "naik");
   assert.equal(deltaView("0").word, undefined);
   assert.equal(deltaView(null).word, undefined);
-  const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
-  assert.ok(view.includes('aria-hidden="true">{delta.mark} </span>'));
-  assert.ok(view.includes('className="visually-hidden">{delta.word} </span>'));
-});
-
-test("the pace marker says today only while the cycle runs", () => {
-  const ledger = readFileSync(new URL("../app/lib/cycleLedger.js", import.meta.url), "utf8");
-  assert.ok(ledger.includes('period?.state === "CLOSED" ? "Data terakhir" : "Hari ini"'));
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.ok(charts.includes('className="pace-marker-note"'));
-  assert.ok(readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8").includes("period={period}"));
-});
-
-test("the category drawer replaces the evidence section and its way back", () => {
-  const sections = readFileSync(new URL("../app/analytics/CycleSections.js", import.meta.url), "utf8");
-  assert.equal(sections.includes("Kembali ke ringkasan siklus"), false);
-  assert.equal(sections.includes('href="#ledger"'), false);
-  const history = readFileSync(new URL("../app/analytics/CycleWhere.js", import.meta.url), "utf8");
-  assert.ok(history.includes('id="matrix"') && history.includes('id="matrix-title"'), "the target and its heading exist inside Siklus ke siklus");
 });
 
 test("first cycle: the lead comparison is named as missing, never invented", () => {
@@ -123,17 +99,4 @@ test("a cycle with no spending: Rp 0 everywhere, and the served delta still deci
   assert.match(cells.expense.delta.note, /^lebih rendah /);
   assert.match(text(cells.net.value), /^Rp\s?0$/);
   assert.match(text(cells.saved.sub), /^Belum dialokasikan Rp\s?0$/);
-});
-test("a missing comparison is one line of words, not a dash plus a sentence", () => {
-  const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
-  assert.ok(view.includes("!delta.empty && <strong>"), "the dash is not drawn when the note already says it is missing");
-  assert.ok(view.includes("delta.empty && !delta.note"), "an empty delta with no note renders nothing");
-});
-
-test("the pace chart has a keyboard-reachable data table of the same served totals", () => {
-  const view = readFileSync(new URL("../app/analytics/CycleDashboard.js", import.meta.url), "utf8");
-  assert.ok(view.includes("Lihat nilai laju pengeluaran"), "the disclosure exists");
-  assert.ok(view.includes("day.cumulativeExpense"), "the current cycle column is the served cumulative total");
-  assert.ok(view.includes("previousCurve[index]") && view.includes("medianCurve[index]"), "the comparison columns are the served curves");
-  assert.ok(view.includes('role="region" aria-label="Nilai laju pengeluaran'), "the scrolling table is named");
 });

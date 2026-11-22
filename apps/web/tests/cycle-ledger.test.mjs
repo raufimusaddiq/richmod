@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceEndLabels, paceMarkerNote, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
-import { globalCss, tree } from "./source.mjs";
-
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("compact amounts are display-only and never invent a value", () => {
   assert.equal(compactMillions("12500000"), "12,5");
@@ -103,32 +99,6 @@ test("the reviewed cycle survives a Calendar visit", () => {
   assert.equal(selectionHref({ view: "calendar", range: "3", from: "", to: "" }), "/analytics?view=calendar&range=3");
 });
 
-test("ledger source: served numbers only, no colour-only direction, accent reserved for interaction", () => {
-  const library = text("app/lib/cycleLedger.js");
-  assert.doesNotMatch(library, /\.reduce\(|BigInt\(|parseFloat|toFixed/, "the browser formats and sizes; it never derives totals");
-  const styles = globalCss();
-  assert.ok(!styles.includes("#savings-wealth") && !styles.includes("#merchants"), "the folded sections have no meeting rules of their own");
-});
-
-test("page wiring: heatmap, stale-while-revalidate, calendar-aware title", () => {
-  const page = tree("app/analytics");
-  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
-  assert.match(page, /if \(!columns\.length\) return null/, "an absent series renders nothing");
-  assert.match(page, /\{loading && !facts && <Skeleton/, "the skeleton is only for the first load");
-  assert.match(page, /\{facts && !error && <>/);
-  assert.match(page, /setFacts\(null\); setError\(/, "a failed load clears facts instead of showing another cycle");
-  assert.match(page, /data-stale=\{refreshing \? "true" : undefined\}/);
-  assert.match(page, /title="Laporan"/);
-  assert.ok(page.includes("averageDailyText(facts.spendingShape)"), "whole-rupiah daily average comes from the served figure");
-  assert.doesNotMatch(page, /Math\.round/, "no rounding of served money in the page");
-  assert.doesNotMatch(page, /maximumFractionDigits: 2/);
-  assert.match(page, /ari ini belum penuh/);
-  const charts = text("app/components/Charts.js");
-  assert.match(charts, /export function CyclePaceChart/);
-  assert.match(charts, /Total pengeluaran sampai hari ini belum tersedia/, "a missing running total is explained, not silent");
-  assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "pace is a separate single-series line chart");
-});
-
 test("synthetic facts mirror the served contract the ledger and pace chart read", () => {
   for (const facts of [cycleFacts(), cycleFacts("2026-08-26"), cycleFacts("2026-09-25"), stableCycleFacts()]) {
     assert.equal(hasPace(facts.daily), true, "every daily row serves cumulativeExpense");
@@ -145,66 +115,6 @@ test("synthetic facts mirror the served contract the ledger and pace chart read"
   }
 });
 
-test("matrix source: text cells, keyboard rows, evidence-only buttons, same-day default", () => {
-  const component = text("app/analytics/CycleSections.js");
-  assert.match(component, /aria-label=\{`Buka bukti \$\{row\.name\}`\}/, "row buttons are named by their action, apart from the category buttons in the detail list");
-  assert.match(component, /aria-pressed=\{row\.selected\}/);
-  assert.match(component, /compactMillions\(row\.amounts\[index\]\)/, "every cell is text");
-  const page = tree("app/analytics");
-  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\} facts=\{facts\}/);
-  assert.match(page, /<details className="review-daily" open=\{step === "changes" \|\| undefined\}>\s*<summary>Detail ›/);
-  for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="diverge"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
-  assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
-  assert.match(page, /Selisih vs hari yang sama/);
-  assert.match(page, /Hari yang sama, bukan siklus penuh/);
-  assert.match(component, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/, "same-day is the default while the cycle runs");
-});
-
-test("data marks are neutral or chart-coloured; decreases are hatched, never another hue; accent stays on interaction", () => {
-  const styles = globalCss();
-  assert.doesNotMatch(styles, /\.change-track i \{[^}]*var\(--accent\)/, "category change bars are data, not interaction");
-  assert.doesNotMatch(styles, /\.comparison-track i[^{]*\{[^}]*var\(--accent\)/, "baseline bars are data, not interaction");
-  assert.doesNotMatch(styles, /i\[data-negative\] \{ background: var\(--expense\)/, "a decrease is not a good/bad hue");
-  assert.match(styles, /i\[data-negative\] \{ background: repeating-linear-gradient/, "a decrease is a hatched neutral bar");
-  assert.match(text("app/components/Charts.js"), /dataKey="amountValue" fill="var\(--chart-category-2\)"/, "chart colour comes from the chart ramp");
-  const page = tree("app/analytics");
-  assert.match(page, /Total sampai hari ini<\/th>/, "the pace chart has a table equivalent");
-  assert.match(page, /facts\.merchantRanking\?\.rows\?\.length \|\| 0\} teratas/, "collapsed sections say what is inside");
-});
-
-test("the analytics page is a composition shell over named modules", () => {
-  const lines = path => text(path).split("\n").length;
-  assert.ok(lines("app/analytics/page.js") < 260, "page.js keeps selection, data loading and composition only");
-  assert.match(text("app/analytics/shared.js"), /export function SectionTitle/);
-  assert.match(text("app/analytics/CycleDashboard.js"), /export function KpiStrip/);
-  assert.match(text("app/analytics/CycleDashboard.js"), /export function NoticeStrip/);
-  assert.match(text("app/analytics/CalendarReview.js"), /import \{[^}]*\} from "react"/, "the calendar view owns its hooks");
-  assert.match(text("app/analytics/CalendarReview.js"), /export function CalendarReview/);
-});
-
-test("an active cycle leads with spending so far; a closed cycle with the full-cycle baseline", () => {
-  const kpi = text("app/lib/cycleKpi.js");
-  assert.match(kpi, /key: "expense", lead: true/, "net spending is the lead cell");
-  assert.ok(kpi.includes("active && days ? ` · hari ke-"), "the lead names the elapsed day while active");
-  assert.match(kpi, /Arus kas bersih sejauh ini/, "net cashflow stays visible, as a regular metric, while the cycle runs");
-  for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(kpi, new RegExp(`cashflow\.${field}`), field);
-  assert.doesNotMatch(kpi, /Math\.|reduce|BigInt|parseFloat/, "no arithmetic on served money");
-});
-
-test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back, the limit up front", () => {
-  const page = tree("app/analytics");
-  assert.match(page, /const chooseCategory = \(category, element\) =>/, "every category entry point opens the drawer");
-  assert.equal(page.split("chooseCategory").length - 1, 5, "ranking, changes, full table and matrix all use it");
-  assert.doesNotMatch(page, /Buka semua detail|allOpen/, "the open-all control is gone; sections are few and collapsed by intent");
-  assert.match(text("app/analytics/shared.js"), /Tentang \{about \|\| "data ini"\}/);
-  for (const about of ["arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
-  assert.match(text("app/analytics/CycleWhere.js"), /aria-label="Tutup rincian kategori"/, "the drawer has a close button; Escape and Back also close it");
-  const card = text("app/components/InsightCard.js");
-  assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");
-  assert.match(card, /Buat pembahasan/);
-  assert.match(card, /Dibatasi satu pembahasan per jam/, "the hourly limit is stated before it is hit");
-});
-
 test("served pace curves are used whole or not at all and share the day axis", () => {
   assert.deepEqual(paceCurves(undefined), { previous: null, median: null });
   assert.deepEqual(paceCurves({ previousFullCycle: ["1", "2"], median3: null }), { previous: ["1", "2"], median: null });
@@ -218,28 +128,6 @@ test("served pace curves are used whole or not at all and share the day axis", (
   assert.deepEqual(mapPace(items).map(point => [point.previousTotal, point.medianTotal]), [[null, null], [null, null]], "no served curves, none drawn");
   assert.equal(mapPace(items, { previousFullCycle: ["10", "20", "30"] })[1].exact, "250", "exact served strings stay available for the tooltip");
 });
-
-test("pace chart source: curves from the served series; levels only when no curve already draws them", () => {
-  const charts = text("app/components/Charts.js");
-  assert.match(charts, /dataKey="previousTotal"/);
-  assert.match(charts, /dataKey="medianTotal"/);
-  assert.match(charts, /!\(reference\.tone === "previous" && curves\.previous\)/);
-  assert.match(charts, /!\(reference\.tone === "median" && curves\.median\)/);
-  assert.match(charts, /reference\.shape === "marker"/, "equal-day markers stay and sit on the curves");
-  assert.match(tree("app/analytics"), /pace={pace}/);
-  assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "still a separate single-purpose line chart");
-});
-
-test("choosing a category opens its evidence without moving the reader; length and waiting are stated", () => {
-  const page = text("app/analytics/page.js");
-  assert.doesNotMatch(page, /if \(!selection\.category \|\| step \|\| loading\) return;/, "no effect pulls focus to the evidence after a choice");
-  assert.match(text("app/analytics/CycleWhere.js"), /role="dialog" aria-modal="true" aria-labelledby="drivers-title"/, "the choice opens a named modal dialog");
-  assert.match(text("app/analytics/CycleWhere.js"), /trapKeyDown\(event, drawer/, "focus trap and Escape come from lib/focusTrap");
-  const insight = text("app/components/InsightCard.js");
-  assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
-  assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");
-});
-
 
 test("pace x ticks stay at three or four labels on any cycle length", () => {
   for (const length of [6, 28, 30, 31, 45]) {
@@ -267,11 +155,6 @@ test("the pace marker label is drawn above the plot, so it never overlaps an end
     assert.equal(paceMarkerNote({ state: "ACTIVE" }, { day }), `Hari ini · hari ke-${day}`);
   }
   assert.equal(paceMarkerNote({ state: "CLOSED" }, { day: 31 }), "Data terakhir · hari ke-31");
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.doesNotMatch(charts, /<ReferenceLine x=\{last\.day\}[^>]*label=/, "the marker line carries no in-plot label");
-  const note = charts.indexOf('className="pace-marker-note"');
-  const plot = charts.indexOf('className="chart-wrap cycle-pace-chart"');
-  assert.ok(note > 0 && note < plot, "the note renders above the plot area");
 });
 
 test("Rp-juta tick labels stay distinct when the tick step is small", () => {
@@ -283,39 +166,6 @@ test("Rp-juta tick labels stay distinct when the tick step is small", () => {
   assert.deepEqual([0, 5_000, 10_000, 15_000, 20_000].map(tiny), ["0,000", "0,005", "0,010", "0,015", "0,020"]);
   assert.equal(millionTickFormatter(0)(0), "0,0", "an empty axis keeps one decimal");
 });
-
-test("chart units are on screen and the whole-value list is not a tooltip", () => {
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.match(charts, /className="chart-unit">Rp juta</, "the category chart names its unit on screen");
-  assert.match(charts, /LabelList dataKey="amountLabel"/, "each bar prints its amount");
-  assert.doesNotMatch(charts, /rankCategories/, "the chart never sorts money in the browser");
-  assert.match(charts, /const data = items\.map\(/, "server order is used as served");
-  const calendar = readFileSync(new URL("../app/analytics/CalendarReview.js", import.meta.url), "utf8");
-  assert.match(calendar, /Lihat nilai kategori/, "the value list is reachable without a hover");
-});
-
-test("no chart is an unnamed focusable surface: accessibilityLayer is off everywhere", () => {
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  const chartsInFile = charts.match(/<(LineChart|BarChart|AreaChart)\b[^>]*>/g) || [];
-  assert.ok(chartsInFile.length >= 5, "the charts are present");
-  for (const tag of chartsInFile) assert.match(tag, /accessibilityLayer=\{false\}/, `every chart turns the layer off: ${tag.slice(0, 40)}`);
-  for (const component of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "CyclePaceChart", "MonthlyCashflowChart", "CategoryRankingChart", "NetWorthHistoryChart"]) {
-    assert.ok(charts.includes(`export function ${component}`), `${component} exists`);
-  }
-  assert.match(charts, /<a href=\{transactionHref\(period/, "daily bars remain links");
-  assert.match(charts, /tabIndex=\{0\}/, "and stay in the tab order");
-});
-
-test("the phone range controls never clip a native month field", () => {
-  const css = globalCss();
-  assert.match(css, /\.cycle-review \.custom-range \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/, "two fields share a row");
-  assert.match(css, /@media \(max-width: 430px\) \{[^}]*\.cycle-review \.custom-range \{ grid-template-columns: minmax\(0, 1fr\)/, "and stack below 430");
-  assert.match(css, /\.cycle-review \.custom-range button \{ grid-column: 1 \/ -1; \}/, "the submit sits under the fields");
-});
-
-
-
-
 
 test("the pace axis covers a comparison curve that ends far above the running cycle", () => {
   const items = [
@@ -330,8 +180,6 @@ test("the pace axis covers a comparison curve that ends far above the running cy
   assert.ok(axis.domain[1] >= 30_000_000, "the axis covers the whole curve");
   assert.deepEqual(axis.ticks, [0, 10_000_000, 20_000_000, 30_000_000, 40_000_000], "and keeps round ticks");
   assert.equal(axis.ticks.every(tick => tick % 10_000_000 === 0), true);
-  const charts = readFileSync(new URL("../app/components/Charts.js", import.meta.url), "utf8");
-  assert.match(charts, /paceCeiling\(\{ data, levels:/, "the chart asks for the ceiling from the plotted data and references");
 });
 
 test("pace end labels emit one label per series end and offset close endpoints without overlap", () => {

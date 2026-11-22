@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditActionLabel, auditActionText } from "../app/lib/labels.js";
 import { VOID_CONFIRM_MESSAGE, canVoidTransaction, mergeSummary, reverseMergeConfirmMessage, reverseMergeFailure, voidFailure, createErrorMessage, createFormErrors, dateRangeError, hasActiveFilters, isScopedToTransaction, listSearch, normalizeAmount, transactionsErrorMessage, trapTarget, activeFilterCount, pageLabel, pageSize, resultCountLabel } from "../app/lib/transactionForm.js";
-
-const page = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
 
 test("focus trap cycles Tab and Shift+Tab inside the dialog", () => {
   const [a, b, c] = ["a", "b", "c"], dialog = "dialog", items = [a, b, c];
@@ -23,7 +20,6 @@ test("an inverted date range is caught before the request, in Indonesian", () =>
   assert.equal(dateRangeError("2026-11-10", "2026-11-10"), "");
   assert.equal(dateRangeError("", "2026-01-01"), "");
   assert.equal(dateRangeError("2026-11-10", ""), "");
-  assert.match(page, /dateRangeError\(form\.get\("from"\), form\.get\("to"\)\)/);
 });
 
 test("API errors are mapped to Indonesian copy and never shown raw", () => {
@@ -33,13 +29,9 @@ test("API errors are mapped to Indonesian copy and never shown raw", () => {
   assert.equal(transactionsErrorMessage(400, { error: "limit must be between 1 and 250" }), "Filter tidak valid. Periksa kembali filter lalu coba lagi.");
   assert.equal(transactionsErrorMessage(500, { error: "boom" }), "Transaksi belum dapat dimuat. Coba lagi.");
   assert.doesNotMatch(createErrorMessage(422, { error: "amount must be positive" }), /amount/);
-  assert.doesNotMatch(page, /body\.error \|\|/);
 });
 
 test("a failed load keeps the visible results and offers a filter reset", () => {
-  assert.doesNotMatch(page, /onFailure: \(\) => \{ setItems/);
-  assert.match(page, /Hapus filter<\/button>/);
-  assert.match(page, /window\.history\.replaceState\([^)]*"\/transactions"\)/);
   assert.equal(hasActiveFilters("?q=grab&limit=50"), true);
   assert.equal(hasActiveFilters("?limit=50&cursor=abc"), false);
 });
@@ -50,21 +42,6 @@ test("add form validates required fields inline", () => {
   assert.ok(createFormErrors({ type: "EXPENSE", amount: "0", description: "x" }).amount);
   assert.ok(createFormErrors({ type: "TRANSFER", amount: "1", description: "x" }).accountId);
   assert.ok(createFormErrors({ type: "EXPENSE", amount: "1", description: "x" }, { cycle: true }).transactionAt);
-});
-
-test("the add dialog has dialog semantics and focus handling", () => {
-  assert.match(page, /openQuickRecord/, "the ledger's add button opens the global sheet");
-  assert.doesNotMatch(page, /create-transaction-title/, "the ledger no longer owns a second add form");
-  const dialog = readFileSync(new URL("../app/components/QuickRecordDialog.js", import.meta.url), "utf8");
-  assert.match(dialog, /role="dialog" aria-modal="true" aria-labelledby="quick-record-title"/);
-  assert.match(dialog, /onKeyDown=\{trapTab\}/);
-  assert.match(dialog, /className="dialog-close"/);
-  assert.match(dialog, /aria-required="true"/);
-});
-
-test("page size label describes a page, not a cap", () => {
-  assert.doesNotMatch(page, /Maks\. 250/);
-  assert.match(page, /\{PAGE_SIZE\} per halaman/);
 });
 
 test("an ?id= evidence link keeps scoping the ledger to that row", () => {
@@ -91,21 +68,12 @@ test("audit actions show Indonesian labels with a safe fallback", () => {
   assert.equal(auditActionText("SOME_NEW_ACTION"), "Some new action");
   assert.equal(auditActionText(""), "—");
   assert.equal(auditActionText(undefined), "—");
-  assert.match(readFileSync(new URL("../app/lib/transactionView.js", import.meta.url), "utf8"), /auditActionText\(item\.action\)/);
 });
 
 test("ledger lifecycle audit actions read in Indonesian", () => {
   assert.equal(auditActionText("CONFIRMED"), "Transaksi dikonfirmasi");
   assert.equal(auditActionText("VOIDED"), "Transaksi diabaikan");
   assert.equal(auditActionLabel.VOID, undefined);
-});
-
-test("a failed load keeps rows but drops the stale pager cursor", () => {
-  const source = readFileSync(new URL("../app/transactions/page.js", import.meta.url), "utf8");
-  assert.match(source, /onFailure: \(\) => setNextCursor\(""\)/);
-  assert.doesNotMatch(source, /onFailure: \(\) => \{ setItems\(\[\]\)/);
-  assert.doesNotMatch(source, /query\.set\("limit", "50"\)/);
-  assert.match(source, /hasActiveFilters\(`\?\$\{query\}`\) && <button type="button" className="secondary" onClick=\{resetFilters\}>Hapus filter<\/button>/);
 });
 
 test("T-16 polish: actors, evidence, minus sign, admin durations and decimal commas", async () => {
@@ -173,14 +141,6 @@ test("edit: form waits for category and account option lists and preserves assig
   assert.deepEqual(editInitialValues(expense), { categoryId: "c1", accountId: "a1", merchantName: "", description: "", note: "" });
   assert.deepEqual(editSelectOptions([{ id: "c2", name: "Transport", active: true }, { id: "c1", name: "Makan", active: false }], "c1", "Makan").map(item => item.id), ["c2", "c1"]);
   assert.deepEqual(editSelectOptions([{ id: "c2", name: "Transport", active: true }], "c1", "Makan").map(item => item.id), ["c1", "c2"]);
-  assert.match(page, /const editReady = editOptionsReady\(selected, \{ categoriesLoaded, accountsLoaded \}\);/);
-  assert.match(page, /drawer\.status === "ready" && canEditTransaction\(selected\) && editReady &&/);
-  assert.match(page, /disabled=\{!editReady\} aria-busy=\{!editReady \|\| undefined\}[^>]*onClick=\{openEdit\}>Ubah<\/button>/);
-  assert.match(page, /select name="categoryId" value=\{editValues\.categoryId\} onChange=/);
-  assert.match(page, /select name="accountId" value=\{editValues\.accountId\} onChange=/);
-  assert.match(page, /editPayload\(selected, editValues, editTouched\)/);
-  assert.doesNotMatch(page, /select name="categoryId" defaultValue=\{selected\.categoryId/);
-  assert.doesNotMatch(page, /select name="accountId" defaultValue=\{selected\.accountId/);
 });
 
 test("edit: errors map to Indonesian and the audit action has a label", () => {
@@ -192,27 +152,16 @@ test("edit: errors map to Indonesian and the audit action has a label", () => {
   assert.equal(auditActionText("UPDATE_DETAILS"), "Detail transaksi diubah");
 });
 
-test("edit: drawer offers Ubah and the dialog keeps drawer key handling out", () => {
-  assert.match(page, />Ubah<\/button>/);
-  assert.match(page, /aria-labelledby="edit-transaction-title"/);
-  assert.match(page, /"If-Match": selected\.updatedAt/);
-  assert.match(page, /onEditKeyDown[\s\S]{0,80}stopPropagation/);
-});
-
 test("void: the button is offered for CONFIRMED only", () => {
   for (const status of ["CONFIRMED"]) assert.equal(canVoidTransaction({ id: "t1", status }), true, status);
   for (const status of ["NEEDS_REVIEW", "VOIDED", undefined]) assert.equal(canVoidTransaction({ id: "t1", status }), false, String(status));
   assert.equal(canVoidTransaction({ status: "CONFIRMED" }), false, "no id, no action");
   assert.equal(canVoidTransaction(null), false);
-  assert.match(page, /\{canVoidTransaction\(selected\) && <button type="button" className="danger"[^>]*>[^<]*\{busyAction === "void" \? "Membatalkan…" : "Batalkan transaksi"\}<\/button>\}/);
 });
 
 test("void: the confirm dialog is danger-styled and says the row leaves the totals but stays in history", () => {
-  assert.match(page, /confirmText: VOID_CONFIRM_MESSAGE, confirmLabel: "Ya, batalkan"/);
-  assert.match(page, /await confirm\(confirmText, \{ confirmLabel, danger: true \}\)/);
   assert.match(VOID_CONFIRM_MESSAGE, /keluar dari semua total/);
   assert.match(VOID_CONFIRM_MESSAGE, /tetap tersimpan di riwayat/);
-  assert.match(page, /\{dialogs\}/);
 });
 
 test("void: a refused or failed request is never reported as success", () => {
@@ -220,7 +169,6 @@ test("void: a refused or failed request is never reported as success", () => {
   assert.equal(review.kind, "review");
   assert.match(review.message, /Tinjauan/);
   assert.doesNotMatch(review.message, /review endpoint/);
-  assert.match(page, /\(actionNotice\.kind === "review" \|\| actionNotice\.inbox\) && <a className="button secondary" href="\/inbox\?view=transactions">Buka Tinjauan<\/a>/);
   const merged = voidFailure(409, { code: "MERGE_TARGET", error: "raw server text" });
   assert.equal(merged.kind, "error"); assert.equal(merged.reload, true, "a stale drawer re-reads so activeMerges and the Pisahkan penggabungan button appear");
   assert.match(merged.message, /penggabungan yang masih aktif/);
@@ -235,20 +183,6 @@ test("void: a refused or failed request is never reported as success", () => {
     assert.doesNotMatch(outcome.message, /boom|^Transaksi dibatalkan/, "no raw API text, no success wording");
   }
   assert.match(voidFailure(500).message, /Coba lagi/);
-  assert.match(page, /response\.ok \? \{ kind: "success"/);
-  assert.match(page, /catch \{ outcome = \{ kind: "error", message: "Koneksi terputus\./);
-});
-
-test("void: posts once, then reloads the drawer and the list", () => {
-  assert.match(page, /url: `\/api\/v1\/transactions\/\$\{selected\.id\}\/void`/);
-  assert.match(page, /await fetch\(url, \{ method: "POST" \}\)/);
-  assert.match(page, /if \(actionPending\.current \|\| !id\) return;\s+actionPending\.current = true;/);
-  assert.match(page, /finally \{ actionPending\.current = false; setBusyAction\(""\); \}/);
-  assert.match(page, /const voidTransaction = \(\) => canVoidTransaction\(selected\) && runDrawerAction/);
-  assert.match(page, /drawer\.open\(id\)[\s\S]{0,120}load\(\)/);
-  assert.match(page, /openId\.current === id/, "a drawer closed or moved to another row is not reopened");
-  assert.match(page, /useEffect\(\(\) => \{ openId\.current = drawer\.id; setActionNotice\(null\); \}, \[drawer\.id\]\)/);
-  assert.doesNotMatch(page, /^\s*openId\.current = drawer\.id;/m);
 });
 
 test("merge: the drawer lists active merges and offers Pisahkan penggabungan behind the confirm dialog", () => {
@@ -260,22 +194,12 @@ test("merge: the drawer lists active merges and offers Pisahkan penggabungan beh
   const message = reverseMergeConfirmMessage(target);
   assert.match(message, /kembali ke Tinjauan/);
   assert.match(message, /Tidak ada transaksi yang dihapus/);
-  assert.match(page, /selected\.activeMerges\?\.length > 0 && <section className="merge-links"/);
-  assert.match(page, /<button type="button" className="secondary" disabled=\{Boolean\(busyAction\)\}[^>]*onClick=\{\(\) => reverseMerge\(merge\)\}>\{busyAction === merge\.id \? "Memisahkan…" : "Pisahkan penggabungan"\}<\/button>/);
-  assert.match(page, /url: `\/api\/v1\/reconciliation-merges\/\$\{merge\.id\}\/reverse`/);
-  assert.match(page, /confirmLabel: "Ya, pisahkan"/);
 });
 
 test("merge: a refused or failed reversal is never reported as success and re-reads when the record moved", () => {
   for (const status of [404, 409]) { const outcome = reverseMergeFailure(status); assert.equal(outcome.kind, "error"); assert.equal(outcome.reload, true, String(status)); }
   for (const status of [401, 403, 500, 502]) { const outcome = reverseMergeFailure(status); assert.equal(outcome.kind, "error"); assert.notEqual(outcome.reload, true); assert.doesNotMatch(outcome.message, /^Penggabungan dipisahkan/); }
   assert.match(reverseMergeFailure(500).message, /Coba lagi/);
-  assert.match(page, /success: \{ message: REVERSE_MERGE_SUCCESS_MESSAGE, inbox: true \}/);
-});
-
-test("void: Escape inside the confirm dialog does not also close the drawer", () => {
-  const hook = readFileSync(new URL("../app/components/useDrawerA11y.js", import.meta.url), "utf8");
-  assert.match(hook, /event\.key === "Escape"\) \{ if \(!event\.target\?\.closest\?\.\("dialog"\)\) closeRef\.current\(\)/);
 });
 
 test("every transaction audit action written by Go has an Indonesian label", () => {
@@ -294,31 +218,12 @@ test("T-30: the results heading shows the real total, not the page size", () => 
   assert.equal(resultCountLabel(0, 0, 0), "0 transaksi");
   assert.equal(pageLabel(50, 50, 50), "Halaman 2 · 51–100");
   assert.equal(pageLabel(0, 0, 50), "");
-  assert.match(page, /role="status" aria-live="polite"><h2>\{resultCountLabel\(total, items\.length, cursorHistory\.length \* size\)\}/);
-  assert.match(page, /X-Total-Count/);
 });
 
 test("T-30: the mobile filter toggle counts active filters", () => {
   assert.equal(activeFilterCount("?limit=50&cursor=x"), 0);
   assert.equal(activeFilterCount("?q=grab&type=EXPENSE&limit=50"), 2);
   assert.equal(activeFilterCount("?id=abc"), 0, "a drawer id is not a filter");
-  assert.match(page, /className="secondary filter-toggle" aria-expanded=\{filtersOpen\}/);
-  assert.match(page, /Filter lain\{moreCount \? ` \(\$\{moreCount\}\)` : ""\}/);
-});
-
-test("T-30: no-match state offers Hapus filter, the empty ledger keeps the plain message", () => {
-  const list = readFileSync(new URL("../app/components/TransactionList.js", import.meta.url), "utf8");
-  assert.match(list, /hasFilters[\s\S]*Tidak ada transaksi yang cocok dengan filter\./);
-  assert.match(list, /onClearFilters[\s\S]*Hapus filter<\/button>/);
-  assert.match(list, /Belum ada transaksi untuk ditampilkan\./);
-  assert.match(page, /hasFilters=\{hasActiveFilters\(`\?\$\{query\}`\)\} onClearFilters=\{resetFilters\}/);
-});
-
-test("T-30: opening a row writes ?open= and closing removes it, so back closes the drawer", () => {
-  assert.match(page, /const openDetail = item => \{ window\.history\.pushState\(window\.history\.state, "", drawerUrl\(item\.id\)\); drawer\.open\(item\.id\); \}/);
-  assert.match(page, /function drawerUrl\(id\)/);
-  assert.match(page, /next\.set\("open", id\); else next\.delete\("open"\)/);
-  assert.match(page, /const id = params\.get\("open"\) \|\| params\.get\("id"\);\s+if \(id\) drawer\.open\(id\); else drawer\.close\(\);/);
 });
 
 test("T-30: a row drawer is not an evidence-link scope, so pagination and the full page stay", () => {
@@ -327,24 +232,9 @@ test("T-30: a row drawer is not an evidence-link scope, so pagination and the fu
   assert.equal(listSearch("?open=abc&limit=50"), "?limit=50", "the drawer id never reaches the list request");
   assert.equal(listSearch("?id=abc&open=abc"), "?id=abc&limit=50", "an evidence link still scopes");
   assert.equal(hasActiveFilters("?open=abc&limit=50"), false, "an open drawer is not a filter");
-  assert.match(page, /const scoped = isScopedToTransaction\(/);
-  assert.doesNotMatch(page, /isScopedToTransaction\([^)]*open/);
-});
-
-test("T-30: resetFilters closes the drawer", () => {
-  assert.match(page, /function resetFilters\(\) \{[\s\S]*?drawer\.close\(\);[\s\S]*?load\(""\);/);
-});
-
-test("T-37: paging with the drawer open changes page and closes the drawer", () => {
-  assert.doesNotMatch(page, /window\.history\.back\(\);/);
-  assert.match(page, /async function nextPage\(\)[\s\S]*?query\.delete\("open"\); drawer\.close\(\);/);
-  assert.match(page, /async function previousPage\(\)[\s\S]*?const history = cursorHistory\.slice\(0, -1\)[\s\S]*?query\.delete\("open"\);\s+setCursorHistory\(history\); drawer\.close\(\);/);
-  assert.match(page, /window\.history\.replaceState\(\{ \.\.\.window\.history\.state, cursorHistory: history \}, "", `\/transactions\$\{search\}`\)/);
 });
 
 test("T-37: applying filters collapses the mobile panel and the badge shows the new count", () => {
-  assert.match(page, /setRefreshToken\(token => token \+ 1\); setFiltersOpen\(false\);/);
-  assert.match(page, /aria-expanded=\{filtersOpen\}/);
   assert.equal(activeFilterCount("?q=grab&type=EXPENSE"), 2);
 });
 
@@ -355,8 +245,6 @@ test("T-37: the page label and range use the ?limit= page size", () => {
   assert.equal(pageSize("?limit=0"), 50);
   assert.equal(pageSize("?limit=abc"), 50);
   assert.equal(pageLabel(50, 1, pageSize("?limit=1")), "Halaman 51 · 51–51", "a one-row page is page 51, not page 2");
-  assert.match(page, /pageLabel\(cursorHistory\.length \* size, items\.length, size\)/);
-  assert.match(page, /resultCountLabel\(total, items\.length, cursorHistory\.length \* size\)/);
 });
 
 test("T-37: one filter-key list drives the count and hasFilters, unknown params ignored", () => {
@@ -367,14 +255,4 @@ test("T-37: one filter-key list drives the count and hasFilters, unknown params 
     assert.equal(hasActiveFilters(`?${key}=1`), true, key);
     assert.equal(activeFilterCount(`?${key}=1`), 1, key);
   }
-});
-
-test("T-62: the phone dialog stretches its fields to the full width", () => {
-  const css = readFileSync(new URL("../app/styles/04-ledger-and-drawers.css", import.meta.url), "utf8");
-  const phone = css.slice(css.indexOf("@media (max-width: 719px)"));
-  assert.match(phone, /\.create-dialog \.transaction-form \{[^}]*align-items: stretch;/);
-  assert.match(css, /\.create-dialog \.date-hint\[data-date=""\] \{ display: none; \}/, "an empty date hint adds no gap under Waktu");
-  assert.match(page, /<label><span>Deskripsi\{selected\.description && <span className="required-mark" aria-hidden="true"> \*<\/span>\}<\/span><input name="description"/, "Ubah Deskripsi keeps its required mark inline inside one label span");
-  assert.match(page, /<TransactionList[^>]*categoryColors=\{categoryColors\}/, "Transaksi passes the shared category colour map to TransactionList");
-  assert.match(page, /const loading = loader\.loading \|\| loader\.refreshing \|\| \(!loader\.hasLoaded && !loader\.failed\);/, "filter bar stays inert before the first load begins");
 });

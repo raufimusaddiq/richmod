@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { MAX_PHOTOS, QUICK_EVENTS, buildQuickPayload, categoryChips, caretAfterFormat, formatRupiahInput, normalizeDescription, photoSelectionError, photoStatus, quickFormErrors, repeatLabel, rupiahDigits, sanitizeSuggestions, shortRepeatDescription, suggestCategory } from "../app/lib/quickRecord.js";
-
-const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("the amount groups thousands live as it is typed", () => {
   assert.equal(formatRupiahInput("60000"), "60.000");
@@ -118,47 +115,9 @@ test("photo proof accepts up to ten JPG/PNG images and 10 MB, and only a failed 
   assert.equal(photoStatus({ status: "PROCESSED" }).retry, false);
 });
 
-test("the sheet opens on the manual form, with no chooser and no badges", () => {
-  const dialog = read("app/components/QuickRecordDialog.js");
-  assert.doesNotMatch(dialog, /Berbayar/);
-  assert.match(dialog, /useState\(request\.mode\)/, "it opens on the requested mode, manual by default");
-  assert.match(read("app/components/QuickRecordProvider.js"), /mode: detail\.mode === "photo" \? "photo" : "manual"/);
-  assert.match(dialog, /inputMode="numeric"/);
-  assert.match(dialog, /onChange=\{onAmount\}/);
-  assert.match(dialog, /const EMPTY_FORM = \{[^}]*amount: ""/);
-  assert.doesNotMatch(dialog, /name="amount"[^>]*placeholder="0"/, "amount uses an example placeholder, never a prefilled-looking 0");
-  assert.match(dialog, /aria-label="Ulangi cepat"/);
-  assert.match(dialog, /aria-label="Kategori"/);
-  assert.match(dialog, /Lainnya…/);
-  assert.match(dialog, /\/api\/v1\/transactions\/quick-suggestions/);
-  assert.match(dialog, /Lihat semua riwayat foto bukti ›/);
-  assert.match(dialog, /Proses ulang/);
-  assert.match(dialog, /\/api\/v1\/documents/);
-  assert.match(dialog, /<button type="button" className="secondary" onClick=\{\(\) => setMode\("photo"\)\}>Foto bukti<\/button><button type="submit" disabled=\{saving\}>/, "Foto bukti sits right beside Catat");
-});
-
-test("recent uploads use Indonesian document labels, never raw enum text", () => {
-  const dialog = read("app/components/QuickRecordDialog.js");
-  assert.match(dialog, /label\(documentTypeLabels, item\.documentType\) \|\| "Foto bukti"/);
-  assert.doesNotMatch(dialog, /replaceAll\("_", " "\)/);
-});
-
-test("the provider opens from context even before its window listener exists", () => {
-  const provider = read("app/components/QuickRecordProvider.js");
-  assert.match(provider, /<QuickRecordContext\.Provider value=\{\{ open \}\}>/);
-  assert.match(provider, /const open = useCallback\(/);
-  assert.match(provider, /<Presence show=\{enabled && Boolean\(request\)\}>\{\(\) => <QuickRecordDialog/);
-});
-
 test("saving closes at once, confirms with an undo, and tells open pages to refresh", () => {
-  const provider = read("app/components/QuickRecordProvider.js");
   assert.equal(QUICK_EVENTS.created, "richmod:transaction-created");
   assert.equal(QUICK_EVENTS.open, "richmod:open-quick-record");
-  assert.match(provider, /text: "Tercatat"/);
-  assert.match(provider, />\{toast\.undoing \? "Membatalkan…" : "Urungkan"\}</);
-  assert.match(provider, /\/api\/v1\/transactions\/\$\{toast\.id\}\/void/);
-  assert.match(provider, /announceTransactionCreated\(\{ id: body\?\.id \|\| "" \}\);\s*close\(\);/);
-  assert.match(read("app/App.js"), /<QuickRecordProvider>/);
 });
 
 test("repeat labels stay short and clean for quick chips", () => {
@@ -166,12 +125,4 @@ test("repeat labels stay short and clean for quick chips", () => {
   assert.equal(repeatLabel({ description: "Beli kopi", amount: "12000" }, value => `Rp ${value}`), "Beli kopi · Rp 12000");
   const long = shortRepeatDescription("Beli bahan makanan bulanan di pasar minggu bersama ibu");
   assert.ok(long.length <= 29 && long.endsWith("…"), `expected truncated short label, got ${long}`);
-});
-
-test("the sheet keeps the Retro Ledger rules: ink border, 16px inputs, sticky save bar, safe area", () => {
-  const css = read("app/styles/04-ledger-and-drawers.css");
-  assert.match(css, /\.quick-record\.create-dialog \{[^}]*border: 2px solid var\(--ink\)[^}]*box-shadow: var\(--shadow\)/);
-  assert.match(css, /\.quick-body input, \.quick-body select, \.quick-body textarea \{[^}]*min-height: 44px; font-size: 16px;/);
-  assert.match(css, /\.quick-savebar \{ position: sticky; bottom: 0;[^}]*env\(safe-area-inset-bottom\)/);
-  assert.match(css, /\.quick-chips \.chip \{ min-height: 44px;/);
 });

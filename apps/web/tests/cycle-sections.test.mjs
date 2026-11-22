@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildHeatmap, decisionCount, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../app/lib/cycleSections.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
-import { globalCss } from "./source.mjs";
-
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("same-day heatmap cuts every column at the elapsed day and never tints the running column", () => {
   const facts = cycleFacts();
@@ -66,76 +62,15 @@ test("delta tone and the decision counter follow the served sign and code points
   assert.equal(decisionCount("😀"), 1, "code points, not UTF-16 units");
 });
 
-test("sections source: no money arithmetic, plain model text, fixed order", () => {
-  const library = text("app/lib/cycleSections.js");
-  assert.doesNotMatch(library, /\.reduce\(|toFixed|parseFloat/, "the browser formats and sizes; it never derives totals");
-  const sections = text("app/analytics/CycleSections.js");
-  assert.match(sections, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/);
-  assert.match(sections, /aria-pressed=\{mode === "SAME_DAY"\}/);
-  assert.match(sections, /role="region" aria-label="Pengeluaran per kategori dan siklus/);
-  assert.match(sections, /<caption className="visually-hidden">/);
-  assert.match(sections, /Urutan tetap: otomatis dulu, lalu anggota menurut nama/);
-  assert.match(sections, /<table className="merchant-rank">/, "the merchant ranking is a real table");
-  assert.match(sections, /<th scope="col">Merchant<\/th>/, "merchant columns have real headers");
-  const card = text("app/components/InsightCard.js");
-  assert.doesNotMatch(card, /dangerouslySetInnerHTML|ReactMarkdown/);
-  assert.match(card, /Opsional\. Bukan saran keuangan atau keputusan rumah tangga/);
-  assert.match(card, /Cek dengan data/);
-  const decisions = text("app/components/CycleDecisions.js");
-  assert.match(decisions, /\{count\} \/ 2\.000/);
-  assert.match(decisions, /decision-columns/);
-  const styles = globalCss();
-  assert.match(styles, /\.heat-table td\[data-running\] \.heat-cell \{ border: 1px dashed/);
-  assert.match(styles, /\.decision-columns \{ display: grid/);
-});
-
-test("the collapsed bottom list groups Obrolan keluarga into one uniform disclosure row", () => {
-  const page = text("app/analytics/page.js");
-  assert.match(page, /<div className="review-stack surface card">/, "one card wraps the detail sections");
-  assert.match(page, /<section id="family-talk" className="review-section"/, "Obrolan keluarga is one row in the bottom list");
-  assert.match(page, /Obrolan keluarga<\/h2>/);
-  assert.match(page, /<section id="discussion" className="family-talk-part"/, "Bahan pembahasan lives inside Obrolan keluarga");
-  assert.doesNotMatch(page, /review-section surface card/, "no detail section keeps its own outline");
-  assert.match(text("app/analytics/CycleWhere.js"), /<section id="daily" className="review-section"/);
-  assert.match(text("app/analytics/CycleSections.js"), /<section id="household" className="family-talk-part"/);
-  assert.match(text("app/components/CycleDecisions.js"), /<section id="decisions" className="family-talk-part"/);
-  const styles = globalCss();
-  assert.match(styles, /\.cycle-review \.review-stack > \.review-section \{[^}]*border-top: 1px solid var\(--line\);[^}]*\}/, "rows are separated by a hairline");
-  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary \{[^}]*display: grid;[^}]*padding: 14px 16px;[^}]*\}/, "rows share equal padding and a 2-line grid");
-  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary h2 \{[^}]*color: var\(--ink\);[^}]*font-family: var\(--font-display\);[^}]*font-size: 17px;[^}]*\}/, "every row title is 17px Fraunces in ink");
-  assert.match(styles, /\.cycle-review \.review-stack \.report-disclosure > summary > span \{[^}]*grid-row: 2;[^}]*color: var\(--muted\);[^}]*font-size: var\(--text-md\);[^}]*\}/, "every summary sits on its own 13px muted line below");
-});
-
-test("the pace row sizes its cards to content instead of stretching the shorter one", () => {
-  assert.match(text("app/analytics/page.js"), /className="dash-row dash-row-half dash-row-pace"/);
-  assert.match(globalCss(), /\.dash-row-pace \{ align-items: start; \}/);
-});
-
 test("an empty merchant ranking is not drawn as a zero total", () => {
   const empty = { mode: "FULL_CYCLE", rows: [], other: { amount: "0", count: 0, merchantCount: 0, previous: null, deltaVsPrevious: null }, total: { amount: "0", count: 0, previous: null, deltaVsPrevious: null } };
   assert.deepEqual(merchantBars(empty).rows, []);
-  const sections = text("app/analytics/CycleSections.js");
-  assert.match(sections, /if \(!list \|\| !list\.rows\.length\) return <p className="empty compact">/, "a zero-row ranking shows the empty state");
-  assert.doesNotMatch(sections, /export function MerchantTable/, "the unreferenced merchant table is gone");
 });
 
 test("the heatmap resets its mode when the selected cycle changes", () => {
-  const page = text("app/analytics/CycleWhere.js");
-  assert.match(page, /<CategoryHeatmap key=\{facts\.period\.start\}/, "a new cycle remounts the heatmap so same-day is re-seeded");
-  const sections = text("app/analytics/CycleSections.js");
-  assert.match(sections, /useState\(sameDay \? "SAME_DAY" : "FULL"\)/);
   const closed = cycleFacts("2026-08-26");
   assert.equal(buildHeatmap(closed.categoryHistory, closed.history, "FULL").mode, "FULL");
   assert.equal(closed.categoryHistory.sameDay, undefined, "a closed cycle has no same-day matrix");
-});
-
-test("the decision form renders even when the list request fails", () => {
-  const decisions = text("app/components/CycleDecisions.js");
-  const guard = decisions.indexOf('{data && <div className="decision-columns">');
-  const guardEnd = decisions.indexOf("</div>}", guard);
-  const form = decisions.indexOf("{closed ? <form");
-  assert.ok(guard >= 0 && guardEnd > guard && form > guardEnd, "the compose form sits outside the data guard");
-  assert.match(decisions, /<form className="decision-form" onSubmit=\{save\}/);
 });
 
 test("full-mode tints ignore the untinted running column", () => {
@@ -162,8 +97,6 @@ test("the merchant remainder is only drawn when it has an amount", () => {
   assert.equal(nonZeroAmount("0.00"), false);
   assert.equal(nonZeroAmount("1"), true);
   assert.equal(nonZeroAmount(null), false);
-  const sections = text("app/analytics/CycleSections.js");
-  assert.match(sections, /list\.other && nonZeroAmount\(list\.other\.amount\)/, "a zero remainder row is not rendered");
 });
 
 test("fixtures carry the served section fields", () => {

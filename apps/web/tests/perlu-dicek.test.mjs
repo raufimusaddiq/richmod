@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import test from "node:test";
 import { component } from "./support/component.mjs";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -7,23 +6,11 @@ import React from "react";
 import { canUndoResolution, categoryAnswers, inboxView, legacyViewTarget, resolutionSummary, resolvedLine } from "../app/lib/reviewInbox.js";
 import { editFormErrors, editPayload, editableFields, editErrorMessage } from "../app/lib/transactionForm.js";
 
-const read = file => fs.readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
 
 const categories = [
   { id: "c1", name: "Makan", active: true }, { id: "c2", name: "Transport", active: true },
   { id: "c3", name: "Belanja", active: true }, { id: "c4", name: "Tagihan", active: true }, { id: "c5", name: "Lama", active: false },
 ];
-
-test("Perlu dicek has exactly two tabs with full keyboard support", () => {
-  const inbox = read("app/inbox/page.js");
-  assert.match(inbox, /role="tablist"/);
-  assert.match(inbox, /data-view="transactions"/);
-  assert.match(inbox, /data-view="history"/);
-  assert.doesNotMatch(inbox, /data-view="actions"|data-view="email"/);
-  assert.match(inbox, /Menunggu \(\{decisions\}\)/);
-  assert.match(inbox, /Riwayat 30 hari/);
-  for (const key of ["ArrowRight", "ArrowLeft", "Home", "End"]) assert.ok(inbox.includes(`"${key}"`), key);
-});
 
 test("old ?view=actions and ?view=email links move to Keluarga > Sumber otomatis", () => {
   assert.equal(legacyViewTarget("actions"), "/household?tab=sumber#tindakan");
@@ -33,11 +20,6 @@ test("old ?view=actions and ?view=email links move to Keluarga > Sumber otomatis
   assert.equal(inboxView("?view=history"), "history");
   assert.equal(inboxView("?view=transactions"), "transactions");
   assert.equal(inboxView(""), "transactions");
-  assert.match(read("app/inbox/page.js"), /window\.location\.replace\(moved\)/);
-});
-
-test("the review count keeps publishing without touching the action count", () => {
-  assert.match(read("app/inbox/page.js"), /publishInboxCount\(\{ reviewCount: decisions \}\)/);
 });
 
 test("category answers: top three ranked, sering dipakai only on merchant history, the rest behind Kategori lain", () => {
@@ -95,20 +77,6 @@ test("inline confirmation line: label, amount and what happened, with Urungkan c
   assert.equal(resolutionSummary("reject", null, categories), "diabaikan");
   assert.equal(resolutionSummary("classify-transfer", { classification: "OWN_ACCOUNT" }), "rekening sendiri");
   assert.equal(resolutionSummary("resolve", { action: "IGNORE" }), "diabaikan");
-  const inbox = read("app/inbox/page.js");
-  assert.match(inbox, /setResolved\(lines => \[resolvedLine\(item, name, body, categories\)/);
-  assert.match(inbox, /Urungkan<\/button>/);
-  assert.match(inbox, /\/api\/v1\/reviews\/\$\{id\}\/reopen/);
-  assert.match(inbox, /setResolved\(lines => lines\.filter\(line => line\.reopenId !== id\)\)/);
-  assert.match(inbox, /line\.canUndo \? <button[^>]*onClick=\{\(\) => reopen\(line\.reopenId\)\}>Urungkan<\/button> : line\.transactionId \? <Link[^>]*>Lihat transaksi<\/Link>/);
-});
-
-test("empty state and history", () => {
-  const inbox = read("app/inbox/page.js");
-  assert.match(inbox, /Semua sudah tercatat rapi/);
-  assert.match(inbox, /href="\/">Ke Beranda/);
-  assert.match(inbox, /href="\/transactions">Lihat Transaksi/);
-  assert.match(inbox, /Buka lagi/.test(read("app/components/review/ReviewHistory.js")) ? /reopen=\{reopen\}/ : /never/);
 });
 
 test("Tempat · Ubah: merchantName is sent only when it changes and only for non-transfers", () => {
@@ -121,17 +89,4 @@ test("Tempat · Ubah: merchantName is sent only when it changes and only for non
   assert.deepEqual(editPayload({ ...tx, type: "TRANSFER" }, { merchantName: "X", description: "d", note: "" }), {});
   assert.ok(editFormErrors({ merchantName: "a".repeat(161), description: "d" }, tx).merchantName);
   assert.match(editErrorMessage(409, { code: "TRANSFER_FIELD_LOCKED" }), /tempat/);
-});
-
-test("the drawer edit shows the helper note and the raw bank name underneath", () => {
-  const page = read("app/transactions/page.js");
-  assert.match(page, /<label>Tempat<input name="merchantName"/);
-  assert.match(page, /Transaksi berikutnya dari nama ini ikut berubah\./);
-  assert.match(page, /Dari bank: \{selected\.counterpartyName\}/);
-});
-
-test("the dead PENDING status and ADJUSTMENT type are gone from the web", () => {
-  const format = read("app/lib/format.js");
-  assert.doesNotMatch(format, /ADJUSTMENT|PENDING: "Tertunda"/);
-  assert.doesNotMatch(read("app/lib/transactionForm.js"), /"PENDING"/);
 });

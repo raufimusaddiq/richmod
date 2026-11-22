@@ -199,36 +199,17 @@ jobs:
         run: bun run build
       - name: Unit tests
         run: bun run test
-      - name: Playwright smokes
+      - name: Browser tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: |
-          mkdir -p test-results/logs
-          pids=""
-          for name in transaction-date analytics-review mobile-layout overlay-motion motion-interactions chart-motion; do
-            (
-              started=$(date +%s)
-              code=0
-              node scripts/$name-smoke.mjs >test-results/logs/$name.log 2>&1 || code=$?
-              echo "$name smoke finished in $(($(date +%s) - started))s with exit $code" >>test-results/logs/$name.log
-              exit $code
-            ) &
-            pids="$pids $name:$!"
-          done
-          status=0
-          for entry in $pids; do
-            name=${entry%%:*}
-            wait "${entry##*:}" || { status=1; echo "::error::$name smoke failed"; }
-            echo "::group::$name smoke"
-            cat "test-results/logs/$name.log"
-            echo "::endgroup::"
-          done
-          exit $status
-      - name: Upload smoke screenshots
+        run: bunx playwright test
+      - name: Upload Playwright report
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
         with:
-          name: smoke-screenshots
-          path: apps/web/test-results
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
           if-no-files-found: ignore
 
   containers:

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { cycleEntryWindow, missingTransactionHref, withinCycleWindow } from "../app/lib/missingTransaction.js";
-
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("the missing-transaction handoff carries the residual cycle as an inclusive range", () => {
   assert.equal(missingTransactionHref({ route: "CANONICAL_TRANSACTION_FLOW", cycleStart: "2026-08-25", cycleEnd: "2026-09-25" }), "/transactions?record=missing&from=2026-08-25&to=2026-09-24");
@@ -24,17 +21,4 @@ test("manual entry limits and prefills the date to the handed-off cycle", () => 
   assert.equal(withinCycleWindow("2026-08-24T23:59", inside), false);
   assert.equal(withinCycleWindow("", inside), false);
   assert.equal(withinCycleWindow("", null), true);
-});
-
-test("the inbox and the transaction form use the cycle handoff", () => {
-  assert.match(text("app/inbox/page.js"), /CANONICAL_TRANSACTION_FLOW"\) \{ window\.location\.assign\(missingTransactionHref\(result\)\)/);
-  const page = text("app/transactions/page.js");
-  assert.match(page, /cycleEntryWindow\(window\.location\.search\)/);
-  assert.match(page, /const \{ open: openQuickRecord \} = useQuickRecord\(\);/);
-  assert.doesNotMatch(page, /import \{ openQuickRecord \}/);
-  assert.match(page, /if \(window_\) openCreate\(window_\); \}, \[user, openQuickRecord\]\);/);
-  assert.match(page, /openQuickRecord\(\{ missingWindow: cycleWindow \}\)/, "the handoff opens the global sheet limited to the cycle");
-  const dialog = text("app/components/QuickRecordDialog.js");
-  assert.match(dialog, /required min=\{missingWindow\.min\} max=\{missingWindow\.max\} defaultValue=\{missingWindow\.value\}/);
-  assert.match(dialog, /withinCycleWindow\(time, missingWindow\)/);
 });
