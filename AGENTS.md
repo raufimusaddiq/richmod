@@ -17,7 +17,7 @@ When behavior or architecture changes, update any doc that describes it in the s
 ## Stack
 
 - Backend: Go
-- Frontend: Next.js + React + JavaScript
+- Frontend: React + JavaScript, bundled with Bun (no Next.js)
 - Database: PostgreSQL
 - Jobs: PostgreSQL-backed queue
 - AI model access: LiteRouter / Cloud AI Gateway only

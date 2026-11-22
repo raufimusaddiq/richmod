@@ -1,9 +1,12 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# apps/web
 
-# This is NOT the Next.js you know
+React + JavaScript single-page app built with Bun (ADR-115). There is no Next.js: no framework runtime, no server components, no file-system routing.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+- **Toolchain:** Bun is the package manager (`bun.lock`), bundler (`Bun.build`), dev server and script runner. The pinned version is in `package.json` (`packageManager`), `.bun-version`, `.github/workflows/ci.yml` and `infra/docker/api.Dockerfile`; change all four together. Playwright smokes and `capture:readme` run on Node because Playwright does not support Bun.
+- **Commands:** `bun install --frozen-lockfile --ignore-scripts`, `bun run build` (the only build command; writes `out/`), `bun run test`, `bun run dev` (rebuilds on save, serves `out/` on `PORT`, default 3000), `bun run build:embed` (build and copy into the Go binary's `internal/webui/assets`).
+- **Entry:** `app/main.js` imports the CSS, then hydrates (or renders, for the empty redirect pages) `app/App.js` into `#root`. `App` mounts the providers once and swaps only `RouteView`, so providers never remount on navigation.
+- **Routes:** `app/routes.js` maps a path to its page component; `app/lib/siteMeta.js` holds each route's title and description, the shared social/PWA head data, and the two redirects (`/actions`, `/reviews`). Adding a page means adding it to both, as `app/<name>/page.js`.
+- **Router:** `app/router/` is a small in-house router: `Link`, `usePathname`, `useSearchParams`, `useRouter`, `navigate`. It patches `history.pushState/replaceState` so existing code that calls them updates `useSearchParams`. `useSearchParams` renders on the client only; wrap its consumers in `Suspense` so the prerender shows the fallback.
+- **Build output:** `scripts/build.mjs` bundles one hashed script and one hashed stylesheet into `out/assets/`, copies `public/` and `scripts/og/opengraph-image.png` (served as `/opengraph-image`), and prerenders one `<route>.html` per route plus `404.html` with `react-dom/server`, baking each route's head from `siteMeta` (`scripts/lib/document.mjs`). The Go handler serves `assets/` as immutable and everything else per `internal/webui/webui.go`.
+- **Tests:** `bun test tests/`. Many tests read source text and regex-match it; when you move code, move the assertion with it rather than loosening it. `tests/site-build.test.mjs` builds the site and checks every page head.
+- No code comments; `node scripts/check-comments.mjs` enforces it.

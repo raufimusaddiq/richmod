@@ -52,8 +52,8 @@ The Playwright package remains a web dev dependency. The browser comes from
 the disposable Docker image; no browser installation is needed on the host.
 
 The same image is the canonical renderer for the visual regression baselines
-(`apps/web/tests/visual-baselines/`). `npm run test:visual` and
-`npm run test:visual:update` run inside it via
+(`apps/web/tests/visual-baselines/`). `bun run test:visual` and
+`bun run test:visual:update` run inside it via
 `apps/web/scripts/visual-smoke-docker.sh`; a host Chromium rasterises the
 self-hosted woff2 glyphs differently and fails every baseline. Bump the image
 tag in the same change as the `playwright` dev dependency.
@@ -68,7 +68,7 @@ docker run --rm -d --name richmod-readme-web \
   -p 127.0.0.1:3002:3000 \
   -v "$PWD/apps/web:/app" -w /app \
   mcr.microsoft.com/playwright:v1.65.0-noble \
-  sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run dev -- --hostname 0.0.0.0'
+  sh -c 'npm install --global --prefix /tmp/bun bun@1.4.4 && PATH=/tmp/bun/bin:$PATH && bun install --frozen-lockfile --ignore-scripts && bun run build && exec node scripts/static-server.mjs'
 ```
 
 Wait until this succeeds:
@@ -86,7 +86,7 @@ docker run --rm --network host \
   -e RICHMOD_SCREENSHOT_URL \
   -v "$PWD:/src" -w /src/apps/web \
   mcr.microsoft.com/playwright:v1.65.0-noble \
-  npm run capture:readme
+  bun run capture:readme
 ```
 
 The script uses a 1440×1050 desktop viewport, waits for the relevant public or
@@ -100,7 +100,7 @@ For an already-running local server on port `3000`, the shorter command is:
 
 ```bash
 cd apps/web
-npm run capture:readme
+bun run capture:readme
 ```
 
 That command still needs the pinned Playwright browser installed locally. The
@@ -117,11 +117,11 @@ stop the server:
 ```bash
 cd apps/web
 export PLAYWRIGHT_BROWSERS_PATH="$PWD/node_modules/.playwright-browsers"
-npm ci --ignore-scripts --no-audit --no-fund
+bun install --frozen-lockfile --ignore-scripts
 npx playwright install chromium
-npm run build
+bun run build
 PORT=3002 node scripts/static-server.mjs &
-RICHMOD_SCREENSHOT_URL=http://127.0.0.1:3002 npm run capture:readme
+RICHMOD_SCREENSHOT_URL=http://127.0.0.1:3002 bun run capture:readme
 kill %1
 ```
 
@@ -148,15 +148,15 @@ From the repository root, `node scripts/check-comments.mjs` must exit 0: the cap
 source outside `apps/web`, so mounting only that directory is insufficient.
 
 ```bash
-docker run --rm -v "$PWD:/src" -w /src/apps/web node:22.14-alpine \
-  sh -c 'npm test && npm run build'
+docker run --rm -v "$PWD:/src" -w /src/apps/web oven/bun:1.4.4-alpine \
+  sh -c 'bun run test && bun run build'
 
 git diff --check
 git diff -- README.md docs/assets apps/web/scripts/capture-readme.mjs
 ```
 
 Commit only the intended README, PNG, SVG when changed, Playwright script, and
-package lock changes. Do not commit `apps/web/node_modules`, `apps/web/.next`,
+lockfile changes. Do not commit `apps/web/node_modules`, `apps/web/out`,
 logs, `.env`, `finance.env`, or any generated production data.
 
 ## Disposable cleanup and reclaim
