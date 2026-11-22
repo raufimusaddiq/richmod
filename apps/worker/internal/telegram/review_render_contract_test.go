@@ -29,25 +29,11 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 	}
 }
 
-var markupModesHandledAtCreation = map[string]bool{
-	"category":              true,
-	"reply":                 true,
-	"duplicate":             true,
-	"salary":                true,
-	"transfer":              true,
-	"document":              true,
-	"financial_email":       true,
-	"financial_email_facts": true,
-	"receipt_quality":       true,
-	"cycle":                 true,
-	"income":                true,
-}
-
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
 		decision, _ := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
 		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
-		if !markupModesHandledAtCreation[mode] {
+		if !reviewMarkupModeHandled(mode) {
 			t.Fatalf("%s rendered mode %q with no creation markup case", reviewType, mode)
 		}
 	}

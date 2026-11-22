@@ -27,7 +27,7 @@ func (p *Processor) executeAgentSpecializedSideEffect(ctx context.Context, state
 	case "record_transfer":
 		return p.agentRecordTransfer(ctx, state, call, args)
 	case "resolve_review":
-		return p.agentResolveReview(ctx, state, call, args)
+		return p.agentResolveBoundReview(ctx, state, call, args)
 	case "resolve_salary_choice":
 		return p.agentResolveSalaryChoice(ctx, state, call, args)
 	case "resolve_merchant_learning":

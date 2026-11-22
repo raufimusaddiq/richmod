@@ -467,7 +467,8 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 95, "card")
 
 	update := callbackUpdate(f.chat, 95, "review:edit")
-	if err := enqueueRetireButtons(withCallbackQuestion(f.ctx, `{"callback_query":{"message":{"text":"card"}}}`), f.pool, update, "Tidak lagi berlaku."); err != nil {
+	update.CallbackQuery.Message.Text = "card"
+	if err := enqueueRetireButtons(f.ctx, f.pool, update, "Tidak lagi berlaku."); err != nil {
 		t.Fatal(err)
 	}
 	var early string

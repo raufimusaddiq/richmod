@@ -17,19 +17,7 @@ func callbackUpdate(chatID, messageID int64, data string) telegramUpdate {
 	update.Message.Chat.ID = chatID
 	update.Message.From.ID = chatID
 	update.Message.MessageID = messageID
-	update.CallbackQuery = &struct {
-		ID   string `json:"id"`
-		Data string `json:"data"`
-		From struct {
-			ID int64 `json:"id"`
-		} `json:"from"`
-		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-		} `json:"message"`
-	}{ID: "cb", Data: data}
+	update.CallbackQuery = &telegramCallbackQuery{ID: "cb", Data: data}
 	update.CallbackQuery.From.ID = chatID
 	update.CallbackQuery.Message.Chat.ID = chatID
 	update.CallbackQuery.Message.MessageID = messageID

@@ -56,19 +56,7 @@ func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 	update.Message.Chat.ID = chatID
 	update.Message.From.ID = chatID
 	update.Message.MessageID = 77
-	update.CallbackQuery = &struct {
-		ID   string `json:"id"`
-		Data string `json:"data"`
-		From struct {
-			ID int64 `json:"id"`
-		} `json:"from"`
-		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-		} `json:"message"`
-	}{ID: "cb-pager", Data: "review:catpage:1"}
+	update.CallbackQuery = &telegramCallbackQuery{ID: "cb-pager", Data: "review:catpage:1"}
 	update.CallbackQuery.From.ID = chatID
 	update.CallbackQuery.Message.Chat.ID = chatID
 	update.CallbackQuery.Message.MessageID = 77
@@ -133,19 +121,7 @@ func TestCategoryOnlyReviewSelectionCompletesReview(t *testing.T) {
 	update.Message.Chat.ID = chatID
 	update.Message.From.ID = chatID
 	update.Message.MessageID = 81
-	update.CallbackQuery = &struct {
-		ID   string `json:"id"`
-		Data string `json:"data"`
-		From struct {
-			ID int64 `json:"id"`
-		} `json:"from"`
-		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-		} `json:"message"`
-	}{ID: "cb-select", Data: "review:cat:" + categoryID}
+	update.CallbackQuery = &telegramCallbackQuery{ID: "cb-select", Data: "review:cat:" + categoryID}
 	update.CallbackQuery.From.ID = chatID
 	update.CallbackQuery.Message.Chat.ID = chatID
 	update.CallbackQuery.Message.MessageID = 81

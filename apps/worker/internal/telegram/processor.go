@@ -73,19 +73,24 @@ type telegramUpdate struct {
 			ID int64 `json:"id"`
 		} `json:"chat"`
 	} `json:"message"`
-	CallbackQuery *struct {
-		ID   string `json:"id"`
-		Data string `json:"data"`
-		From struct {
-			ID int64 `json:"id"`
-		} `json:"from"`
-		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-		} `json:"message"`
-	} `json:"callback_query"`
+	CallbackQuery *telegramCallbackQuery `json:"callback_query"`
+}
+
+type telegramCallbackQuery struct {
+	ID   string `json:"id"`
+	Data string `json:"data"`
+	From struct {
+		ID int64 `json:"id"`
+	} `json:"from"`
+	Message telegramCallbackMessage `json:"message"`
+}
+
+type telegramCallbackMessage struct {
+	MessageID int64  `json:"message_id"`
+	Text      string `json:"text"`
+	Chat      struct {
+		ID int64 `json:"id"`
+	} `json:"chat"`
 }
 
 func (p *Processor) turnTime(update telegramUpdate) time.Time {
@@ -133,7 +138,6 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 		return fmt.Errorf("decode Telegram source evidence: %w", err)
 	}
 	if update.CallbackQuery != nil {
-		ctx = withCallbackQuestion(ctx, payloadText)
 		defer func() {
 			if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
 				err = p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")

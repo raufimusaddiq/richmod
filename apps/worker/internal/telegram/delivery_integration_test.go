@@ -399,19 +399,7 @@ func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 		update.Message.Chat.ID = chat
 		update.Message.From.ID = chat
 		update.Message.MessageID = message
-		update.CallbackQuery = &struct {
-			ID   string `json:"id"`
-			Data string `json:"data"`
-			From struct {
-				ID int64 `json:"id"`
-			} `json:"from"`
-			Message struct {
-				MessageID int64 `json:"message_id"`
-				Chat      struct {
-					ID int64 `json:"id"`
-				} `json:"chat"`
-			} `json:"message"`
-		}{ID: fmt.Sprint("cb-", message), Data: data}
+		update.CallbackQuery = &telegramCallbackQuery{ID: fmt.Sprint("cb-", message), Data: data}
 		update.CallbackQuery.From.ID = chat
 		update.CallbackQuery.Message.Chat.ID = chat
 		update.CallbackQuery.Message.MessageID = message

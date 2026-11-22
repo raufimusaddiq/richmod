@@ -61,7 +61,7 @@ func Executable(kind, action string, b Binding) bool {
 			if action == "MERGE_EXISTING" {
 				return b.MergeableTransferCandidates > 0
 			}
-			return !(b.FinancialTransferCase && b.TransferCandidates > TransferCandidateLimit)
+			return !TransferCandidateOverflow(b.FinancialTransferCase, b.TransferCandidates)
 		}
 		return openTransaction
 	case "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING":

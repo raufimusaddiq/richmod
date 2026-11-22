@@ -69,19 +69,7 @@ func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
 	update.Message.Chat.ID = chatID
 	update.Message.From.ID = chatID
 	update.Message.MessageID = 1
-	update.CallbackQuery = &struct {
-		ID   string `json:"id"`
-		Data string `json:"data"`
-		From struct {
-			ID int64 `json:"id"`
-		} `json:"from"`
-		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      struct {
-				ID int64 `json:"id"`
-			} `json:"chat"`
-		} `json:"message"`
-	}{ID: "cb", Data: "review:dup:merge:0"}
+	update.CallbackQuery = &telegramCallbackQuery{ID: "cb", Data: "review:dup:merge:0"}
 	update.CallbackQuery.From.ID = chatID
 	update.CallbackQuery.Message.Chat.ID = chatID
 	update.CallbackQuery.Message.MessageID = 1
