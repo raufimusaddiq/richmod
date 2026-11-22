@@ -5,7 +5,7 @@ import { OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey }
 import { categoryLedgerHref, rankedCategories } from "../lib/home";
 
 export default function CategoryBars({ items, window, palette = null }) {
-  const rows = rankedCategories(items, 6);
+  const rows = rankedCategories(items, 6, palette);
   if (!rows.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;
   const { colors } = categoryColorMap(items, palette);
   const widest = rows.reduce((top, row) => Math.max(top, row.share), 0) || 1;

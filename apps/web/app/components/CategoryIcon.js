@@ -1,6 +1,7 @@
 "use client";
 
 import { Airplane, Baby, Basket, Car, Coffee, ForkKnife, FirstAidKit, Gift, GraduationCap, Heart, House, Lightning, PawPrint, Receipt, Repeat, ShoppingBag, Tag, Ticket, Users } from "@phosphor-icons/react";
+import { CATEGORY_COLORS, OTHER_CATEGORY_COLOR } from "../lib/categoryColors";
 import { useCategoryPalette } from "./CategoryPaletteProvider";
 import { categoryVisual } from "../lib/categoryIcons";
 
@@ -11,6 +12,8 @@ export default function CategoryIcon({ category, color = "", size = 34 }) {
   const { icon, tone, color: resolved } = categoryVisual(category, palette);
   const Icon = icons[icon] || Tag;
   const activeColor = color || resolved;
+  const matchedIndex = CATEGORY_COLORS.indexOf(activeColor);
+  const activeTone = matchedIndex >= 0 ? matchedIndex + 1 : activeColor === OTHER_CATEGORY_COLOR ? "other" : tone;
   const style = activeColor ? { "--icon-size": `${size}px`, "--cat-color": activeColor } : { "--icon-size": `${size}px` };
-  return <span className={`category-icon tone-${tone}`} style={style} aria-hidden="true"><Icon weight="duotone"/></span>;
+  return <span className={`category-icon tone-${activeTone}`} style={style} aria-hidden="true"><Icon weight="duotone"/></span>;
 }

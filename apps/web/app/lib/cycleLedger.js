@@ -1,3 +1,4 @@
+import { OTHER_CATEGORY_COLOR } from "./categoryColors.js";
 import { inclusiveEnd, signedMoney } from "./cycleReview.js";
 
 const millions = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -53,16 +54,19 @@ function columnSegments(index, categoryHistory, colorMap) {
   const byKey = new Map(rows.map(row => [row.id || "uncategorized", row]));
   const orderedKeys = colorMap?.order?.length ? [...colorMap.order.filter(key => byKey.has(key)), ...rows.map(row => row.id || "uncategorized").filter(key => !colorMap.order.includes(key))] : rows.map(row => row.id || "uncategorized");
   const segments = [];
+  const rawOther = Number(other[index]);
+  let otherWeight = Number.isFinite(rawOther) && rawOther > 0 ? rawOther : 0;
   for (const key of orderedKeys) {
     const row = byKey.get(key);
     const weight = Number(row?.amounts?.[index]);
     if (Number.isFinite(weight) && weight > 0) {
-      segments.push({ key, name: row.name, weight, color: colorMap?.colors?.get(key) || "var(--chart-category-1)" });
+      const color = colorMap?.colors?.get(key) || OTHER_CATEGORY_COLOR;
+      if (color === OTHER_CATEGORY_COLOR) otherWeight += weight;
+      else segments.push({ key, name: row.name, weight, color });
     }
   }
-  const otherWeight = Number(other[index]);
-  if (Number.isFinite(otherWeight) && otherWeight > 0) {
-    segments.push({ key: "other", name: "Kategori lain", weight: otherWeight, color: "var(--chart-category-other)" });
+  if (otherWeight > 0) {
+    segments.push({ key: "other", name: "Kategori lain", weight: otherWeight, color: OTHER_CATEGORY_COLOR });
   }
   return segments;
 }

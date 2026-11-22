@@ -10,7 +10,6 @@ import useAuth from "../components/useAuth";
 import useDialogs from "../components/useDialogs";
 import useDrawerA11y from "../components/useDrawerA11y";
 import { LoadError, useDrawerRecord, useGuardedLoad } from "../lib/useLoadState";
-import { buildCategoryPalette } from "../lib/categoryColors";
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { hidesVoided, originTimeline, periodRange, periodValue, transactionDisplayName, withVoidedPolicy } from "../lib/transactionView";
 import { jakartaDay } from "../lib/ledgerDays";
@@ -257,7 +256,7 @@ export default function TransactionsPage() {
   const period = periodValue(`?${query}`, { cycle: cycleWindow, today: jakartaDay(new Date()) });
   const voidedShown = !hidesVoided(`?${query}`) && !query.get("status");
   const size = pageSize(typeof window === "undefined" ? "" : window.location.search, PAGE_SIZE);
-  const categoryColors = palette.size ? palette : buildCategoryPalette(categories);
+  const categoryColors = palette;
   return <AppShell user={user} eyebrow="Transaksi" title="Riwayat Transaksi" actions={<><button onClick={() => openCreate()}>Tambah transaksi</button><span className="header-meta">{PAGE_SIZE} per halaman · Asia/Jakarta</span></>}>
     {query.get("cycle") && <p className="notice"><a href={selectionHref({ view: "cycle", cycle: query.get("cycle"), category: query.get("categoryId") || "", step: query.get("review") || "" })}>Kembali ke tinjauan siklus</a> · {query.get("from")} sampai {query.get("to")}</p>}
     {query.get("merchantId") && <div className="notice feedback"><span>Filter merchant terpilih dari tinjauan siklus.</span><button className="secondary" type="button" onClick={() => { const next = new URLSearchParams(window.location.search); next.delete("merchantId"); next.delete("cursor"); window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", `/transactions?${next}`); setCursorHistory([]); load(`?${next}`); }}>Hapus filter merchant</button></div>}

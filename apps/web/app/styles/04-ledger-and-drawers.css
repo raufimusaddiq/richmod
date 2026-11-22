@@ -158,8 +158,7 @@
 .category-icon.tone-4 { --cat-color: var(--chart-category-4); }
 .category-icon.tone-5 { --cat-color: var(--chart-category-5); }
 .category-icon.tone-6 { --cat-color: var(--chart-category-6); }
-.category-icon.tone-7 { --cat-color: var(--chart-category-7); }
-.category-icon.tone-8 { --cat-color: var(--chart-category-8); }
+.category-icon.tone-other { --cat-color: var(--chart-category-other); background: color-mix(in srgb, var(--chart-category-other) 45%, var(--surface)); color: var(--muted); }
 
 .filter-primary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .filter-search { position: relative; display: block; flex: 1 1 200px; min-width: 0; }

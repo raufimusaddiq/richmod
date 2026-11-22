@@ -20,23 +20,26 @@ function hue(hex) {
   return (raw * 60 + 360) % 360;
 }
 
-test("category colours contain no red, green, or accent teal and clear 4.5:1 on the strong surface", () => {
+test("category colours use the six Retro hidup tokens with no red or green and clear 3:1 on surface", () => {
   const accent = token("accent");
+  const expected = ["#1f6f68", "#b07d12", "#4a78a8", "#8a4f86", "#b8602a", "#7d68b3"];
   const seen = new Set();
-  for (let index = 1; index <= 8; index++) {
+  for (let index = 1; index <= 6; index++) {
     const value = token(`chart-category-${index}`);
+    assert.equal(value, expected[index - 1], `chart-category-${index} matches Retro hidup`);
     assert.ok(!seen.has(value), `chart-category-${index} must be distinct`);
     seen.add(value);
     assert.notEqual(value, accent, `chart-category-${index} must not reuse --accent`);
-    assert.ok(contrast(value, token("surface-strong")) >= 4.5, `chart-category-${index} contrast`);
+    assert.ok(contrast(value, token("surface")) >= 3, `chart-category-${index} contrast on surface`);
     const h = hue(value);
-    assert.ok(!(h < 30 || h > 330), `chart-category-${index} is not red (${h.toFixed(0)}°)`);
-    assert.ok(!(h > 70 && h < 180), `chart-category-${index} is not green or teal (${h.toFixed(0)}°)`);
+    assert.ok(!(h < 15 || h > 345), `chart-category-${index} is not red (${h.toFixed(0)}°)`);
+    assert.ok(!(h >= 75 && h <= 160), `chart-category-${index} is not green (${h.toFixed(0)}°)`);
   }
-  assert.ok(seen.size >= 7, "at least 7 distinct category colours exist");
-  assert.ok(token("chart-category-other"), "Kategori lain has a neutral sand token");
+  assert.equal(seen.size, 6, "six distinct category colours exist");
+  assert.doesNotMatch(globalCss(), /--chart-category-(?:7|8)\b/, "tokens 7 and 8 are removed");
+  assert.equal(token("chart-category-other"), "#cfc9b6", "Kategori lain keeps neutral sand");
   const guide = text("../../docs/brand-guidelines.md");
-  assert.match(guide, /Category colours[\s\S]*contain no red, no green/);
+  assert.match(guide, /Category colours[\s\S]*Retro hidup[\s\S]*contain no red and no\s+green/);
   assert.match(guide, /spent more \/ spent less than last cycle/);
 });
 

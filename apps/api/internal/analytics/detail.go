@@ -98,7 +98,7 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `SELECT c.id,COALESCE(c.name,'Belum dikategorikan'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY c.id,c.name HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)<>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC`, household, start, end)
+	rows, err := h.pool.Query(r.Context(), `SELECT c.id,COALESCE(c.name,'Belum dikategorikan'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY c.id,c.name HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)<>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC, c.id ASC NULLS LAST`, household, start, end)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate category spending"})
 		return

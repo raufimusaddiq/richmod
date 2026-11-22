@@ -22,13 +22,22 @@ function Delta({ delta }) {
 export function WhereCard({ facts, step, select, palette = null }) {
   const view = rankingView(facts, palette);
   const empty = !view || (!view.rows.length && !view.other);
-  const segments = empty ? [] : [...view.rows.map(row => ({ key: row.key, amount: row.amount, color: row.color })), ...(view.other ? [{ key: "other", amount: view.other.amount, color: OTHER_CATEGORY_COLOR }] : [])];
+  const segments = [];
+  if (!empty) {
+    let otherWeight = view.other ? Number(view.other.amount) || 0 : 0;
+    for (const row of view.rows) {
+      const weight = Number(row.amount) || 0;
+      if (row.color === OTHER_CATEGORY_COLOR) otherWeight += weight;
+      else if (weight > 0) segments.push({ key: row.key, amount: weight, color: row.color });
+    }
+    if (otherWeight > 0) segments.push({ key: "other", amount: otherWeight, color: OTHER_CATEGORY_COLOR });
+  }
   return <section id="where" className="surface dash-card where-card" aria-labelledby="where-title">
     <SectionTitle id="where-title" title="Ke mana uangnya"/>
     {facts.takeaways?.where && <p className="takeaway">{facts.takeaways.where}</p>}
     <p className="dash-sub">Pengeluaran bersih per kategori</p>
     {empty ? <p className="empty compact">Belum ada pengeluaran bersih pada periode ini.</p> : <>
-      <div className="where-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: Number(segment.amount), background: segment.color }}/>)}</div>
+      <div className="where-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: segment.amount, background: segment.color }}/>)}</div>
       <ol className="where-list" aria-label="Kategori menurut jumlah">
         {view.rows.map(row => <li key={row.key} style={{ "--cat": row.color }}>
           {row.openable

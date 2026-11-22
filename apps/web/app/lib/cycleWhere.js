@@ -19,7 +19,7 @@ export function rankingView(facts, palette = null) {
   const view = row => ({ ...row, delta: deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true }), length: fraction(row.amount, peak) });
   const rows = ranking.rows.map(row => {
     const key = categoryKey(row);
-    return { ...view(row), key, color: colors.get(key) || CATEGORY_COLORS[0], openable: openable.has(key) };
+    return { ...view(row), key, color: colors.get(key) || OTHER_CATEGORY_COLOR, openable: openable.has(key) };
   });
   const other = ranking.other && Number(ranking.other.categoryCount) > 0 ? { ...view(ranking.other), key: "other", color: OTHER_CATEGORY_COLOR } : null;
   return { rows, other, baseline: basis.label, total: facts.cashflow.expense };

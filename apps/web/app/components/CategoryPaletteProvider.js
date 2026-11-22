@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuthContext } from "./AuthProvider";
 import { buildCategoryPalette } from "../lib/categoryColors";
 
@@ -9,23 +9,32 @@ const CategoryPaletteContext = createContext(EMPTY_PALETTE);
 
 export default function CategoryPaletteProvider({ children }) {
   const { user } = useAuthContext();
-  const [categories, setCategories] = useState([]);
+  const [ranked, setRanked] = useState([]);
   const signedIn = Boolean(user);
+
+  const load = useCallback(signal => {
+    fetch("/api/v1/analytics/categories?period=last_3_cycles", { signal })
+      .then(response => (response.ok ? response.json() : null))
+      .then(list => { if (!signal?.aborted && Array.isArray(list)) setRanked(list); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!signedIn) {
-      setCategories([]);
+      setRanked([]);
       return undefined;
     }
-    let active = true;
-    fetch("/api/v1/categories")
-      .then(response => (response.ok ? response.json() : null))
-      .then(list => { if (active && Array.isArray(list)) setCategories(list); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [signedIn]);
+    const controller = new AbortController();
+    load(controller.signal);
+    const refresh = () => load(controller.signal);
+    window.addEventListener("richmod:transaction-created", refresh);
+    return () => {
+      controller.abort();
+      window.removeEventListener("richmod:transaction-created", refresh);
+    };
+  }, [signedIn, load]);
 
-  const palette = useMemo(() => buildCategoryPalette(categories), [categories]);
+  const palette = useMemo(() => buildCategoryPalette(ranked), [ranked]);
   return <CategoryPaletteContext.Provider value={palette}>{children}</CategoryPaletteContext.Provider>;
 }
 
