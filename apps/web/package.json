@@ -12,7 +12,7 @@
     "pretest": "node scripts/build-id.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:mobile-layout": "node scripts/mobile-layout-smoke.mjs",
-    "test:motion": "node scripts/motion-one-shot-smoke.mjs",
+    "test:motion": "node scripts/motion-one-shot-smoke.mjs && node scripts/motion-interactions-smoke.mjs",
     "test:chart-motion": "node scripts/chart-motion-smoke.mjs",
     "test:visual": "sh scripts/visual-smoke-docker.sh",
     "test:visual:local": "node scripts/visual-smoke.mjs",

@@ -127,6 +127,8 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-114](#adr-114-google-oidc-login-invite-bound-enrollment-and-active-only-household-uniqueness) | Google OIDC login, invite-bound enrollment, and active-only household uniqueness | Accepted, amends ADR-035 and ADR-059 |
 | [ADR-116](#adr-116-charts-draw-in-once-per-dataset-and-hero-figures-count-up-to-their-exact-value) | Charts draw in once per dataset and hero figures count up to their exact value | Accepted, supersedes the static-chart stance of commit 7c245e19 except the donut |
 
+| [ADR-117](#adr-117-one-dom-observer-mechanism-for-sliding-tab-indicators-panel-re-entry-and-first-load-stagger) | One DOM-observer mechanism for sliding tab indicators, panel re-entry and first-load stagger | Accepted |
+
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1179,3 +1181,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** the user asked for motion that is clearly visible; a one-shot draw-in explains where a figure came from without ever showing a wrong final value, and keying it to the dataset avoids replaying it on interaction.
 
 **Consequence:** charts and counters animate for about 0.7-0.8s on page load and on cycle or range switches; intermediate count-up frames are display-only and never leave the component; `scripts/chart-motion-smoke.mjs` (`npm run test:chart-motion`, in CI) asserts draw-in, exact end values, no replay on hover and instant state under reduced motion; screenshot baselines must be captured with reduced motion on.
+
+## ADR-117: One DOM-observer mechanism for sliding tab indicators, panel re-entry and first-load stagger
+*Accepted · 2026-11-22*
+
+**Decision:** `apps/web/app/lib/interactionMotion.js`, mounted once from the root layout as `MotionEffects`, runs a single `MutationObserver` plus `ResizeObserver`. A container marked `data-slide` gets its active child (`.active`, `aria-selected="true"` or `aria-pressed="true"`) measured into `--slide-x/y/w/h`, and a `::before` pill in `15-motion.css` transitions between those boxes; `data-slide-panel="<selector>"` restarts a one-shot `data-panel-enter` fade-rise on the content the tab controls when the active option changes. A container marked `data-stagger="<item selector>"` stamps its items with `data-stagger-item` and an index on first non-empty render only, and removes the stamp when the animations finish. A list inside a `[data-reveal]` region (ADR-109 route reveal) keeps only the reveal. `<details>`, `::details-content` and the Transaksi "Filter lain" panel animate height and opacity in CSS alone (`interpolate-size`, `@starting-style`, `allow-discrete`), instant where unsupported. Every new animated rule sits under `prefers-reduced-motion: no-preference`; the single `reduce` guard still owns the collapse.
+
+**Reason:** about a dozen controls and five list surfaces needed the same behaviour, and a data attribute per site keeps roles, aria and keyboard handlers untouched, avoids remounting panels with a `key`, and keeps one place to reason about timing. Stamping only the first non-empty render of a container is what separates initial load from pagination and filter re-queries; a stamp released on the animations' own `finished` promise leaves no timer duplicating a CSS duration.
+
+**Consequence:** a new tab strip or list opts in with an attribute and, for a strip, a `--slide-*` style family in `15-motion.css` whose border, radius and fill equal the active button's own. Without JavaScript the active button keeps its own styling, so the pill only replaces it once `data-slide-ready` is set. The observer only watches `class`, `aria-selected`, `aria-pressed` and child-list changes, so its own attribute writes never retrigger it.

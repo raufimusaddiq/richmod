@@ -115,7 +115,7 @@ export default function QuickRecordDialog({ request, onClose, onSaved }) {
       ? <PhotoProof onBack={() => setMode("manual")} onClose={() => dialogRef.current?.close()}/>
       : <form ref={formRef} className="quick-form" onSubmit={submit} noValidate>
         <div className="quick-body">
-          <div className="segmented" role="group" aria-label="Jenis transaksi">{TYPES.map(([key, text]) => <button key={key} type="button" aria-pressed={form.type === key} className={form.type === key ? "active" : ""} onClick={() => { set({ type: key, categoryId: key === "TRANSFER" ? "" : form.categoryId }); setErrors({}); }}>{text}</button>)}</div>
+          <div className="segmented" data-slide role="group" aria-label="Jenis transaksi">{TYPES.map(([key, text]) => <button key={key} type="button" aria-pressed={form.type === key} className={form.type === key ? "active" : ""} onClick={() => { set({ type: key, categoryId: key === "TRANSFER" ? "" : form.categoryId }); setErrors({}); }}>{text}</button>)}</div>
           <label className="quick-amount"><span>Jumlah (Rp) <span className="required-mark" aria-hidden="true">*</span></span>
             <input ref={amountRef} name="amount" inputMode="numeric" enterKeyHint="next" autoComplete="off" placeholder="Contoh: 25.000" value={form.amount} onChange={onAmount} onKeyDown={onAmountKeyDown} required aria-required="true" aria-invalid={errors.amount ? "true" : undefined} aria-describedby={errors.amount ? "quick-amount-error" : undefined}/>
             {errors.amount && <small id="quick-amount-error" className="field-error">{errors.amount}</small>}</label>

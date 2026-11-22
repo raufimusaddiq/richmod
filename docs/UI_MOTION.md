@@ -119,3 +119,31 @@ nothing reflows, a 44 px control keeps its hit area, and no control is disabled
 or delayed while an animation runs. The service worker caches nothing, so the
 cost is paid per route load; that is why there is one page-level fade and no
 ambient motion.
+
+## Tabs, disclosures and first-load lists
+
+Mechanism and rationale: ADR-117 (`apps/web/app/lib/interactionMotion.js`).
+
+| Motion | Where | Reason |
+| --- | --- | --- |
+| Sliding indicator, `--motion-slide` | every `[data-slide]` strip: Laporan `Arus kas \| Kekayaan` and `Siklus Gaji \| Kalender`, the 3/6/12 month range, Keluarga and Admin tabs, Perlu dicek, Bukti filters, Catat's type switch | the selected option moves to where the user pointed instead of jumping |
+| Panel re-entry, `--motion-slide` | the element named by `data-slide-panel` | the content swap reads as the consequence of the tab press |
+| Disclosure, `--motion-slide` | `<details>` via `::details-content`; `.filter-more` | height and opacity ease instead of cutting; browsers without `interpolate-size` or `::details-content` stay instant |
+| First-load stagger, `--motion-stagger` apart | `[data-stagger]` lists: transaction rows, category bars, document cards, admin metric tiles, household members | rows rise in once, the first time the list appears |
+
+`--motion-slide` is `300ms`, `--motion-stagger` is `45ms`, and `--ease-glide` is
+the symmetric curve used for anything that changes size or position. A list
+staggers at most its first eight items: later items share the eighth item's
+delay, so nothing waits more than 315 ms. A list staggers only the first time
+it has items; pagination, a filter re-query and a re-render do not replay it.
+`scripts/motion-interactions-smoke.mjs` (also run by `npm run test:motion`)
+asserts the slide, the panel fade, both disclosure kinds, stagger-once and
+reduced motion against the static export.
+
+A list that mounts inside a `[data-reveal]` region (skeleton to content on route
+entry) does not stagger: the 420 ms reveal is already the entrance, and a
+container fade plus per-row rises would read as two motions. Stagger shows for
+lists that appear without a skeleton, such as a tab's content.
+
+The Performance rule above has one exception: disclosures animate block size,
+so the content below them reflows for the length of the transition.

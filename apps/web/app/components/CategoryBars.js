@@ -9,7 +9,7 @@ export default function CategoryBars({ items, window, palette = null }) {
   if (!rows.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;
   const { colors } = categoryColorMap(items, palette);
   const widest = rows.reduce((top, row) => Math.max(top, row.share), 0) || 1;
-  return <ul className="category-bars">{rows.map((row, index) => {
+  return <ul className="category-bars" data-stagger=":scope > li">{rows.map((row, index) => {
     const color = row.other ? OTHER_CATEGORY_COLOR : colors.get(categoryKey(row)) || categoryColorFor(row, palette);
     const body = <>
       <span className="category-bars-name"><i style={{ background: color }} aria-hidden="true"/>{row.name}</span>
