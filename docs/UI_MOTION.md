@@ -43,7 +43,7 @@ drives a timer from an animation duration.
 | Toast in and out | `.toast` | the confirmation arrives and leaves instead of appearing and vanishing |
 | Changed figure | `[data-updated]` on a wealth figure, or on the cycle position | the number the user's save or cycle choice changed is marked, and its `CountUp` tween runs underneath the mark |
 | Drawer, sheet, dialog entry | `.detail-drawer`, `.admin-drawer`, `.mobile-more-panel`, `dialog[open]` | the panel used to cut into place |
-| Page entry | `.route-fade .app-main` via `app/template.js` | a route change lands, under 200 ms, opacity only |
+| Page entry | `.route-fade .app-main` fallback in `app/App.js`; `ViewTransition` in `AppShell` where supported | a route change lands, under 200 ms, opacity only |
 | Chart draw-in | Recharts bars and lines in `Charts.js`, `.history-bar`, `.where-stack`, `.category-bars-track`, `.home-share` | a series shows where its figures came from, once per dataset (see below) |
 | Hero count-up | `CountUp` on the home hero and figures, the cycle KPI strip, the wealth position | the headline figure lands on its exact value instead of cutting in |
 
@@ -81,6 +81,9 @@ number between the previous and the new value, and renders the original string
 once it finishes, so the end state is always exact. While it runs, an
 `aria-hidden` copy shows the tween and a visually hidden copy carries the final
 string. It starts from the previous value on a change and from zero on mount.
+The tween runs on the signed value and the sign is rendered per frame, so a
+figure that changes sign passes through zero and no frame ever shows a sign that
+disagrees with its digits.
 
 Route entry (`[data-reveal]` and the view transition) fades and lifts the whole
 content block over `--motion-page` while a chart's own draw-in and a counter

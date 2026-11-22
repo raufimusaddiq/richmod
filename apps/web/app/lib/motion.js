@@ -42,18 +42,28 @@ export function datasetKey(data) {
 const grouped = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 });
 const NUMBER_TOKEN = /\d+(?:\.\d{3})*/;
 
+const LEADING_SIGN = /^[−+-]/;
+
 export function parseCountUpText(text) {
   const source = String(text ?? "");
   const match = NUMBER_TOKEN.exec(source);
   if (!match) return null;
-  const digits = match[0].replace(/\./g, "");
-  const value = Number(digits);
-  if (!Number.isSafeInteger(value)) return null;
-  return { prefix: source.slice(0, match.index), suffix: source.slice(match.index + match[0].length), value };
+  const magnitude = Number(match[0].replace(/\./g, ""));
+  if (!Number.isSafeInteger(magnitude)) return null;
+  const lead = LEADING_SIGN.exec(source.slice(0, match.index))?.[0] ?? "";
+  const negative = lead === "−" || lead === "-";
+  return {
+    prefix: source.slice(lead.length, match.index),
+    positiveSign: lead === "+" ? "+" : "",
+    suffix: source.slice(match.index + match[0].length),
+    value: negative ? -magnitude : magnitude,
+  };
 }
 
 export function countUpText(parsed, value) {
-  return `${parsed.prefix}${grouped.format(Math.round(value))}${parsed.suffix}`;
+  const rounded = Math.round(value);
+  const sign = rounded < 0 ? "−" : rounded > 0 ? parsed.positiveSign : "";
+  return `${sign}${parsed.prefix}${grouped.format(Math.abs(rounded))}${parsed.suffix}`;
 }
 
 export function countUpValue(from, to, progress) {
