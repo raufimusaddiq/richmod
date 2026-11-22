@@ -244,6 +244,7 @@
   .decision-form:focus-within .decision-form-foot { position: sticky; bottom: var(--kb-inset); z-index: 10; padding: 12px 0; border-top: 1px solid var(--line); background: var(--surface); }
   .member-form:focus-within > button:not([type="button"]),
   .inline-form:focus-within > button:not([type="button"]) { position: sticky; bottom: var(--kb-inset); z-index: 10; }
+  html:has(:is(.wealth-snapshot-form, .decision-form, .member-form, .inline-form):focus-within) .mobile-nav { display: none; }
 }
 
 @media (max-width: 719px) {

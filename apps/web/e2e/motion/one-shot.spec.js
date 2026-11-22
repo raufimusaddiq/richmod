@@ -59,7 +59,6 @@ for (const [label, width] of [["desktop", 1440], ["mobile", 390]]) {
     });
 
     test("a wealth save flashes once and a retry does not replay it", async ({ page }) => {
-      test.fixme(label === "mobile", "https://github.com/raufimusaddiq/richmod/issues/587: with a mouse the bottom nav covers the save button once the focused input blurs; a touch tap submits");
       await page.goto("/wealth", { waitUntil: "networkidle" });
       await page.waitForSelector(".wealth-position-primary > strong:not([data-updated])");
       await page.getByRole("button", { name: "Perbarui nilai", exact: true }).click();
