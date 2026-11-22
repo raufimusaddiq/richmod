@@ -534,6 +534,9 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 	if candidates != 11 || overflowStatus != 2 {
 		t.Fatalf("overflow candidates=%d transactions=%d", candidates, overflowStatus)
 	}
+	if res := resolve(overflowReview, `{"action":"IGNORE","values":{}}`); res.Code != http.StatusNoContent {
+		t.Fatalf("ignoring an overflowing case status=%d body=%s", res.Code, res.Body.String())
+	}
 	ignoreSource, ignoreObservation, ignoreReview := newCase("ignore", []string{existing})
 	if res := resolve(ignoreReview, `{"action":"IGNORE","values":{}}`); res.Code != http.StatusNoContent {
 		t.Fatalf("ignore status=%d body=%s", res.Code, res.Body.String())

@@ -582,7 +582,7 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 		var done bool
 		expired <- f.pool.QueryRow(ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done)
 	}()
-	time.Sleep(300 * time.Millisecond)
+	waitUntilBlockedBy(t, f.pool, failing)
 	ctx, cancel := context.WithTimeout(f.ctx, 3*time.Second)
 	defer cancel()
 	if _, err := failing.Exec(ctx, `UPDATE review_request_recipient SET delivery_error=delivery_error WHERE id=$1`, recipientA); err != nil {

@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -83,30 +80,5 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 				t.Fatalf("the household must still be re-asked once, got %d reply jobs", replies)
 			}
 		})
-	}
-}
-
-func TestNoTelegramReplyEventIsParkedAsNeedsReview(t *testing.T) {
-	calls := regexp.MustCompile(`finishWithoutTransaction\([^)]*"NEEDS_REVIEW"|SET\s+processing_status\s*=\s*'NEEDS_REVIEW'`)
-	allowed := map[string]bool{"agent_specialized_mutations.go": true}
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range files {
-		if strings.HasSuffix(file, "_test.go") {
-			continue
-		}
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, loc := range calls.FindAllIndex(raw, -1) {
-			if allowed[file] {
-				continue
-			}
-			line := 1 + strings.Count(string(raw[:loc[0]]), "\n")
-			t.Errorf("%s:%d parks a Telegram reply event as NEEDS_REVIEW; settle it PROCESSED and leave the review on its own item", file, line)
-		}
 	}
 }

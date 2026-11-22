@@ -44,7 +44,7 @@ func TestReopenTransactionReviewConcurrentReversals(t *testing.T) {
 	defer second.Rollback(ctx)
 	done := make(chan error, 1)
 	go func() { done <- reviewdomain.ReopenTransactionReview(ctx, second, household, transaction) }()
-	time.Sleep(200 * time.Millisecond)
+	waitUntilBlockedBy(t, pool, first)
 	if err := first.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
