@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { dayLabel } from "../lib/chartData";
 import { dateTime } from "../lib/format";
 import { decisionCount } from "../lib/cycleSections";
+import { selectionHref } from "../lib/cycleReview";
+import { Link } from "../router";
 import { ErrorNotice } from "./Feedback";
 import useDialogs from "./useDialogs";
 
@@ -88,7 +90,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
       <textarea ref={field} id="decision-body" name="body" rows={4} autoCapitalize="sentences" value={body} disabled={busy} aria-describedby={`decision-hint${saveError ? " decision-error" : ""}`} aria-invalid={Boolean(saveError)} onChange={event => { onBodyChange(event.target.value); setSaveError(""); setStatus(""); }} onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) event.currentTarget.form.requestSubmit(); }}/>
       <p id="decision-hint" className="review-description">Perubahan dibuat sebagai catatan baru; catatan lama dapat dibatalkan dan tetap ada di riwayat audit.</p>
       <div className="decision-form-foot"><button type="submit" disabled={busy}>{busy ? "Menyimpan…" : "Simpan keputusan"}</button><span className="decision-count" aria-live="polite">{count} / 2.000</span></div>
-    </form> : <p className="decision-closed">Keputusan dapat disimpan setelah siklus ditutup. Catatan siklus sebelumnya tetap dapat dibaca.</p>}
+    </form> : <p className="decision-closed">Keputusan disimpan untuk siklus yang sudah ditutup.{data?.previousCycleStart && <> <Link className="decision-write-link" href={selectionHref({ view: "cycle", cycle: data.previousCycleStart, step: "decisions" })}>Tulis keputusan siklus {dayLabel(data.previousCycleStart)} →</Link></>}</p>}
     {saveError && <p id="decision-error" className="notice error" role="alert">{saveError}</p>}
     <p role="status" aria-live="polite">{status || (body ? "Draf belum disimpan." : "")}</p>
   </section>;

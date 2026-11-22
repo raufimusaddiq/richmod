@@ -582,3 +582,20 @@ test("entering the ledger from the calendar directly keeps month bounds without 
   expect(new URL(page.url()).search, "direct calendar entry keeps month bounds without guessing a salary anchor").toBe("?from=2026-08-01&to=2026-08-31&status=CONFIRMED&type=SPENDING&cycle=");
   await expect(page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true }), "no invalid cycle backlink without a reviewed cycle").toHaveCount(0);
 });
+
+test("a running cycle links straight to writing a decision for the previous, closed cycle", async ({ page }) => {
+  await visit(page, CYCLE);
+  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  await page.evaluate(() => { window.__sameDocument = true; });
+  await openDisclosure(page, "#family-talk > details", "#decisions");
+  await expect(page.locator("#decision-body"), "a running cycle has no decision field").toHaveCount(0);
+  const write = page.getByRole("link", { name: /^Tulis keputusan siklus .+ →$/ });
+  await expect(write).toHaveAttribute("href", "/analytics?view=cycle&cycle=2026-08-26&review=decisions");
+  await write.click();
+  await page.locator("#decision-body").waitFor();
+  expect(searchOf(page).get("cycle")).toBe("2026-08-26");
+  expect(searchOf(page).get("review")).toBe("decisions");
+  await page.waitForFunction(() => document.activeElement?.id === "decisions-title");
+  expect(await page.evaluate(() => window.__sameDocument), "the link stays in the app without a full reload").toBe(true);
+  await expect(page.getByRole("button", { name: "Simpan keputusan", exact: true })).toBeVisible();
+});
