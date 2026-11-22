@@ -1,18 +1,5 @@
 package reviewdomain
 
-import (
-	"sync/atomic"
-	"time"
-)
+import "github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 
-var lastStamp atomic.Int64
-
-func uniqueStamp() int64 {
-	for {
-		last := lastStamp.Load()
-		next := max(time.Now().UnixNano(), last+1_000_000)
-		if lastStamp.CompareAndSwap(last, next) {
-			return next
-		}
-	}
-}
+func uniqueStamp() int64 { return testsupport.UniqueStamp() }

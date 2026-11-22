@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
@@ -59,6 +60,7 @@ func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 	}
 
 	handler := NewHandler(pool)
+	handler.probeTimeout, handler.statusTimeout = time.Minute, time.Minute
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations/status", nil)
 	request = request.WithContext(auth.ContextWithPrincipal(ctx, auth.Principal{
 		UserID:        "00000000-0000-4000-8000-000000000001",
