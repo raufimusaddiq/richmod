@@ -50,7 +50,7 @@ func (f *laneFixture) must(err error) {
 }
 
 func (f *laneFixture) principal(r *http.Request) *http.Request {
-	return r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+	return r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Household: &auth.Membership{HouseholdID: f.household, Role: "OWNER"}}))
 }
 
 type laneItem struct {

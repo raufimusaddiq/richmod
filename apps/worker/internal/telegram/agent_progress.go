@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -43,7 +44,9 @@ func startProgressNotice(delay time.Duration, send func(context.Context) error) 
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = send(ctx)
+		if err := send(ctx); err != nil {
+			slog.Default().Warn("telegram progress notice failed", "error", err)
+		}
 	})
 	return func() {
 		mu.Lock()

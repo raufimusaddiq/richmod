@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
 func TestCycleReviewRejectsInvalidHistory(t *testing.T) {
 	h := NewCycleHandler(nil, func() time.Time { return time.Date(2026, 9, 10, 12, 0, 0, 0, clock.HouseholdLocation()) })
 	for _, value := range []string{"0", "13", "-1", "abc", "1.5", "999"} {
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cycle-review?history="+value, nil)
-		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: "user", Memberships: []auth.Membership{{HouseholdID: "household", Role: "OWNER"}}}))
+		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: "user", Household: &auth.Membership{HouseholdID: "household", Role: "OWNER"}}))
 		w := httptest.NewRecorder()
 		h.CycleReview(w, r)
 		if w.Code != http.StatusBadRequest {

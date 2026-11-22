@@ -61,7 +61,7 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	request := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/transactions?type=EXPENSE&categoryId=%s&memberId=%s&merchantId=%s&accountId=%s&source=BANK_EMAIL&q=pamella", categoryID, userID, merchantID, accountID), nil)
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
 	response := httptest.NewRecorder()

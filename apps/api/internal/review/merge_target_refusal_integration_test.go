@@ -35,7 +35,7 @@ func TestWebReviewRoutesRefuseActiveMergeTarget(t *testing.T) {
 	var household, user, target, item, duplicate string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("web merge target %d", stamp)).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("web-merge-target-%d@example.test", stamp)).Scan(&user))
-	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',75000,now(),'Toko') RETURNING id`, household).Scan(&target))
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN','{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, household, target).Scan(&item))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name,voided_at) VALUES($1,'EXPENSE','VOIDED',75000,now(),'Toko',now()) RETURNING id`, household).Scan(&duplicate))

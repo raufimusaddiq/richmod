@@ -49,7 +49,7 @@ func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) 
 				category = ""
 			}
 			handler := NewHandler(pool)
-			principal := auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+			principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}
 			request := func(action string, values map[string]any) *httptest.ResponseRecorder {
 				t.Helper()
 				raw, err := json.Marshal(values)

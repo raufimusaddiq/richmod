@@ -380,17 +380,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 }
 
 func missingFields(review map[string]any) ([]string, bool) {
-	switch value := review["missing_fields"].(type) {
-	case []string:
-		return value, true
-	case []any:
-		out := make([]string, 0, len(value))
-		for _, item := range value {
-			if text, ok := item.(string); ok {
-				out = append(out, text)
-			}
-		}
-		return out, len(out) > 0
-	}
-	return nil, false
+	value, ok := review["missing_fields"].([]string)
+	return value, ok && len(value) > 0
 }

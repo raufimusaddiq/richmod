@@ -142,7 +142,26 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 		value := receiptExtraction{Merchant: "Alfamart", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
 		done <- (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", receiptValidation{TransactionAt: receiptTime(), DateKnown: true}, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}})
 	}()
-	time.Sleep(300 * time.Millisecond)
+	waitCtx, cancelWait := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelWait()
+	bankPID := int32(bank.Conn().PgConn().PID())
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for waiting := false; !waiting; {
+		if err := fixture.pool.QueryRow(waitCtx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event='advisory' AND $1=ANY(pg_blocking_pids(pid)))`, bankPID).Scan(&waiting); err != nil {
+			t.Fatalf("wait for advisory lock waiter: %v", err)
+		}
+		if waiting {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("receipt finished before bank committed: %v", err)
+		case <-waitCtx.Done():
+			t.Fatalf("timed out waiting for advisory lock waiter: %v", waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
 	if err := bank.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

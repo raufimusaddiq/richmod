@@ -58,7 +58,7 @@ func TestDocumentListPagesWithCursor(t *testing.T) {
 	handler := NewHandlerWithStorage(pool, storage)
 	fetch := func(query string) (*httptest.ResponseRecorder, []struct{ ID string }) {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/documents?"+query, nil)
-		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 		response := httptest.NewRecorder()
 		handler.List(response, request)
 		var items []struct{ ID string }

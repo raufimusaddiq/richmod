@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 )
 
@@ -92,7 +92,7 @@ func (f reviewFixture) review(t *testing.T, query string) cycleReview {
 	t.Helper()
 	h := NewCycleHandler(f.pool, func() time.Time { return time.Date(2026, 9, 10, 12, 0, 0, 0, clock.HouseholdLocation()) })
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cycle-review"+query, nil)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Household: &auth.Membership{HouseholdID: f.household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	h.CycleReview(w, r)
 	if w.Code != 200 {
@@ -416,7 +416,7 @@ func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) 
 		t.Fatalf("drivers=%+v", facts.Merchants)
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?merchantId="+parentsID+"&type=SPENDING", nil)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Household: &auth.Membership{HouseholdID: f.household, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	ledger.NewHandler(f.pool).ListTransactions(response, request)
 	if response.Code != 200 {

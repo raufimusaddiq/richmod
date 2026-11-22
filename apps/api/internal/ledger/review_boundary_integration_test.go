@@ -35,7 +35,7 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Synthetic actor','unused') RETURNING id`, fmt.Sprintf("boundary-%d@example.test", time.Now().UnixNano())).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
-	principal := auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}
 	h := NewHandler(pool)
 	for _, tc := range []struct {
 		name, kind, status, review string

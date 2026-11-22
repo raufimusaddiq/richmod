@@ -53,7 +53,7 @@ func TestReprocessQueuesFailedDocumentOnceAndAudits(t *testing.T) {
 	call := func(household, id string) int {
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/documents/"+id+"/reprocess", nil)
 		request.SetPathValue("id", id)
-		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		response := httptest.NewRecorder()
 		handler.Reprocess(response, request)
 		return response.Code

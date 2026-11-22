@@ -45,7 +45,7 @@ func TestActionAuthorizationAndHouseholdScope(t *testing.T) {
 	request := func(method, path, userID, household, role string) *http.Request {
 		r := httptest.NewRequest(method, path, nil)
 		r.SetPathValue("id", actionID)
-		return r.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: household, Role: role}}}))
+		return r.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: household, Role: role}}))
 	}
 	memberResponse := httptest.NewRecorder()
 	handler.List(memberResponse, request(http.MethodGet, "/api/v1/integration-actions", member, householdA, "MEMBER"))
@@ -146,7 +146,7 @@ func TestResolvingAFailedSourceActionFinalizesItsSourceEvent(t *testing.T) {
 	resolve := func(actionID, user, household string) int {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/integration-actions/"+actionID+"/resolve", nil)
 		r.SetPathValue("id", actionID)
-		r = r.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		r = r.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		w := httptest.NewRecorder()
 		NewHandler(pool).Resolve(w, r)
 		return w.Code

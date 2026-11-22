@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
 func TestCashflowRangeIncludesOnlyConfirmedFinancialState(t *testing.T) {
@@ -58,7 +58,7 @@ func TestCashflowRangeIncludesOnlyConfirmedFinancialState(t *testing.T) {
 	handler := NewHandler(pool)
 	handler.now = func() time.Time { return time.Date(2026, 8, 25, 12, 0, 0, 0, clock.HouseholdLocation()) }
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/cashflow?range=3", nil)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	handler.Cashflow(response, request)
 	if response.Code != http.StatusOK {

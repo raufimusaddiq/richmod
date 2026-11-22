@@ -17,12 +17,12 @@ async function openFilters(page) {
 }
 
 async function fits(input) {
-  let box;
-  for (let attempt = 0; attempt < 20; attempt++) {
-    box = await measure(input);
-    if (box.height >= 44 && box.width >= 44) break;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
+  await input.waitFor({ state: "visible" });
+  await input.evaluate(async () => {
+    await document.fonts?.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  const box = await measure(input);
   return check(input, box);
 }
 

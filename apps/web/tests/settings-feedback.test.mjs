@@ -33,7 +33,7 @@ test("a completed change shows a specific toast and flashes the row", () => {
 test("the toast clears the mobile tab bar", () => {
   const css = globalCss();
   const mobile = css.slice(css.indexOf("@media (max-width: 1100px)"));
-  assert.match(mobile, /\.toast \{[^}]*left: 16px;[^}]*right: 16px;[^}]*bottom: calc\(78px \+ env\(safe-area-inset-bottom\)\);[^}]*max-width: none;/);
+  assert.match(mobile, /\.toast \{[^}]*left: 16px;[^}]*right: 16px;[^}]*bottom: calc\(var\(--mobile-nav-height\) \+ 12px \+ env\(safe-area-inset-bottom\)\);[^}]*max-width: none;/);
   assert.match(css, /\.toast \{ position: fixed; right: 24px; bottom: 24px;/);
 });
 

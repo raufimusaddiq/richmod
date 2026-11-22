@@ -23,10 +23,7 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 		}
 		if !authorized {
 			slog.Default().Info("queued Telegram message dropped: recipient no longer authorized", "job_id", jobID)
-			if err := p.skipReviewDelivery(ctx, payload); err != nil {
-				return err
-			}
-			return answerLegacyCallback(ctx, bot, payload)
+			return p.skipReviewDelivery(ctx, payload)
 		}
 		if payload.ReviewRequestID != "" {
 			open, err := p.ReviewProjectionOpen(ctx, payload.ReviewRequestID)
@@ -34,10 +31,7 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 				return err
 			}
 			if !open {
-				if err := p.skipReviewDelivery(ctx, payload); err != nil {
-					return err
-				}
-				return answerLegacyCallback(ctx, bot, payload)
+				return p.skipReviewDelivery(ctx, payload)
 			}
 		}
 		if messageID, err = bot.Send(ctx, payload); err != nil {
@@ -66,16 +60,6 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 		if err := p.BindEvidenceMessage(ctx, payload.ChatID, messageID, payload.BindDocumentID); err != nil {
 			return err
 		}
-	}
-	return answerLegacyCallback(ctx, bot, payload)
-}
-
-func answerLegacyCallback(ctx context.Context, bot *Bot, payload SendPayload) error {
-	if payload.CallbackQueryID == "" {
-		return nil
-	}
-	if err := bot.AnswerCallback(ctx, payload.CallbackQueryID); err != nil {
-		slog.Default().Warn("legacy Telegram callback answer failed", "error", err)
 	}
 	return nil
 }

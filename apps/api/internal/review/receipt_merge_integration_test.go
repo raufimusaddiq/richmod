@@ -61,7 +61,7 @@ func TestReceiptDuplicateCandidateMergesThroughReviewAction(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+receiptID+"/merge", bytes.NewBufferString(fmt.Sprintf(`{"targetTransactionId":%q}`, targetID)))
 	request.SetPathValue("id", receiptID)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	NewHandler(pool).Merge(response, request)
 	if response.Code != http.StatusOK {

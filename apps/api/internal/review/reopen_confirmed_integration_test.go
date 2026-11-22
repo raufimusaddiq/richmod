@@ -33,7 +33,7 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 		}
 	}
 	household, user, category := seedTransferReviewOwner(t, pool, time.Now().UnixNano())
-	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	handler := NewHandler(pool)
 	call := func(method, path, id, body string, fn http.HandlerFunc) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, bytes.NewBufferString(body))

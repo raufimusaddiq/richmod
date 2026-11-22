@@ -62,8 +62,8 @@ test("bank fact completion submits an RFC3339 instant, not a date-only value", (
   assert.match(source, /transactionAt: raw \? new Date\(raw\)\.toISOString\(\) : null/);
 });
 
-test("legacy items fall back to the API missingFields list", () => {
-  assert.match(source, /const missing = item\.missingFacts \|\| item\.missingFields/);
+test("review items read missing facts from the API missingFacts list", () => {
+  assert.match(source, /const missing = item\.missingFacts \|\| \[\];/);
 });
 
 test("the asset-purchase affordance is reachable without a dead switch", () => {

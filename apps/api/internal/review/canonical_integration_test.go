@@ -55,7 +55,7 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 	resolve := func(body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
 		r.SetPathValue("id", review)
-		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		w := httptest.NewRecorder()
 		NewHandler(pool).Resolve(w, r)
 		return w
@@ -113,7 +113,7 @@ func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
 	resolve := func() *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(`{"action":"PRIMARY_SALARY","values":{}}`))
 		r.SetPathValue("id", review)
-		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		w := httptest.NewRecorder()
 		NewHandler(pool).Resolve(w, r)
 		return w
@@ -155,7 +155,7 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 		ID string `json:"id"`
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		res := httptest.NewRecorder()
 		NewHandler(pool).List(res, req)
 		if res.Code != http.StatusOK {
@@ -223,7 +223,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 	must(err)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	res := httptest.NewRecorder()
 	NewHandler(pool).List(res, req)
 	if res.Code != http.StatusOK {
@@ -247,7 +247,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 		t.Fatalf("wealth=%t residual=%t reviews=%s", gotWealth, gotResidual, res.Body.String())
 	}
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+wealthReview+"/resolve", bytes.NewBufferString(`{"action":"PREPARE_SNAPSHOT"}`))
-	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	req.SetPathValue("id", wealthReview)
 	res = httptest.NewRecorder()
 	NewHandler(pool).Resolve(res, req)
@@ -294,7 +294,7 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 	resolve := func(review, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
 		req.SetPathValue("id", review)
-		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		res := httptest.NewRecorder()
 		NewHandler(pool).Resolve(res, req)
 		return res
@@ -495,7 +495,7 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 	resolve := func(review, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
 		req.SetPathValue("id", review)
-		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 		res := httptest.NewRecorder()
 		NewHandler(pool).Resolve(res, req)
 		return res
@@ -569,7 +569,7 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+reviewID+"/resolve", bytes.NewBufferString(`{"action":"IGNORE","values":{}}`))
 	request.SetPathValue("id", reviewID)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	NewHandler(pool).Resolve(response, request)
 	if response.Code != http.StatusNoContent {
@@ -613,7 +613,7 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 
 	list := httptest.NewRecorder()
 	lr := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-	lr = lr.WithContext(auth.ContextWithPrincipal(lr.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	lr = lr.WithContext(auth.ContextWithPrincipal(lr.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	NewHandler(pool).List(list, lr)
 	if list.Code != http.StatusOK {
 		t.Fatalf("list=%d %s", list.Code, list.Body.String())
@@ -636,7 +636,7 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 	resolve := httptest.NewRecorder()
 	rr := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(`{"action":"IGNORE"}`))
 	rr.SetPathValue("id", review)
-	rr = rr.WithContext(auth.ContextWithPrincipal(rr.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	rr = rr.WithContext(auth.ContextWithPrincipal(rr.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	NewHandler(pool).Resolve(resolve, rr)
 	if resolve.Code != http.StatusNoContent {
 		t.Fatalf("resolve=%d %s", resolve.Code, resolve.Body.String())
@@ -678,7 +678,7 @@ func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transaction+"/confirm", bytes.NewBufferString(`{"categoryId":"`+category+`"}`))
 	r.SetPathValue("id", transaction)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	NewHandler(pool).Confirm(w, r)
 	if w.Code != http.StatusNoContent {
@@ -718,7 +718,7 @@ func TestResolveFinancialEmailMalformedAccountIsClientError(t *testing.T) {
 	body := `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"accountId":"not-a-uuid","wealthAccountId":"also-bad"}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
 	req.SetPathValue("id", review)
-	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	res := httptest.NewRecorder()
 	NewHandler(pool).Resolve(res, req)
 	if res.Code != http.StatusBadRequest {

@@ -69,7 +69,7 @@ func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
 	}
 	handler := NewHandlerWithStorage(pool, storage)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/documents", nil)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	handler.List(response, request)
 	if response.Code != http.StatusOK {
@@ -185,7 +185,7 @@ func TestDocumentListIncludesStagedEvidenceDispute(t *testing.T) {
 	must(err)
 	handler := NewHandlerWithStorage(pool, storage)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/documents", nil)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	handler.List(response, request)
 	if response.Code != http.StatusOK {
@@ -235,7 +235,7 @@ func TestDocumentListDoesNotShowNeedsReviewWithoutActionableReview(t *testing.T)
 	handler := NewHandlerWithStorage(pool, storage)
 	list := func() (string, bool) {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/documents", nil)
-		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 		response := httptest.NewRecorder()
 		handler.List(response, request)
 		if response.Code != http.StatusOK {

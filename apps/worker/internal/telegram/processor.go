@@ -198,8 +198,17 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 				return err
 			}
 		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:bankpage:") {
+			return p.processBankAccountPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:bank:") {
 			return p.processBankAccountCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
+			return p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:investpage:") {
+			return p.processInvestmentPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:invest:") {
 			return p.processInvestmentCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)

@@ -128,7 +128,7 @@ func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
 	}
 	call := func(household, user string) quickSuggestions {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/quick-suggestions", nil)
-		principal := auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+		principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}
 		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
 		response := httptest.NewRecorder()
 		NewHandler(pool).QuickSuggestions(response, request)

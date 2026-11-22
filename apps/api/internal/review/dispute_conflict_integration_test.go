@@ -40,7 +40,7 @@ func TestWebConfirmAndMergeOnStagedDisputeAreExplicitConflictsWithoutMutation(t 
 	must(err)
 	_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN','{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"],"decisionProvenance":{"evidence_link_dispute":true}}'::jsonb)`, householdID, staged)
 	must(err)
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 
 	call := func(path, body string, run func(*Handler, http.ResponseWriter, *http.Request)) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))

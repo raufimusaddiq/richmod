@@ -19,7 +19,6 @@ export const documentTypeLabels = {
   OTHER_FINANCIAL_DOCUMENT: "Dokumen keuangan lain",
   NON_FINANCIAL_OR_UNSUPPORTED: "Bukan dokumen keuangan",
   TRANSACTION_SCREENSHOT: "Bukti transaksi",
-  BANK_STATEMENT: "Mutasi rekening",
 };
 
 export function label(map, value, fallback = "") {

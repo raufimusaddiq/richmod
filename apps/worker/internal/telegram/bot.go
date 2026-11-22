@@ -28,7 +28,6 @@ type SendPayload struct {
 	BindDocumentID                string                `json:"bind_document_id,omitempty"`
 	BindMerchantLearningRequestID string                `json:"bind_merchant_learning_request_id,omitempty"`
 	ReplyMarkup                   *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	CallbackQueryID               string                `json:"callback_query_id,omitempty"`
 }
 
 type EditPayload struct {

@@ -65,7 +65,7 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrBankSourceUnlinked) {
-			accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 10)
+			accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 0)
 			if listErr != nil {
 				return listErr
 			}
@@ -96,6 +96,23 @@ func enqueueBankFactsCompletion(ctx context.Context, tx pgx.Tx, command reviewdo
 	return err
 }
 
+func bankAccountChoicesMarkup(accounts []reviewdomain.BankAccountChoice, page int) *InlineKeyboardMarkup {
+	page = clampChooserPage(page, len(accounts), chooserPageSize)
+	start := page * chooserPageSize
+	end := start + chooserPageSize
+	if end > len(accounts) {
+		end = len(accounts)
+	}
+	buttons := make([][]InlineKeyboardButton, 0, end-start+1)
+	for _, account := range accounts[start:end] {
+		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(account.Name, 28), CallbackData: "review:bank:" + account.ID}})
+	}
+	if pager := pagerRow(page, len(accounts), chooserPageSize, "review:bankpage:"); len(pager) > 0 {
+		buttons = append(buttons, pager)
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: buttons}
+}
+
 func (p *Processor) offerBankAccountChooser(ctx context.Context, sourceEventID, householdID, reviewID string, accounts []reviewdomain.BankAccountChoice, amount, at string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -109,14 +126,47 @@ func (p *Processor) offerBankAccountChooser(ctx context.Context, sourceEventID, 
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{bank_pending}',jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::text),true),updated_at=now() WHERE review_request_id=$1`, requestID, amount, at); err != nil {
 		return err
 	}
-	buttons := make([][]InlineKeyboardButton, 0, len(accounts))
-	for _, account := range accounts {
-		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(account.Name, 28), CallbackData: "review:bank:" + account.ID}})
-	}
-	if err := enqueueReviewMessageWithMarkup(ctx, tx, requestID, update.Message.Chat.ID, update.Message.MessageID, "Pilih rekening untuk email bank ini:", &InlineKeyboardMarkup{InlineKeyboard: buttons}); err != nil {
+	if err := enqueueReviewMessageWithMarkup(ctx, tx, requestID, update.Message.Chat.ID, update.Message.MessageID, "Pilih rekening untuk email bank ini:", bankAccountChoicesMarkup(accounts, 0)); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) processBankAccountPageCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	page, ok := parsePageCallback(data, "review:bankpage:")
+	if !ok {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	var requestID, reviewID, bankSourceID, amount, at string
+	err = tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,ri.source_event_id::text,COALESCE(c.context_json#>>'{bank_pending,amount_idr}',''),COALESCE(c.context_json#>>'{bank_pending,transaction_at}','') FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE' FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&requestID, &reviewID, &bankSourceID, &amount, &at)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	if reviewdomain.ValidateBankFactValues(amount, at) != nil {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	accounts, err := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 0)
+	if err != nil {
+		return err
+	}
+	if len(accounts) == 0 {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if err := enqueueReviewUpdateWithMarkup(ctx, tx, requestID, update, "Pilih rekening untuk email bank ini:", bankAccountChoicesMarkup(accounts, page)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -129,7 +179,7 @@ func (p *Processor) processBankAccountCallback(ctx context.Context, sourceEventI
 	}
 	defer tx.Rollback(ctx)
 	var reviewID, bankSourceID, userID, amount, at string
-	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.source_event_id::text,ti.user_id::text,COALESCE(c.context_json#>>'{bank_pending,amount_idr}',''),COALESCE(c.context_json#>>'{bank_pending,transaction_at}','') FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE' FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &bankSourceID, &userID, &amount, &at)
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.source_event_id::text,ti.user_id::text,COALESCE(c.context_json#>>'{bank_pending,amount_idr}',''),COALESCE(c.context_json#>>'{bank_pending,transaction_at}','') FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE' FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&reviewID, &bankSourceID, &userID, &amount, &at)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
@@ -139,7 +189,7 @@ func (p *Processor) processBankAccountCallback(ctx context.Context, sourceEventI
 	if reviewdomain.ValidateBankFactValues(amount, at) != nil {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
-	choices, err := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 10)
+	choices, err := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 0)
 	if err != nil {
 		return err
 	}

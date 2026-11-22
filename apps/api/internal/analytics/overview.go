@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
 )

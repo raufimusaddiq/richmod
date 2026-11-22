@@ -45,7 +45,7 @@ func seedIdentity(t *testing.T, pool *pgxpool.Pool, role string) (string, string
 	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,$3)`, householdID, userID, role); err != nil {
 		t.Fatal(err)
 	}
-	p := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: role}}}
+	p := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: role}}
 	return householdID, userID, p
 }
 

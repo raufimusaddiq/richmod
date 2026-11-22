@@ -81,7 +81,7 @@ func TestTransactionBackedReviewExposesStoredDecision(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewBufferString(fmt.Sprintf(`{"categoryId":%q}`, categoryID)))
 	req.SetPathValue("id", transactionID)
-	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	NewHandler(pool).Confirm(response, req)
 	if response.Code != http.StatusNoContent {

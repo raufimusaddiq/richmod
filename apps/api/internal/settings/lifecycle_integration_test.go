@@ -47,7 +47,7 @@ func TestFinancialSourceEditChangesAndClearsDefaultWealth(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO financial_email_source(household_id,provider_name,sender_address,capabilities,default_wealth_account_id,status,created_by_user_id) VALUES($1,'Provider','source-settings@test.invalid',ARRAY['CASH_MOVEMENT'], $2,'DRAFT',$3) RETURNING id`, household, wealthA, user).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
-	principal := auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}
 	handler := NewHandler(pool)
 	patch := func(body string, want int) {
 		r := httptest.NewRequest(http.MethodPatch, "/api/v1/financial-email-sources/"+source, bytes.NewBufferString(body))
@@ -105,7 +105,7 @@ func TestAccountAndCategoryLifecyclePreservesRecords(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Belanja','belanja') RETURNING id`, householdID).Scan(&categoryID); err != nil {
 		t.Fatal(err)
 	}
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	handler := NewHandler(pool)
 	call := func(path, id, body string, want int, fn func(http.ResponseWriter, *http.Request)) {
 		t.Helper()

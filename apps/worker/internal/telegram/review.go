@@ -388,7 +388,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		}
 		if duplicateMerge {
 			index, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:dup:merge:"))
-			if parseErr != nil || index < 0 || index > 9 {
+			if parseErr != nil || index < 0 {
 				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 			}
 			var targetID string
@@ -927,6 +927,44 @@ func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID
 		return nil
 	}
 	return err
+}
+
+const chooserPageSize = 8
+
+func clampChooserPage(page, total, pageSize int) int {
+	if page < 0 || total <= 0 || pageSize <= 0 {
+		return 0
+	}
+	maxPage := (total - 1) / pageSize
+	if page > maxPage {
+		return maxPage
+	}
+	return page
+}
+
+func pagerRow(page, total, pageSize int, prefix string) []InlineKeyboardButton {
+	if pageSize <= 0 || total <= pageSize {
+		return nil
+	}
+	var row []InlineKeyboardButton
+	if page > 0 {
+		row = append(row, InlineKeyboardButton{Text: "Sebelumnya", CallbackData: fmt.Sprintf("%s%d", prefix, page-1)})
+	}
+	if (page+1)*pageSize < total {
+		row = append(row, InlineKeyboardButton{Text: "Berikutnya", CallbackData: fmt.Sprintf("%s%d", prefix, page+1)})
+	}
+	return row
+}
+
+func parsePageCallback(data, prefix string) (int, bool) {
+	if !strings.HasPrefix(data, prefix) {
+		return 0, false
+	}
+	page, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
+	if err != nil || page < 0 || page > 1000 {
+		return 0, false
+	}
+	return page, true
 }
 
 func pendingReviewItemID(ctx context.Context, tx pgx.Tx, reviewID string) string {

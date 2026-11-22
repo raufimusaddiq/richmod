@@ -12,7 +12,7 @@ import (
 
 func TestCreateRejectsInvalidManualTransactionBeforeDatabaseAccess(t *testing.T) {
 	handler := NewHandler(nil)
-	principal := auth.Principal{Memberships: []auth.Membership{{HouseholdID: "unused"}}}
+	principal := auth.Principal{Household: &auth.Membership{HouseholdID: "unused"}, HouseholdID: "unused", HasHousehold: true}
 	for _, input := range []manualInput{
 		{Type: "TRANSFER", Amount: "1000"},
 		{Type: "EXPENSE", Amount: "0"},

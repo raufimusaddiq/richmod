@@ -31,7 +31,7 @@ func TestEverySampleIsValidAndUnsafeCallbacksAreRejected(t *testing.T) {
 	}
 	for _, data := range []string{
 		"", "review:", "pending:", "review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999",
-		"review:fepage:", "review:fepage:1x", "review:dup:merge:", "review:dup:merge:-1", "review:dup:merge:one",
+		"review:fepage:", "review:fepage:1x", "review:bankpage:", "review:bankpage:-1", "review:duppage:", "review:duppage:x", "review:investpage:", "review:investpage:99999", "review:dup:merge:", "review:dup:merge:-1", "review:dup:merge:one",
 		"review:fe:account:", "review:fe:wealth:a/b", "review:invest:", "review:bank:id with space",
 		"review:salary:", "review:salary:other", "review:quality:", "review:dup:", "review:dup:other",
 		"pending:action", "pending:action:maybe", "pending:batch:yes:1", "admin:delete", "REVIEW:IGNORE",

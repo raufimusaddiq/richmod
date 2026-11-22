@@ -29,7 +29,7 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 	handler := NewHandler(pool)
 	stamp := time.Now().UnixNano()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	tests := []struct {
 		name, classification, wantType, wantStatus, wantProposal, wantSource string
 		category                                                             bool
@@ -101,7 +101,7 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"classification": "IGNORE"})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+foreignTransaction+"/classify-transfer", bytes.NewReader(raw))
 	request.SetPathValue("id", foreignTransaction)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: otherUser, Memberships: []auth.Membership{{HouseholdID: otherHousehold, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: otherUser, Household: &auth.Membership{HouseholdID: otherHousehold, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	handler.ClassifyTransfer(response, request)
 	if response.Code != http.StatusNotFound {
@@ -127,7 +127,7 @@ func TestClassifyTransferAsAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	transactionID, _, _ := seedUnclassifiedTransfer(t, pool, householdID, stamp+1)
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	raw, _ := json.Marshal(map[string]any{"classification": "ASSET_PURCHASE", "wealthAccountId": wealthID})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/classify-transfer", bytes.NewReader(raw))
 	request.SetPathValue("id", transactionID)
@@ -173,7 +173,7 @@ func TestReclassifyExpenseReviewAsAssetPurchase(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"classification": "ASSET_PURCHASE", "wealthAccountId": wealthID})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/classify-transfer", bytes.NewReader(raw))
 	request.SetPathValue("id", transactionID)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	NewHandler(pool).ClassifyTransfer(response, request)
 	if response.Code != http.StatusNoContent {

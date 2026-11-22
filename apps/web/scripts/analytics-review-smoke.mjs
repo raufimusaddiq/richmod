@@ -22,14 +22,16 @@ async function waitForServer() {
 }
 
 async function openDisclosure(page, selector, content) {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    await page.evaluate(sel => { const details = document.querySelector(sel); if (details) details.open = true; }, selector);
-    try {
-      await page.locator(content).first().waitFor({ state: "visible", timeout: 2000 });
-      return;
-    } catch {}
-  }
-  throw new Error(`could not open ${selector}`);
+  const details = page.locator(selector).first();
+  await details.waitFor({ state: "visible" });
+  await page.waitForFunction(([sel, contentSel]) => {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    el.open = true;
+    const body = document.querySelector(contentSel);
+    return el.open === true && Boolean(body && body.getClientRects().length > 0);
+  }, [selector, content]);
+  await page.locator(content).first().waitFor({ state: "visible" });
 }
 
 try {

@@ -209,7 +209,55 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	return tx.Commit(ctx)
 }
 
+type investmentAccountChoice struct {
+	ID   string
+	Name string
+}
+
+func investmentChoicesMarkup(choices []investmentAccountChoice, page, total int) *InlineKeyboardMarkup {
+	buttons := make([][]InlineKeyboardButton, 0, len(choices)+1)
+	for _, choice := range choices {
+		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(choice.Name, 28), CallbackData: "review:invest:" + choice.ID}})
+	}
+	if pager := pagerRow(page, total, chooserPageSize, "review:investpage:"); len(pager) > 0 {
+		buttons = append(buttons, pager)
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: buttons}
+}
+
+func queryInvestmentAccountPage(ctx context.Context, tx pgx.Tx, householdID string, page int) ([]investmentAccountChoice, int, int, error) {
+	var total int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND usage_role='INVESTMENT'`, householdID).Scan(&total); err != nil {
+		return nil, 0, 0, err
+	}
+	if total == 0 {
+		return nil, 0, 0, nil
+	}
+	page = clampChooserPage(page, total, chooserPageSize)
+	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND usage_role='INVESTMENT' ORDER BY name,id LIMIT $2 OFFSET $3`, householdID, chooserPageSize, page*chooserPageSize)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	defer rows.Close()
+	choices := make([]investmentAccountChoice, 0, chooserPageSize)
+	for rows.Next() {
+		var choice investmentAccountChoice
+		if err := rows.Scan(&choice.ID, &choice.Name); err != nil {
+			return nil, 0, 0, err
+		}
+		choices = append(choices, choice)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, 0, err
+	}
+	return choices, page, total, nil
+}
+
 func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	return p.offerInvestmentChooserPage(ctx, sourceEventID, householdID, reviewID, transactionID, update, 0)
+}
+
+func (p *Processor) offerInvestmentChooserPage(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, page int) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -222,38 +270,58 @@ func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, h
 	if !open {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
-	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND usage_role='INVESTMENT' ORDER BY name,id LIMIT 10`, householdID)
+	choices, clampedPage, total, err := queryInvestmentAccountPage(ctx, tx, householdID, page)
 	if err != nil {
 		return err
 	}
-	var buttons [][]InlineKeyboardButton
-	for rows.Next() {
-		var id, name string
-		if err = rows.Scan(&id, &name); err != nil {
-			rows.Close()
-			return err
-		}
-		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:invest:" + id}})
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	if len(buttons) == 0 {
+	if total == 0 {
 		_ = tx.Rollback(ctx)
 		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada akun kekayaan investasi aktif yang bisa dipilih. Tinjauan masih terbuka sampai rekeningnya tersedia.")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	markup := &InlineKeyboardMarkup{InlineKeyboard: buttons}
+	markup := investmentChoicesMarkup(choices, clampedPage, total)
 	if update.CallbackQuery != nil {
 		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih akun kekayaan investasi tujuan:", markup)
 	} else {
 		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Pilih akun kekayaan investasi tujuan:", markup)
 	}
 	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) processInvestmentPageCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	page, ok := parsePageCallback(data, "review:investpage:")
+	if !ok {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	var reviewID string
+	err = tx.QueryRow(ctx, `SELECT r.id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction t ON t.id=r.transaction_id JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.review_type='TRANSFER_CLASSIFICATION' AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' FOR UPDATE OF t,ri`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&reviewID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	choices, clampedPage, total, err := queryInvestmentAccountPage(ctx, tx, householdID, page)
+	if err != nil {
+		return err
+	}
+	if total == 0 {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih akun kekayaan investasi tujuan:", investmentChoicesMarkup(choices, clampedPage, total)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
