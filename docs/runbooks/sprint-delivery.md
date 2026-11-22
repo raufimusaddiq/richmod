@@ -151,7 +151,7 @@ After `main` is pushed:
 
 1. Wait for that exact main SHA's `CI` workflow to succeed.
 2. Wait for `Release Images` to publish immutable GHCR tags for the same full
-   SHA: API, worker, web, and migration.
+   SHA: API (with the web app embedded), worker, and migration.
 3. Image publication does **not** deploy. It is the gate that makes local
    artifact reclaim safe.
 

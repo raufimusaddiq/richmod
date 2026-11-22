@@ -117,7 +117,7 @@ docker exec idx-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddy
 ## GitHub release-image and deployment workflow
 
 Production builds must move off the host. `Release Images` runs after a
-successful `main` CI run and publishes immutable API, worker, web, and migration
+successful `main` CI run and publishes immutable API (with the web app embedded), worker, and migration
 images to GHCR tagged `sha-<full-main-commit>`. It does not deploy.
 
 `Deploy Production` is manual-only and uses the GitHub `production` Environment;
