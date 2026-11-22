@@ -82,6 +82,11 @@ once it finishes, so the end state is always exact. While it runs, an
 `aria-hidden` copy shows the tween and a visually hidden copy carries the final
 string. It starts from the previous value on a change and from zero on mount.
 
+Route entry (`[data-reveal]` and the view transition) fades and lifts the whole
+content block over `--motion-page` while a chart's own draw-in and a counter
+start at mount, so for the first ~400ms the figures grow inside a block that is
+still fading in; both finish at their real values and neither hides the other.
+
 Under `prefers-reduced-motion: reduce` none of this runs: the hook and the
 counter see the preference through `useSyncExternalStore` (server and first
 hydration render as reduced), and the CSS bar animations are declared only

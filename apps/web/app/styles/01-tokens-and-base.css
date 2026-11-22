@@ -83,6 +83,8 @@
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-slow: 260ms;
+  --motion-emphasis: 340ms;
+  --motion-page: 420ms;
   --motion-chart: 700ms;
   --motion-chart-stagger: 45ms;
   --ease-chart: cubic-bezier(.33, 1, .68, 1);
