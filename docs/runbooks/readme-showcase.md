@@ -86,7 +86,7 @@ docker run --rm --network host \
   -e RICHMOD_SCREENSHOT_URL \
   -v "$PWD:/src" -w /src/apps/web \
   mcr.microsoft.com/playwright:v1.65.0-noble \
-  bun run capture:readme
+  node scripts/capture-readme.mjs
 ```
 
 The script uses a 1440×1050 desktop viewport, waits for the relevant public or
@@ -100,7 +100,7 @@ For an already-running local server on port `3000`, the shorter command is:
 
 ```bash
 cd apps/web
-bun run capture:readme
+node scripts/capture-readme.mjs
 ```
 
 That command still needs the pinned Playwright browser installed locally. The
@@ -121,7 +121,7 @@ bun install --frozen-lockfile --ignore-scripts
 npx playwright install chromium
 bun run build
 PORT=3002 node scripts/static-server.mjs &
-RICHMOD_SCREENSHOT_URL=http://127.0.0.1:3002 bun run capture:readme
+RICHMOD_SCREENSHOT_URL=http://127.0.0.1:3002 node scripts/capture-readme.mjs
 kill %1
 ```
 
