@@ -63,7 +63,7 @@ test("a chunk fetch is never intercepted and respondWith is never called", () =>
   assert.equal(worker.listeners.fetch, undefined, "the worker registers no fetch handler");
   let intercepted = false;
   worker.listeners.fetch?.({
-    request: new Request("https://richmod.test/_next/static/chunks/app.js"),
+    request: new Request("https://richmod.test/assets/main-abc123.js"),
     respondWith() { intercepted = true; },
   });
   assert.equal(intercepted, false);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
+import { routeMeta } from "../app/lib/siteMeta.js";
 import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -15,7 +16,7 @@ const pageView = page => {
 };
 
 test("all product routes exist", () => {
-  for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "components/SettingsPanels.js"]) {
+  for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "documents/page.js", "household/page.js", "components/SettingsPanels.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
 });
@@ -25,8 +26,8 @@ test("one inbox exposes separate transaction and integration action views", () =
   assert.match(inbox, /\/api\/v1\/reviews/);
   assert.doesNotMatch(inbox, /\/api\/v1\/integration-actions/, "Tindakan lives in Keluarga now");
   assert.match(inbox, /legacyViewTarget/);
-  assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
-  assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
+  assert.equal(routeMeta["/reviews"].redirect, "/inbox?view=transactions");
+  assert.equal(routeMeta["/actions"].redirect, "/inbox?view=actions");
 });
 
 test("overview chart is backed by deterministic analytics API", () => {
@@ -95,7 +96,8 @@ test("authenticated app shells are not cached across deployments", () => {
   const handler = readFileSync(new URL("../../api/internal/webui/webui.go", import.meta.url), "utf8");
   assert.match(handler, /no-store, max-age=0/);
   assert.match(handler, /"\/transactions": \{\}/);
-  assert.match(text("next.config.mjs"), /output: "export"/);
+  assert.match(text("scripts/build.mjs"), /renderDocument/);
+  assert.doesNotMatch(text("package.json"), /"next"/);
 });
 
 test("mobile shell keeps navigation usable and dismissable", () => {
