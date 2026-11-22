@@ -140,7 +140,10 @@ Body family: "Inter" (`--font-body` in CSS).
   (Catat, Ubah, `useDialogs` prompts) anchor to `bottom: var(--kb-inset)` with
   `max-height: min(92dvh, calc(var(--vv-height) - 8px))`, drawers shrink to
   `var(--vv-height)`, and focused inline form submit bars (Wealth "Perbarui
-  nilai", Keluarga forms, CycleDecisions) stick above `var(--kb-inset)`.
+  nilai", Keluarga forms, CycleDecisions) stick above `var(--kb-inset)`; while
+  focus is anywhere inside such a form (a field or its submit button),
+  `.mobile-nav` stays hidden, so pressing the submit button with a mouse never
+  brings the nav back over it.
 - Mobile keyboard hints: Catat amount uses `inputMode="numeric"` and
   `enterKeyHint="next"` (Enter advances to description rather than submitting
   half-filled), description uses `enterKeyHint="done"` and
