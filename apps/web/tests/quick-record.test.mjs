@@ -147,7 +147,7 @@ test("the provider opens from context even before its window listener exists", (
   const provider = read("app/components/QuickRecordProvider.js");
   assert.match(provider, /<QuickRecordContext\.Provider value=\{\{ open \}\}>/);
   assert.match(provider, /const open = useCallback\(/);
-  assert.match(provider, /\{enabled && request && <QuickRecordDialog/);
+  assert.match(provider, /<Presence show=\{enabled && Boolean\(request\)\}>\{\(\) => <QuickRecordDialog/);
 });
 
 test("saving closes at once, confirms with an undo, and tells open pages to refresh", () => {

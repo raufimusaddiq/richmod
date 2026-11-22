@@ -90,7 +90,7 @@ ambient motion.
 
 ## Tabs, disclosures and first-load lists
 
-Mechanism and rationale: ADR-117 (`apps/web/app/lib/motion.js`).
+Mechanism and rationale: ADR-117 (`apps/web/app/lib/interactionMotion.js`).
 
 | Motion | Where | Reason |
 | --- | --- | --- |
@@ -107,6 +107,11 @@ it has items; pagination, a filter re-query and a re-render do not replay it.
 `scripts/motion-interactions-smoke.mjs` (also run by `npm run test:motion`)
 asserts the slide, the panel fade, both disclosure kinds, stagger-once and
 reduced motion against the static export.
+
+A list that mounts inside a `[data-reveal]` region (skeleton to content on route
+entry) does not stagger: the 420 ms reveal is already the entrance, and a
+container fade plus per-row rises would read as two motions. Stagger shows for
+lists that appear without a skeleton, such as a tab's content.
 
 The Performance rule above has one exception: disclosures animate block size,
 so the content below them reflows for the length of the transition.

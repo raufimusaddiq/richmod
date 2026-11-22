@@ -36,7 +36,7 @@ test("first-load lists opt into the stagger", () => {
 });
 
 test("the mechanism keeps no timers and never writes the attributes it observes", () => {
-  const source = text("app/lib/motion.js");
+  const source = text("app/lib/interactionMotion.js");
   assert.doesNotMatch(source, /setTimeout|setInterval/, "timing belongs to CSS");
   const observed = source.match(/const WATCHED = \[([^\]]+)\]/)[1];
   assert.match(observed, /"class"/);
@@ -47,7 +47,7 @@ test("the mechanism keeps no timers and never writes the attributes it observes"
 });
 
 test("the stagger runs once per container and releases on the animations' own end", () => {
-  const source = text("app/lib/motion.js");
+  const source = text("app/lib/interactionMotion.js");
   assert.match(source, /if \(started\.has\(container\)\) return false;/);
   assert.match(source, /animation\.finished/);
   assert.match(source, /removeAttribute\("data-stagger-item"\)/);
@@ -76,6 +76,10 @@ test("animated rules are off for reduced motion and structural rules are not", (
   }
 });
 
+test("a stagger never compounds with the route reveal", () => {
+  assert.ok(motionCss().includes("[data-reveal] [data-stagger-item], [data-stagger-item][data-reveal] { animation: none; }"));
+});
+
 test("disclosures animate only where the browser supports it", () => {
   const added = motionCss();
   assert.match(added, /@supports \(interpolate-size: allow-keywords\) and selector\(details::details-content\)/);
@@ -92,7 +96,7 @@ test("the sliding pill replaces the active button's own paint with the same box"
 });
 
 test("tab semantics stay untouched by the shared mechanism", () => {
-  const source = text("app/lib/motion.js");
+  const source = text("app/lib/interactionMotion.js");
   assert.doesNotMatch(source, /setAttribute\("(role|aria-|tabindex)/i);
   assert.doesNotMatch(source, /\.focus\(|addEventListener\("key/);
 });

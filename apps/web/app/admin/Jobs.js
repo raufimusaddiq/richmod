@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Presence from "../components/Presence";
 import { time, duration, ms, Badge, Empty, Pending, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
 
 export default function Jobs({ setError }) {
@@ -65,14 +66,14 @@ export default function Jobs({ setError }) {
         )}
       </Table>
       {data.nextCursor && <button className="secondary admin-more" disabled={state.more} onClick={more}>Muat berikutnya</button>}
-      {selected && (
+      <Presence show={Boolean(selected)}>{() => (
         <JobDetail
           key={selected}
           id={selected}
           close={() => setSelected(null)}
           setError={setError}
         />
-      )}
+      )}</Presence>
     </section>
   );
 }

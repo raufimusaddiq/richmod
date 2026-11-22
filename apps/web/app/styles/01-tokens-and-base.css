@@ -85,6 +85,8 @@
   --motion-slow: 260ms;
   --motion-slide: 300ms;
   --motion-stagger: 45ms;
+  --motion-emphasis: 340ms;
+  --motion-page: 420ms;
   --ease-standard: cubic-bezier(.2, 0, 0, 1);
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-glide: cubic-bezier(.4, 0, .2, 1);

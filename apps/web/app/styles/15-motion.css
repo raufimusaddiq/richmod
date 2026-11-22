@@ -5,6 +5,10 @@
     transition-duration: .01ms !important;
     scroll-behavior: auto !important;
   }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+    animation-duration: .01ms !important;
+    animation-delay: 0s !important;
+  }
 }
 
 @keyframes row-in { from { opacity: 0; transform: translateY(-4px); } }
@@ -21,14 +25,59 @@
 .wealth-balance-summary strong[data-updated],
 [data-updated] .cycle-outcome dd { animation: value-updated var(--motion-slow) var(--ease-out); }
 
-@keyframes drawer-in { from { opacity: 0; transform: translateX(18px); } }
-@keyframes sheet-in { from { opacity: 0; transform: translateY(10px); } }
-@keyframes dialog-in { from { opacity: 0; transform: translateY(6px); } }
-.detail-drawer, .admin-drawer { animation: drawer-in var(--motion-base) var(--ease-out); }
-dialog[open] { animation: dialog-in var(--motion-base) var(--ease-out); }
+@keyframes drawer-in { from { opacity: 0; transform: translateX(56px); } }
+@keyframes drawer-out { to { opacity: 0; transform: translateX(56px); } }
+@keyframes sheet-in { from { transform: translateY(100%); } }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+@keyframes backdrop-in { from { opacity: 0; } }
+@keyframes backdrop-out { to { opacity: 0; } }
+.presence { display: contents; }
+.drawer-backdrop { animation: backdrop-in var(--motion-emphasis) var(--ease-standard); }
+.detail-drawer, .admin-drawer { animation: drawer-in var(--motion-emphasis) var(--ease-out); }
+.presence[data-presence="leaving"] .drawer-backdrop { animation: backdrop-out var(--motion-slow) var(--ease-standard) both; }
+.presence[data-presence="leaving"] :is(.detail-drawer, .admin-drawer) { animation: drawer-out var(--motion-slow) var(--ease-standard) both; }
+@media (max-width: 680px) {
+  .detail-drawer, .admin-drawer { animation-name: sheet-in; }
+  .presence[data-presence="leaving"] :is(.detail-drawer, .admin-drawer) { animation-name: sheet-out; }
+}
+
+dialog {
+  --dialog-shift: 18px;
+  opacity: 0;
+  transform: translateY(var(--dialog-shift));
+  transition: opacity var(--motion-slow) var(--ease-standard), transform var(--motion-slow) var(--ease-standard), overlay var(--motion-slow) allow-discrete, display var(--motion-slow) allow-discrete;
+}
+dialog[open] {
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--motion-emphasis) var(--ease-out), transform var(--motion-emphasis) var(--ease-out), overlay var(--motion-emphasis) allow-discrete, display var(--motion-emphasis) allow-discrete;
+}
+dialog::backdrop {
+  opacity: 0;
+  transition: opacity var(--motion-slow) var(--ease-standard), overlay var(--motion-slow) allow-discrete, display var(--motion-slow) allow-discrete;
+}
+dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-emphasis); }
+@starting-style {
+  dialog[open] { opacity: 0; transform: translateY(var(--dialog-shift)); }
+  dialog[open]::backdrop { opacity: 0; }
+}
+@media (max-width: 719px) {
+  dialog { --dialog-shift: 100%; }
+}
 
 @keyframes page-in { from { opacity: 0; } }
-.route-fade .app-main { animation: page-in var(--motion-base) var(--ease-out); }
+@keyframes page-leave { to { opacity: 0; } }
+@keyframes page-enter { from { opacity: 0; transform: translateY(12px); } }
+@keyframes reveal-in { from { opacity: 0; transform: translateY(10px); } }
+@supports not (view-transition-name: none) {
+  .route-fade .app-main { animation: page-in var(--motion-base) var(--ease-out); }
+}
+::view-transition { pointer-events: none; }
+::view-transition-group(root) { animation-duration: var(--motion-base); }
+::view-transition-group(.page-swap) { animation: none; }
+::view-transition-old(.page-swap) { animation: page-leave var(--motion-fast) var(--ease-standard) both; }
+::view-transition-new(.page-swap) { animation: page-enter var(--motion-page) var(--ease-out) both; }
+[data-reveal] { animation: reveal-in var(--motion-page) var(--ease-out) backwards; }
 
 @supports (interpolate-size: allow-keywords) { :root { interpolate-size: allow-keywords; } }
 
@@ -53,6 +102,7 @@ dialog[open] { animation: dialog-in var(--motion-base) var(--ease-out); }
   [data-slide][data-slide-ready] > button { transition: color var(--motion-slide) var(--ease-standard); }
   [data-panel-enter] { animation: panel-in var(--motion-slide) var(--ease-out); }
   [data-stagger-item] { animation: stagger-in var(--motion-slide) var(--ease-out) backwards; animation-delay: calc(min(var(--stagger-i, 0), 7) * var(--motion-stagger)); }
+  [data-reveal] [data-stagger-item], [data-stagger-item][data-reveal] { animation: none; }
   .filter-more { overflow: clip; overflow-clip-margin: 8px; transition: opacity var(--motion-slide) var(--ease-standard), transform var(--motion-slide) var(--ease-glide), display var(--motion-slide) allow-discrete; }
   .filter-more[hidden] { opacity: 0; transform: translateY(-8px); }
   @starting-style { .filter-more:not([hidden]) { opacity: 0; transform: translateY(-8px); } }
@@ -66,3 +116,4 @@ dialog[open] { animation: dialog-in var(--motion-base) var(--ease-out); }
     details[open]::details-content { block-size: auto; opacity: 1; }
   }
 }
+

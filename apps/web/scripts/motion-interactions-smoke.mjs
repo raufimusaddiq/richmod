@@ -18,6 +18,7 @@ async function api(route) {
   if (path === "/api/v1/auth/me") return json(user);
   if (path === "/api/v1/transactions") {
     const second = url.searchParams.get("cursor") === "cursor-2";
+    if (!second) await new Promise(resolve => setTimeout(resolve, 400));
     return json(second ? [transaction("tx-90", "Halaman dua", "01"), transaction("tx-91", "Halaman dua b", "01")] : firstPage, second ? {} : { "X-Next-Cursor": "cursor-2" });
   }
   if (path === "/api/v1/categories") return json([{ id: "cat-1", name: "Belanja rumah", active: true }]);
@@ -72,19 +73,42 @@ try {
   });
   await page.goto(`${base}/transactions`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".transaction-row");
-  const first = await page.evaluate(() => ({ marked: window.__stagger, rows: document.querySelectorAll(".transaction-row").length, delays: [...document.querySelectorAll("[data-stagger-item]")].map(row => getComputedStyle(row).animationDelay) }));
-  const delays = first.delays.map(value => Number.parseFloat(value) * (value.endsWith("ms") ? 1 : 1000));
-  if (first.marked !== first.rows) problems.push(`first load: ${first.marked} of ${first.rows} rows were staggered`);
-  if (Math.max(...delays) > 400) problems.push(`stagger waits ${Math.max(...delays)}ms`);
-  if (!(delays[1] > delays[0] && delays[3] > delays[2])) problems.push(`rows are not staggered apart: ${delays.join(",")}`);
+  const revealed = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".transaction-row")];
+    const running = rows.flatMap(row => row.getAnimations().map(animation => animation.animationName));
+    return { rows: rows.length, inside: rows.filter(row => row.closest("[data-reveal]")).length, stagger: running.filter(name => name === "stagger-in").length, reveal: document.querySelectorAll("[data-reveal]").length };
+  });
+  if (!revealed.reveal || revealed.inside !== revealed.rows) problems.push(`skeleton to content did not reveal the list: ${JSON.stringify(revealed)}`);
+  if (revealed.stagger) problems.push(`${revealed.stagger} rows staggered inside a route reveal`);
   await page.waitForFunction(() => !document.querySelector("[data-stagger-item]"), null, { timeout: 3000 });
+
+  await page.evaluate(() => {
+    const host = document.createElement("div");
+    host.id = "stagger-probe";
+    host.setAttribute("data-stagger", ".probe-item");
+    host.innerHTML = Array.from({ length: 12 }, (_, index) => `<p class="probe-item">Item ${index}</p>`).join("");
+    document.querySelector("main").appendChild(host);
+  });
+  const probe = await page.evaluate(() => {
+    const items = [...document.querySelectorAll("#stagger-probe .probe-item")];
+    return { marked: items.filter(item => item.hasAttribute("data-stagger-item")).length, running: items.filter(item => item.getAnimations().some(animation => animation.animationName === "stagger-in")).length, delays: items.map(item => getComputedStyle(item).animationDelay) };
+  });
+  const delays = probe.delays.map(value => Number.parseFloat(value) * (value.endsWith("ms") ? 1 : 1000));
+  if (probe.marked !== 12 || probe.running !== 12) problems.push(`first appearance: ${probe.marked} stamped, ${probe.running} animating of 12`);
+  if (Math.max(...delays) > 400 || delays[11] !== delays[7]) problems.push(`stagger is not capped: ${delays.join(",")}`);
+  if (!(delays[1] > delays[0] && delays[3] > delays[2])) problems.push(`items are not staggered apart: ${delays.join(",")}`);
+  await page.evaluate(() => document.querySelector("#stagger-probe").insertAdjacentHTML("beforeend", '<p class="probe-item">Late</p>'));
+  const late = await page.evaluate(() => document.querySelector("#stagger-probe").lastElementChild.hasAttribute("data-stagger-item"));
+  if (late) problems.push("an item appended to a started list was staggered");
+  await page.waitForFunction(() => !document.querySelector("[data-stagger-item]"), null, { timeout: 3000 });
+  await page.evaluate(() => document.querySelector("#stagger-probe").remove());
   await page.evaluate(() => { window.__stagger = 0; });
   await page.getByRole("button", { name: "Berikutnya", exact: true }).click();
   await page.waitForSelector(".transaction-row:has-text('Halaman dua')");
   await page.waitForTimeout(700);
   const again = await page.evaluate(() => window.__stagger);
   if (again !== 0) problems.push(`pagination staggered ${again} rows`);
-  console.log(`stagger: first load ${first.marked} rows, max delay ${Math.max(...delays)}ms, pagination ${again}`);
+  console.log(`stagger: reveal ${JSON.stringify(revealed)}, probe ${probe.running} animating, max delay ${Math.max(...delays)}ms, pagination ${again}`);
 
   const wasHidden = await page.evaluate(() => document.querySelector(".filter-more").hidden);
   await page.locator(".filter-toggle").click();
