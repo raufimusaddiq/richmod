@@ -8,7 +8,82 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+      containers: ${{ steps.filter.outputs.containers }}
+      images: ${{ steps.images.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          filters: |
+            workflow: &workflow
+              - .github/workflows/ci.yml
+            backend:
+              - *workflow
+              - apps/api/**
+              - apps/worker/**
+              - apps/reviewdomain/**
+              - db/**
+              - go.work
+              - go.work.sum
+              - scripts/check_native_only_llm.sh
+              - compose.yaml
+              - docs/runbooks/stuck-source-events.md
+            web:
+              - *workflow
+              - apps/web/**
+              - apps/api/internal/webui/**
+              - apps/worker/internal/document/processor.go
+              - db/migrations/**
+              - docs/brand-guidelines.md
+            containers:
+              - *workflow
+              - compose.yaml
+              - compose.production.yaml
+              - .env.example
+              - infra/**
+            image-api:
+              - *workflow
+              - .dockerignore
+              - infra/docker/api.Dockerfile
+              - apps/api/**
+              - apps/reviewdomain/**
+              - apps/web/**
+            image-worker:
+              - *workflow
+              - .dockerignore
+              - infra/docker/worker.Dockerfile
+              - apps/worker/**
+              - apps/reviewdomain/**
+            image-migrate:
+              - *workflow
+              - .dockerignore
+              - infra/docker/migrate.Dockerfile
+              - db/migrations/**
+            image-backup:
+              - *workflow
+              - .dockerignore
+              - infra/docker/backup.Dockerfile
+              - infra/backup/backup.sh
+              - infra/backup/restore-drill.sh
+      - id: images
+        env:
+          MATCHED: ${{ steps.filter.outputs.changes }}
+        run: echo "matrix=$(jq -c '[.[] | select(startswith("image-")) | ltrimstr("image-")]' <<<"$MATCHED")" >> "$GITHUB_OUTPUT"
+
   comments:
     runs-on: ubuntu-latest
     steps:
@@ -31,8 +106,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  backend:
+  backend-guards:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Reject multi-command prepared SQL
+        run: |
+          if git grep -nE ';[[:space:]]*(UPDATE|INSERT|DELETE|SELECT)' -- apps/api apps/worker ':(glob)**/*.go'; then
+            echo 'Split SQL commands into separate transaction-scoped Exec calls.' >&2
+            exit 1
+          fi
+      - name: Enforce native-only LLM access
+        run: scripts/check_native_only_llm.sh
+
+  backend:
+    name: backend (${{ matrix.module }})
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [api, worker, reviewdomain]
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.module }}
+    env:
+      TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
     services:
       postgres:
         image: postgres:17.4-alpine
@@ -53,56 +155,30 @@ jobs:
         with:
           go-version: 1.27.0
           cache-dependency-path: |
-            apps/api/go.sum
-            apps/worker/go.sum
+            apps/${{ matrix.module }}/go.sum
             apps/reviewdomain/go.sum
       - name: Migrate integration database
-        env:
-          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
+        working-directory: ${{ github.workspace }}
         run: |
           go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
           goose -dir db/migrations postgres "$TEST_DATABASE_URL" up
-      - name: Install CI tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-          rg --version
-      - name: Reject multi-command prepared SQL
-        run: |
-          command -v rg >/dev/null 2>&1 || { echo 'ripgrep is required for SQL guard' >&2; exit 1; }
-          if rg -n ';[[:space:]]*(UPDATE|INSERT|DELETE|SELECT)' apps/api apps/worker -g '*.go'; then
-            echo 'Split SQL commands into separate transaction-scoped Exec calls.' >&2
-            exit 1
-          fi
-      - name: Enforce native-only LLM access
-        run: scripts/check_native_only_llm.sh
-      - name: Test API
-        working-directory: apps/api
-        env:
-          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
+      - name: Vet
+        run: go vet ./...
+      - name: Test
         run: go test ./...
-      - name: Test shared finance domain
-        working-directory: apps/reviewdomain
-        env:
-          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
-        run: go test ./...
-      - name: Test worker
-        working-directory: apps/worker
-        env:
-          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
-        run: go test -v ./...
-      - name: Vet API
-        working-directory: apps/api
-        run: go vet ./...
-      - name: Vet shared finance domain
-        working-directory: apps/reviewdomain
-        run: go vet ./...
-      - name: Vet worker
-        working-directory: apps/worker
-        run: go vet ./...
 
-  frontend:
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --ipc=host
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -111,90 +187,32 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - name: Install dependencies
-        working-directory: apps/web
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Build web
-        working-directory: apps/web
-        env:
-          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Build
+        id: build
         run: npm run build
-      - name: Test web
-        working-directory: apps/web
+      - name: Unit tests
         run: npm test
-
-  frontend-smoke:
-    name: frontend-smoke (${{ matrix.name }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: transaction-date
-            script: scripts/transaction-date-smoke.mjs
-            artifact: transaction-date-screenshots
-            results: apps/web/test-results/transaction-date
-            browsers: chromium webkit
-            browser-cache-key: chromium-webkit
-            install-deps: "true"
-          - name: analytics-review
-            script: scripts/analytics-review-smoke.mjs
-            artifact: cycle-review-screenshots
-            results: apps/web/test-results/cycle-review
-            browsers: chromium
-            browser-cache-key: chromium
-            install-deps: "false"
-          - name: mobile-layout
-            script: scripts/mobile-layout-smoke.mjs
-            artifact: mobile-layout-screenshots
-            results: apps/web/test-results/mobile-layout
-            browsers: chromium
-            browser-cache-key: chromium
-            install-deps: "false"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.14.0
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-      - name: Install dependencies
-        working-directory: apps/web
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Build web
-        working-directory: apps/web
-        env:
-          NEXT_TELEMETRY_DISABLED: "1"
-        run: npm run build
-      - name: Resolve Playwright version
-        working-directory: apps/web
-        id: playwright
-        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
-      - name: Cache Playwright browsers
-        id: cache-playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ matrix.browser-cache-key }}-${{ steps.playwright.outputs.version }}
-      - name: Install Playwright browsers
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
-        working-directory: apps/web
-        run: npx playwright install ${{ matrix.browsers }}
-      - name: Install Playwright OS dependencies
-        if: matrix.install-deps == 'true'
-        working-directory: apps/web
-        run: npx playwright install-deps ${{ matrix.browsers }}
-      - name: Run synthetic ${{ matrix.name }} smoke
-        working-directory: apps/web
-        run: node ${{ matrix.script }}
-      - name: Upload ${{ matrix.name }} screenshots
-        if: always()
+      - name: Transaction date smoke
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node scripts/transaction-date-smoke.mjs
+      - name: Analytics review smoke
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node scripts/analytics-review-smoke.mjs
+      - name: Mobile layout smoke
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node scripts/mobile-layout-smoke.mjs
+      - name: Upload smoke screenshots
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.results }}
+          name: smoke-screenshots
+          path: apps/web/test-results
           if-no-files-found: ignore
 
   containers:
+    needs: changes
+    if: needs.changes.outputs.containers == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -214,11 +232,14 @@ jobs:
         run: sh infra/backup/backup_test.sh
 
   images:
+    name: images (${{ matrix.image }})
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.images != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        image: [api, worker, migrate, backup]
+        image: ${{ fromJSON(needs.changes.outputs.images) }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4

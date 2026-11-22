@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-112**, in the heading form `## ADR-112: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-113**, in the heading form `## ADR-113: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -123,6 +123,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-110](#adr-110-source-comments-are-banned-decisions-live-in-the-adr-log) | Source comments are banned; decisions live in the ADR log | Accepted |
 | [ADR-111](#adr-111-perlu-dicek-answers-merchant-rename-by-alias-dead-states-dropped) | Perlu dicek answers, merchant rename by alias, dead states dropped | Accepted |
 | [ADR-112](#adr-112-laporan-unifies-arus-kas-and-kekayaan-spending-direction-colour-is-separate-from-category-colour) | Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour | Accepted |
+| [ADR-113](#adr-113-ci-is-path-targeted-and-images-are-built-only-on-prs-and-by-release-images) | CI is path-targeted and images are built only on PRs and by Release Images | Accepted |
 
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
@@ -1149,3 +1150,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** Kekayaan is a first-class report beside Arus kas rather than a card inside it, one takeaway per card keeps the dashboard calm, and category colours must never be mistaken for good or bad spending.
 
 **Consequence:** `cycle-review-v1` stays backwards compatible (additive field); the KPI strip is four tiles; `Kategori × siklus` lives inside `Siklus ke siklus` and merchants inside `Ke mana uangnya`; the standalone `#matrix` and `#merchants` sections are gone.
+
+## ADR-113: CI is path-targeted and images are built only on PRs and by Release Images
+*Accepted · 2026-11-22*
+
+**Decision:** `ci.yml` starts with a `changes` job (`dorny/paths-filter`) and gates `backend` (three Go modules in parallel, each with its own PostgreSQL), `backend-guards`, `web` (build, unit tests and the three Playwright smokes in the official Playwright container), `containers` and a per-image `images` matrix on the paths each one reads; `comments` and `secrets` always run and a change to `ci.yml` runs everything. PR runs cancel superseded runs, main runs never do. `images` builds only on pull requests; on `main`, `Release Images` is the single image build and also writes the layer cache the PR builds read.
+
+**Reason:** most merged PRs touch only part of the repo, and every one used to run, then re-run on `main`, the full suite including four image builds. A skipped job concludes `skipped`, so a run with skipped jobs still concludes `success` and `Release Images` still triggers.
+
+**Consequence:** Go tests read `compose.yaml`, the stuck-source-events runbook and each other's sources, and web tests read `docs/brand-guidelines.md`, `webui.go`, `processor.go` and `db/migrations`; those paths are in the filters, so a new cross-tree file read must add its path to `changes`. The Playwright image tag in `ci.yml` must match `playwright` in `apps/web/package.json`. `npm run build` remains the only frontend build command for CI and `api.Dockerfile`.
