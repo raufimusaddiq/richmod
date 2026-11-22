@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { dayLabel } from "../lib/chartData";
 import { dateTime } from "../lib/format";

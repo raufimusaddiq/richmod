@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "../router";
 import { ArrowLeft, LockKey } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import LoadingShell from "../components/LoadingShell";

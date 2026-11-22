@@ -6,7 +6,7 @@ const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8"
 
 test("route entry uses a scoped view transition and never transforms the template wrapper", () => {
   assert.ok(text("app/components/AppShell.js").includes('<ViewTransition name="app-main" enter="page-swap" exit="page-swap" share="page-swap" default="none"><main'));
-  assert.ok(text("app/template.js").includes('<div className="route-fade">{children}</div>'));
+  assert.ok(text("app/App.js").includes('<div className="route-fade" key={pathname}><Page /></div>'));
   const motion = text("app/styles/15-motion.css");
   assert.ok(motion.includes("::view-transition-new(.page-swap) { animation: page-enter var(--motion-page)"));
   assert.doesNotMatch(motion, /\.route-fade \{[^}]*transform/);

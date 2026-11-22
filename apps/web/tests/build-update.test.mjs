@@ -129,8 +129,8 @@ test("dismissal suppresses the notice for the rest of this page load", async () 
 
 test("the hashed set covers everything that feeds the export", () => {
   const files = hashedFiles();
-  assert.ok(files.includes("scripts/splash-devices.mjs"), "app/layout.js imports it into the export");
-  assert.ok(files.includes("app/layout.js") && files.includes("next.config.mjs"), "the app and build config are inputs");
+  assert.ok(files.includes("scripts/splash-devices.mjs"), "scripts/lib/document.mjs imports it into every page head");
+  assert.ok(files.includes("app/main.js") && files.includes("scripts/build.mjs") && files.includes("package.json"), "the app, build script and manifest are inputs");
   assert.ok(files.every(path => path !== SERVED_FILE && path !== GENERATED_MODULE), "only generated files are excluded");
   assert.ok(files.every((path, index) => index === 0 || files[index - 1] < path), "the set is sorted, so the hash is machine-independent");
 });
@@ -141,10 +141,10 @@ test("editing a hashed input changes the id; the generated files do not", async 
     mkdirSync(join(dir, "app/lib"), { recursive: true });
     mkdirSync(join(dir, "public"), { recursive: true });
     mkdirSync(join(dir, "scripts"), { recursive: true });
-    writeFileSync(join(dir, "app/layout.js"), "import x from '../scripts/splash-devices.mjs';\n");
+    writeFileSync(join(dir, "app/main.js"), "import x from '../scripts/splash-devices.mjs';\n");
     writeFileSync(join(dir, "public/manifest.webmanifest"), "{}\n");
     writeFileSync(join(dir, "scripts/splash-devices.mjs"), "export const splashDevices = [];\n");
-    writeFileSync(join(dir, "next.config.mjs"), "export default {}\n");
+    writeFileSync(join(dir, "package.json"), "{}\n");
 
     const before = computeBuildId(dir);
     assert.equal(computeBuildId(dir), before, "the same tree hashes the same");

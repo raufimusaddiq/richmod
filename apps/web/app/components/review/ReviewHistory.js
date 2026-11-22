@@ -1,4 +1,3 @@
-"use client";
 import { useState } from "react";
 import { dateTime, money } from "../../lib/format";
 import { reviewLabel } from "./shared";

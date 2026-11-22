@@ -178,7 +178,7 @@ test("the analytics page is a composition shell over named modules", () => {
   assert.match(text("app/analytics/shared.js"), /export function SectionTitle/);
   assert.match(text("app/analytics/CycleDashboard.js"), /export function KpiStrip/);
   assert.match(text("app/analytics/CycleDashboard.js"), /export function NoticeStrip/);
-  assert.match(text("app/analytics/CalendarReview.js"), /^"use client";/, "the calendar view owns its hooks");
+  assert.match(text("app/analytics/CalendarReview.js"), /import \{[^}]*\} from "react"/, "the calendar view owns its hooks");
   assert.match(text("app/analytics/CalendarReview.js"), /export function CalendarReview/);
 });
 

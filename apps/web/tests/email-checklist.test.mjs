@@ -1,31 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import path from "node:path";
-import { createRequire } from "node:module";
 import test from "node:test";
+import { component } from "./support/component.mjs";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-import swc from "next/dist/build/swc/index.js";
 
-const require = createRequire(import.meta.url);
-await swc.loadBindings();
-const stubs = {
-  "@phosphor-icons/react": new Proxy({}, { get: () => () => null }),
-  "next/link": { __esModule: true, default: ({ children }) => children },
-  "next/navigation": { usePathname: () => "/settings" },
-};
-const cache = new Map();
-function component(filename) {
-  const absolute = path.resolve(filename);
-  if (cache.has(absolute)) return cache.get(absolute).exports;
-  const module = { exports: {} };
-  cache.set(absolute, module);
-  const { code } = swc.transformSync(fs.readFileSync(absolute, "utf8"), {
-    filename: absolute, jsc: { parser: { syntax: "ecmascript", jsx: true }, transform: { react: { runtime: "automatic" } } }, module: { type: "commonjs" },
-  });
-  new Function("require", "module", "exports", code)(name => name.startsWith(".") ? component(path.resolve(path.dirname(absolute), name.endsWith(".js") ? name : `${name}.js`)) : stubs[name] || require(name), module, module.exports);
-  return module.exports;
-}
 
 const { EmailOnboardingChecklist } = component("app/components/SettingsPanels.js");
 const render = props => renderToStaticMarkup(React.createElement(EmailOnboardingChecklist, props));

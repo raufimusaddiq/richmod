@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { time, Badge, Empty, Pending, useAdminList, Table } from "./shared";
 

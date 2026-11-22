@@ -1,8 +1,6 @@
-"use client";
-
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { get } from "./shared";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "../router";
 import { nextTabIndex } from "../lib/focusTrap";
 import AppShell from "../components/AppShell";
 import Overview from "./Overview";

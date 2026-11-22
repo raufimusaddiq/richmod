@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 
 const REVEAL_LIMIT_MS = 15000;

@@ -1,5 +1,3 @@
-"use client";
-
 import { useCountUpText } from "../lib/useMotion";
 
 export default function CountUp({ text }) {

@@ -1,5 +1,3 @@
-"use client";
-
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuthContext } from "./AuthProvider";
 import { buildCategoryPalette, buildCategoryParents } from "../lib/categoryColors";

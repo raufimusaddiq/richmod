@@ -178,7 +178,7 @@ async function waitForServer() {
     try { if ((await fetch(baseURL)).ok) return; } catch {}
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  throw new Error(`Next.js static server did not start at ${baseURL}`);
+  throw new Error(`Static server did not start at ${baseURL}`);
 }
 
 async function assertNoHorizontalOverflow(page, label) {

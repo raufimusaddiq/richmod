@@ -1,5 +1,3 @@
-"use client";
-
 import CanonicalCard from "./review/CanonicalCard";
 import ReviewCard from "./review/ReviewCard";
 import TransferCard from "./review/TransferCard";

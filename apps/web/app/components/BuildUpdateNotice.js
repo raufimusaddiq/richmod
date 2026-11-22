@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { BUILD_ID } from "../lib/buildId.generated.js";
 import { fetchDeployedId, startBuildWatch } from "../lib/buildWatch";

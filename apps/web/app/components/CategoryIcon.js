@@ -1,5 +1,3 @@
-"use client";
-
 import { Airplane, Baby, Basket, Car, Coffee, ForkKnife, FirstAidKit, Gift, GraduationCap, Heart, House, Lightning, PawPrint, Receipt, Repeat, ShoppingBag, Tag, Ticket, Users } from "@phosphor-icons/react";
 import { CATEGORY_COLORS, OTHER_CATEGORY_COLOR } from "../lib/categoryColors";
 import { useCategoryPalette, useCategoryParents } from "./CategoryPaletteProvider";

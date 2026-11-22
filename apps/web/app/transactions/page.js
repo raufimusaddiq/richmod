@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import DateInput from "../components/DateInput";
 import AppShell from "../components/AppShell";

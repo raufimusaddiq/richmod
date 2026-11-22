@@ -48,7 +48,7 @@ git diff
 ```
 
 Confirm the diff excludes `.env`, `finance.env`, tokens, raw financial evidence,
-real email content, production exports, `node_modules`, `.next`, and test logs.
+real email content, production exports, `node_modules`, and test logs.
 Gitleaks runs again in GitHub CI.
 
 ## D1 — Isolated PostgreSQL 17
@@ -139,18 +139,16 @@ it; never infer rollback safety from a successful forward migration.
 ## D3 — Web tests and production build
 
 Mount the repository root because product-alignment tests read API source files.
-Anonymous volumes keep `node_modules` and `.next` out of the worktree and are
+An anonymous volume keeps `node_modules` out of the worktree and is
 removed with the container.
 
 ```bash
 docker run --rm \
   -v "$PWD:/src" \
   -v /src/apps/web/node_modules \
-  -v /src/apps/web/.next \
   -w /src/apps/web \
-  -e NEXT_TELEMETRY_DISABLED=1 \
-  node:22.14-alpine \
-  sh -ec 'npm ci --ignore-scripts --no-audit --no-fund && npm run build && npm test'
+  oven/bun:1.4.4-alpine \
+  sh -ec 'bun install --frozen-lockfile --ignore-scripts && bun run build && bun run test'
 ```
 
 Do not mount only `apps/web`; that makes repository-spanning tests fail for the
@@ -204,7 +202,7 @@ in [the README visual showcase runbook](readme-showcase.md). Never reuse a
 production session, URL, or financial dataset.
 
 Visual regression baselines are canonical to the same pinned Playwright image:
-`cd apps/web && npm run test:visual` (compare) and `npm run test:visual:update`
+`cd apps/web && bun run test:visual` (compare) and `bun run test:visual:update`
 (regenerate) both run inside it. Do not regenerate baselines with a host
 browser; the glyph rasterisation differs and every baseline changes.
 

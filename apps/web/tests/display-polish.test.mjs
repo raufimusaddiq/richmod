@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { dateTime, displayDate, money } from "../app/lib/format.js";
 import { snapshotSourceLabel } from "../app/lib/labels.js";
+import { notFoundMeta, routeMeta } from "../app/lib/siteMeta.js";
 import { globalCss } from "./source.mjs";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -25,25 +26,25 @@ test("the home wealth card uses the shared formatter, not a numeric locale date"
   assert.match(home, /dateTime\(latestWealth\.observedAt\)/);
 });
 
-test("not-found page is Indonesian, links to Beranda and sets metadata", () => {
+test("not-found page is Indonesian, links to Beranda and has its own metadata", () => {
   assert.ok(existsSync(new URL("../app/not-found.js", import.meta.url)));
   const page = read("app/not-found.js");
   assert.match(page, /Halaman tidak ditemukan/);
   assert.match(page, /href="\/"[^>]*>Kembali ke Beranda|Kembali ke Beranda/);
-  assert.match(page, /export const metadata/);
+  assert.equal(notFoundMeta.title, "Halaman tidak ditemukan · Richmod");
+  assert.ok(notFoundMeta.description.length > 0);
 });
 
 test("every app route sets its own title", () => {
   const titles = new Map();
   for (const route of ["transactions", "analytics", "wealth", "documents", "household", "settings", "inbox", "admin", "login", "invite"]) {
-    const layout = read(`app/${route}/layout.js`);
-    const title = layout.match(/title: "([^"]+)"/)?.[1];
+    const { title, description } = routeMeta[`/${route}`];
     assert.match(title, / · Richmod$/, route);
-    assert.match(layout, /description: "[^"]+"/, route);
+    assert.ok(description.length > 0, route);
     titles.set(title, route);
   }
   assert.equal(titles.size, 10);
-  assert.equal(read("app/transactions/layout.js").match(/title: "([^"]+)"/)[1], "Transaksi · Richmod");
+  assert.equal(routeMeta["/transactions"].title, "Transaksi · Richmod");
 });
 
 test("settings wraps unbreakable generated addresses on mobile", () => {

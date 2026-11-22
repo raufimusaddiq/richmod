@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "../router";
 import { useState } from "react";
 import { ArrowClockwise, ArrowRight, Check, FileText, Lightning, ShieldChevron, SignOut, TelegramLogo, WarningCircle } from "@phosphor-icons/react";
 import { PublicNav } from "./PublicShell";
