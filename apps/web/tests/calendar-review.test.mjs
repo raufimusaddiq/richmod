@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
+import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthChoices, monthName, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
 
 const october = new Date("2026-10-02T05:00:00Z");
 
@@ -75,4 +75,16 @@ test("the category chart keeps the top ten and folds the rest into Kategori lain
 test("a one-month range is named once, not twice", () => {
   assert.equal(rangeSummary("2026-09", "2026-09"), "Sep 26");
   assert.equal(rangeSummary("2026-08", "2026-09"), "Agu 26 sampai Sep 26");
+});
+
+test("range months are offered by Indonesian name, newest first, and an older chosen month stays selectable", () => {
+  assert.equal(monthName("2026-06"), "Juni 2026");
+  assert.equal(monthName("2026-11"), "November 2026");
+  const choices = monthChoices("2026-12");
+  assert.equal(choices.length, 36);
+  assert.deepEqual(choices[0], { value: "2026-12", label: "Desember 2026" });
+  assert.equal(choices.at(-1).value, "2024-01");
+  const withOld = monthChoices("2026-12", "2022-05", "not-a-month");
+  assert.equal(withOld.length, 37);
+  assert.deepEqual(withOld.at(-1), { value: "2022-05", label: "Mei 2022" });
 });

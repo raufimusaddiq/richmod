@@ -1,6 +1,8 @@
 .insight-card { padding: var(--card-padding); }
 .insight-card .section-title { margin-bottom: 14px; }
 .insight-card p { margin: 0; color: var(--ink-soft); line-height: 1.65; }
+.insight-card .discussion-banner { margin-bottom: var(--space-4); }
+.insight-card .insight-header { align-items: center; }
 .insight-card-compact { padding: var(--card-padding-dense); }
 .insight-card-compact .section-title { margin-bottom: 10px; }
 .insight-text { display: grid; gap: 10px; }
@@ -13,7 +15,7 @@
 .range-controls { align-items: center; flex-wrap: wrap; width: auto; margin: 0; gap: 8px; }
 .range-control-group, .custom-range { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .custom-range { margin-left: 4px; gap: 7px; }
-.custom-range input { width: 142px; min-width: 0; }
+.custom-range select { width: 160px; min-width: 0; }
 .custom-range > span { color: var(--muted); font-size: 12px; }
 
 .settings-list, .integration-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; }

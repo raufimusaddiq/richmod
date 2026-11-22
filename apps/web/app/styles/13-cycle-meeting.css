@@ -70,6 +70,8 @@
 .cycle-review .range-controls { display: flex; width: 100%; margin: 0 0 var(--space-4); padding: 0; border: 0; background: transparent; gap: var(--space-4); overflow: visible; }
 .cycle-review .range-controls button, .cycle-review select, .cycle-review summary, .cycle-review .review-quality a, .cycle-review .change-button { min-height: 44px; }
 .cycle-review .range-control-group { flex-wrap: wrap; }
+.cycle-review .range-controls { align-items: flex-end; }
+.cycle-review .custom-range select, .cycle-review .custom-range button { min-height: 54px; }
 .cycle-review .review-section a { color: var(--accent); }
 .cycle-review .review-section > .section-title h2 { margin: 0; }
 .cycle-review .review-table-wrap { outline-offset: 2px; }
@@ -137,7 +139,7 @@
   .cycle-review select, .cycle-review input { font-size: var(--text-lg); }
   .cycle-review .custom-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: var(--space-2); width: 100%; }
   .cycle-review .custom-range label { flex: none; min-width: 0; }
-  .cycle-review .custom-range input { width: 100%; }
+  .cycle-review .custom-range select { width: 100%; }
   .cycle-review .custom-range button { grid-column: 1 / -1; }
   .cycle-review .cycle-outcome dd { overflow-wrap: anywhere; }
 }

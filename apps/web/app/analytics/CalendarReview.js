@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CategoryRankingChart, MonthlyCashflowChart } from "../components/Charts";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
-import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, defaultRange, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, nextMonthKey, rangeSummary, validateCustomRange } from "../lib/calendarReview";
+import { addMonths, calendarErrorMessage, monthChoices, chartCategories, currentMonthKey, defaultRange, firstActiveMonth, hasActivity, hasRefunds, monthRowLabel, nextMonthKey, rangeSummary, validateCustomRange } from "../lib/calendarReview";
 import { transactionHref } from "../lib/cycleReview";
 import { money, monthLabel } from "../lib/format";
 import { SectionTitle, Metric } from "./shared";
@@ -40,10 +40,12 @@ export function CalendarReview({ selection, navigate }) {
     setRangeError(problem);
     if (!problem) navigate({ from, to });
   }
-  const rangeProps = value => ({ type: "month", max: latest, required: true, "aria-invalid": rangeError ? true : undefined, "aria-describedby": rangeError ? "range-error" : undefined, value });
+  const choices = monthChoices(latest, from, to);
+  const rangeProps = value => ({ required: true, "aria-invalid": rangeError ? true : undefined, "aria-describedby": rangeError ? "range-error" : undefined, value });
+  const monthOptions = choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>);
   return <>
     <div className="range-controls"><div className="range-control-group" data-slide data-slide-panel=".calendar-body" role="group" aria-label="Rentang bulan">{["3", "6", "12"].map(range => <button type="button" key={range} className={selection.range === range && !custom ? "active" : "secondary"} aria-pressed={selection.range === range && !custom} onClick={() => navigate({ range, from: "", to: "" })}>{range} Bulan</button>)}</div>
-      <form className="custom-range" aria-label="Rentang bulan kustom" onSubmit={submitRange} noValidate><label>Bulan mulai<input name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}/></label><label>Bulan selesai<input name="to" {...rangeProps(to)} onChange={event => setTo(event.target.value)}/></label><button type="submit" disabled={!draft}>Terapkan</button></form>
+      <form className="custom-range" aria-label="Rentang bulan kustom" onSubmit={submitRange} noValidate><label>Bulan mulai<select name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}>{monthOptions}</select></label><label>Bulan selesai<select name="to" {...rangeProps(to)} onChange={event => setTo(event.target.value)}>{monthOptions}</select></label><button type="submit" disabled={!draft}>Terapkan</button></form>
     </div>
     {rangeError && <div id="range-error" className="notice error feedback" role="alert"><span>{rangeError}</span></div>}
     <p>{custom ? `Rentang bulan ${rangeSummary(selection.from, selection.to)}` : `${selection.range} bulan terakhir`} · Asia/Jakarta{draft ? " · perubahan belum diterapkan" : ""}</p>

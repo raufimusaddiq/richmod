@@ -452,13 +452,14 @@ test("the calendar view validates ranges, links months by keyboard and survives 
   await page.goBack({ waitUntil: "networkidle" });
   await monthTable.waitFor();
 
-  await page.getByLabel("Bulan mulai").fill("2025-03");
-  await page.getByLabel("Bulan selesai").fill("2025-01");
+  await expect(page.getByLabel("Bulan mulai").locator("option[value='2025-01']"), "months are named in Indonesian").toHaveText("Januari 2025");
+  await page.getByLabel("Bulan mulai").selectOption("2025-03");
+  await page.getByLabel("Bulan selesai").selectOption("2025-01");
   await page.getByRole("button", { name: "Terapkan", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).waitFor();
   expect(searchOf(page).has("from"), "an invalid range never reaches the URL").toBe(false);
-  await page.getByLabel("Bulan mulai").fill("2025-01");
-  await page.getByLabel("Bulan selesai").fill("2025-03");
+  await page.getByLabel("Bulan mulai").selectOption("2025-01");
+  await page.getByLabel("Bulan selesai").selectOption("2025-03");
   await page.getByRole("button", { name: "Terapkan", exact: true }).click();
   await page.getByText("Rentang bulan Jan 25 sampai Mar 25").waitFor();
   expect(searchOf(page).get("from")).toBe("2025-01");
@@ -467,7 +468,7 @@ test("the calendar view validates ranges, links months by keyboard and survives 
   await expect(page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }), "a valid range clears the field error").toHaveCount(0);
   await page.goBack({ waitUntil: "networkidle" });
   const shownRange = defaultRange({ from: "", to: "", range: searchOf(page).get("range") || "3" }, FIXED_NOW);
-  await page.waitForFunction(expected => document.querySelector('input[name="from"]')?.value === expected, shownRange.from);
+  await page.waitForFunction(expected => document.querySelector('select[name="from"]')?.value === expected, shownRange.from);
   await expect(page.getByLabel("Bulan mulai"), "the inputs follow the URL after Back").toHaveValue(shownRange.from);
 
   flags.merchantsFail = true;
