@@ -18,6 +18,19 @@ export function nextMonthKey(now = new Date()) {
   return addMonths(currentMonthKey(now), 1);
 }
 
+const MONTH_CHOICES = 36;
+
+export function monthName(key) {
+  const [year, month] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+export function monthChoices(latest, ...selected) {
+  const keys = new Set(Array.from({ length: MONTH_CHOICES }, (_, index) => addMonths(latest, -index)));
+  for (const key of selected) if (MONTH.test(key || "")) keys.add(key);
+  return [...keys].sort().reverse().map(key => ({ value: key, label: monthName(key) }));
+}
+
 export function monthSpan(from, to) {
   const [fromYear, fromMonth] = from.split("-").map(Number);
   const [toYear, toMonth] = to.split("-").map(Number);

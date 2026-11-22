@@ -90,7 +90,7 @@
   .cycle-review .cycle-picker { width: 100%; }
   .cycle-review .cycle-selector { flex: 1 1 auto; min-width: 0; }
   .custom-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); margin: 0; }
-  .custom-range input { width: 100%; }
+  .custom-range select { width: 100%; }
   .custom-range button { grid-column: 1 / -1; }
   .cycle-review .review-table-wrap:has(.monthly-table) { border: 0; border-radius: 0; background: none; }
   .review-table-wrap .monthly-table { min-width: 0; }
