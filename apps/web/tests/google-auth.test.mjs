@@ -79,9 +79,12 @@ test("AuthProvider exposes reload and household-scoped fetches wait for a househ
   assert.match(text("app/components/AppShell.js"), /user && !user\.household && !pathname\.startsWith\("\/admin"\)\) return <NoHouseholdIntro/);
 });
 
-test("Keluarga member notes distinguish Google-linked members from inactive ones", () => {
+test("Keluarga member notes and Admin users table distinguish Google-linked accounts from inactive ones", () => {
   const household = text("app/household/page.js");
   assert.match(household, /member\.googleLinked \? "Terhubung dengan Google" : "Belum mengaktifkan akun"/);
+  const adminUsers = text("app/admin/Users.js");
+  assert.match(adminUsers, /user\.googleLinked/);
+  assert.match(adminUsers, /"Diatur · Google"/);
 });
 
 test("Google and waiting-screen styles obey the Retro Ledger floor", () => {

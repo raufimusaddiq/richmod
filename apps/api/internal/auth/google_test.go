@@ -262,6 +262,36 @@ func TestKeySetCachesAndRefetchesOnUnknownKid(t *testing.T) {
 	}
 }
 
+func TestKeySetTransientFailureDoesNotSuppressNextFetch(t *testing.T) {
+	f := newFakeGoogle(t)
+	var clock atomic.Int64
+	base := time.Now()
+	now := func() time.Time { return base.Add(time.Duration(clock.Load())) }
+	ks := newKeySet(http.DefaultClient, f.endpoints().JWKS, now)
+	verify := func() error {
+		_, err := ks.verify(context.Background(), f.endpoints(), testClientID, f.sign(baseClaims(testIdentity, "n", now())), "n")
+		return err
+	}
+	if err := verify(); err != nil {
+		t.Fatal(err)
+	}
+	clock.Store(int64(jwksTTL + time.Second))
+	goodURL := ks.url
+	ks.url = "http://127.0.0.1:1/unreachable"
+	f.kid = "rotated-after-blip"
+	f.mu.Lock()
+	f.jwksKeys = func() []map[string]string { return []map[string]string{f.publicJWK("rotated-after-blip")} }
+	f.mu.Unlock()
+	if err := verify(); err == nil {
+		t.Fatal("expected verification failure when JWKS fetch fails for a rotated key")
+	}
+	ks.url = goodURL
+	clock.Store(int64(jwksTTL + 2*time.Second))
+	if err := verify(); err != nil {
+		t.Fatalf("rotated key rejected 1s after transient JWKS failure: %v", err)
+	}
+}
+
 func TestKeySetIgnoresNonRS256Keys(t *testing.T) {
 	f := newFakeGoogle(t)
 	f.jwksKeys = func() []map[string]string {

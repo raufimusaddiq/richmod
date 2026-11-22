@@ -69,7 +69,6 @@ type keySet struct {
 	mu      sync.Mutex
 	keys    map[string]*rsa.PublicKey
 	fetched time.Time
-	tried   time.Time
 }
 
 func newKeySet(client *http.Client, jwksURL string, now func() time.Time) *keySet {
@@ -85,13 +84,15 @@ func (k *keySet) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 		if key, ok := k.keys[kid]; ok {
 			return key, nil
 		}
+		if now.Sub(k.fetched) < jwksMinRetry {
+			return nil, errOIDC
+		}
 	}
-	if !k.tried.IsZero() && now.Sub(k.tried) < jwksMinRetry {
-		return nil, errOIDC
-	}
-	k.tried = now
 	keys, err := k.fetch(ctx)
 	if err != nil {
+		if key, ok := k.keys[kid]; ok {
+			return key, nil
+		}
 		return nil, err
 	}
 	k.keys = keys
