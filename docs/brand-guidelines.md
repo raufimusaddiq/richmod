@@ -87,10 +87,11 @@ that source; it does not introduce a parallel token file.
   exclusively for the aggregated `Kategori lain` row/segment; remaining
   categories disclosed inside `Kategori lain` and unranked rows in tables or
   drawers render without swatches. On Transaksi and Beranda transaction icons,
-  a category outside the top 6 inherits its parent category's top-6 tone when
-  its parent is ranked in the top 6, and falls back to neutral sand otherwise
-  (keyed by category id from the same `CategoryPaletteProvider`, with no new
-  colours). All six `--chart-category-1..6` tokens clear WCAG 3:1 non-text
+  a category outside the top 6 takes the tone of the highest-ranked top-6
+  category in the same family (sharing the same top-level ancestor; a top-level
+  category's family is itself plus its descendants), and falls back to neutral
+  sand when no member of its family is ranked (keyed by category id from the
+  same `CategoryPaletteProvider`, with no new colours). All six `--chart-category-1..6` tokens clear WCAG 3:1 non-text
   contrast against `--surface` (3.5–6.2:1). Daily spending bars use a single
   slate navy `--chart-daily` (`#2f4a6d`, 8.8:1 on `--surface`) with no
   above/below-average colour split, no teal, and no red/green; the dashed
@@ -293,8 +294,8 @@ and PRDs; they never appear in user-facing copy.
   in the header. Rows show a display name preferring merchant name → counterparty
   name → description (and `Transfer ke <name>` for transfers with a counterparty,
   display-only), a semantic Phosphor category icon (`categoryIcons.js`, taking
-  its own top-6 tone, else its parent category's top-6 tone if the parent is
-  ranked, else neutral sand, never letter boxes), one meta line and the signed amount; a badge
+  its own top-6 tone, else the highest-ranked top-6 tone in the same category
+  family sharing its top-level ancestor, else neutral sand, never letter boxes), one meta line and the signed amount; a badge
   appears only for exceptions (Perlu dicek, Dibatalkan). Voided rows are hidden through
   `exclude_voided=true` (response headers `X-Total-Count` and `X-Voided-Count`) unless
   a status filter or `?showVoided=1` is set. Filters are a search box and chips
