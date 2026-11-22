@@ -23,6 +23,8 @@ const (
 	cacheServiceWorker = "no-cache"
 )
 
+const hashedAssetDir = "assets/"
+
 var appRoutes = map[string]struct{}{
 	"/":             {},
 	"/transactions": {},
@@ -78,29 +80,13 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(clean, "/")
-	for _, candidate := range []string{name, segmentPayloadPath(name), name + ".html", name + "/index.html"} {
+	for _, candidate := range []string{name, name + ".html", name + "/index.html"} {
 		if h.exists(candidate) {
-			class := candidate
-			if candidate != name && strings.HasSuffix(candidate, ".txt") {
-				class = name
-			}
-			h.serve(w, r, candidate, cacheFor(class))
+			h.serve(w, r, candidate, cacheFor(candidate))
 			return
 		}
 	}
 	h.notFound(w, r)
-}
-
-func segmentPayloadPath(name string) string {
-	dir, base := path.Split(name)
-	if !strings.HasPrefix(base, "__next.") || !strings.HasSuffix(base, ".txt") {
-		return ""
-	}
-	rest := strings.TrimSuffix(strings.TrimPrefix(base, "__next."), ".txt")
-	if rest == "" || strings.Contains(rest, "..") || strings.HasPrefix(rest, ".") || strings.HasSuffix(rest, ".") {
-		return ""
-	}
-	return dir + "__next." + strings.ReplaceAll(rest, ".", "/") + ".txt"
 }
 
 func (h handler) serve(w http.ResponseWriter, r *http.Request, name, cache string) {
@@ -145,18 +131,11 @@ func cacheFor(name string) string {
 	case "sw.js":
 		return cacheServiceWorker
 	}
-	if strings.HasPrefix(name, "_next/static/") {
+	if strings.HasPrefix(name, hashedAssetDir) {
 		return cacheImmutable
 	}
 	if strings.HasSuffix(name, ".html") {
 		return htmlCacheFor(routeOf(name))
-	}
-	if strings.HasSuffix(name, ".txt") {
-		route := name
-		if i := strings.Index(route, "/__next."); i >= 0 {
-			route = route[:i]
-		}
-		return htmlCacheFor(routeOf(strings.TrimSuffix(route, ".txt") + ".html"))
 	}
 	return cachePublic
 }
