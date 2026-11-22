@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildCategoryPalette, categoryColorFor, categoryColorMap, changesView, OTHER_CATEGORY_COLOR, partialDay, rankingView } from "../app/lib/cycleWhere.js";
 import { categoryVisual } from "../app/lib/categoryIcons.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
-
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("the ranking is the served order and total; the web sorts and sums nothing", () => {
   const facts = cycleFacts();
@@ -65,26 +62,6 @@ test("only the running day of an active cycle is partial", () => {
   const active = cycleFacts();
   assert.equal(partialDay(active.period, active.daily), active.daily.at(-1).period);
   assert.equal(partialDay(active.period, []), "");
-});
-
-test("the new row does no arithmetic on money", () => {
-  for (const file of ["app/lib/cycleWhere.js", "app/analytics/CycleWhere.js"]) {
-    const source = text(file);
-    assert.doesNotMatch(source, /\.reduce\(|Math\.round|\.sort\(|BigInt/, `${file} only formats served figures`);
-  }
-});
-
-test("the category drawer is a labelled modal that reuses the shared focus trap and omits sand swatches", () => {
-  const source = text("app/analytics/CycleWhere.js");
-  assert.match(source, /from "\.\.\/lib\/focusTrap"/);
-  assert.match(source, /role="dialog" aria-modal="true" aria-labelledby="drivers-title"/);
-  assert.match(source, /opener\.isConnected/, "focus returns to the trigger");
-  assert.match(source, /className="category-drawer-title">\{swatchColor && <i className="where-swatch"/, "category drawer shows its shared swatch only for ranked top-6 categories");
-  assert.match(source, /className="where-other-details"/, "Kategori lain expands inline to list remaining categories");
-  assert.match(source, /<RankRow row=\{sub\} swatch=\{false\}\/>/, "expanded Kategori lain rows render without swatches");
-  const sections = text("app/analytics/CycleSections.js");
-  assert.match(sections, /const swatch = color && color !== OTHER_CATEGORY_COLOR \? <i className="heat-swatch"/, "ChangesTable omits sand swatches on non-top-6 rows");
-  assert.match(sections, /const swatch = row\.muted \|\| \(color && color !== OTHER_CATEGORY_COLOR\)/, "CategoryHeatmap renders sand swatch only on Kategori lain");
 });
 
 test("rankingView omits sand on non-other rows and maps expandable other.rows with openable flags", () => {

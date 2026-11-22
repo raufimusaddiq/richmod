@@ -154,12 +154,25 @@ func routeOf(name string) string {
 	return "/" + strings.TrimSuffix(name, ".html")
 }
 
+var contentTypes = map[string]string{
+	".css":         "text/css; charset=utf-8",
+	".html":        "text/html; charset=utf-8",
+	".js":          "text/javascript; charset=utf-8",
+	".json":        "application/json",
+	".map":         "application/json",
+	".png":         "image/png",
+	".svg":         "image/svg+xml",
+	".txt":         "text/plain; charset=utf-8",
+	".webmanifest": "application/manifest+json",
+	".woff2":       "font/woff2",
+}
+
 func contentType(name string) string {
 	if name == "opengraph-image" {
 		return "image/png"
 	}
-	if name == "manifest.webmanifest" {
-		return "application/manifest+json"
+	if value, ok := contentTypes[path.Ext(name)]; ok {
+		return value
 	}
 	if value := mime.TypeByExtension(path.Ext(name)); value != "" {
 		return value

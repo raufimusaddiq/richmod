@@ -203,7 +203,8 @@ production session, URL, or financial dataset.
 
 Visual regression baselines are canonical to the same pinned Playwright image:
 `cd apps/web && bun run test:visual` (compare) and `bun run test:visual:update`
-(regenerate) both run inside it. Do not regenerate baselines with a host
+(regenerate) both run inside it; the other browser specs run anywhere with
+`bun run test:e2e`. Do not regenerate baselines with a host
 browser; the glyph rasterisation differs and every baseline changes.
 
 ## Finish and prove cleanup

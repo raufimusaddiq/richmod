@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { dateTime, displayDate, money } from "../app/lib/format.js";
 import { snapshotSourceLabel } from "../app/lib/labels.js";
 import { notFoundMeta, routeMeta } from "../app/lib/siteMeta.js";
-import { globalCss } from "./source.mjs";
-
-const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("displayDate renders Indonesian day-month-year in Asia/Jakarta", () => {
   assert.equal(displayDate("2026-10-22"), "22 Okt 2026");
@@ -20,17 +16,7 @@ test("dateTime keeps the dotted Jakarta clock format", () => {
   assert.equal(dateTime("2026-10-22T14:53:00+07:00"), "22 Okt 2026, 14.53");
 });
 
-test("the home wealth card uses the shared formatter, not a numeric locale date", () => {
-  const home = read("app/page.js");
-  assert.doesNotMatch(home, /toLocaleDateString\("id-ID"\)/);
-  assert.match(home, /dateTime\(latestWealth\.observedAt\)/);
-});
-
-test("not-found page is Indonesian, links to Beranda and has its own metadata", () => {
-  assert.ok(existsSync(new URL("../app/not-found.js", import.meta.url)));
-  const page = read("app/not-found.js");
-  assert.match(page, /Halaman tidak ditemukan/);
-  assert.match(page, /href="\/"[^>]*>Kembali ke Beranda|Kembali ke Beranda/);
+test("the not-found page has its own Indonesian metadata", () => {
   assert.equal(notFoundMeta.title, "Halaman tidak ditemukan · Richmod");
   assert.ok(notFoundMeta.description.length > 0);
 });
@@ -47,21 +33,7 @@ test("every app route sets its own title", () => {
   assert.equal(routeMeta["/transactions"].title, "Transaksi · Richmod");
 });
 
-test("settings wraps unbreakable generated addresses on mobile", () => {
-  const css = globalCss();
-  assert.match(css, /\.integration-grid small[^{]*\{[^}]*overflow-wrap: anywhere/);
-  assert.match(css, /\.email-checklist li small[^{]*\{[^}]*overflow-wrap: anywhere/);
-});
-
-test("Indonesian copy replaces raw MANUAL and the Test button", () => {
-  assert.match(read("app/lib/labels.js"), /MANUAL: "Input manual"/);
-  assert.match(read("app/wealth/WealthWorkspace.js"), /snapshotSourceLabel\[item\.source\]/);
-  assert.match(read("app/components/SettingsPanels.js"), /testFinancialSource\(item\)\}>Uji</);
-  assert.doesNotMatch(read("app/components/SettingsPanels.js"), />Test</);
-});
-
-test("displayDate's date-only guard is a real digit pattern", () => {
-  assert.ok(read("app/lib/format.js").includes(String.raw`/^\d{4}-\d{2}-\d{2}$/`));
+test("displayDate treats a date-only string as a Jakarta calendar day", () => {
   assert.equal(displayDate("2026-12-31"), "31 Des 2026");
 });
 

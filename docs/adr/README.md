@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-118**, in the heading form `## ADR-118: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-120**, in the heading form `## ADR-120: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -129,7 +129,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-116](#adr-116-charts-draw-in-once-per-dataset-and-hero-figures-count-up-to-their-exact-value) | Charts draw in once per dataset and hero figures count up to their exact value | Accepted, supersedes the static-chart stance of commit 7c245e19 except the donut |
 | [ADR-117](#adr-117-one-dom-observer-mechanism-for-sliding-tab-indicators-panel-re-entry-and-first-load-stagger) | One DOM-observer mechanism for sliding tab indicators, panel re-entry and first-load stagger | Accepted |
 | [ADR-118](#adr-118-go-tests-assert-behaviour-isolate-by-household-and-run-in-parallel-source-text-checks-only-for-architecture-rules) | Go tests assert behaviour, isolate by household and run in parallel; source-text checks only for architecture rules | Accepted |
-
+| [ADR-119](#adr-119-web-browser-tests-run-on-the-playwright-test-runner-and-assert-rendered-behavior) | Web browser tests run on the Playwright test runner and assert rendered behavior | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1209,3 +1209,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** every row a test writes is one more round trip, so the worker suite was bound by per-test setup and ran sequentially in about 30s per package; household isolation already existed, so parallelism was available but unused. Source-text checks pinned incidental strings and duplicated behavioural tests.
 
 **Consequence:** a new DB test that owns its household is parallel by default; a test that needs global state or a tight latency budget must stay serial and say why in its name. `operations.Handler` takes injectable probe and status timeouts so aggregate tests assert values rather than machine speed.
+
+## ADR-119: Web browser tests run on the Playwright test runner and assert rendered behavior
+*Accepted · 2026-11-22*
+
+**Decision:** every browser test in `apps/web` is a `@playwright/test` spec under `apps/web/e2e/`, configured once in `playwright.config.mjs`: a `webServer` serves the built site, projects are viewports (desktop, tablet, mobile, small-mobile for the responsive and app specs, `widths` and `widths-webkit` for specs that set their own widths, `motion` for timing specs, `visual` for `toHaveScreenshot()` baselines), every test mocks `/api/v1/**` through one fixture (`e2e/support/api.js`) with its own copy of mutable data, and the clock is fixed at 2026-09-07 10:00 Asia/Jakarta so no test depends on the day it runs. The hand-rolled `scripts/*-smoke.mjs` runners are gone. Visual baselines are generated in the pinned Linux Playwright image (`bun run test:visual:update`). Unit tests under `tests/` call functions or check rules computed from real files (WCAG contrast from tokens, manifest and service worker validity, migrations against labels); a test that reads application source and regex-matches it is not written, and user-visible behavior that used to be locked that way is asserted on the rendered page instead.
+
+**Reason:** about 32 of 41 unit-test files read source text, so they broke on harmless refactors (a renamed prop, a moved class) and kept passing when the behavior they named was broken. The smokes each spawned their own server on a fixed port, looped viewports serially, and duplicated mocks and cleanup; two of them were not in CI and had silently rotted (`test:motion` waited for a button the wealth page no longer renders, `test:visual` hovered a chart that is now behind a closed disclosure).
+
+**Consequence:** CI runs install, build, `bun test tests/` and `playwright test` (one worker pool, HTML report and traces uploaded on failure) in the Playwright container; `bun run test:e2e` does the same locally. A new screen gets rendered assertions in `e2e/app` rather than a source regex. Baselines are Linux-only: `playwright test` on Windows or macOS skips the `visual` project unless `PLAYWRIGHT_VISUAL=1`. The Playwright image tag in `ci.yml`, `scripts/visual-docker.sh` and the `@playwright/test` version in `package.json` must move together.

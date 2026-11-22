@@ -27,9 +27,3 @@ test("every database review type has an Indonesian label and explanation", () =>
     assert.ok(row[2].length > 20, `${type} needs a one-line explanation`);
   }
 });
-
-test("no card falls back to printing a raw review code", () => {
-  const cards = readdirSync(new URL("../app/components/review/", import.meta.url)).map(name => readFileSync(new URL(`../app/components/review/${name}`, import.meta.url), "utf8")).join("\n");
-  assert.doesNotMatch(cards, /reviewType\.replaceAll\("_"/);
-  assert.doesNotMatch(cards, /String\(key\)\.replaceAll\("_"/);
-});

@@ -10,3 +10,4 @@ apps/web/out/
 .cache/
 apps/web/app/lib/buildId.generated.js
 apps/web/public/build-id.txt
+playwright-report/

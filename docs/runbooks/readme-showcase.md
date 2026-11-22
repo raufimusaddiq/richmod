@@ -52,11 +52,11 @@ The Playwright package remains a web dev dependency. The browser comes from
 the disposable Docker image; no browser installation is needed on the host.
 
 The same image is the canonical renderer for the visual regression baselines
-(`apps/web/tests/visual-baselines/`). `bun run test:visual` and
+(`apps/web/e2e/visual/baselines/`). `bun run test:visual` and
 `bun run test:visual:update` run inside it via
-`apps/web/scripts/visual-smoke-docker.sh`; a host Chromium rasterises the
+`apps/web/scripts/visual-docker.sh`; a host Chromium rasterises the
 self-hosted woff2 glyphs differently and fails every baseline. Bump the image
-tag in the same change as the `playwright` dev dependency.
+tag in the same change as the `@playwright/test` and `playwright` dev dependencies.
 
 ## Capture
 

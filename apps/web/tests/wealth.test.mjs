@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { reviewCards, tree } from "./source.mjs";
 import { amountTone } from "../app/lib/format.js";
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 test("zero money is neutral; only a real amount carries a tone", () => {
   assert.equal(amountTone("0"), "");
   assert.equal(amountTone("0.00"), "");
@@ -12,58 +9,5 @@ test("zero money is neutral; only a real amount carries a tone", () => {
   assert.equal(amountTone("-5000000"), "negative");
   assert.equal(amountTone("1750000", true), "negative");
   assert.equal(amountTone("0", true), "");
-  for (const page of ["app/wealth/WealthWorkspace.js", "app/page.js"]) {
-    const source = text(page);
-    assert.match(source, /amountTone\(/, `${page} uses the shared tone helper`);
-    assert.doesNotMatch(source, /className="negative"/, `${page} never hard-codes the negative tone`);
-  }
-});
-test("wealth UI keeps decimal strings and supports snapshots", () => {
-  const wealth = text("app/wealth/WealthWorkspace.js");
-  const charts = text("app/components/Charts.js");
-  assert.match(wealth, /\/api\/v1\/wealth\/summary/);
-  assert.match(wealth, /\/api\/v1\/wealth\/snapshots\/latest/);
-  assert.match(wealth, /\/api\/v1\/wealth\/history/);
-  assert.doesNotMatch(wealth, /fetch\("\/api\/v1\/wealth"\)/);
-  assert.match(wealth, /valueIdr/);
-  assert.match(wealth, /source: "MANUAL"/);
-  assert.match(wealth, /inputMode=\"numeric\"/);
-  assert.doesNotMatch(wealth, /parseFloat|Number\(/);
-  assert.match(wealth, /Kekayaan belum diatur/);
-  assert.match(wealth, /jakartaLocalToRFC3339/);
-  assert.match(wealth, /defaultValue=\{previousValues\.get/);
-  assert.match(wealth, /Perbarui nilai/);
-  assert.match(charts, /contentStyle=\{defaultTooltipStyle\}/);
 });
 
-test("Jakarta datetime-local serialization is explicit", () => {
-  const wealth = text("app/wealth/WealthWorkspace.js");
-  assert.match(wealth, /timeZone: "Asia\/Jakarta"/);
-  assert.match(wealth, /\+07:00/);
-});
-test("homepage reads canonical Net Worth and distinguishes uninitialized Wealth", () => {
-  const home = text("app/page.js");
-  assert.match(home, /\/api\/v1\/wealth\/snapshots\/latest/);
-  assert.match(home, /latestWealth\.netWorthIdr/);
-  assert.match(home, /Kekayaan belum diinisialisasi/);
-  assert.match(home, /: "—"/);
-});
-test("Wealth lives under Laporan in the shell", () => {
-  const shell = text("app/components/AppShell.js");
-  assert.match(shell, /"\/wealth": "\/analytics"/);
-  assert.match(shell, /\["\/analytics", "Laporan", "analytics"\]/);
-});
-test("manual transfer exposes purpose and wealth account", () => {
-  const transactions = text("app/components/QuickRecordDialog.js");
-  assert.match(transactions, /\["TRANSFER", "Transfer"\]/);
-  assert.match(transactions, /name="purpose"/);
-  assert.match(transactions, /relatedWealthAccountId/);
-  for (const purpose of ["INTERNAL_TRANSFER", "SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT"]) assert.match(transactions, new RegExp(purpose));
-  const inbox = text("app/inbox/page.js");
-  assert.match(inbox, /api\/v1\/reviews/);
-  assert.match(reviewCards(), /Alokasikan saldo tersisa/);
-  assert.match(reviewCards(), /ALLOCATE_RETAINED_BALANCE/);
-  assert.match(reviewCards(), /ASSET_PURCHASE/);
-  assert.match(reviewCards(), /Beli aset/);
-  assert.match(reviewCards(), /item\.type === "EXPENSE".*classification: "ASSET_PURCHASE"/s);
-});

@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { screenForPath, trackEvent, trackScreenView } from "../app/lib/telemetry.js";
 
 test("routes map only to bounded screen keys, never paths or ids", () => {
@@ -34,9 +33,4 @@ test("trackEvent posts only the allow-listed pair and swallows every failure", a
   } finally {
     globalThis.fetch = original;
   }
-});
-
-test("AppShell reports a screen view on route change", () => {
-  const shell = readFileSync(new URL("../app/components/AppShell.js", import.meta.url), "utf8");
-  assert.match(shell, /trackScreenView\(pathname\)/);
 });

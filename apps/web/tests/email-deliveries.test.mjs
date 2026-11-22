@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import test from "node:test";
 import { component } from "./support/component.mjs";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-
-const read = file => fs.readFileSync(file, "utf8");
 
 const EmailDeliveries = component("app/components/EmailDeliveries.js").default;
 const render = state => renderToStaticMarkup(React.createElement(EmailDeliveries, { state, retry: () => {} }));
@@ -32,31 +29,4 @@ test("empty, loading and error states are short Indonesian messages", () => {
   const failed = render({ status: "error", items: [] });
   assert.match(failed, /role="alert"/);
   assert.match(failed, /Coba lagi/);
-});
-
-test("Perlu dicek no longer hosts Email masuk; the old deep link moves to Keluarga", () => {
-  const inbox = read("app/inbox/page.js");
-  assert.doesNotMatch(inbox, /email-ingress\/deliveries/);
-  assert.doesNotMatch(inbox, /data-view="email"/);
-  assert.match(inbox, /legacyViewTarget/);
-});
-
-test("Keluarga > Sumber otomatis hosts the owner delivery log and pending actions", () => {
-  const settings = read("app/components/SettingsPanels.js");
-  assert.doesNotMatch(settings, /Pengiriman terakhir/);
-  assert.doesNotMatch(settings, /emailDelivery(Status|Reason)Label/);
-  assert.match(settings, /<EmailOnboardingChecklist /);
-  assert.match(settings, /Status pemrosesan otomatis/);
-  assert.match(settings, /<DeliveryLogSection tab="sumber" active=\{tab\}\/>/);
-  assert.match(settings, /<IntegrationActionsSection tab="sumber"/);
-  assert.match(settings, /title="Email masuk terakhir"/);
-  assert.match(settings, /title="Tindakan"/);
-  assert.match(settings, /\/api\/v1\/integrations\/email-ingress\/deliveries/);
-  assert.match(settings, /\/api\/v1\/integration-actions\/\$\{id\}\/resolve/);
-  assert.match(settings, /if \(!owner\) return <NotificationsSection/);
-});
-
-test("the delivery list is height-bounded", () => {
-  const css = read("app/styles/05-inbox-and-documents.css");
-  assert.match(css, /\.delivery-list \{[^}]*max-height:[^}]*overflow-y: auto/);
 });
