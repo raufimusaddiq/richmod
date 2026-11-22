@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-115**, in the heading form `## ADR-115: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-118**, in the heading form `## ADR-118: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -11,7 +11,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | ADR | Title | Status |
 | --- | --- | --- |
 | [ADR-001](#adr-001-go-backend) | Go backend | Accepted |
-| [ADR-002](#adr-002-javascript-nextjs-frontend) | JavaScript Next.js frontend | Accepted |
+| [ADR-002](#adr-002-javascript-nextjs-frontend) | JavaScript Next.js frontend | Accepted, framework replaced by ADR-115 |
 | [ADR-003](#adr-003-postgresql-backed-job-queue) | PostgreSQL-backed job queue | Accepted |
 | [ADR-004](#adr-004-evidence-first-canonical-ledger) | Evidence-first canonical ledger | Accepted |
 | [ADR-005](#adr-005-cloud-ai-gateway-boundary) | Cloud AI Gateway boundary | Accepted, amended by ADR-030 and ADR-038 |
@@ -66,7 +66,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-053](#adr-053-category-judgments-receive-household-context) | Category judgments receive household context | Accepted, amends ADR-038 |
 | [ADR-054](#adr-054-review-kind-registry-is-the-single-owner-of-review-semantics) | Review kind registry is the single owner of review semantics | Accepted; phases 1-3 done, amended 2026-11-05/06 |
 | [ADR-055](#adr-055-rejected-tool-arguments-get-one-bounded-repair-round) | Rejected tool arguments get one bounded repair round | Accepted, refines ADR-024 and ADR-033; amended 2026-11-05 |
-| [ADR-056](#adr-056-serve-the-static-frontend-from-the-go-api) | Serve the static frontend from the Go API | Accepted, amends the deployment model of ADR-002 and ADR-019 |
+| [ADR-056](#adr-056-serve-the-static-frontend-from-the-go-api) | Serve the static frontend from the Go API | Accepted, amends the deployment model of ADR-002 and ADR-019; export format replaced by ADR-115 |
 | [ADR-057](#adr-057-installable-pwa-shell-served-by-the-go-binary) | Installable PWA shell served by the Go binary | Accepted, extends ADR-056; amended the same day and for issue #408/#413 |
 | [ADR-058](#adr-058-multi-household-tenancy-hardening) | Multi-household tenancy hardening | Accepted, extends ADR-035 and ADR-003 |
 | [ADR-059](#adr-059-super-admin-household-provisioning) | Super Admin household provisioning | Accepted, extends ADR-058 and ADR-021, amended by ADR-114 |
@@ -125,6 +125,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-112](#adr-112-laporan-unifies-arus-kas-and-kekayaan-spending-direction-colour-is-separate-from-category-colour) | Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour | Accepted |
 | [ADR-113](#adr-113-ci-is-path-targeted-and-images-are-built-only-on-prs-and-by-release-images) | CI is path-targeted and images are built only on PRs and by Release Images | Accepted |
 | [ADR-114](#adr-114-google-oidc-login-invite-bound-enrollment-and-active-only-household-uniqueness) | Google OIDC login, invite-bound enrollment, and active-only household uniqueness | Accepted, amends ADR-035 and ADR-059 |
+| [ADR-115](#adr-115-the-web-app-is-a-bun-built-react-spa-without-nextjs) | The web app is a Bun-built React SPA without Next.js | Accepted, replaces the framework of ADR-002 and the export format of ADR-056 |
 | [ADR-116](#adr-116-charts-draw-in-once-per-dataset-and-hero-figures-count-up-to-their-exact-value) | Charts draw in once per dataset and hero figures count up to their exact value | Accepted, supersedes the static-chart stance of commit 7c245e19 except the donut |
 | [ADR-117](#adr-117-one-dom-observer-mechanism-for-sliding-tab-indicators-panel-re-entry-and-first-load-stagger) | One DOM-observer mechanism for sliding tab indicators, panel re-entry and first-load stagger | Accepted |
 
@@ -134,7 +135,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 Backend services use Go with the standard library, `pgx/v5` and explicit domain code. Financial state transitions stay in Go and PostgreSQL is the canonical store.
 
 ## ADR-002: JavaScript Next.js frontend
-*Accepted · 2026-08-25*
+*Accepted, framework replaced by ADR-115 · 2026-08-25*
 
 The web app is Next.js and React with JavaScript, in its own container, and never owns financial-state mutations. ADR-056 later moved serving of the static build into the Go API; the stack itself is unchanged.
 
@@ -409,7 +410,7 @@ One Go table (`apps/reviewdomain/reviewdec/kinds.go`, a row per review kind) dec
 A Go validation failure of a tool call's arguments (`agentArgumentsError`) is returned to the model once per turn as that call's output (`INVALID_ARGUMENTS`, Go's reason truncated, with an instruction to correct or ask the user, never guess); other calls in the response get `NOT_EXECUTED`, Go revalidates the corrected call exactly as before, and nothing runs on the rejected call. Only argument errors are repairable: unavailable or unknown tools, budgets, mixed call sets and second side effects stay final (`maxArgumentRepairs` is one, inside the phase budget), and each repair logs the tool name and count, no values. It is a safeguard, not a fix for a measured problem. The 2026-11-05 amendment moved every date/time rule (local times like `15.00`, `9:30`, `15:00`, `date_provenance`, `explicit_date`, the `batch_1`..`batch_10` `item_ref` shape) into `validateCreate`/`validateDateFields`, raised the reason bound to 240 bytes, and made refusals only known while executing (an `item_ref` outside the batch, unknown category slug, unservable period, unparseable correction date) `agentRecoverable` tool results with `status`, `reason` and `next_step`, at most two per turn; READ-side equivalents follow the `recoverableAnalyticsRead` pattern.
 
 ## ADR-056: Serve the static frontend from the Go API
-*Accepted, amends the deployment model of ADR-002 and ADR-019 · 2026-11-03*
+*Accepted, amends the deployment model of ADR-002 and ADR-019; export format replaced by ADR-115 · 2026-11-03*
 
 The web app used only client-side `fetch` against the Go API, so `next start` added a Node runtime and hop without running application logic. `apps/web` now builds with `output: "export"` into `out/` (`force-dynamic` removed, `opengraph-image` `force-static`, `useSearchParams()` consumers wrapped in Suspense) and `apps/api/internal/webui` embeds it with `//go:embed all:assets`: exact file, then the nested form of a dotted segment payload (`a/__next.a.__PAGE__.txt` → `a/__next.a/__PAGE__.txt`, a safety net for exports built on non-POSIX hosts; production builds flat names that match the exact file), then `<path>.html`, then `<path>/index.html`, unknown paths get the exported `404.html` with 404, and `/path/` redirects 308. Cache classes live in the Go handler (the seven former `no-store, max-age=0` routes keep that, other HTML is `private, no-cache, no-store, max-age=0, must-revalidate`, `/_next/static/` is immutable for a year, public files `public, max-age=0`, and `/build-id.txt` `public, max-age=0, must-revalidate`). API-owned paths (`/api`, `/webhooks`, `/finance`, `/healthz`, `/readyz`) keep their handlers, and the UI is served outside `securityHeaders` because its `default-src 'none'` CSP would block scripts. The API Dockerfile builds the export in a Node stage, `web.Dockerfile` and the `web` Compose service are deleted, Caddy has one upstream (`finance-api:8080`) and the host Caddyfile must be updated, and `npm run build:embed` embeds the UI for local binaries. Server-only Next features (route handlers, server actions, middleware) are unavailable until this boundary is revisited, and a deploy is correct only when the API image is rebuilt (no separate web image).
 
@@ -1171,6 +1172,15 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** existing and invited users can sign in with Google without turning an owner's untyped, unverified member email into an unauthenticated claim; Google OIDC stays dependency-free in Go; and a Super Admin can assign household-less Google users or removed members to a new household while one active household per user and the historical audit rows are preserved.
 
 **Consequence:** removing a member still deactivates their membership and revokes sessions and invites, but no longer permanently bars that user or their Telegram identity from a new household assignment (this narrows the permanent 1:1 bindings of ADR-059 to one *active* binding); deterministic password login keeps working when the Google OAuth env vars are unset.
+
+## ADR-115: The web app is a Bun-built React SPA without Next.js
+*Accepted, replaces the framework of ADR-002 and the export format of ADR-056 · 2026-11-22*
+
+**Decision:** `apps/web` no longer depends on Next.js. Bun (pinned to 1.4.4 in `package.json`, `.bun-version`, `ci.yml` and `api.Dockerfile`) is the package manager (`bun.lock`), bundler (`Bun.build`), dev server and script runner; `bun run build` stays the single build command. `app/main.js` hydrates one client bundle (`out/assets/main-<hash>.js` plus one hashed stylesheet) into `#root`; `scripts/build.mjs` prerenders every route with `react-dom/server` into `<route>.html` plus `404.html`, baking each route's head from `app/lib/siteMeta.js` (title, description, viewport, theme colour, manifest, apple-web-app tags and splash images, icons, Open Graph and Twitter tags). A small in-house router (`app/router/`: `Link`, `usePathname`, `useSearchParams`, `useRouter`, history notifications) replaces `next/link` and `next/navigation`; the providers mount once above it and a per-path `route-fade` wrapper remounts the page as the old `template.js` did. `/actions` and `/reviews` are client redirects. `/opengraph-image` is the checked-in `scripts/og/opengraph-image.png` copied to the extensionless file, so the public URL and its `image/png` type are unchanged. Unit tests run with `bun test`; Playwright smokes, `capture:readme` and the static server used by the smokes stay on Node because Playwright does not support Bun.
+
+**Reason:** the export used no Next feature beyond static prerendering and client routing: every page is a client component calling the Go API, with no SSR, API routes, middleware or server actions. Next added a 450 MB `node_modules`, an 8 s build, a Turbopack runtime, `__next.*.txt` RSC payloads that the Go handler had to rewrite, a build-id input list tied to `.next`, and `next/dist` SWC imports inside unit tests. Bun gives a sub-second build and a 108 MB install with the same JSX sources.
+
+**Consequence:** `webui.go` loses all `__next` payload handling and serves `assets/` as immutable (`public, max-age=31536000, immutable`); the route classes (`no-store` app shells, other HTML, metadata, `sw.js`, `build-id.txt`, trailing-slash redirect, 404) are unchanged. After a deploy the old `/_next/static/*` URLs 404 and the old `__next.*.txt` payload requests 404, so an old tab's client navigation falls back to a full page load that receives the new HTML; the old build's own `BuildUpdateNotice` still sees the new `/build-id.txt` and offers a reload, and the pass-through service worker holds no cache that could serve a stale shell. `build-id.mjs` hashes `app`, `public`, `scripts`, `package.json` and `bun.lock`. The bundle is a single script with no route splitting (324 kB gzip, about the size of the old home-page first load of 350 kB); route-level lazy loading can be added through `Bun.build` splitting if it ever matters. `useSearchParams` renders on the client only, so its consumers keep their `Suspense` fallback in the prerendered HTML. The CI `web` job installs Bun with `oven-sh/setup-bun` inside the Playwright container, the API image builds the UI in an `oven/bun` stage, and `visual-smoke-docker.sh` installs the pinned Bun into the Playwright container.
 
 ## ADR-116: Charts draw in once per dataset and hero figures count up to their exact value
 *Accepted, supersedes the static-chart stance of commit 7c245e19 except the donut, amends the count-up rule in docs/UI_MOTION.md · 2026-11-22*

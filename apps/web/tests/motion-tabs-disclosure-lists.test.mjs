@@ -6,9 +6,9 @@ import { globalCss } from "./source.mjs";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const motionCss = () => text("app/styles/15-motion.css");
 
-test("the observer is mounted once from the root layout", () => {
-  assert.match(text("app/layout.js"), /import MotionEffects from "\.\/components\/MotionEffects";/);
-  assert.equal((text("app/layout.js").match(/<MotionEffects \/>/g) || []).length, 1);
+test("the observer is mounted once from the app root", () => {
+  assert.match(text("app/App.js"), /import MotionEffects from "\.\/components\/MotionEffects";/);
+  assert.equal((text("app/App.js").match(/<MotionEffects \/>/g) || []).length, 1);
   assert.match(text("app/components/MotionEffects.js"), /attachMotion/);
 });
 

@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "../router";
 import { LOAD, responseError, useBusyMap, useGuardedLoad } from "../lib/useLoadState";
 import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton, Toast } from "../components/Feedback";

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { initialPresence, nextPresence, whenSettled } from "./presenceState";
 

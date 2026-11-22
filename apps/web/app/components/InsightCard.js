@@ -1,5 +1,3 @@
-"use client";
-
 import { dateTime } from "../lib/format";
 import { measuredLabel } from "../lib/cycleReview";
 import { insightPeriod } from "../lib/insightData";

@@ -43,10 +43,10 @@ func TestAPIOwnedPath(t *testing.T) {
 func TestUISecurityHeaders(t *testing.T) {
 	assets := fstest.MapFS{
 		"index.html":                 {Data: []byte("home")},
-		"_next/static/chunks/app.js": {Data: []byte("js")},
+		"assets/main-abc123.js": {Data: []byte("js")},
 	}
 	handler := newUIHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), webui.NewHandler(assets))
-	for _, path := range []string{"/", "/_next/static/chunks/app.js"} {
+	for _, path := range []string{"/", "/assets/main-abc123.js"} {
 		t.Run(path, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))

@@ -196,7 +196,7 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   const provider = text("app/components/InboxCountProvider.js");
   assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
   assert.match(provider, /INBOX_COUNT_EVENT/);
-  assert.match(text("app/layout.js"), /<InboxCountProvider><QuickRecordProvider>\{children\}<\/QuickRecordProvider><\/InboxCountProvider>/);
+  assert.match(text("app/App.js"), /<InboxCountProvider><QuickRecordProvider>\s*<RouteView \/>\s*<\/QuickRecordProvider><\/InboxCountProvider>/);
   assert.match(text("app/inbox/page.js"), /if \(loader\.status === LOAD\.READY && complete\) publishInboxCount\(\{ reviewCount: decisions \}\)/, "the review page never clobbers the action count");
   assert.match(provider, /X-Decision-Count/);
 });
@@ -325,7 +325,7 @@ test("a bar-series legend swatch is a filled square, not a line", () => {
 });
 
 test("the viewport extends under the notch and safe-area insets keep content clear of it", () => {
-  assert.match(text("app/layout.js"), /export const viewport = \{[^}]*viewportFit: "cover"/);
+  assert.match(text("scripts/lib/document.mjs"), /meta\('name="viewport"', "width=device-width, initial-scale=1, viewport-fit=cover"\)/);
   assert.match(css(), /env\(safe-area-inset-left\)/);
   assert.match(css(), /env\(safe-area-inset-bottom\)/);
 });
@@ -559,7 +559,7 @@ test("no sideways overflow, single drawer scroll, stacked phone tables, and phon
 });
 
 test("keyboard-aware mobile forms: visualViewport inset, enterKeyHint, 16px phone fields, and quick-repeat row", () => {
-  const layout = text("app/layout.js");
+  const layout = text("app/App.js");
   assert.match(layout, /import KeyboardViewport from "\.\/components\/KeyboardViewport"/);
   assert.match(layout, /<KeyboardViewport \/>/);
   const hook = text("app/lib/keyboardViewport.js");

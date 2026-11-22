@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { chartMotionProps, countUpText, datasetKey, parseCountUpText, prefersReducedMotion, startCountUp, subscribeReducedMotion } from "./motion.js";
 

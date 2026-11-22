@@ -8,7 +8,7 @@ Self-hosted household finance: email, Telegram and documents go into one ledger,
 
 [![CI](https://github.com/raufimusaddiq/richmod/actions/workflows/ci.yml/badge.svg)](https://github.com/raufimusaddiq/richmod/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+![Bun](https://img.shields.io/badge/Bun-1.4-black?logo=bun)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 
 </div>
@@ -98,7 +98,7 @@ Further households are added by a Super Admin or with `/bootstrap --new-househol
 
 ```bash
 node scripts/check-comments.mjs
-cd apps/web && npm ci && npm test && npm run build
+cd apps/web && bun install --frozen-lockfile --ignore-scripts && bun run test && bun run build
 cd apps/api && go test ./... && go vet ./...
 cd apps/worker && go test ./... && go vet ./...
 ```

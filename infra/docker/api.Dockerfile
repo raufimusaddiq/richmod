@@ -1,10 +1,9 @@
-FROM node:26.13.1-alpine AS web
+FROM oven/bun:1.4.4-alpine AS web
 WORKDIR /web
-COPY apps/web/package.json apps/web/package-lock.json ./
-RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY apps/web/package.json apps/web/bun.lock ./
+RUN bun install --frozen-lockfile --ignore-scripts
 COPY apps/web ./
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN bun run build
 
 FROM golang:1.27.4-alpine AS build
 WORKDIR /src

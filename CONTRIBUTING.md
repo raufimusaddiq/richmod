@@ -18,7 +18,7 @@ Richmod handles financial data, so correctness and evidence preservation matter 
 ## Stack
 
 - Go backend and workers
-- Next.js + React + JavaScript frontend
+- React + JavaScript frontend built with Bun
 - PostgreSQL
 - PostgreSQL-backed jobs
 - Cloud LLM Gateway
@@ -43,7 +43,7 @@ Keep unrelated changes out of the branch. Do not rewrite historical migrations; 
 
 ## Before opening a pull request
 
-Run the checks relevant to your change. The repository CI includes Go tests and vet, database-backed integration tests, frontend tests, the Next.js production build, Compose validation, secret scanning, and production image builds.
+Run the checks relevant to your change. The repository CI includes Go tests and vet, database-backed integration tests, frontend tests, the Bun production build, Compose validation, secret scanning, and production image builds.
 
 At minimum:
 
@@ -54,8 +54,9 @@ cd ../worker && go test ./...
 
 # Web changes
 cd ../web
-npm test
-npm run build
+bun install --frozen-lockfile --ignore-scripts
+bun run test
+bun run build
 
 # Any change, from repository root: comments are banned
 node scripts/check-comments.mjs
@@ -66,7 +67,7 @@ docker compose config
 
 Not every change needs every command, but the PR should state what was run and what was not. [`docs/runbooks/disposable-test-matrix.md`](docs/runbooks/disposable-test-matrix.md) has the exact commands for isolated database, web and browser runs.
 
-Interface changes also run the visual smoke: `cd apps/web && npm run test:visual`. It runs inside the pinned Playwright image (`apps/web/scripts/visual-smoke-docker.sh`), because a host Chromium rasterises the same self-hosted fonts differently and every baseline then fails. When a change is meant to alter the screenshots, regenerate the baselines with `npm run test:visual:update`, look at the images, and commit only the ones that should change; the script refuses to rewrite baselines outside the pinned image. `npm run test:visual:local` runs the raw script against a host browser and is for debugging only. Keep interface text at 12px or larger, label every control, and give any scrolling region a name and keyboard focus; the smoke and `apps/web/tests/ui-audit-locks.test.mjs` enforce the text floor and keyboard-reachable scrolling regions. Check the page at phone, tablet and desktop widths. [`docs/brand-guidelines.md`](docs/brand-guidelines.md) has the tokens.
+Interface changes also run the visual smoke: `cd apps/web && bun run test:visual`. It runs inside the pinned Playwright image (`apps/web/scripts/visual-smoke-docker.sh`), because a host Chromium rasterises the same self-hosted fonts differently and every baseline then fails. When a change is meant to alter the screenshots, regenerate the baselines with `bun run test:visual:update`, look at the images, and commit only the ones that should change; the script refuses to rewrite baselines outside the pinned image. `bun run test:visual:local` runs the raw script against a host browser and is for debugging only. Keep interface text at 12px or larger, label every control, and give any scrolling region a name and keyboard focus; the smoke and `apps/web/tests/ui-audit-locks.test.mjs` enforce the text floor and keyboard-reachable scrolling regions. Check the page at phone, tablet and desktop widths. [`docs/brand-guidelines.md`](docs/brand-guidelines.md) has the tokens.
 
 ## Pull requests
 

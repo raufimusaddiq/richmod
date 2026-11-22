@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "../router";
 import { CaretRight } from "@phosphor-icons/react";
 import { money } from "../lib/format";
 import { OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey } from "../lib/categoryColors";

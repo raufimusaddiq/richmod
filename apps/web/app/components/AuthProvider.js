@@ -1,5 +1,3 @@
-"use client";
-
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 const AuthContext = createContext({ user: null, loaded: false, reload: async () => {} });

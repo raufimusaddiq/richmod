@@ -1,9 +1,4 @@
-import Link from "next/link";
-
-export const metadata = {
-  title: "Ketentuan Layanan · Richmod",
-  description: "Ketentuan layanan Richmod Family Finance.",
-};
+import { Link } from "../router";
 
 export default function TermsPage() {
   return <main className="public-legal"><article className="surface public-legal-card">

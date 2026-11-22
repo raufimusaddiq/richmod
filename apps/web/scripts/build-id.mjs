@@ -8,8 +8,8 @@ const defaultRoot = fileURLToPath(new URL("../", import.meta.url));
 export const GENERATED_MODULE = "app/lib/buildId.generated.js";
 export const SERVED_FILE = "public/build-id.txt";
 
-const INPUTS = ["app", "public", "scripts", "next.config.mjs", "package.json", "package-lock.json"];
-const SKIP = new Set([GENERATED_MODULE, SERVED_FILE, ".next", "node_modules", "out", "test-results"]);
+const INPUTS = ["app", "public", "scripts", "package.json", "bun.lock"];
+const SKIP = new Set([GENERATED_MODULE, SERVED_FILE, "node_modules", "out", "test-results"]);
 
 function walk(root, entry) {
   const absolute = join(root, entry);

@@ -64,7 +64,7 @@ while the page is loading, because the first commit after a filter or save is
 the skeleton, before the panel or figures exist. The next unrelated render -
 pagination, a create, a retry - then compares equal and stays still. There is
 no timer, so the CSS duration remains the only source of timing.
-`scripts/motion-one-shot-smoke.mjs` (`npm run test:motion`) drives the real
+`scripts/motion-one-shot-smoke.mjs` (`bun run test:motion`) drives the real
 export to assert the first render animates and the next one does not.
 
 ### Chart draw-in and count-up

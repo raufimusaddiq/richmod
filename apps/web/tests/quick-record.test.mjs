@@ -158,7 +158,7 @@ test("saving closes at once, confirms with an undo, and tells open pages to refr
   assert.match(provider, />\{toast\.undoing \? "Membatalkan…" : "Urungkan"\}</);
   assert.match(provider, /\/api\/v1\/transactions\/\$\{toast\.id\}\/void/);
   assert.match(provider, /announceTransactionCreated\(\{ id: body\?\.id \|\| "" \}\);\s*close\(\);/);
-  assert.match(read("app/layout.js"), /<QuickRecordProvider>/);
+  assert.match(read("app/App.js"), /<QuickRecordProvider>/);
 });
 
 test("repeat labels stay short and clean for quick chips", () => {

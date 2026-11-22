@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import Presence from "../components/Presence";
 import useDialogs from "../components/useDialogs";

@@ -1,5 +1,3 @@
-"use client";
-
 import { time, number, percent, duration, Badge, Metric, Empty, Pending, useLoad, Table } from "./shared";
 
 export default function Overview({ setError }) {

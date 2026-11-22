@@ -1,5 +1,3 @@
-"use client";
-
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuthContext } from "./AuthProvider";
 import Presence from "./Presence";

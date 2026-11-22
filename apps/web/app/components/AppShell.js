@@ -1,7 +1,5 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link } from "../router";
+import { usePathname } from "../router";
 import { useEffect, useRef, ViewTransition } from "react";
 import { useInboxCount } from "./InboxCountProvider";
 import { useQuickRecord } from "./QuickRecordProvider";

@@ -224,7 +224,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
 	apiHandler := securityHeaders(httpmw.RequestID(httpmw.AccessLog(logger, httpmw.SameOrigin(cfg.WebOrigin, mux))))
 	if !webui.Embedded() {
-		logger.Warn("embedded web UI is missing; build apps/web with npm run build:embed before building the binary")
+		logger.Warn("embedded web UI is missing; build apps/web with bun run build:embed before building the binary")
 	}
 	uiHandler := newUIHandler(logger, webui.Handler())
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

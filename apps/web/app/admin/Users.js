@@ -1,5 +1,3 @@
-"use client";
-
 import { Badge, Pending, useLoad, Table } from "./shared";
 import { useBusyMap } from "../lib/useLoadState";
 import useDialogs from "../components/useDialogs";
