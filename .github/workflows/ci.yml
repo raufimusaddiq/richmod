@@ -205,10 +205,10 @@ jobs:
           pids=""
           for name in transaction-date analytics-review mobile-layout; do
             (
-              started=$SECONDS
+              started=$(date +%s)
               code=0
               node scripts/$name-smoke.mjs >test-results/logs/$name.log 2>&1 || code=$?
-              echo "$name smoke finished in $((SECONDS - started))s with exit $code" >>test-results/logs/$name.log
+              echo "$name smoke finished in $(($(date +%s) - started))s with exit $code" >>test-results/logs/$name.log
               exit $code
             ) &
             pids="$pids $name:$!"
