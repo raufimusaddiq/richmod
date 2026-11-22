@@ -152,3 +152,4 @@
   .login-layout { min-height: auto; padding-top: 56px; padding-bottom: 40px; }
   .login-back { margin-bottom: 40px; }
 }
+.decision-write-link { font-weight: var(--weight-semibold); white-space: nowrap; }
