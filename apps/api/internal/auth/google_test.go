@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -417,5 +418,75 @@ func TestGoogleClaimsHelpers(t *testing.T) {
 	}
 	if got := googleDisplayName(GoogleClaims{}, "@example.test"); got != "@example.test" {
 		t.Fatalf("empty local part fallback=%q", got)
+	}
+}
+
+func TestGooglePrepareInviteSetsHttpOnlyCookieAndStartConsumesIt(t *testing.T) {
+	f := newFakeGoogle(t)
+	h := newTestHandler(f, nil)
+	rec, cookie := prepareInvite(t, h, `{"token":"  secret-invite-token  "}`)
+	if rec.Code != http.StatusNoContent || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d cache-control=%q", rec.Code, rec.Header().Get("Cache-Control"))
+	}
+	if cookie == nil || cookie.Value != "secret-invite-token" || !cookie.HttpOnly || !cookie.Secure || cookie.Path != "/api/v1/auth/google" || cookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("invite cookie=%+v", cookie)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/google/start?invite=url-query-must-be-ignored", nil)
+	req.AddCookie(&http.Cookie{Name: cookie.Name, Value: cookie.Value})
+	startRec := httptest.NewRecorder()
+	h.GoogleStart(startRec, req)
+	var cleared *http.Cookie
+	for _, c := range startRec.Result().Cookies() {
+		if c.Name == OIDCInviteCookieName {
+			cleared = c
+		}
+	}
+	if cleared == nil || cleared.MaxAge >= 0 {
+		t.Fatalf("invite cookie not cleared on /google/start: %+v", cleared)
+	}
+	parsed, _ := url.Parse(startRec.Header().Get("Location"))
+	flow, ok := h.google.flows.take(sha256Of(parsed.Query().Get("state")), time.Now())
+	if !ok || flow.inviteToken != "secret-invite-token" {
+		t.Fatalf("flow=%+v ok=%v", flow, ok)
+	}
+
+	reqQueryOnly := httptest.NewRequest(http.MethodGet, "/api/v1/auth/google/start?invite=leaked-in-url", nil)
+	startQueryRec := httptest.NewRecorder()
+	h.GoogleStart(startQueryRec, reqQueryOnly)
+	parsedQuery, _ := url.Parse(startQueryRec.Header().Get("Location"))
+	flowQuery, ok := h.google.flows.take(sha256Of(parsedQuery.Query().Get("state")), time.Now())
+	if !ok || flowQuery.inviteToken != "" {
+		t.Fatalf("query invite parameter must be ignored, got flow=%+v", flowQuery)
+	}
+}
+
+func TestGooglePrepareInviteValidationAndUnavailable(t *testing.T) {
+	unconfigured := NewHandler(nil, true)
+	rec, cookie := prepareInvite(t, unconfigured, `{"token":"tok"}`)
+	if rec.Code != http.StatusServiceUnavailable || cookie != nil {
+		t.Fatalf("unconfigured status=%d cookie=%v", rec.Code, cookie)
+	}
+	f := newFakeGoogle(t)
+	h := newTestHandler(f, nil)
+	for _, body := range []string{`{}`, `{"token":"   "}`, `invalid`, `{"token":"a","unknown":1}`} {
+		rec, cookie := prepareInvite(t, h, body)
+		if rec.Code != http.StatusBadRequest || cookie != nil {
+			t.Fatalf("body=%q status=%d cookie=%v", body, rec.Code, cookie)
+		}
+	}
+}
+
+func TestGoogleCallbackClearsInviteCookie(t *testing.T) {
+	f := newFakeGoogle(t)
+	h := newTestHandler(f, nil)
+	rec := callback(t, h, url.Values{"state": {"unknown"}})
+	var cleared *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == OIDCInviteCookieName {
+			cleared = c
+		}
+	}
+	if cleared == nil || cleared.MaxAge >= 0 || cleared.Path != "/api/v1/auth/google" {
+		t.Fatalf("invite cookie not cleared on callback: %+v", cleared)
 	}
 }

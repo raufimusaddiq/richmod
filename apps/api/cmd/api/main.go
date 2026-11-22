@@ -102,6 +102,7 @@ func run(logger *slog.Logger) error {
 	})
 	mux.Handle("POST /api/v1/auth/login", loginLimiter.Handler(http.HandlerFunc(authHandler.Login)))
 	mux.Handle("POST /api/v1/auth/dashboard-invites/accept", loginLimiter.Handler(http.HandlerFunc(authHandler.AcceptDashboardInvite)))
+	mux.Handle("POST /api/v1/auth/google/invite", loginLimiter.Handler(http.HandlerFunc(authHandler.GooglePrepareInvite)))
 	mux.Handle("GET /api/v1/auth/google/start", loginLimiter.Handler(http.HandlerFunc(authHandler.GoogleStart)))
 	mux.Handle("GET /api/v1/auth/google/callback", loginLimiter.Handler(http.HandlerFunc(authHandler.GoogleCallback)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)

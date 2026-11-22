@@ -15,10 +15,12 @@ import (
 )
 
 const (
-	OIDCFlowCookieName = "finance_oidc"
-	GoogleCallbackPath = "/api/v1/auth/google/callback"
-	oidcFlowTTL        = 10 * time.Minute
-	maxFlows           = 4096
+	OIDCFlowCookieName   = "finance_oidc"
+	OIDCInviteCookieName = "finance_oidc_invite"
+	GoogleInvitePath     = "/api/v1/auth/google/invite"
+	GoogleCallbackPath   = "/api/v1/auth/google/callback"
+	oidcFlowTTL          = 10 * time.Minute
+	maxFlows             = 4096
 )
 
 type GoogleConfig struct {
@@ -118,12 +120,60 @@ func (g *googleRuntime) redirectURI() string {
 	return strings.TrimRight(g.cfg.WebOrigin, "/") + GoogleCallbackPath
 }
 
+func (h *Handler) GooglePrepareInvite(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	g := h.google
+	if g == nil || g.cfg.ClientID == "" || g.cfg.ClientSecret == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "google_unavailable"})
+		return
+	}
+	var in struct {
+		Token string `json:"token"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite request"})
+		return
+	}
+	token := strings.TrimSpace(in.Token)
+	if token == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite request"})
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     OIDCInviteCookieName,
+		Value:    token,
+		Path:     "/api/v1/auth/google",
+		MaxAge:   int(oidcFlowTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   h.secureCookie,
+		SameSite: http.SameSiteLaxMode,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) clearOIDCInviteCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     OIDCInviteCookieName,
+		Value:    "",
+		Path:     "/api/v1/auth/google",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.secureCookie,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 func (h *Handler) GoogleStart(w http.ResponseWriter, r *http.Request) {
+	h.clearOIDCInviteCookie(w)
 	w.Header().Set("Cache-Control", "no-store")
 	g := h.google
 	if g == nil || g.cfg.ClientID == "" || g.cfg.ClientSecret == "" {
 		http.Redirect(w, r, "/login?error=google_unavailable", http.StatusSeeOther)
 		return
+	}
+	inviteToken := ""
+	if inviteCookie, err := r.Cookie(OIDCInviteCookieName); err == nil {
+		inviteToken = strings.TrimSpace(inviteCookie.Value)
 	}
 	state, err1 := randomToken()
 	nonce, err2 := randomToken()
@@ -139,7 +189,7 @@ func (h *Handler) GoogleStart(w http.ResponseWriter, r *http.Request) {
 		nonce:       nonce,
 		verifier:    verifier,
 		browserHash: sha256Of(browser),
-		inviteToken: strings.TrimSpace(r.URL.Query().Get("invite")),
+		inviteToken: inviteToken,
 		expires:     now.Add(oidcFlowTTL),
 	}
 	if !g.flows.put(sha256Of(state), flow, now) {
@@ -183,6 +233,7 @@ func (h *Handler) clearOIDCFlowCookie(w http.ResponseWriter) {
 
 func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	h.clearOIDCFlowCookie(w)
+	h.clearOIDCInviteCookie(w)
 	w.Header().Set("Cache-Control", "no-store")
 	g := h.google
 	if g == nil || g.cfg.ClientID == "" || g.cfg.ClientSecret == "" {

@@ -185,14 +185,33 @@ func newTestHandler(f *fakeGoogle, service *Service) *Handler {
 	})
 }
 
+func prepareInvite(t *testing.T, h *Handler, body string) (*httptest.ResponseRecorder, *http.Cookie) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, GoogleInvitePath, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.GooglePrepareInvite(rec, req)
+	var inviteCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == OIDCInviteCookieName {
+			inviteCookie = c
+		}
+	}
+	return rec, inviteCookie
+}
+
 func startFlow(t *testing.T, h *Handler, invite string) (*httptest.ResponseRecorder, *http.Cookie) {
 	t.Helper()
-	target := "/api/v1/auth/google/start"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/google/start", nil)
 	if invite != "" {
-		target += "?invite=" + url.QueryEscape(invite)
+		prepRec, inviteCookie := prepareInvite(t, h, `{"token":`+mustJSON(invite)+`}`)
+		if prepRec.Code != http.StatusNoContent || inviteCookie == nil {
+			t.Fatalf("prepare invite status=%d cookie=%v", prepRec.Code, inviteCookie)
+		}
+		req.AddCookie(&http.Cookie{Name: inviteCookie.Name, Value: inviteCookie.Value})
 	}
 	rec := httptest.NewRecorder()
-	h.GoogleStart(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	h.GoogleStart(rec, req)
 	var flowCookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == OIDCFlowCookieName {
@@ -200,6 +219,11 @@ func startFlow(t *testing.T, h *Handler, invite string) (*httptest.ResponseRecor
 		}
 	}
 	return rec, flowCookie
+}
+
+func mustJSON(value any) string {
+	raw, _ := json.Marshal(value)
+	return string(raw)
 }
 
 func callback(t *testing.T, h *Handler, params url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {

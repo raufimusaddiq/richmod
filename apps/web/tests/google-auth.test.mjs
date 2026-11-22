@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { googleLoginErrorMessage, googleStartHref } from "../app/lib/authErrors.js";
+import { GOOGLE_INVITE_START_PATH, googleLoginErrorMessage, googleStartHref } from "../app/lib/authErrors.js";
 import { globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -23,11 +23,10 @@ test("googleLoginErrorMessage falls back for unknown codes and stays empty for n
   assert.equal(googleLoginErrorMessage(undefined), "");
 });
 
-test("googleStartHref carries an encoded invite token only when present", () => {
+test("googleStartHref never embeds an invite token in the GET URL", () => {
   assert.equal(googleStartHref(), "/api/v1/auth/google/start");
-  assert.equal(googleStartHref(""), "/api/v1/auth/google/start");
-  assert.equal(googleStartHref("abc-DEF_123"), "/api/v1/auth/google/start?invite=abc-DEF_123");
-  assert.equal(googleStartHref("a b&c=d"), "/api/v1/auth/google/start?invite=a%20b%26c%3Dd");
+  assert.equal(googleStartHref("abc-DEF_123"), "/api/v1/auth/google/start");
+  assert.equal(GOOGLE_INVITE_START_PATH, "/api/v1/auth/google/invite");
 });
 
 test("login page offers Google beside the password form and reads ?error=", () => {
@@ -41,11 +40,14 @@ test("login page offers Google beside the password form and reads ?error=", () =
   assert.match(login, /Masuk ke Richmod/);
 });
 
-test("invite page reads the hash token and offers Google activation next to the password form", () => {
+test("invite page posts the hash token to GOOGLE_INVITE_START_PATH before navigating to googleStartHref", () => {
   const invite = text("app/invite/page.js");
   assert.match(invite, /window\.location\.hash\.slice\(1\)/);
-  assert.match(invite, /addEventListener\("hashchange"/);
-  assert.match(invite, /className="button public-button-google" href=\{googleStartHref\(token\)\}/);
+  assert.match(invite, /fetch\(GOOGLE_INVITE_START_PATH,\s*\{\s*method:\s*"POST"/);
+  assert.match(invite, /JSON\.stringify\(\{\s*token\s*\}\)/);
+  assert.match(invite, /window\.location\.hash = "";/);
+  assert.match(invite, /window\.location\.href = googleStartHref\(\);/);
+  assert.match(invite, /className="button public-button-google"/);
   assert.match(invite, /Aktifkan dengan Google/);
   assert.match(invite, /<span>atau buat kata sandi<\/span>/);
   assert.match(invite, /minLength="12"/);

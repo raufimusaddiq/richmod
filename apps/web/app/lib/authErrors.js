@@ -12,6 +12,8 @@ export function googleLoginErrorMessage(code) {
   return Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : "Tidak dapat masuk saat ini. Coba lagi.";
 }
 
-export function googleStartHref(inviteToken = "") {
-  return inviteToken ? "/api/v1/auth/google/start?invite=" + encodeURIComponent(inviteToken) : "/api/v1/auth/google/start";
+export const GOOGLE_INVITE_START_PATH = "/api/v1/auth/google/invite";
+
+export function googleStartHref() {
+  return "/api/v1/auth/google/start";
 }
