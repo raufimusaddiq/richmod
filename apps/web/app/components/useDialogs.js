@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import Presence from "./Presence";
 
 export default function useDialogs() {
   const [request, setRequest] = useState(null);
@@ -20,7 +21,7 @@ export default function useDialogs() {
   const confirm = useCallback((message, { confirmLabel = "Lanjutkan", danger = false } = {}) => ask({ kind: "confirm", message, confirmLabel, danger }), [ask]);
   const prompt = useCallback((title, fields, { confirmLabel = "Simpan" } = {}) => ask({ kind: "prompt", title, fields, confirmLabel }), [ask]);
 
-  return { confirm, prompt, dialogs: request ? <DialogView request={request} onSettle={settle}/> : null };
+  return { confirm, prompt, dialogs: <Presence show={Boolean(request)}>{() => <DialogView request={request} onSettle={settle}/>}</Presence> };
 }
 
 function DialogView({ request, onSettle }) {
