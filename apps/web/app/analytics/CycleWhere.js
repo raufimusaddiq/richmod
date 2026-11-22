@@ -195,6 +195,8 @@ export function CategoryDrawer({ item, facts, period, close, triggerRef, palette
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      const active = document.activeElement;
+      if (active && active !== document.body && !drawer?.contains(active)) return;
       const target = opener instanceof HTMLElement && opener.isConnected ? opener : document.getElementById("where-title");
       target?.focus?.();
     };

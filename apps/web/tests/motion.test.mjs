@@ -97,7 +97,10 @@ test("every formatted amount round-trips through the count-up text exactly", () 
 
 test("intermediate count-up frames keep the currency shape", () => {
   const parsed = parseCountUpText(money("-6796525"));
-  assert.equal(countUpText(parsed, 1234.4), money("-1234"));
+  assert.equal(parsed.value, -6796525, "the parsed value carries its sign");
+  assert.equal(countUpText(parsed, -1234.4), money("-1234"));
+  assert.equal(countUpText(parsed, 1234.4), money("1234"), "a positive frame never renders a minus");
+  assert.equal(countUpText(parsed, -0.4), money("0"), "a value rounding to zero renders no sign");
 });
 
 function fakeClock() {
@@ -140,6 +143,49 @@ test("a cancelled count-up emits nothing and never reports done", () => {
   clock.advance(5000);
   assert.equal(frames.length, emitted);
   assert.equal(done, 0);
+});
+
+function runCountUp(fromText, toText) {
+  const from = parseCountUpText(fromText);
+  const to = parseCountUpText(toText);
+  const clock = fakeClock();
+  const frames = [];
+  startCountUp({ from: from.value, to: to.value, duration: 800, onFrame: value => frames.push(value), onDone: () => {}, ...clock });
+  for (let step = 0; step < 40; step += 1) clock.advance(25);
+  return { to, frames };
+}
+
+for (const [label, fromAmount, toAmount] of [["positive to negative", "5000000", "-2000000"], ["negative to positive", "-3000000", "4500000"], ["negative to negative", "-6796525", "-1200000"], ["positive to positive", "1200000", "6796525"]]) {
+  test(`count-up ${label} shows a sign that always matches the value on every frame`, () => {
+    const { to, frames } = runCountUp(money(fromAmount), money(toAmount));
+    assert.ok(frames.length > 3, "the tween renders intermediate frames");
+    for (const value of frames) {
+      const rendered = countUpText(to, value);
+      const rounded = Math.round(value);
+      assert.equal(rendered, money(String(rounded)), `${rendered} is the formatted value of ${rounded}`);
+      assert.equal(rendered.startsWith("−"), rounded < 0, `${rendered} carries a minus only for negative values`);
+    }
+    assert.equal(countUpText(to, frames.at(-1)), money(toAmount), "the final frame equals the original text exactly");
+  });
+}
+
+test("a count-up that crosses zero passes through zero instead of flipping the sign early", () => {
+  const { to, frames } = runCountUp(money("5000000"), money("-2000000"));
+  const rendered = frames.map(value => countUpText(to, value));
+  assert.ok(!rendered.at(0).startsWith("−"), "the first frame is not already negative");
+  assert.ok(rendered.at(-1).startsWith("−"), "ends negative");
+  const firstNegative = rendered.findIndex(text => text.startsWith("−"));
+  assert.ok(firstNegative > 0, "positive frames come first");
+  assert.ok(rendered.slice(0, firstNegative).every(text => !text.startsWith("−")), "no negative frame precedes the crossing");
+  assert.ok(rendered.slice(firstNegative).every(text => text.startsWith("−")), "no positive frame follows the crossing");
+});
+
+test("an explicit plus sign survives for positive frames and yields to the minus below zero", () => {
+  const plus = parseCountUpText("+Rp 1.250.000");
+  assert.equal(plus.value, 1250000);
+  assert.equal(countUpText(plus, 800.2), "+Rp 800");
+  assert.equal(countUpText(plus, 0.2), "Rp 0");
+  assert.equal(countUpText(plus, -300), "−Rp 300");
 });
 
 test("counting down lands exactly on the lower target", () => {

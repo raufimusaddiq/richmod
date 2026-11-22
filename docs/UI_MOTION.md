@@ -81,6 +81,9 @@ number between the previous and the new value, and renders the original string
 once it finishes, so the end state is always exact. While it runs, an
 `aria-hidden` copy shows the tween and a visually hidden copy carries the final
 string. It starts from the previous value on a change and from zero on mount.
+The tween runs on the signed value and the sign is rendered per frame, so a
+figure that changes sign passes through zero and no frame ever shows a sign that
+disagrees with its digits.
 
 Route entry (`[data-reveal]` and the view transition) fades and lifts the whole
 content block over `--motion-page` while a chart's own draw-in and a counter
