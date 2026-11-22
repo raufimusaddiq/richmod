@@ -43,7 +43,7 @@ export default function TransactionList({ items, compact = false, onSelect, newI
   const palette = useCategoryPalette();
   const parents = useCategoryParents();
   const colors = categoryColors || palette;
-  return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
+  return <div className={`transaction-table ${compact ? "compact-table" : ""}`} data-stagger=".transaction-row">
     {compact
       ? items.map(item => <Row key={item.id} item={item} compact onSelect={onSelect} newId={newId} categoryColors={colors} categoryParents={parents}/>)
       : groupByDay(items).map(day => <section className="ledger-day" key={day.day} aria-label={day.heading}>

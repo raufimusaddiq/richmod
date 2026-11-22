@@ -55,7 +55,7 @@ export default function Reviews({ setError }) {
           <option value="30d">30 hari</option>
         </select>
       </div>
-      <div className="admin-metrics">
+      <div className="admin-metrics" data-stagger=".admin-metric">
         <Metric label="Tinjauan terbuka" value={number(summary.openReviews)} />
         <Metric
           label="Memenuhi syarat Telegram"

@@ -29,3 +29,40 @@ dialog[open] { animation: dialog-in var(--motion-base) var(--ease-out); }
 
 @keyframes page-in { from { opacity: 0; } }
 .route-fade .app-main { animation: page-in var(--motion-base) var(--ease-out); }
+
+@supports (interpolate-size: allow-keywords) { :root { interpolate-size: allow-keywords; } }
+
+[data-slide] { position: relative; --slide-bg: var(--surface-strong); --slide-border: 1px solid var(--line); --slide-shadow: 0 1px 3px rgba(28, 33, 29, .06); --slide-radius: var(--radius-sm); }
+[data-slide]::before { box-sizing: border-box; content: ""; position: absolute; top: 0; left: 0; z-index: 0; width: var(--slide-w, 0); height: var(--slide-h, 0); transform: translate(var(--slide-x, 0), var(--slide-y, 0)); border: var(--slide-border); border-radius: var(--slide-radius); background: var(--slide-bg); box-shadow: var(--slide-shadow); opacity: 0; pointer-events: none; }
+[data-slide][data-slide-ready]:not([data-slide-none])::before { opacity: 1; }
+[data-slide][data-slide-ready] > button { position: relative; z-index: 1; }
+[data-slide][data-slide-ready] > button:is(.active, [aria-selected="true"], [aria-pressed="true"]) { border-color: transparent; background: transparent; box-shadow: none; }
+.inbox-tabs, .admin-tabs, .range-control-group { --slide-border: 2px solid var(--line); }
+.report-switch { --slide-bg: var(--ink); --slide-border: 0; --slide-shadow: none; --slide-radius: var(--radius-xs); }
+.settings-tabs { --slide-bg: var(--ink); --slide-border: 2px solid var(--ink); --slide-shadow: none; }
+.filter-chips { --slide-bg: var(--ink); --slide-border: 2px solid var(--ink); --slide-shadow: none; }
+.segmented { --slide-bg: var(--surface); --slide-border: 1px solid var(--line-strong); --slide-shadow: none; --slide-radius: calc(var(--radius-sm) - 2px); }
+.quick-body .segmented { --slide-border: 1.5px solid var(--ink); --slide-shadow: 2px 2px 0 var(--ink); --slide-radius: var(--radius-sm); }
+
+@keyframes stagger-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes panel-in { from { opacity: 0; transform: translateY(8px); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-slide][data-slide-ready]::before { transition: transform var(--motion-slide) var(--ease-glide), width var(--motion-slide) var(--ease-glide), height var(--motion-slide) var(--ease-glide), opacity var(--motion-fast) var(--ease-standard); }
+  [data-slide][data-slide-snap]::before { transition: none; }
+  [data-slide][data-slide-ready] > button { transition: color var(--motion-slide) var(--ease-standard); }
+  [data-panel-enter] { animation: panel-in var(--motion-slide) var(--ease-out); }
+  [data-stagger-item] { animation: stagger-in var(--motion-slide) var(--ease-out) backwards; animation-delay: calc(min(var(--stagger-i, 0), 7) * var(--motion-stagger)); }
+  .filter-more { overflow: clip; overflow-clip-margin: 8px; transition: opacity var(--motion-slide) var(--ease-standard), transform var(--motion-slide) var(--ease-glide), display var(--motion-slide) allow-discrete; }
+  .filter-more[hidden] { opacity: 0; transform: translateY(-8px); }
+  @starting-style { .filter-more:not([hidden]) { opacity: 0; transform: translateY(-8px); } }
+  @supports (interpolate-size: allow-keywords) {
+    .filter-more { transition: height var(--motion-slide) var(--ease-glide), padding-block var(--motion-slide) var(--ease-glide), border-block-width var(--motion-slide) var(--ease-glide), opacity var(--motion-slide) var(--ease-standard), transform var(--motion-slide) var(--ease-glide), display var(--motion-slide) allow-discrete; }
+    .filter-more[hidden] { height: 0; padding-block: 0; border-block-width: 0; }
+    @starting-style { .filter-more:not([hidden]) { height: 0; padding-block: 0; border-block-width: 0; } }
+  }
+  @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+    details::details-content { block-size: 0; opacity: 0; overflow: clip; overflow-clip-margin: 8px; transition: block-size var(--motion-slide) var(--ease-glide), opacity var(--motion-slide) var(--ease-standard), content-visibility var(--motion-slide) allow-discrete; }
+    details[open]::details-content { block-size: auto; opacity: 1; }
+  }
+}

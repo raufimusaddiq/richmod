@@ -33,7 +33,7 @@ function ReportSwitch({ view, choose }) {
     choose(reportTabs[next][0]);
     refs.current[reportTabs[next][0]]?.focus();
   };
-  return <div className="report-switch" role="tablist" aria-label="Jenis laporan">
+  return <div className="report-switch" data-slide data-slide-panel="#laporan-panel" role="tablist" aria-label="Jenis laporan">
     {reportTabs.map(([id, label], index) => <button key={id} ref={node => { refs.current[id] = node; }} type="button" role="tab" id={`laporan-tab-${id}`} aria-selected={active === id} aria-controls="laporan-panel" tabIndex={active === id ? 0 : -1} onClick={() => choose(id)} onKeyDown={event => move(event, index)}>{label}</button>)}
   </div>;
 }
@@ -189,7 +189,7 @@ function AnalyticsReview() {
       {wealthView ? <div className="analytics-panel" role="tabpanel" id="laporan-panel" aria-labelledby="laporan-tab-wealth"><WealthWorkspace user={user}/></div> :
       <div id="laporan-panel" role="tabpanel" aria-labelledby="laporan-tab-cycle" className="cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
       <div className="range-controls">
-        <div className="range-control-group" role="group" aria-label="Tampilan analisis">
+        <div className="range-control-group" data-slide data-slide-panel=".cycle-review > :not(.range-controls)" role="group" aria-label="Tampilan analisis">
           <button type="button" aria-pressed={selection.view === "cycle"} className={selection.view === "cycle" ? "active" : "secondary"} onClick={() => navigate({ view: "cycle" })}>Siklus Gaji</button>
           <button type="button" aria-pressed={selection.view === "calendar"} className={selection.view === "calendar" ? "active" : "secondary"} onClick={() => navigate({ view: "calendar" })}>Kalender</button>
         </div>

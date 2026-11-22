@@ -5,6 +5,7 @@ import AuthProvider from "./components/AuthProvider";
 import CategoryPaletteProvider from "./components/CategoryPaletteProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
 import KeyboardViewport from "./components/KeyboardViewport";
+import MotionEffects from "./components/MotionEffects";
 import QuickRecordProvider from "./components/QuickRecordProvider";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 
@@ -55,7 +56,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body><meta name="apple-mobile-web-app-capable" content="yes" /><ServiceWorkerRegistrar /><KeyboardViewport /><AuthProvider><CategoryPaletteProvider><InboxCountProvider><QuickRecordProvider>{children}</QuickRecordProvider></InboxCountProvider></CategoryPaletteProvider></AuthProvider></body>
+      <body><meta name="apple-mobile-web-app-capable" content="yes" /><ServiceWorkerRegistrar /><KeyboardViewport /><MotionEffects /><AuthProvider><CategoryPaletteProvider><InboxCountProvider><QuickRecordProvider>{children}</QuickRecordProvider></InboxCountProvider></CategoryPaletteProvider></AuthProvider></body>
     </html>
   );
 }
