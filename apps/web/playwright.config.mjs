@@ -9,10 +9,13 @@ const phones = { mobile: { width: 390, height: 844 }, "small-mobile": { width: 3
 const wide = { desktop: { width: 1440, height: 1050 }, tablet: { width: 1024, height: 768 } };
 const viewports = { ...wide, ...phones };
 const appProjects = new Set(["desktop", "mobile"]);
+const desktopOnly = /@desktop-only/;
+const shardOrder = ["widths-webkit", "desktop", "widths", "mobile", "tablet", "small-mobile", "motion", "visual"];
 
 const responsive = Object.entries(viewports).map(([name, viewport]) => ({
   name,
   testMatch: appProjects.has(name) ? ["responsive/**/*.spec.js", "app/**/*.spec.js"] : ["responsive/**/*.spec.js"],
+  ...(name === "mobile" ? { grepInvert: desktopOnly } : {}),
   use: { viewport },
 }));
 
@@ -29,7 +32,7 @@ export default defineConfig({
     timeout: 10_000,
     toHaveScreenshot: { animations: "disabled", caret: "hide", maxDiffPixelRatio: 0.005 },
   },
-  reporter: ci ? [["list"], ["html", { open: "never" }], ["github"]] : [["list"]],
+  reporter: ci ? [["list"], ["blob"], ["github"]] : [["list"]],
   use: {
     baseURL,
     locale: "id-ID",
@@ -53,5 +56,5 @@ export default defineConfig({
     { name: "widths-webkit", testMatch: ["widths/date-fields.spec.js"], use: { browserName: "webkit" } },
     { name: "motion", testMatch: ["motion/**/*.spec.js"], use: { browserName: "chromium", viewport: { width: 1280, height: 900 }, reducedMotion: "no-preference" } },
     ...(visualEnabled ? [{ name: "visual", testMatch: ["visual/**/*.spec.js"], use: { browserName: "chromium", viewport: { width: 1440, height: 900 } } }] : []),
-  ],
+  ].sort((a, b) => shardOrder.indexOf(a.name) - shardOrder.indexOf(b.name)),
 });

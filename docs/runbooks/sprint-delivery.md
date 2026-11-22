@@ -89,9 +89,10 @@ CI is the final repository-wide authority and is path-targeted (ADR-113): a `cha
 job decides which of `backend` (api, worker and reviewdomain legs, vet plus tests against
 PostgreSQL), `backend-guards`, `web`, `containers` and `images` run, `comments` and `secrets`
 always run, and a change to `ci.yml` runs everything. A skipped job is not a failure.
-The `web` job runs inside the Playwright container: it builds the static export once,
-runs the web unit tests, then the transaction-date, analytics-review and mobile-layout
-synthetic smokes. The `images` matrix builds only the production Dockerfiles
+The web legs run inside the Playwright container: `web (unit)` runs `bun test tests/`,
+`web (browser i/N)` builds the static export and runs one `playwright test --shard=i/N`
+slice (ADR-119), `web (report)` merges failing shards' blob reports into one HTML report,
+and the aggregate `web` job fails unless the unit and every browser leg passed. The `images` matrix builds only the production Dockerfiles
 (api, worker, migrate, backup) whose inputs changed, on pull requests only, each with its
 own `type=gha` layer-cache scope; `Release Images` is the only image build on `main`.
 Do not claim checks that were not run.

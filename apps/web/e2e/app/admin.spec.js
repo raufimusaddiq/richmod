@@ -14,7 +14,7 @@ test.beforeEach(({ api }) => {
   api.on("/api/v1/admin/users", () => users(), { method: "GET" });
 });
 
-test("the console keeps its eight tabs as a real tablist with arrow and Home/End keys", async ({ page }) => {
+test("the console keeps its eight tabs as a real tablist with arrow and Home/End keys", { tag: "@desktop-only" }, async ({ page }) => {
   await page.goto("/admin", { waitUntil: "networkidle" });
   const tabs = page.getByRole("tablist").getByRole("tab");
   expect(await tabs.allTextContents()).toEqual(["Ringkasan", "Tinjauan", "Tugas", "LLM", "Log", "Rumah tangga", "Pengguna", "Audit"]);
@@ -30,7 +30,7 @@ test("the console keeps its eight tabs as a real tablist with arrow and Home/End
   await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
 });
 
-test("a changed user needs confirmation, and a refused change reads as Indonesian guidance", async ({ page, api }) => {
+test("a changed user needs confirmation, and a refused change reads as Indonesian guidance", { tag: "@desktop-only" }, async ({ page, api }) => {
   api.on("/api/v1/admin/users/user-2", () => reply({ error: "FINAL_SUPER_ADMIN_REQUIRED" }, { status: 409 }), { method: "PATCH" });
   await page.goto("/admin?tab=users", { waitUntil: "networkidle" });
   const row = page.locator("tr").filter({ hasText: "dina@example.test" });
@@ -45,7 +45,7 @@ test("a changed user needs confirmation, and a refused change reads as Indonesia
   await expect(row.getByRole("cell", { name: "Google" }).or(row.locator("td").nth(4))).toBeVisible();
 });
 
-test("a failed list shows the failure with a retry instead of 'Memuat…' forever", async ({ page, api }) => {
+test("a failed list shows the failure with a retry instead of 'Memuat…' forever", { tag: "@desktop-only" }, async ({ page, api }) => {
   let healthy = false;
   api.on("/api/v1/admin/users", () => (healthy ? users() : reply({ error: "x" }, { status: 500 })), { method: "GET" });
   await page.goto("/admin?tab=users", { waitUntil: "networkidle" });
@@ -64,7 +64,7 @@ test("tables keep their column labels on every cell so a stacked phone row still
   await expect(page.locator("tr").filter({ hasText: "dina@example.test" })).toContainText("Belum");
 });
 
-test("a session that cannot be read says so with a retry, and a 401 leaves the console", async ({ page, api }) => {
+test("a session that cannot be read says so with a retry, and a 401 leaves the console", { tag: "@desktop-only" }, async ({ page, api }) => {
   let healthy = false;
   api.on("/api/v1/auth/me", () => (healthy ? undefined : reply({}, { status: 500 })));
   await page.goto("/admin", { waitUntil: "domcontentloaded" });

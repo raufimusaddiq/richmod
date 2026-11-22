@@ -39,7 +39,7 @@ test("filters are backed by the URL: applying writes the query, a reload keeps i
   await expect(page.getByLabel("Cari", { exact: true })).toHaveValue("kopi");
 });
 
-test("an inverted date range is refused in Indonesian before any request is sent", async ({ page, api }) => {
+test("an inverted date range is refused in Indonesian before any request is sent", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api);
   await page.goto("/transactions", { waitUntil: "networkidle" });
   await page.locator(".transaction-row").first().waitFor();
@@ -52,7 +52,7 @@ test("an inverted date range is refused in Indonesian before any request is sent
   expect(api.calls("/api/v1/transactions").length).toBe(before);
 });
 
-test("a failed reload keeps the rows on screen, never shows raw API text, and Hapus filter recovers", async ({ page, api }) => {
+test("a failed reload keeps the rows on screen, never shows raw API text, and Hapus filter recovers", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api);
   await page.goto("/transactions", { waitUntil: "networkidle" });
   await page.locator(".transaction-row").first().waitFor();
@@ -68,7 +68,7 @@ test("a failed reload keeps the rows on screen, never shows raw API text, and Ha
   await expect(notice).toHaveCount(0);
 });
 
-test("a filter with no match says so and offers Hapus filter; an empty ledger keeps the plain message", async ({ page, api }) => {
+test("a filter with no match says so and offers Hapus filter; an empty ledger keeps the plain message", { tag: "@desktop-only" }, async ({ page, api }) => {
   const state = ledgerApi(api);
   state.items = [];
   await page.goto("/transactions?q=zzz", { waitUntil: "networkidle" });
@@ -77,7 +77,7 @@ test("a filter with no match says so and offers Hapus filter; an empty ledger ke
   await expect(page.getByText("Belum ada transaksi untuk ditampilkan.")).toBeVisible();
 });
 
-test("the heading shows the real total, pages are labelled, and filters are inert while loading", async ({ page, api }) => {
+test("the heading shows the real total, pages are labelled, and filters are inert while loading", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api, { items: rows(3), total: 120, next: "cursor-2" });
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -112,7 +112,7 @@ test("opening a row writes ?open= and Back closes the drawer; paging closes it t
   await expect(page.locator(".transaction-row").first(), "Escape returns focus to the row").toBeFocused();
 });
 
-test("the date filters carry visible labels", async ({ page, api }) => {
+test("the date filters carry visible labels", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api);
   await page.goto("/transactions", { waitUntil: "networkidle" });
   await page.locator(".filter-toggle").click();
@@ -138,7 +138,7 @@ test.describe("cancelling a transaction", () => {
     await expect(drawer.getByRole("button", { name: "Batalkan transaksi" }), "a voided transaction cannot be cancelled again").toHaveCount(0);
   });
 
-  test("a refused request is never reported as success and points to the review", async ({ page, api }) => {
+  test("a refused request is never reported as success and points to the review", { tag: "@desktop-only" }, async ({ page, api }) => {
     ledgerApi(api);
     api.on("/api/v1/transactions/tx-1/void", () => reply({ code: "REVIEW_OPEN", error: "resolve this transaction through the review endpoint" }, { status: 409 }), { method: "POST" });
     await page.goto("/transactions", { waitUntil: "networkidle" });
@@ -151,7 +151,7 @@ test.describe("cancelling a transaction", () => {
     await expect(drawer.getByRole("link", { name: "Buka Tinjauan" })).toHaveAttribute("href", "/inbox?view=transactions");
   });
 
-  test("a needs-review transaction offers neither edit nor cancel", async ({ page, api }) => {
+  test("a needs-review transaction offers neither edit nor cancel", { tag: "@desktop-only" }, async ({ page, api }) => {
     ledgerApi(api, { items: [transaction("tx-1", "Toko", { status: "NEEDS_REVIEW" })] });
     await page.goto("/transactions?status=NEEDS_REVIEW", { waitUntil: "networkidle" });
     await page.locator(".transaction-row").first().click();
@@ -162,7 +162,7 @@ test.describe("cancelling a transaction", () => {
   });
 });
 
-test("editing sends only the changed fields with the version it read, and Escape in the editor leaves the drawer", async ({ page, api }) => {
+test("editing sends only the changed fields with the version it read, and Escape in the editor leaves the drawer", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api, { items: [transaction("tx-1", "Grab", { counterpartyName: "QRIS GRAB*1234", description: "Kopi", categoryId: "cat-1", accountId: "account-1" })] });
   api.on("/api/v1/transactions/tx-1", () => ({}), { method: "PATCH" });
   await page.goto("/transactions", { waitUntil: "networkidle" });
@@ -185,7 +185,7 @@ test("editing sends only the changed fields with the version it read, and Escape
   expect(patch.headers["if-match"], "the version that was read").toBe("2026-09-06T10:00:00Z");
 });
 
-test("the Catat sheet refreshes the open ledger after a save", async ({ page, api }) => {
+test("the Catat sheet refreshes the open ledger after a save", { tag: "@desktop-only" }, async ({ page, api }) => {
   const state = ledgerApi(api);
   api.on("/api/v1/transactions", request => (request.method === "POST" ? (state.items = [transaction("tx-new", "Warung baru"), ...state.items], { id: "tx-new" }) : undefined));
   await page.goto("/transactions", { waitUntil: "networkidle" });
@@ -200,7 +200,7 @@ test("the Catat sheet refreshes the open ledger after a save", async ({ page, ap
   expect(api.calls("/api/v1/transactions", "POST")).toHaveLength(1);
 });
 
-test("the header states the page size and the filter toggle counts what is applied", async ({ page, api }) => {
+test("the header states the page size and the filter toggle counts what is applied", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api);
   await page.goto("/transactions?type=EXPENSE&status=CONFIRMED", { waitUntil: "networkidle" });
   await expect(page.getByText(/50 per halaman/)).toBeVisible();
@@ -211,7 +211,7 @@ test("the header states the page size and the filter toggle counts what is appli
   await expect(page.locator(".filter-toggle"), "applying collapses the panel").toHaveAttribute("aria-expanded", "false");
 });
 
-test("an open merge is listed in the drawer and Pisahkan penggabungan asks first", async ({ page, api }) => {
+test("an open merge is listed in the drawer and Pisahkan penggabungan asks first", { tag: "@desktop-only" }, async ({ page, api }) => {
   const state = ledgerApi(api);
   api.on("/api/v1/transactions/tx-1", () => ({ ...state.items[0], updatedAt: "2026-09-06T10:00:00Z", activeMerges: [{ id: "m1", role: "TARGET", otherLabel: "Kopi dobel", otherAmount: "25000" }] }), { method: "GET" });
   api.on("/api/v1/reconciliation-merges/m1/reverse", () => ({}), { method: "POST" });

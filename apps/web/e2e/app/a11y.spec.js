@@ -2,7 +2,7 @@ import { test, expect, reply } from "../support/fixtures.js";
 import { transaction } from "../support/data.js";
 import { layoutApi } from "../support/layoutApi.js";
 
-test("a loading screen announces itself with a name and busy state, and its note is decorative", async ({ page, api }) => {
+test("a loading screen announces itself with a name and busy state, and its note is decorative", { tag: "@desktop-only" }, async ({ page, api }) => {
   layoutApi(api);
   api.on("/api/v1/transactions", () => reply([transaction("tx-1")], { delay: 600 }));
   await page.goto("/transactions", { waitUntil: "domcontentloaded" });
@@ -14,7 +14,7 @@ test("a loading screen announces itself with a name and busy state, and its note
   await expect(loading).toHaveCount(0);
 });
 
-test("Perlu dicek has two tabs with the full tab keyboard and panel wiring", async ({ page, api }) => {
+test("Perlu dicek has two tabs with the full tab keyboard and panel wiring", { tag: "@desktop-only" }, async ({ page, api }) => {
   layoutApi(api);
   await page.goto("/inbox", { waitUntil: "networkidle" });
   const tabs = page.getByRole("tablist").getByRole("tab");
@@ -31,7 +31,7 @@ test("Perlu dicek has two tabs with the full tab keyboard and panel wiring", asy
   await expect(tabs.nth(1)).toHaveAttribute("tabindex", "-1");
 });
 
-test("the old /reviews and /actions links keep working", async ({ page, api }) => {
+test("the old /reviews and /actions links keep working", { tag: "@desktop-only" }, async ({ page, api }) => {
   layoutApi(api);
   await page.goto("/reviews", { waitUntil: "networkidle" });
   await expect.poll(() => new URL(page.url()).pathname + new URL(page.url()).search).toBe("/inbox?view=transactions");
@@ -40,7 +40,7 @@ test("the old /reviews and /actions links keep working", async ({ page, api }) =
   expect(new URL(page.url()).searchParams.get("tab")).toBe("sumber");
 });
 
-test("a failed review list offers a retry, and a failed optional list never hides the reviews", async ({ page, api }) => {
+test("a failed review list offers a retry, and a failed optional list never hides the reviews", { tag: "@desktop-only" }, async ({ page, api }) => {
   layoutApi(api);
   let healthy = false;
   api.on("/api/v1/reviews", () => (healthy ? undefined : reply({}, { status: 500 })));
@@ -54,7 +54,7 @@ test("a failed review list offers a retry, and a failed optional list never hide
   await expect(page.locator("#inbox-panel"), "the reviews still render").toContainText("Transfer ke rekening lain");
 });
 
-test("toasts and card glyphs are decorative; a toast is a polite status with a named close button", async ({ page, api }) => {
+test("toasts and card glyphs are decorative; a toast is a polite status with a named close button", { tag: "@desktop-only" }, async ({ page, api }) => {
   layoutApi(api);
   api.on("/api/v1/household/members", request => (request.method === "POST" ? { id: "member-9" } : undefined));
   await page.goto("/household", { waitUntil: "networkidle" });

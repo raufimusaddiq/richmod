@@ -11,3 +11,4 @@ apps/web/out/
 apps/web/app/lib/buildId.generated.js
 apps/web/public/build-id.txt
 playwright-report/
+blob-report/

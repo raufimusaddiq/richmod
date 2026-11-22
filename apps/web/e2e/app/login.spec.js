@@ -15,14 +15,14 @@ test.describe("signed out", () => {
     await expect(page.getByRole("button", { name: "Masuk ke Richmod" })).toBeVisible();
   });
 
-  test("a Google error code from the redirect is shown in Indonesian, and an unknown code gets a generic line", async ({ page }) => {
+  test("a Google error code from the redirect is shown in Indonesian, and an unknown code gets a generic line", { tag: "@desktop-only" }, async ({ page }) => {
     await page.goto("/login?error=google_email_mismatch", { waitUntil: "networkidle" });
     await expect(page.getByText("Email Google tidak cocok dengan email pada undangan.")).toBeVisible();
     await page.goto("/login?error=something_new", { waitUntil: "networkidle" });
     await expect(page.getByText("Tidak dapat masuk saat ini. Coba lagi.")).toBeVisible();
   });
 
-  test("a wrong password shows one calm message and stays on the page", async ({ page, api }) => {
+  test("a wrong password shows one calm message and stays on the page", { tag: "@desktop-only" }, async ({ page, api }) => {
     api.on("/api/v1/auth/login", () => reply({ error: "invalid" }, { status: 401 }), { method: "POST" });
     await page.goto("/login", { waitUntil: "networkidle" });
     await page.locator("#login-email").fill("rafi@example.test");
@@ -32,7 +32,7 @@ test.describe("signed out", () => {
     expect(new URL(page.url()).pathname).toBe("/login");
   });
 
-  test("the decorative login picture is hidden from assistive technology", async ({ page }) => {
+  test("the decorative login picture is hidden from assistive technology", { tag: "@desktop-only" }, async ({ page }) => {
     await page.goto("/login", { waitUntil: "networkidle" });
     const images = await page.locator(".login-context img").evaluateAll(nodes => nodes.map(node => ({ alt: node.getAttribute("alt"), hidden: node.getAttribute("aria-hidden") })));
     expect(images.length).toBeGreaterThan(0);
@@ -40,7 +40,7 @@ test.describe("signed out", () => {
   });
 
   test.describe("invite", () => {
-    test("Google activation posts the hash token, clears it, then leaves for the Google start URL", async ({ page, api }) => {
+    test("Google activation posts the hash token, clears it, then leaves for the Google start URL", { tag: "@desktop-only" }, async ({ page, api }) => {
       api.on("/api/v1/auth/google/invite", () => ({}), { method: "POST" });
       await page.route("**/api/v1/auth/google/start", route => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>google</body></html>" }));
       await page.goto("/invite#token-abc", { waitUntil: "networkidle" });
@@ -50,7 +50,7 @@ test.describe("signed out", () => {
       expect(api.calls("/api/v1/auth/google/invite", "POST")[0].body).toEqual({ token: "token-abc" });
     });
 
-    test("a missing or bad token and mismatched passwords are refused with one message", async ({ page, api }) => {
+    test("a missing or bad token and mismatched passwords are refused with one message", { tag: "@desktop-only" }, async ({ page, api }) => {
       await page.goto("/invite", { waitUntil: "networkidle" });
       await page.getByRole("button", { name: /Aktifkan dengan Google/ }).click();
       await expect(page.getByText("Tautan atau kata sandi tidak valid.")).toBeVisible();
@@ -65,7 +65,7 @@ test.describe("signed out", () => {
       expect(api.calls("/api/v1/auth/dashboard-invites/accept")).toHaveLength(0);
     });
 
-    test("a network failure is reported, then the message clears when the field is edited", async ({ page, api }) => {
+    test("a network failure is reported, then the message clears when the field is edited", { tag: "@desktop-only" }, async ({ page, api }) => {
       await page.route("**/api/v1/auth/dashboard-invites/accept", route => route.abort());
       await page.goto("/invite#token-abc", { waitUntil: "networkidle" });
       const fields = page.locator('input[type="password"]');
