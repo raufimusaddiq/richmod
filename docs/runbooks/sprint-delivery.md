@@ -62,7 +62,8 @@ with a host-local build.
 
 ## 3. Verify before commit
 
-Run the smallest relevant set first, then all checks required by touched areas.
+Run the tests for what you touched, then let CI run the full suite. The
+"Testing" section of `AGENTS.md` says what to add and what to run locally.
 Run commands from the feature worktree.
 
 Use [the disposable test matrix](disposable-test-matrix.md) for the exact
@@ -77,10 +78,10 @@ a local build.
 
 | Change | Minimum verification |
 | --- | --- |
-| Go API | `go test ./...` and `go vet ./...` in `apps/api` |
-| Go worker | `go test ./...` and `go vet ./...` in `apps/worker` |
+| Go API | `go test` and `go vet` for the changed packages in `apps/api` |
+| Go worker | `go test` and `go vet` for the changed packages in `apps/worker` |
 | Schema/migration | Apply migrations to disposable PostgreSQL; run affected integration tests; update `docs/DATABASE_SCHEMA.md` (schema reference and ERD) in the same branch |
-| Web | `bun run test` and `bun run build` in `apps/web` |
+| Web | `bun run build`, plus the unit test files and Playwright specs for what changed; `bun run test:visual` only for CSS or layout changes |
 | Compose/image files | `docker compose config --quiet`; build affected image(s) |
 | Docs/assets | inspect rendered asset(s), links, and `git diff --check` |
 | Security/isolation | explicit negative-path and cross-household tests where tenant/auth/input boundaries change |

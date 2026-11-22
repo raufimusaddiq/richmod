@@ -116,7 +116,40 @@ provider-specific production branches or expose canonical IDs to AI models.
   decision log, [`docs/adr/README.md`](docs/adr/README.md) (next number, decision, key
   reason, consequence; not a long write-up). Do not add infrastructure without one.
 - Never commit or log secrets.
-- Run relevant tests before marking work complete.
+- Run relevant tests before marking work complete (see Testing).
+
+## Testing
+
+Tests are kept in proportion to the risk of the change. A small change gets a
+small test footprint.
+
+What to add:
+
+- Add a test when a change touches behavior that could break silently and that
+  matters: money and date arithmetic, financial state transitions, idempotency,
+  authorization and household scoping, reconciliation, review routing, API
+  contracts, or a real bug (one test that reproduces it).
+- Do not add a test for copy or wording, CSS spacing, alignment or colour
+  (layout is covered by the visual baselines), renames, or anything an existing
+  test already proves.
+- One test per behavior. Extend an existing test before adding a new file.
+  Prefer a unit test when the logic is a function; use a browser test only for
+  behavior that exists only in the rendered page (focus, navigation, keyboard,
+  overlap, viewport layout).
+- Never test the text of source code (ADR-118, ADR-119). Delete a test in the
+  same change that makes it obsolete.
+
+What to run locally:
+
+- Run only the tests for what you touched, plus the build: `go test` for the
+  changed packages, `bun test tests/<file>`, `bunx playwright test e2e/<spec>`.
+- CI runs the full, sharded suite on every pull request. Run the full suite
+  locally only when CI fails, or when you changed shared test infrastructure
+  (Playwright config, `e2e/support`, the router, CSS tokens).
+- Run `bun run test:visual` only when you changed CSS or layout, and update a
+  baseline only for an intended visual change.
+- Do not run repeat or flakiness loops (`--repeat-each`, `-count`) unless the
+  change is a flakiness fix.
 
 ## Required worktree workflow
 
