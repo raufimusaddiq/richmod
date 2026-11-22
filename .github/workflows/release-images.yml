@@ -41,6 +41,8 @@ jobs:
           context: .
           file: infra/docker/api.Dockerfile
           push: true
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
           tags: ghcr.io/${{ github.repository_owner }}/richmod-api:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
       - uses: docker/build-push-action@v7
@@ -48,6 +50,8 @@ jobs:
           context: .
           file: infra/docker/worker.Dockerfile
           push: true
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,scope=worker,mode=max
           tags: ghcr.io/${{ github.repository_owner }}/richmod-worker:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
       - uses: docker/build-push-action@v7
@@ -55,5 +59,7 @@ jobs:
           context: .
           file: infra/docker/migrate.Dockerfile
           push: true
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,scope=migrate,mode=max
           tags: ghcr.io/${{ github.repository_owner }}/richmod-migrate:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
