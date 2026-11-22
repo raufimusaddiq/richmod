@@ -203,7 +203,7 @@ jobs:
         run: |
           mkdir -p test-results/logs
           pids=""
-          for name in transaction-date analytics-review mobile-layout; do
+          for name in transaction-date analytics-review mobile-layout overlay-motion; do
             (
               started=$(date +%s)
               code=0

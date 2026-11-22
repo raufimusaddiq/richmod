@@ -83,6 +83,8 @@
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-slow: 260ms;
+  --motion-emphasis: 340ms;
+  --motion-page: 420ms;
   --ease-standard: cubic-bezier(.2, 0, 0, 1);
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --kb-inset: 0px;
