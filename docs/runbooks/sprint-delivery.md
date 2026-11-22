@@ -226,3 +226,4 @@ Every handoff reports: branch, worktree, base SHA, implementation commit, pull
 request, merge commit, main SHA, tests run/results, deployment state, and cleanup state.
 Never say a manual production, provider, user-approval, or external verification
 step occurred unless it actually occurred.
+
