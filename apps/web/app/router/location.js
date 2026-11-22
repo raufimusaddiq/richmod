@@ -39,6 +39,15 @@ function sameDocument(url) {
   return url.origin === window.location.origin;
 }
 
+let scrollResetPending = false;
+
+export function applyPendingScrollReset() {
+  if (!scrollResetPending || typeof window === "undefined") return false;
+  scrollResetPending = false;
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  return true;
+}
+
 export function navigate(href, { replace = false } = {}) {
   if (typeof window === "undefined") return;
   installHistoryNotifier();
@@ -50,8 +59,8 @@ export function navigate(href, { replace = false } = {}) {
   const target = `${url.pathname}${url.search}${url.hash}`;
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const pathChanged = normalizePath(url.pathname) !== normalizePath(window.location.pathname);
+  if (pathChanged && !url.hash) scrollResetPending = true;
   window.history[replace || target === current ? "replaceState" : "pushState"](null, "", target);
-  if (pathChanged && !url.hash) window.scrollTo(0, 0);
 }
 
 export function isPlainLeftClick(event) {

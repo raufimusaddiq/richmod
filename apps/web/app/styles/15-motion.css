@@ -29,8 +29,8 @@
 @keyframes drawer-out { to { opacity: 0; transform: translateX(56px); } }
 @keyframes sheet-in { from { transform: translateY(100%); } }
 @keyframes sheet-out { to { transform: translateY(100%); } }
-@keyframes backdrop-in { from { opacity: 0; } }
-@keyframes backdrop-out { to { opacity: 0; } }
+@keyframes backdrop-in { from { background-color: transparent; backdrop-filter: blur(0); } }
+@keyframes backdrop-out { to { background-color: transparent; backdrop-filter: blur(0); } }
 .presence { display: contents; }
 .drawer-backdrop { animation: backdrop-in var(--motion-emphasis) var(--ease-standard); }
 .detail-drawer, .admin-drawer { animation: drawer-in var(--motion-emphasis) var(--ease-out); }
@@ -62,7 +62,11 @@ dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-emphasis)
   dialog[open]::backdrop { opacity: 0; }
 }
 @media (max-width: 719px) {
-  dialog { --dialog-shift: 100%; }
+  dialog { --dialog-shift: 100%; opacity: 1; }
+  dialog[open] { opacity: 1; }
+  @starting-style {
+    dialog[open] { opacity: 1; }
+  }
 }
 
 @keyframes page-in { from { opacity: 0; } }
@@ -77,6 +81,10 @@ dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-emphasis)
 ::view-transition-group(.page-swap) { animation: none; }
 ::view-transition-old(.page-swap) { animation: page-leave var(--motion-fast) var(--ease-standard) both; }
 ::view-transition-new(.page-swap) { animation: page-enter var(--motion-page) var(--ease-out) both; }
+.mobile-nav { view-transition-name: mobile-nav; }
+::view-transition-group(mobile-nav) { animation: none; }
+::view-transition-old(mobile-nav) { display: none; }
+::view-transition-new(mobile-nav) { animation: none; }
 [data-reveal] { animation: reveal-in var(--motion-page) var(--ease-out) backwards; }
 
 @supports (interpolate-size: allow-keywords) { :root { interpolate-size: allow-keywords; } }
@@ -92,6 +100,9 @@ dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-emphasis)
 .filter-chips { --slide-bg: var(--ink); --slide-border: 2px solid var(--ink); --slide-shadow: none; }
 .segmented { --slide-bg: var(--surface); --slide-border: 1px solid var(--line-strong); --slide-shadow: none; --slide-radius: calc(var(--radius-sm) - 2px); }
 .quick-body .segmented { --slide-border: 1.5px solid var(--ink); --slide-shadow: 2px 2px 0 var(--ink); --slide-radius: var(--radius-sm); }
+.mobile-nav[data-slide] { position: fixed; --slide-bg: var(--accent-soft); --slide-border: 0; --slide-shadow: none; }
+.mobile-nav[data-slide][data-slide-ready] > a { z-index: 1; }
+.mobile-nav[data-slide][data-slide-ready] > a.active { background: transparent; }
 
 @keyframes stagger-in { from { opacity: 0; transform: translateY(8px); } }
 @keyframes panel-in { from { opacity: 0; transform: translateY(8px); } }
@@ -99,7 +110,7 @@ dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-emphasis)
 @media (prefers-reduced-motion: no-preference) {
   [data-slide][data-slide-ready]::before { transition: transform var(--motion-slide) var(--ease-glide), width var(--motion-slide) var(--ease-glide), height var(--motion-slide) var(--ease-glide), opacity var(--motion-fast) var(--ease-standard); }
   [data-slide][data-slide-snap]::before { transition: none; }
-  [data-slide][data-slide-ready] > button { transition: color var(--motion-slide) var(--ease-standard); }
+  [data-slide][data-slide-ready] > button, .mobile-nav[data-slide][data-slide-ready] > a { transition: color var(--motion-slide) var(--ease-standard); }
   [data-panel-enter] { animation: panel-in var(--motion-slide) var(--ease-out); }
   [data-stagger-item] { animation: stagger-in var(--motion-slide) var(--ease-out) backwards; animation-delay: calc(min(var(--stagger-i, 0), 7) * var(--motion-stagger)); }
   [data-reveal] [data-stagger-item], [data-stagger-item][data-reveal] { animation: none; }

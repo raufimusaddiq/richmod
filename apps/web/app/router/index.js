@@ -1,5 +1,5 @@
-import { createContext, createElement, startTransition, useContext, useEffect, useMemo, useState } from "react";
-import { installHistoryNotifier, isPlainLeftClick, navigate, normalizePath, readLocation, subscribeToLocation } from "./location";
+import { createContext, createElement, startTransition, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { applyPendingScrollReset, installHistoryNotifier, isPlainLeftClick, navigate, normalizePath, readLocation, subscribeToLocation } from "./location";
 
 const LocationContext = createContext({ pathname: "/", search: "" });
 
@@ -22,6 +22,8 @@ export function RouterProvider({ initial = { pathname: "/", search: "" }, childr
     sync();
     return subscribeToLocation(sync);
   }, []);
+
+  useLayoutEffect(() => { applyPendingScrollReset(); }, [location]);
 
   const value = useMemo(() => ({ pathname: normalizePath(location.pathname), search: location.search }), [location.pathname, location.search]);
   return createElement(LocationContext.Provider, { value }, children);

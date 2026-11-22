@@ -3,7 +3,7 @@ import test from "node:test";
 import { Suspense, createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { Link, RouterProvider, usePathname, useSearchParams } from "../app/router/index.js";
-import { isPlainLeftClick, navigate, normalizePath } from "../app/router/location.js";
+import { applyPendingScrollReset, isPlainLeftClick, navigate, normalizePath } from "../app/router/location.js";
 import { matchRoute, routePaths } from "../app/routes.js";
 import { routeMeta } from "../app/lib/siteMeta.js";
 
@@ -27,7 +27,7 @@ function fakeBrowser(url) {
     addEventListener(name, listener) { listeners[name] = listener; },
     removeEventListener() {},
     dispatchEvent() {},
-    scrollTo(x, y) { calls.push(["scroll", x, y]); },
+    scrollTo(options) { calls.push(["scroll", options]); },
   };
   return { target, calls };
 }
@@ -39,6 +39,7 @@ function withBrowser(url, body) {
   try {
     return body(browser.calls);
   } finally {
+    applyPendingScrollReset();
     if (previous === undefined) delete globalThis.window;
     else globalThis.window = previous;
   }
@@ -71,7 +72,7 @@ test("only a plain left click is handled by the router", () => {
   assert.equal(isPlainLeftClick({ button: 1 }), false);
 });
 
-test("navigate pushes a new location, replaces the same one, and scrolls to top only for a new path", () => {
+test("navigate pushes a new location and replaces the same one without scrolling itself", () => {
   withBrowser("https://richmod.test/transactions?a=1", calls => {
     navigate("/analytics");
     navigate("/transactions?a=1");
@@ -79,12 +80,43 @@ test("navigate pushes a new location, replaces the same one, and scrolls to top 
     navigate("/inbox?view=history", { replace: true });
     navigate("https://elsewhere.test/x");
     assert.deepEqual(calls, [
-      ["push", "/analytics"], ["scroll", 0, 0],
+      ["push", "/analytics"],
       ["replace", "/transactions?a=1"],
       ["push", "/transactions?a=2"],
-      ["replace", "/inbox?view=history"], ["scroll", 0, 0],
+      ["replace", "/inbox?view=history"],
       ["assign", "https://elsewhere.test/x"],
     ]);
+  });
+});
+
+test("a new path records one pending instant scroll reset that the router applies once", () => {
+  withBrowser("https://richmod.test/transactions", calls => {
+    assert.equal(applyPendingScrollReset(), false);
+    navigate("/analytics");
+    assert.deepEqual(calls, [["push", "/analytics"]]);
+    assert.equal(applyPendingScrollReset(), true);
+    assert.deepEqual(calls.at(-1), ["scroll", { top: 0, left: 0, behavior: "instant" }]);
+    assert.equal(applyPendingScrollReset(), false);
+    assert.equal(calls.length, 2);
+  });
+});
+
+test("a same-path or hash navigation leaves the scroll position alone", () => {
+  withBrowser("https://richmod.test/transactions", calls => {
+    navigate("/transactions?a=2");
+    navigate("/transactions#recent");
+    navigate("/analytics#where");
+    assert.equal(applyPendingScrollReset(), false);
+    assert.equal(calls.some(call => call[0] === "scroll"), false);
+  });
+});
+
+test("the server render never consumes the pending scroll reset", () => {
+  withBrowser("https://richmod.test/transactions", calls => {
+    navigate("/analytics");
+    renderToString(createElement(RouterProvider, { initial: { pathname: "/analytics", search: "" } }, createElement("p", null, "x")));
+    assert.equal(calls.some(call => call[0] === "scroll"), false);
+    assert.equal(applyPendingScrollReset(), true);
   });
 });
 
@@ -119,6 +151,6 @@ test("Link leaves modified clicks, new-tab targets and other origins to the brow
     assert.equal(click(element.props, {}), false);
     assert.equal(click({ href: "https://elsewhere.test/" }, {}), false);
     assert.equal(click({ href: "/inbox", onClick: event => event.preventDefault() }, {}), true);
-    assert.deepEqual(calls, [["push", "/inbox"], ["scroll", 0, 0]]);
+    assert.deepEqual(calls, [["push", "/inbox"]]);
   });
 });
