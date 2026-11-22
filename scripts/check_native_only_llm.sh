@@ -1,19 +1,17 @@
 #!/usr/bin/env sh
 set -eu
 
-command -v rg >/dev/null 2>&1 || { echo 'ripgrep is required for native-only LLM guard' >&2; exit 1; }
-
-if rg -n '\.Structured\(|text\.format|json_schema' apps/worker apps/api/internal apps/reviewdomain --glob '!**/*_test.go'; then
+if git grep -nE '\.Structured\(|text\.format|json_schema' -- apps/worker apps/api/internal apps/reviewdomain ':!*_test.go'; then
   echo 'native-only LLM guard failed' >&2
   exit 1
 fi
 
-if rg -n 'write_financial_insight|noSignalResponse|json:"recommendation"|regexp\.|strings\.(Contains|EqualFold)|json\.(Unmarshal|NewDecoder).*([Tt]ext|[Pp]rose)' apps/worker/internal/insight --glob '!**/*_test.go'; then
+if git grep -nE 'write_financial_insight|noSignalResponse|json:"recommendation"|regexp\.|strings\.(Contains|EqualFold)|json\.(Unmarshal|NewDecoder).*([Tt]ext|[Pp]rose)' -- apps/worker/internal/insight ':!*_test.go'; then
   echo 'analytical native-tool/no-semantic-fallback guard failed' >&2
   exit 1
 fi
 
-if rg -n '\.(Exec|CopyFrom|SendBatch)\(' apps/reviewdomain/analyticscore --glob '!**/*_test.go' || rg -n 'https?://(api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)' apps/worker/internal/insight apps/reviewdomain/analyticscore --glob '!**/*_test.go'; then
+if git grep -nE '\.(Exec|CopyFrom|SendBatch)\(' -- apps/reviewdomain/analyticscore ':!*_test.go' || git grep -nE 'https?://(api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com)' -- apps/worker/internal/insight apps/reviewdomain/analyticscore ':!*_test.go'; then
   echo 'analytical read-only/gateway boundary guard failed' >&2
   exit 1
 fi

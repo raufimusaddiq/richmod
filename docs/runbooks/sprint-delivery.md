@@ -85,23 +85,16 @@ a local build.
 | Docs/assets | inspect rendered asset(s), links, and `git diff --check` |
 | Security/isolation | explicit negative-path and cross-household tests where tenant/auth/input boundaries change |
 
-CI is the final repository-wide authority. Its `backend`, `frontend` and
-`containers` jobs cover Gitleaks, PostgreSQL-backed API/worker tests, Go vet, web
-build/tests, Compose validation and the Compose/backup/deploy shell tests. The
-`frontend` job builds the static export and runs the web unit tests. The
-`frontend-smoke` matrix job then runs the two Playwright synthetic smokes
-(transaction-date, analytics-review) as parallel jobs, each rebuilding the static
-export it serves (a shared artifact would need `needs: frontend` and serialise the
-smokes behind the build) and caching browsers under a key built from the locked
-Playwright version, the runner OS and the browser set. Each leg installs only its
-own browsers: the chromium-only analytics-review leg runs without
-`playwright install-deps` (the runner image already satisfies chromium), while the
-transaction-date leg needs webkit and so does run `playwright install-deps`, always,
-cache hit or not. Both smoke legs
-are gate-only for Hermes Review today, not required checks. The
-`images` job builds the four production Dockerfiles (api, worker, migrate,
-backup) in parallel with `docker/build-push-action`, each with its own
-`type=gha` layer-cache scope. Do not claim checks that were not run.
+CI is the final repository-wide authority and is path-targeted (ADR-113): a `changes`
+job decides which of `backend` (api, worker and reviewdomain legs, vet plus tests against
+PostgreSQL), `backend-guards`, `web`, `containers` and `images` run, `comments` and `secrets`
+always run, and a change to `ci.yml` runs everything. A skipped job is not a failure.
+The `web` job runs inside the Playwright container: it builds the static export once,
+runs the web unit tests, then the transaction-date, analytics-review and mobile-layout
+synthetic smokes. The `images` matrix builds only the production Dockerfiles
+(api, worker, migrate, backup) whose inputs changed, on pull requests only, each with its
+own `type=gha` layer-cache scope; `Release Images` is the only image build on `main`.
+Do not claim checks that were not run.
 
 Before committing:
 
