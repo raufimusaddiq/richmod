@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,7 +20,7 @@ func TestSweepFailedSourcesAddsOneItemPerStuckSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var household string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Sweep %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)

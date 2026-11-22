@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,9 +24,10 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 }
 
 func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 
 	seedHousehold := func(label string) string {
 		var householdID string
@@ -72,7 +72,7 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	aggregate, err := NewHandler(pool).loadJudgmentAggregate(ctx, householdID)
+	aggregate, err := aggregateHandler(pool).loadJudgmentAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +97,10 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 }
 
 func TestJudgmentAggregateMeasuresPhaseOrder(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Phase Telemetry %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -134,7 +135,7 @@ func TestJudgmentAggregateMeasuresPhaseOrder(t *testing.T) {
 		}
 	}
 
-	aggregate, err := NewHandler(pool).loadJudgmentAggregate(ctx, householdID)
+	aggregate, err := aggregateHandler(pool).loadJudgmentAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}

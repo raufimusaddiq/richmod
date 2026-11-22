@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
@@ -33,7 +32,7 @@ func seedFinancialResolution(t *testing.T, resolved bool) financialResolutionFix
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	fixture := financialResolutionFixture{pool: pool, household: household, user: user}
 	must := func(err error) {
@@ -76,6 +75,7 @@ func seedFinancialResolutionValues(t *testing.T, resolved bool) financialResolut
 }
 
 func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolutionValues(t, true)
 	ctx := context.Background()
 	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"wealthAccountId":"`+fixture.wealthAccount+`"}}`); w.Code != http.StatusNoContent {
@@ -91,6 +91,7 @@ func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
 }
 
 func TestFinancialResolutionGenuinePartialTurnThenSecondTurnCompletes(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolution(t, false)
 	ctx := context.Background()
 	if _, err := fixture.pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["funding_account","wealth_account"]'::jsonb) WHERE id=$1`, fixture.review); err != nil {
@@ -131,6 +132,7 @@ func TestFinancialResolutionGenuinePartialTurnThenSecondTurnCompletes(t *testing
 }
 
 func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolutionValues(t, true)
 	ctx := context.Background()
 	if w := fixture.resolve(t, `{"action":"IGNORE","values":{}}`); w.Code != http.StatusNoContent {
@@ -154,6 +156,7 @@ func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 }
 
 func TestFinancialEmailClassificationWithoutTransferCaseCanBeIgnored(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolutionValues(t, true)
 	ctx := context.Background()
 	if _, err := fixture.pool.Exec(ctx, `UPDATE review_item SET review_type='TRANSFER_CLASSIFICATION',decision=jsonb_set(decision,'{reasonCode}','"TRANSFER_CLASSIFICATION"'::jsonb) WHERE id=$1`, fixture.review); err != nil {
@@ -182,6 +185,7 @@ func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest
 }
 
 func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolution(t, true)
 	ctx := context.Background()
 	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"wealthAccountId":"`+fixture.wealthAccount+`","human_supplied_fields":["account"]}}`); w.Code != http.StatusNoContent {
@@ -226,6 +230,7 @@ func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
 }
 
 func TestFinancialResolutionKeepsAlreadyKnownEntityAlias(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolution(t, false)
 	ctx := context.Background()
 	if _, err := fixture.pool.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,account_id,alias,normalized_alias,source) VALUES($1,'ACCOUNT',$2,'Bank Jago','bank jago','USER')`, fixture.household, fixture.account); err != nil {
@@ -244,6 +249,7 @@ func TestFinancialResolutionKeepsAlreadyKnownEntityAlias(t *testing.T) {
 }
 
 func TestFinancialResolutionRejectsEmptyValues(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolution(t, true)
 	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{}}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("an empty resolution must be rejected: %d %s", w.Code, w.Body.String())
@@ -254,6 +260,7 @@ func TestFinancialResolutionRejectsEmptyValues(t *testing.T) {
 }
 
 func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name        string
 		resolved    bool
@@ -306,6 +313,7 @@ func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
 }
 
 func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolution(t, true)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
 	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: fixture.user, Household: &auth.Membership{HouseholdID: fixture.household, Role: "OWNER"}}))
@@ -335,6 +343,7 @@ func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
 }
 
 func TestFinancialEmailFactsIgnoreSettlesSourceEvent(t *testing.T) {
+	t.Parallel()
 	fixture := seedFinancialResolution(t, true)
 	ctx := context.Background()
 	var source string

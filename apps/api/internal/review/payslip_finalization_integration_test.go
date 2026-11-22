@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 func TestPayslipFinalizerLinksExactDuplicateAndRejectsConflict(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -33,7 +33,7 @@ func testPayslipFinalizerDuplicateConflict(t *testing.T, url, tz string) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	if _, err := pool.Exec(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Existing','existing',true)`, household, user); err != nil {
 		t.Fatal(err)

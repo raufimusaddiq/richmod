@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
@@ -34,7 +33,7 @@ func newCardFixture(t *testing.T) *cardFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	f := &cardFixture{t: t, ctx: ctx, pool: pool, chat: time.Now().UnixNano()}
+	f := &cardFixture{t: t, ctx: ctx, pool: pool, chat: uniqueStamp()}
 	f.row(`INSERT INTO household(name) VALUES($1) RETURNING id`, []any{&f.household}, fmt.Sprintf("Cards %d", f.chat))
 	f.row(`INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, []any{&f.user}, fmt.Sprintf("cards-%d@example.test", f.chat))
 	f.exec(`INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, f.household, f.user)
@@ -101,6 +100,7 @@ func (f *cardFixture) lastEdit(messageID int64) (string, string) {
 }
 
 func TestCategoryTapSettlesOnTheCard(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
 	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
@@ -137,6 +137,7 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 }
 
 func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	galon := f.id(`INSERT INTO category(household_id,name,slug,sort_order) VALUES($1,'Galon Isi Ulang','galon',9) RETURNING id`, f.household)
 	kopi := f.id(`INSERT INTO category(household_id,name,slug,sort_order) VALUES($1,'Kopi & Camilan','kopi',8) RETURNING id`, f.household)
@@ -194,6 +195,7 @@ func TestCategoryChooserLeadsWithMerchantHistory(t *testing.T) {
 }
 
 func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	t.Run("missing amount", func(t *testing.T) {
 		source := f.id(`INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.household, fmt.Sprintf("amount-%d", f.chat), []byte("amount"))
@@ -255,6 +257,7 @@ func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 }
 
 func TestSourceBoundTransferCardHasExecutableButtons(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
 	candidate := f.id(`INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at) VALUES($1,$2,'UNCLASSIFIED','NEEDS_REVIEW',500000,now()-interval '1 day') RETURNING id`, f.household, account)
@@ -291,6 +294,7 @@ func TestSourceBoundTransferCardHasExecutableButtons(t *testing.T) {
 }
 
 func TestIncomeCardConfirmAndChangeExecute(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	income := func(messageID int64) (string, string) {
 		transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'INCOME','NEEDS_REVIEW',750000,now()) RETURNING id`, f.household)
@@ -319,6 +323,7 @@ func TestIncomeCardConfirmAndChangeExecute(t *testing.T) {
 }
 
 func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',18502,now()) RETURNING id`, f.household)
 	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'MISSING_TRANSACTION_DATE','OPEN','{"version":1,"reasonCode":"MISSING_TRANSACTION_DATE","missingFacts":["transaction_at"],"allowedActions":["SET_PAY_DATE","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
@@ -342,6 +347,7 @@ func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
 }
 
 func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',1000,now(),now()) RETURNING id`, f.household)
 	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
@@ -355,6 +361,7 @@ func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
 }
 
 func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, f.household)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,category_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',42000,now(),$2,$3) RETURNING id`, f.household, f.user, category)
@@ -396,6 +403,7 @@ func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 }
 
 func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	galon := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
 	kopi := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Kopi & Camilan','kopi') RETURNING id`, f.household)
@@ -417,6 +425,7 @@ func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 }
 
 func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
 	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
@@ -459,6 +468,7 @@ func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 }
 
 func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
 	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
@@ -505,6 +515,7 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 }
 
 func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'INCOME','NEEDS_REVIEW',300000,now()) RETURNING id`, f.household)
 	decision := `{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","subject":{"type":"transaction","id":"x"},"decisionClass":"DUPLICATE_AMBIGUITY","missingFacts":["duplicate_relationship","transfer_relationship"],"allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"],"interactionMode":"BOUNDED_CHOICE"}`
@@ -527,6 +538,7 @@ func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
 }
 
 func TestClaimedRetirementSkipsASettledCard(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
 	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
@@ -550,6 +562,7 @@ func TestClaimedRetirementSkipsASettledCard(t *testing.T) {
 }
 
 func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
 	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
@@ -576,6 +589,7 @@ func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
 }
 
 func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
+	t.Parallel()
 	f := newCardFixture(t)
 	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
 	other := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BRI','BANK','FULL_LEDGER') RETURNING id`, f.household)

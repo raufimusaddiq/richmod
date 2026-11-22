@@ -16,6 +16,7 @@ import (
 )
 
 func TestConfirmRefusesPartialCompoundResidualUntilAllSupplied(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,7 +28,7 @@ func TestConfirmRefusesPartialCompoundResidualUntilAllSupplied(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	var transactionID string
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',63000,'IDR',now()) RETURNING id`, householdID).Scan(&transactionID); err != nil {

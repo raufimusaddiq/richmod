@@ -15,6 +15,7 @@ import (
 )
 
 func TestSeptemberAndOctoberRentUseDifferentSalaryCycles(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-24")
 	f.anchor(t, "2026-09-25")
@@ -39,6 +40,7 @@ func TestSeptemberAndOctoberRentUseDifferentSalaryCycles(t *testing.T) {
 }
 
 func TestAnalyticsCycleRangeBucketsAndRefundConsistency(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-24")
 	f.anchor(t, "2026-09-25")
@@ -81,6 +83,7 @@ func TestAnalyticsCycleRangeBucketsAndRefundConsistency(t *testing.T) {
 }
 
 func TestMerchantSharesUseAllNetExpenseBeforeTopTen(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-01")
 	ctx := context.Background()
@@ -108,6 +111,7 @@ func TestMerchantSharesUseAllNetExpenseBeforeTopTen(t *testing.T) {
 }
 
 func TestCycleReviewKeepsFullRentHistorySeparateFromElapsedBaseline(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-01")
 	f.anchor(t, "2026-09-01")
@@ -134,6 +138,7 @@ func TestCycleReviewKeepsFullRentHistorySeparateFromElapsedBaseline(t *testing.T
 }
 
 func TestShorterPreviousCycleStaysTheComparisonBaseWhole(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-28")
 	f.anchor(t, "2026-09-01")
@@ -151,6 +156,7 @@ func TestShorterPreviousCycleStaysTheComparisonBaseWhole(t *testing.T) {
 }
 
 func TestLegacyRankingsDoNotExposeForeignCategoryOrMember(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	foreign := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-01")
@@ -175,6 +181,7 @@ func TestLegacyRankingsDoNotExposeForeignCategoryOrMember(t *testing.T) {
 }
 
 func TestShorterPreviousCycleIsBaselineButNeverEntersUnequalMedian(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, anchor := range []string{"2026-04-20", "2026-06-01", "2026-07-15", "2026-08-12"} {
 		f.anchor(t, anchor)

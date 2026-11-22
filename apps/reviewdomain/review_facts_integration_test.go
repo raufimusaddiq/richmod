@@ -11,6 +11,7 @@ import (
 )
 
 func TestAuditF07TransferRequiresChosenDate(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -59,6 +60,7 @@ func TestAuditF07TransferRequiresChosenDate(t *testing.T) {
 }
 
 func TestTransferPartialClassificationRetainsAndRevalidatesCandidates(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}

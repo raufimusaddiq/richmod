@@ -80,7 +80,7 @@ func newPipe(t *testing.T) *pipe {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	p := &pipe{t: t, ctx: ctx, pool: pool, tgUser: 1_000_000_000 + stamp%1_000_000_000, seq: 100}
 	p.chat = p.tgUser
 	p.must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id::text`, fmt.Sprintf("Dispute pipeline %d", stamp)).Scan(&p.household))
@@ -137,7 +137,7 @@ func (p *pipe) n(sql string, args ...any) int {
 func (p *pipe) upload() upload {
 	p.t.Helper()
 	p.seq += 2
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	u := upload{message: p.seq}
 	p.must(p.pool.QueryRow(p.ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED',$4,$5) RETURNING id::text`, p.household, fmt.Sprintf("img-%d", stamp), []byte(fmt.Sprintf("img-%d", stamp)), u.message, p.chat).Scan(&u.source))
 	ref := fmt.Sprintf("%s/%d.jpg", p.household, stamp)
@@ -160,7 +160,7 @@ func (p *pipe) text(body string, replyTo int64, from int64) (string, error) {
 		update["message"].(map[string]any)["reply_to_message"] = map[string]any{"message_id": replyTo}
 	}
 	raw, _ := json.Marshal(update)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var source string
 	p.must(p.pool.QueryRow(p.ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id::text`, p.household, fmt.Sprintf("txt-%d", stamp), []byte(fmt.Sprintf("txt-%d", stamp))).Scan(&source))
 	p.exec(`INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, source, string(raw))
@@ -171,7 +171,7 @@ var pressSequence atomic.Int64
 
 func (p *pipe) press(data string, message int64, from int64) (string, error) {
 	p.t.Helper()
-	key := fmt.Sprintf("cb-%d-%d", time.Now().UnixNano(), pressSequence.Add(1))
+	key := fmt.Sprintf("cb-%d-%d", uniqueStamp(), pressSequence.Add(1))
 	raw, _ := json.Marshal(map[string]any{"callback_query": map[string]any{"id": key, "data": data, "from": map[string]any{"id": from}, "message": map[string]any{"message_id": message, "chat": map[string]any{"id": p.chat}}}})
 	var source string
 	p.must(p.pool.QueryRow(p.ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id::text`, p.household, key, []byte(key)).Scan(&source))
@@ -236,6 +236,7 @@ func (p *pipe) snapshot(id string) txSnapshot {
 }
 
 func TestMergedProposalKeepsTheValidatedCategoryCandidate(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	_, second, _ := p.mergedPair()
 	if got := p.str(`SELECT category_candidate_id::text FROM transaction_proposal WHERE source_event_id=$1::uuid`, second.source); got != p.catFood {
@@ -244,6 +245,7 @@ func TestMergedProposalKeepsTheValidatedCategoryCandidate(t *testing.T) {
 }
 
 func TestDisputeConfirmCarriesCategoryMerchantAndConfidencesAndMovesCorrectionTarget(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	first, second, original := p.mergedPair()
 	before := p.snapshot(original)
@@ -320,6 +322,7 @@ func TestDisputeConfirmCarriesCategoryMerchantAndConfidencesAndMovesCorrectionTa
 }
 
 func TestDisputeWithMemoryConflictAsksForCategoryThroughTheChooserAndRejectsForeignCategory(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	_, second, original := p.mergedPair()
 	var merchantID string
@@ -364,6 +367,7 @@ func TestDisputeWithMemoryConflictAsksForCategoryThroughTheChooserAndRejectsFore
 }
 
 func TestRejectedDisputeCanBeRaisedAgainWithoutDuplicateOpenStaging(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	_, second, original := p.mergedPair()
 	before := p.snapshot(original)
@@ -399,6 +403,7 @@ func TestRejectedDisputeCanBeRaisedAgainWithoutDuplicateOpenStaging(t *testing.T
 }
 
 func TestDisputeCallbacksAreAuthorizedAndSafeUnderRaces(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	_, second, original := p.mergedPair()
 	before := p.snapshot(original)
@@ -442,6 +447,7 @@ func TestDisputeCallbacksAreAuthorizedAndSafeUnderRaces(t *testing.T) {
 }
 
 func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	_, second, _ := p.mergedPair()
 	if _, err := p.text("tapi ini transaksi baru", second.message, p.tgUser); err != nil {
@@ -479,6 +485,7 @@ func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *te
 }
 
 func TestDisputeRejectRefusesActiveMergeTarget(t *testing.T) {
+	t.Parallel()
 	p := newPipe(t)
 	_, second, _ := p.mergedPair()
 	if _, err := p.text("tapi ini transaksi baru", second.message, p.tgUser); err != nil {

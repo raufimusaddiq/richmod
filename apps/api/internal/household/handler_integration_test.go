@@ -34,7 +34,7 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 func seedIdentity(t *testing.T, pool *pgxpool.Pool, role string) (string, string, auth.Principal) {
 	t.Helper()
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Household %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -62,10 +62,11 @@ func requestWithPrincipal(method, target string, body any, principal auth.Princi
 }
 
 func TestOwnerAddsMemberAndMemberCannot(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	householdID, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	response := httptest.NewRecorder()
 	handler.Members(response, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Spouse", "email": fmt.Sprintf("spouse-%d@example.test", stamp)}, owner))
 	if response.Code != http.StatusCreated {
@@ -89,6 +90,7 @@ func TestOwnerAddsMemberAndMemberCannot(t *testing.T) {
 }
 
 func TestOwnerCannotDeactivateCrossHouseholdMember(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	_, _, owner := seedIdentity(t, pool, "OWNER")
 	otherHousehold, otherUser, _ := seedIdentity(t, pool, "MEMBER")
@@ -108,6 +110,7 @@ func TestOwnerCannotDeactivateCrossHouseholdMember(t *testing.T) {
 }
 
 func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
 	householdID, ownerID, owner := seedIdentity(t, pool, "OWNER")
@@ -129,7 +132,7 @@ func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Token == "" {
 		t.Fatalf("token=%q err=%v", created.Token, err)
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	telegramID := stamp%8_000_000_000 + 1_000_000_000
 	linked, err := telegram.NewPostgreSQLStore(pool).Link(ctx, telegram.CaptureInput{UpdateID: stamp, TelegramUserID: telegramID}, created.Token)
 	if err != nil || !linked {
@@ -145,11 +148,12 @@ func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
 }
 
 func TestDuplicateMemberEmailExplainsWhy(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	_, _, owner := seedIdentity(t, pool, "OWNER")
 	_, _, otherOwner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
-	email := fmt.Sprintf("dup-%d@example.test", time.Now().UnixNano())
+	email := fmt.Sprintf("dup-%d@example.test", uniqueStamp())
 	add := func(p auth.Principal) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		handler.Members(w, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, p))
@@ -169,6 +173,7 @@ func TestDuplicateMemberEmailExplainsWhy(t *testing.T) {
 }
 
 func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -186,7 +191,7 @@ func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
 	}
 	t.Cleanup(small.Close)
 	handler := NewHandler(small, "richmod_bot")
-	email := fmt.Sprintf("small-%d@example.test", time.Now().UnixNano())
+	email := fmt.Sprintf("small-%d@example.test", uniqueStamp())
 	for i, want := range []int{http.StatusCreated, http.StatusConflict} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		req := requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, owner).WithContext(auth.ContextWithPrincipal(ctx, owner))
@@ -203,10 +208,11 @@ func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
 }
 
 func TestMemberListShowsInviteState(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	householdID, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
-	email := fmt.Sprintf("invitee-%d@example.test", time.Now().UnixNano())
+	email := fmt.Sprintf("invitee-%d@example.test", uniqueStamp())
 	add := httptest.NewRecorder()
 	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Invitee", "email": email}, owner))
 	if add.Code != http.StatusCreated {
@@ -260,11 +266,12 @@ func TestMemberListShowsInviteState(t *testing.T) {
 }
 
 func TestOwnerResetsMemberPasswordWithInvite(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	_, _, owner := seedIdentity(t, pool, "OWNER")
 	handler := NewHandler(pool, "richmod_bot")
 	add := httptest.NewRecorder()
-	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Lupa", "email": fmt.Sprintf("lupa-%d@example.test", time.Now().UnixNano())}, owner))
+	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Lupa", "email": fmt.Sprintf("lupa-%d@example.test", uniqueStamp())}, owner))
 	var created struct{ ID string }
 	_ = json.Unmarshal(add.Body.Bytes(), &created)
 	invite := func() map[string]any {

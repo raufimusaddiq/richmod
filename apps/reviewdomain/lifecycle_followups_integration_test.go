@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,7 +29,7 @@ func newLifecycleFixture(t *testing.T) *lifecycleFixture {
 	}
 	t.Cleanup(pool.Close)
 	f := &lifecycleFixture{t: t, ctx: ctx, pool: pool}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	f.must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Lifecycle followups %d", stamp)).Scan(&f.household))
 	f.must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("lifecycle-%d@test.invalid", stamp)).Scan(&f.user))
 	return f
@@ -52,7 +51,7 @@ func (f *lifecycleFixture) id(sql string, args ...any) string {
 
 func (f *lifecycleFixture) source(kind string) string {
 	f.t.Helper()
-	stamp := fmt.Sprint(time.Now().UnixNano())
+	stamp := fmt.Sprint(uniqueStamp())
 	return f.id(`INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'NEEDS_REVIEW') RETURNING id`, f.household, kind, stamp, []byte(stamp))
 }
 
@@ -73,6 +72,7 @@ func (f *lifecycleFixture) inTx(run func(tx pgx.Tx) error) {
 }
 
 func TestDismissedWealthObservationSettlesBothOrigins(t *testing.T) {
+	t.Parallel()
 	f := newLifecycleFixture(t)
 	decision := `{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","knownFacts":{},"missingFacts":["wealth_snapshot_confirmation"],"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`
 	documentSource := f.source("TELEGRAM_IMAGE")
@@ -100,6 +100,7 @@ func TestDismissedWealthObservationSettlesBothOrigins(t *testing.T) {
 }
 
 func TestReopenedSourceReviewIsSettledByTheSharedRefresh(t *testing.T) {
+	t.Parallel()
 	f := newLifecycleFixture(t)
 	for _, bound := range []string{"source_event", "document"} {
 		t.Run(bound, func(t *testing.T) {

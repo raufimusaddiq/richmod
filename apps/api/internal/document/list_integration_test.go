@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
@@ -17,6 +16,7 @@ import (
 )
 
 func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,7 +27,7 @@ func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID, sourceID, attachmentID, documentID, transactionID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Documents %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -143,6 +143,7 @@ func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
 }
 
 func TestDocumentListIncludesStagedEvidenceDispute(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -158,7 +159,7 @@ func TestDocumentListIncludesStagedEvidenceDispute(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := fmt.Sprintf("dispute-document-%d", time.Now().UnixNano())
+	stamp := fmt.Sprintf("dispute-document-%d", uniqueStamp())
 	var household, user, source, reply, attachment, document, original, proposal string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Synthetic document household') RETURNING id`).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Synthetic owner','unused') RETURNING id`, stamp+"@example.test").Scan(&user))
@@ -202,6 +203,7 @@ func TestDocumentListIncludesStagedEvidenceDispute(t *testing.T) {
 }
 
 func TestDocumentListDoesNotShowNeedsReviewWithoutActionableReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -212,7 +214,7 @@ func TestDocumentListDoesNotShowNeedsReviewWithoutActionableReview(t *testing.T)
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID, sourceID, attachmentID, documentID, transactionID string
 	must := func(err error) {
 		t.Helper()

@@ -23,6 +23,7 @@ func (f reviewFixture) categorized(t *testing.T, name, date, typ, amount string)
 }
 
 func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-01")
 	f.anchor(t, "2026-09-01")
@@ -86,6 +87,7 @@ func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t 
 }
 
 func TestCycleReviewCategoryRankingUsesThreeCycleTopSixOverCurrentSpike(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, d := range []string{"2026-07-01", "2026-08-01", "2026-09-01"} {
 		f.anchor(t, d)
@@ -113,6 +115,7 @@ func TestCycleReviewCategoryRankingUsesThreeCycleTopSixOverCurrentSpike(t *testi
 }
 
 func TestCycleReviewCategoryRankingFewCategoriesAndUncategorizedOnClosedCycle(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, d := range []string{"2026-07-01", "2026-08-01", "2026-09-01"} {
 		f.anchor(t, d)

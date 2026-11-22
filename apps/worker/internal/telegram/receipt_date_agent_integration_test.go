@@ -29,6 +29,7 @@ func (g *receiptDateGateway) AgentTurn(context.Context, string, gateway.AgentReq
 }
 
 func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"transaction_at":           `{"action":"CONFIRM","transaction_at":"2026-10-03"}`,
 		"transaction_at, unpadded": `{"action":"CONFIRM","transaction_at":"2026-10-3"}`,
@@ -88,6 +89,7 @@ func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 }
 
 func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "receipt-date-invalid")
 	var categoryID, transactionID, reviewID string
@@ -122,6 +124,7 @@ func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 }
 
 func TestReceiptReviewCardNamesItsTransaction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "receipt-card-summary")
 	var merchantID, transactionID, itemID string

@@ -35,6 +35,7 @@ func (f reviewFixture) overview(t *testing.T, now time.Time) overviewComparison 
 }
 
 func TestOverviewComparesAgainstPreviousSalaryCycle(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-24")
 	f.anchor(t, "2026-09-25")
@@ -53,6 +54,7 @@ func TestOverviewComparesAgainstPreviousSalaryCycle(t *testing.T) {
 }
 
 func TestOverviewFirstCycleHasNoComparison(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-25")
 	f.transaction(t, "2026-09-26", "EXPENSE", "CONFIRMED", "250000", true)
@@ -63,6 +65,7 @@ func TestOverviewFirstCycleHasNoComparison(t *testing.T) {
 }
 
 func TestOverviewCalendarMonthComparisonAndEmptyHousehold(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, clock.HouseholdLocation())
 	empty := f.overview(t, now)
@@ -78,6 +81,7 @@ func TestOverviewCalendarMonthComparisonAndEmptyHousehold(t *testing.T) {
 }
 
 func TestCategoriesCurrentCycleMatchesOverviewWindow(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name         string
 		anchors      []string
@@ -110,6 +114,7 @@ func TestCategoriesCurrentCycleMatchesOverviewWindow(t *testing.T) {
 }
 
 func TestCategoriesLast3CyclesRanksHouseholdAndBreaksTiesDeterministically(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, d := range []string{"2026-06-25", "2026-07-25", "2026-08-25", "2026-09-25"} {
 		f.anchor(t, d)

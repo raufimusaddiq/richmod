@@ -32,14 +32,15 @@ func (r *recordingQueryer) Query(ctx context.Context, sql string, args ...any) (
 }
 
 func TestProductAggregateSkipsBoundedChoiceSumWithoutCanonicalEvents(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
 	var householdID string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Empty product %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Empty product %d", uniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
 	recorder := &recordingQueryer{pool: poolQueryer{pool: pool}}
-	handler := &Handler{pool: recorder, probeSlots: make(chan struct{}, 8)}
+	handler := &Handler{pool: recorder, probeSlots: make(chan struct{}, 8), probeTimeout: time.Minute}
 	aggregate, err := handler.loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
@@ -55,9 +56,10 @@ func TestProductAggregateSkipsBoundedChoiceSumWithoutCanonicalEvents(t *testing.
 }
 
 func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, otherHousehold, sourceID, otherSourceID string
 	for _, row := range []struct {
 		name string
@@ -85,7 +87,7 @@ func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',$3::jsonb)`, otherHousehold, otherSourceID, `{"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"],"knownFacts":{"category":"food"},"missingFacts":["category"]}`); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,9 +97,10 @@ func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
 }
 
 func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Product Aggregate %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -119,7 +122,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, telegramEventID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +161,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE' WHERE household_id=$1 AND review_type='UNKNOWN_MERCHANT'`, householdID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +177,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND source_event_id=$2 AND review_type='AMBIGUOUS_CATEGORY'`, householdID, bankEventID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +196,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','COMPLETE_BANK_FACTS',now(),now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, oldEventID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +216,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values='{}'::jsonb WHERE household_id=$1 AND source_event_id=$2`, householdID, acceptedEventID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +232,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, systemEventID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +261,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','RESOLVED','SNAPSHOT_CREATED',now(),now(),'{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}'::jsonb)`, householdID, observationID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +271,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='RECLASSIFIED_ASSET_PURCHASE' WHERE wealth_observation_id=$1`, observationID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +298,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','RESOLVED','ALLOCATE_RETAINED_BALANCE',now(),now(),'{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"]}'::jsonb)`, householdID, caseID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +320,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000,'IDR',now(),'needs review')`, householdID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err = aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}

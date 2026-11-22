@@ -52,6 +52,7 @@ func createTransferClassificationReviewWithType(t *testing.T, ctx context.Contex
 }
 
 func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-asset")
 	var goldID string
@@ -123,6 +124,7 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 }
 
 func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-expense")
 	var diningID string
@@ -167,6 +169,7 @@ func TestT4TransferReviewExpenseUsesTypedCategory(t *testing.T) {
 }
 
 func TestT3TransferReviewRejectsAmbiguousAndInactiveWealthHints(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "core-boundary-wealth-reject")
 	for _, name := range []string{"Emas A", "Emas B"} {

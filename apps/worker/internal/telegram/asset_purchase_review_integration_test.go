@@ -6,12 +6,12 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestTelegramReviewClassifiesAssetPurchase(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -22,7 +22,7 @@ func TestTelegramReviewClassifiesAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp, chatID := time.Now().UnixNano(), time.Now().UnixNano()
+	stamp, chatID := uniqueStamp(), uniqueStamp()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)
@@ -61,6 +61,7 @@ func TestTelegramReviewClassifiesAssetPurchase(t *testing.T) {
 }
 
 func TestTelegramExpenseReviewReclassifiesAssetPurchase(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -71,7 +72,7 @@ func TestTelegramExpenseReviewReclassifiesAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp, chatID := time.Now().UnixNano(), time.Now().UnixNano()
+	stamp, chatID := uniqueStamp(), uniqueStamp()
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)

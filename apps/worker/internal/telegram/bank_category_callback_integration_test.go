@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestBankCategoryCallbackPreservesProposalDate(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -20,7 +20,7 @@ func TestBankCategoryCallbackPreservesProposalDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var household, user, category, bankSource, proposal, transaction, item, request string
 	must := func(err error) {

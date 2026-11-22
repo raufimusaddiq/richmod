@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
@@ -19,6 +18,7 @@ import (
 )
 
 func TestVoidRefusesActiveMergeTarget(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -37,7 +37,7 @@ func TestVoidRefusesActiveMergeTarget(t *testing.T) {
 	}
 	var household, user string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Merge void') RETURNING id`).Scan(&household))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Merger','unused') RETURNING id`, fmt.Sprintf("merge-void-%d@example.test", time.Now().UnixNano())).Scan(&user))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Merger','unused') RETURNING id`, fmt.Sprintf("merge-void-%d@example.test", uniqueStamp())).Scan(&user))
 	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	h, rh := NewHandler(pool), review.NewHandler(pool)
 	as := func(r *http.Request) *http.Request { return r.WithContext(auth.ContextWithPrincipal(r.Context(), principal)) }

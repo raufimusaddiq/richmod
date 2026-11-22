@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -37,7 +37,7 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := time.Now().UnixNano()
+			stamp := uniqueStamp()
 			household, user, chat, _, _, _, request, item := seedDuplicateReview(t, pool, stamp)
 			var bankSource string
 			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("reask-%d", stamp), []byte(fmt.Sprintf("reask-%d", stamp))).Scan(&bankSource))

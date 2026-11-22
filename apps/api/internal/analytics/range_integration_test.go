@@ -16,6 +16,7 @@ import (
 )
 
 func TestCashflowRangeIncludesOnlyConfirmedFinancialState(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -26,7 +27,7 @@ func TestCashflowRangeIncludesOnlyConfirmedFinancialState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Analytics %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

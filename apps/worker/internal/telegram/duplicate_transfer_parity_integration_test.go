@@ -25,6 +25,7 @@ func callbackUpdate(chatID, messageID int64, data string) telegramUpdate {
 }
 
 func TestStaleReviewCallbackPersistsReply(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -35,7 +36,7 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, sourceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stale callback %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -81,6 +82,7 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 }
 
 func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -91,7 +93,7 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, reviewID, itemID, sourceID string
 	must := func(err error) {
@@ -148,6 +150,7 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 }
 
 func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -158,7 +161,7 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, targetID, reviewID, itemID string
 	must := func(err error) {
@@ -214,6 +217,7 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 }
 
 func TestExpenseTransferChooserOmitsInvalidClassifications(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -224,7 +228,7 @@ func TestExpenseTransferChooserOmitsInvalidClassifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, reviewID, itemID string
 	must := func(err error) {

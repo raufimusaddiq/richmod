@@ -46,6 +46,7 @@ func seedDuplicateReview(t *testing.T, pool *pgxpool.Pool, stamp int64) (househo
 }
 
 func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -56,7 +57,7 @@ func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household, _, chatID, _, duplicateID, targetID, reviewID, dupItemID := seedDuplicateReview(t, pool, stamp)
 	if _, err := pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,1)`, reviewID, chatID); err != nil {
 		t.Fatal(err)
@@ -97,6 +98,7 @@ func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
 }
 
 func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -107,7 +109,7 @@ func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	household, _, _, _, duplicateID, targetID, _, dupItemID := seedDuplicateReview(t, pool, time.Now().UnixNano())
+	household, _, _, _, duplicateID, targetID, _, dupItemID := seedDuplicateReview(t, pool, uniqueStamp())
 	var drifted string
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',58000,'IDR',now()-interval '200 hours','Indomaret',now()) RETURNING id`, household).Scan(&drifted); err != nil {
 		t.Fatal(err)

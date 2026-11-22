@@ -15,6 +15,7 @@ import (
 )
 
 func TestLedgerActionsCannotBypassReview(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -32,7 +33,7 @@ func TestLedgerActionsCannotBypassReview(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Synthetic foreign boundary') RETURNING id`).Scan(&foreignHousehold); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Synthetic actor','unused') RETURNING id`, fmt.Sprintf("boundary-%d@example.test", time.Now().UnixNano())).Scan(&user); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Synthetic actor','unused') RETURNING id`, fmt.Sprintf("boundary-%d@example.test", uniqueStamp())).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
 	principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}

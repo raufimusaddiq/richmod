@@ -14,6 +14,7 @@ import (
 )
 
 func TestTransactionDecisionCountMatchesTheOfferedCards(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	at := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -45,6 +46,7 @@ func TestTransactionDecisionCountMatchesTheOfferedCards(t *testing.T) {
 }
 
 func TestTransferMergeIsOfferedOnlyWhereItIsAccepted(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	var account, other string

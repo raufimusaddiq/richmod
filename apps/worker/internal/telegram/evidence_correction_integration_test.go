@@ -26,6 +26,7 @@ func correctionCallFromEvidence(t *testing.T, request gateway.AgentRequest, cate
 }
 
 func TestCategoryReplyToALinkedReceiptStagesACorrectionOnThatTransactionOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "corr-linked")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
@@ -65,6 +66,7 @@ func TestCategoryReplyToALinkedReceiptStagesACorrectionOnThatTransactionOnly(t *
 }
 
 func TestCorrectionRefusesATargetThatIsNotAnIssuedRefForThisHousehold(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "corr-foreign")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})

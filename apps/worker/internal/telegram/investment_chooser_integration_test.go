@@ -12,6 +12,7 @@ import (
 )
 
 func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -22,7 +23,7 @@ func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chat := stamp
 	var household, user, account, later, review, item string
 	var eligibleIDs []string

@@ -14,6 +14,7 @@ import (
 )
 
 func TestWebConfirmAndMergeOnStagedDisputeAreExplicitConflictsWithoutMutation(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -24,7 +25,7 @@ func TestWebConfirmAndMergeOnStagedDisputeAreExplicitConflictsWithoutMutation(t 
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	must := func(err error) {
 		t.Helper()

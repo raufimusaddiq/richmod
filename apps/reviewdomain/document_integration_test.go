@@ -9,6 +9,7 @@ import (
 )
 
 func TestResolveDocumentReviewIgnoreSettlesDocumentAndSource(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}

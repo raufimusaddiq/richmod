@@ -8,6 +8,7 @@ import (
 )
 
 func TestPlainTelegramConfirmAndRejectCountAsBoundedChoices(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "review-telemetry-terminal-actions")
 	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining')`, f.householdID)

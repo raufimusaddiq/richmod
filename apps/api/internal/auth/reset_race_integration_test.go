@@ -12,6 +12,7 @@ import (
 )
 
 func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -23,7 +24,7 @@ func TestLoginCannotOutliveAPasswordReset(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	email := fmt.Sprintf("race-%d@example.test", stamp)
 	oldHash, err := HashPassword("old-password-123456")
 	if err != nil {

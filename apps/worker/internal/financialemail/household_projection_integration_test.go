@@ -4,12 +4,12 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestFinancialEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -20,7 +20,7 @@ func TestFinancialEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household, user, _, _, source := seedFinancialEmail(t, ctx, pool, stamp, "ACTIVE")
 	chat := stamp
 	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chat, household, user); err != nil {

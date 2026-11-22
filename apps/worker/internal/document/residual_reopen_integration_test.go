@@ -34,6 +34,7 @@ func seedWaitingCycle(t *testing.T, fixture receiptFixture) string {
 }
 
 func TestAutoConfirmedReceiptReopensAWaitingResidual(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt reopens residual")
 	caseID := seedWaitingCycle(t, fixture)
 	ctx := context.Background()

@@ -8,6 +8,7 @@ import (
 )
 
 func TestAuditF14BatchRetainsNote(t *testing.T) {
+	t.Parallel()
 	for _, lane := range []string{"callback", "agent"} {
 		t.Run(lane, func(t *testing.T) {
 			ctx := context.Background()

@@ -8,13 +8,13 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
 func TestTransactionAccessIsHouseholdScopedAndInjectionSafe(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -26,7 +26,7 @@ func TestTransactionAccessIsHouseholdScopedAndInjectionSafe(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	password := "integration-password"
 	hash, err := auth.HashPassword(password)
 	if err != nil {

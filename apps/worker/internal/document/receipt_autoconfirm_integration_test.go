@@ -44,6 +44,7 @@ type receiptFixture struct {
 }
 
 func TestReceiptWithWeakSameAmountCandidateDoesNotBlock(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt weak duplicate")
 	ctx := context.Background()
 	if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,$2,'Belanja lain',now())`, fixture.householdID, receiptTime().Add(-12*time.Hour)); err != nil {
@@ -65,6 +66,7 @@ func TestReceiptWithWeakSameAmountCandidateDoesNotBlock(t *testing.T) {
 }
 
 func TestReceiptNearSameAmountCandidateStillBlocks(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt near duplicate")
 	ctx := context.Background()
 	if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,$2,'Another merchant',now())`, fixture.householdID, receiptTime().Add(-15*time.Minute)); err != nil {
@@ -83,6 +85,7 @@ func TestReceiptNearSameAmountCandidateStillBlocks(t *testing.T) {
 }
 
 func TestReceiptPlausibleCandidateBeyondTenWeakQueryHitsStillBlocks(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt candidate after weak hits")
 	ctx := context.Background()
 	for hour := 2; hour <= 11; hour++ {
@@ -109,6 +112,7 @@ func TestReceiptPlausibleCandidateBeyondTenWeakQueryHitsStillBlocks(t *testing.T
 }
 
 func TestReceiptReviewPersistsDecisionWithoutTelegramRecipient(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt review without Telegram")
 	ctx := context.Background()
 	if _, err := fixture.pool.Exec(ctx, `DELETE FROM telegram_identity WHERE household_id=$1`, fixture.householdID); err != nil {
@@ -136,6 +140,7 @@ func TestReceiptReviewPersistsDecisionWithoutTelegramRecipient(t *testing.T) {
 }
 
 func TestReceiptResidualReviewTypesSatisfyDatabaseConstraints(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name          string
 		categoryKnown bool
@@ -191,7 +196,7 @@ func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	fixture := receiptFixture{pool: pool}
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("%s %d", label, stamp)).Scan(&fixture.householdID); err != nil {
 		t.Fatal(err)
@@ -228,6 +233,7 @@ func receiptTime() time.Time {
 }
 
 func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt strong match")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -241,7 +247,7 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	value.Confidence = .35
 	value.Tax = ptr("5000")
 	validation.ArithmeticOK = false
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var secondSource, attachmentID, secondDocument string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, fixture.householdID, fmt.Sprintf("receipt-repeat-%d", stamp), []byte(fmt.Sprintf("receipt-repeat-%d", stamp))).Scan(&secondSource); err != nil {
 		t.Fatal(err)
@@ -272,6 +278,7 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 }
 
 func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt auto confirm")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -298,6 +305,7 @@ func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 }
 
 func TestReceiptArithmeticMismatchConfirmsPrintedTotalWithoutReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt mismatch")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -326,6 +334,7 @@ func TestReceiptArithmeticMismatchConfirmsPrintedTotalWithoutReview(t *testing.T
 }
 
 func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt review")
 	ctx := context.Background()
 	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
@@ -350,6 +359,7 @@ func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
 }
 
 func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt category rescue")
 	ctx := context.Background()
 	var foodCategoryID string
@@ -394,6 +404,7 @@ func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
 }
 
 func TestReceiptCategoryUndecidedStaysInCategoryReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt category undecided")
 	ctx := context.Background()
 	var foodCategoryID string
@@ -424,6 +435,7 @@ func TestReceiptCategoryUndecidedStaysInCategoryReview(t *testing.T) {
 }
 
 func TestReceiptCategoryProviderFailureRetriesWithoutReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt category provider failure")
 	ctx := context.Background()
 	verifier := &stubReceiptFailureVerifier{}
@@ -449,6 +461,7 @@ func (*stubReceiptFailureVerifier) Evaluate(context.Context, string, judgment.Re
 }
 
 func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt dateless rescue")
 	ctx := context.Background()
 	var foodCategoryID string
@@ -476,6 +489,7 @@ func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
 }
 
 func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt dateless")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -494,6 +508,7 @@ func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
 }
 
 func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt kill switch")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -515,6 +530,7 @@ func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 }
 
 func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt kill switch rescue")
 	ctx := context.Background()
 	var foodCategoryID string
@@ -543,9 +559,10 @@ func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
 }
 
 func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt notice")
 	ctx := context.Background()
-	chat := time.Now().UnixNano() % 9_000_000_000
+	chat := uniqueStamp() % 9_000_000_000
 	if _, err := fixture.pool.Exec(ctx, `UPDATE source_event SET telegram_chat_id=$2,telegram_message_id=555 WHERE id=$1`, fixture.sourceID, chat); err != nil {
 		t.Fatal(err)
 	}
@@ -571,6 +588,7 @@ func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) 
 }
 
 func TestLinkedReceiptQueuesALinkedNoticeAndStillCreatesNoDuplicate(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt link notice")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -580,7 +598,7 @@ func TestLinkedReceiptQueuesALinkedNoticeAndStillCreatesNoDuplicate(t *testing.T
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, category); err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chat := stamp % 9_000_000_000
 	var secondSource, attachmentID, secondDocument string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_chat_id,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING',$4,556) RETURNING id`, fixture.householdID, fmt.Sprintf("link-notice-%d", stamp), []byte(fmt.Sprintf("link-notice-%d", stamp)), chat).Scan(&secondSource); err != nil {

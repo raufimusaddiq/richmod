@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,7 +36,7 @@ func newTerminalFixture(t *testing.T) *terminalFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	f := &terminalFixture{t: t, pool: pool, ctx: ctx, stamp: stamp, chatID: stamp%1_000_000_000 + 7_000_000_000}
 	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("Terminal text %d", stamp)).Scan(&f.householdID); err != nil {
 		t.Fatal(err)
@@ -94,6 +93,7 @@ func timeoutError() error {
 }
 
 func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	jobs := queue.New(f.pool)
@@ -142,6 +142,7 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 }
 
 func TestFailingTerminalHookStillFailsTheJobWithoutPartialState(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	jobs := queue.New(f.pool)
 	event := f.event(1)
@@ -167,6 +168,7 @@ func TestFailingTerminalHookStillFailsTheJobWithoutPartialState(t *testing.T) {
 }
 
 func TestTerminalHookDoesNotRunForAJobThisWorkerNoLongerOwns(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	jobs := queue.New(f.pool)
@@ -187,6 +189,7 @@ func TestTerminalHookDoesNotRunForAJobThisWorkerNoLongerOwns(t *testing.T) {
 }
 
 func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	for _, id := range []string{"", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
@@ -197,6 +200,7 @@ func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
 }
 
 func TestTerminalNoticeNamesTheCause(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	for _, tc := range []struct {

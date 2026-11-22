@@ -9,6 +9,7 @@ import (
 )
 
 func TestExplicitNewTransactionDisputeOnMergedScreenshotStagesReviewOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "dispute-staged")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "7500", merchant: "Test Merchant", messageID: 101, linkTransaction: true})
@@ -90,6 +91,7 @@ func disputeToolStatus(t *testing.T, ctx context.Context, f agentIntegrationFixt
 }
 
 func TestDisputeAuthorizesWhenTextIntakeHasNoChatID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "dispute-null-chat")
 	seedMergedDisputeEvidence(t, ctx, f)
@@ -108,6 +110,7 @@ func TestDisputeAuthorizesWhenTextIntakeHasNoChatID(t *testing.T) {
 }
 
 func TestDisputeRefusesUnlinkedTelegramUserAndOtherHousehold(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "dispute-auth-neg")
 	a := seedMergedDisputeEvidence(t, ctx, f)

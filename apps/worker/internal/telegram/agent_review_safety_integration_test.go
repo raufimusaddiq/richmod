@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -16,7 +15,7 @@ type agentTransferReviewFixture struct {
 func createAgentTransferReviewForChat(t *testing.T, ctx context.Context, f agentIntegrationFixture, accountID string, chatID, messageID int64) agentTransferReviewFixture {
 	t.Helper()
 	var sourceID, caseID, itemID, reviewID string
-	external := fmt.Sprintf("transfer-review-%d-%d-%d", chatID, messageID, time.Now().UnixNano())
+	external := fmt.Sprintf("transfer-review-%d-%d-%d", chatID, messageID, uniqueStamp())
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.householdID, external, []byte(external)).Scan(&sourceID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,candidate_transaction_ids,status) VALUES($1,$2,$3,125000,now(),'transfer review','INTERNAL_TRANSFER','{}','OPEN') RETURNING id`, f.householdID, sourceID, accountID).Scan(&caseID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","allowedActions":["CLASSIFY_TRANSFER","OWN_ACCOUNT","HOUSEHOLD_ACCOUNT","INVESTMENT_ACCOUNT","EXPENSE","ASSET_PURCHASE","IGNORE"]}'::jsonb) RETURNING id`, f.householdID, sourceID).Scan(&itemID))
@@ -42,6 +41,7 @@ func createAgentWealthReviewForChat(t *testing.T, ctx context.Context, f agentIn
 }
 
 func TestAgentTransferReviewBindingIgnoresAnotherHouseholdChat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "transfer-chat-scope")
 	var accountID string
@@ -58,6 +58,7 @@ func TestAgentTransferReviewBindingIgnoresAnotherHouseholdChat(t *testing.T) {
 }
 
 func TestAgentWealthReviewBindingIgnoresAnotherHouseholdChat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "wealth-chat-scope")
 	wanted := createAgentWealthReviewForChat(t, ctx, f, f.chatID, 301)
@@ -72,6 +73,7 @@ func TestAgentWealthReviewBindingIgnoresAnotherHouseholdChat(t *testing.T) {
 }
 
 func TestAgentBoundTransferExactReplyCannotDriftToNewerCase(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "transfer-exact-drift")
 	var accountID string
@@ -107,6 +109,7 @@ func TestAgentBoundTransferExactReplyCannotDriftToNewerCase(t *testing.T) {
 }
 
 func TestAgentTransferIgnoreUsesDismissLifecycle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "transfer-ignore")
 	var accountID string
@@ -142,6 +145,7 @@ func TestAgentTransferIgnoreUsesDismissLifecycle(t *testing.T) {
 }
 
 func TestAgentBoundWealthReviewRejectsWrongChatAtMutationTime(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "wealth-bound-chat")
 	otherChat := f.chatID + 999

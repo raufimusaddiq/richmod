@@ -31,6 +31,7 @@ func TestNormalizeAliasFoldsUnicodeCompatibility(t *testing.T) {
 }
 
 func TestConfirmWithoutResolveReviewKeepsTheReviewOpen(t *testing.T) {
+	t.Parallel()
 	f := newLifecycleFixture(t)
 	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan','food') RETURNING id`, f.household)
 	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',7500,'IDR',now()) RETURNING id`, f.household)

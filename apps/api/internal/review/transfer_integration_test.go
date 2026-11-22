@@ -9,13 +9,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
 func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,7 +27,7 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 	}
 	defer pool.Close()
 	handler := NewHandler(pool)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
 	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	tests := []struct {
@@ -110,6 +110,7 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 }
 
 func TestClassifyTransferAsAssetPurchase(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -120,7 +121,7 @@ func TestClassifyTransferAsAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, userID, _ := seedTransferReviewOwner(t, pool, stamp)
 	var wealthID string
 	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas','ASSET','GOLD','OTHER') RETURNING id`, householdID).Scan(&wealthID); err != nil {
@@ -147,6 +148,7 @@ func TestClassifyTransferAsAssetPurchase(t *testing.T) {
 }
 
 func TestReclassifyExpenseReviewAsAssetPurchase(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -157,7 +159,7 @@ func TestReclassifyExpenseReviewAsAssetPurchase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, userID, _ := seedTransferReviewOwner(t, pool, stamp)
 	var wealthID string
 	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas','ASSET','GOLD','OTHER') RETURNING id`, householdID).Scan(&wealthID); err != nil {

@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
@@ -31,7 +30,7 @@ func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Small pool %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

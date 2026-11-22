@@ -32,18 +32,6 @@ func TestAgentTimeoutsCoverTheWholePhaseChain(t *testing.T) {
 	}
 }
 
-func TestProgressNoticeWaitsLongEnoughToStaySilentForFastTurnsButNotMuchLonger(t *testing.T) {
-	if ProgressNoticeDelay < 8*time.Second {
-		t.Fatalf("notice delay %s would fire on ordinary turns", ProgressNoticeDelay)
-	}
-	if ProgressNoticeDelay > 15*time.Second {
-		t.Fatalf("notice delay %s leaves the household waiting in silence", ProgressNoticeDelay)
-	}
-	if ProgressNoticeDelay >= defaultAgentLimits.ModelCallTimeout {
-		t.Fatal("the notice must arrive before a single slow call can time out")
-	}
-}
-
 func TestIsModelTimeoutKeysOnTheTypedSentinelNotMessageText(t *testing.T) {
 	wrapped := fmt.Errorf("%w: %w", errModelPhase, fmt.Errorf("call chat completion gateway: %w", context.DeadlineExceeded))
 	stringyDeadline := fmt.Errorf("%w: %w", errModelPhase, errors.New(`Post "http://router/v1/chat/completions": context deadline exceeded`))

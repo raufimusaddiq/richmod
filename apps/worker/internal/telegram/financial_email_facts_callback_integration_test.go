@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,7 +27,7 @@ func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, sourceID, observationID, itemID, requestID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("facts callback %d", stamp)).Scan(&householdID))

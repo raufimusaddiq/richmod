@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -23,7 +23,7 @@ func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, sourceID, attachmentID, documentID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Document failure %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -70,6 +70,7 @@ func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 }
 
 func TestTelegramDocumentProjectionIsIdempotent(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -81,7 +82,7 @@ func TestTelegramDocumentProjectionIsIdempotent(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, sourceID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Wealth prompt %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

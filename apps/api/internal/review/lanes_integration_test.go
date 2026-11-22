@@ -37,7 +37,7 @@ func newLaneFixture(t *testing.T) *laneFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	return &laneFixture{t: t, pool: pool, household: household, user: user, stamp: stamp}
 }
@@ -122,6 +122,7 @@ func (f *laneFixture) status(source string) string {
 }
 
 func TestBankEmailLowConfidenceOffersOnlyExecutableActions(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	decision := `{"version":1,"reasonCode":"DOCUMENT_EXTRACTION_LOW_CONFIDENCE","knownFacts":{},"missingFacts":["amount"],"allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}`
@@ -151,6 +152,7 @@ func TestBankEmailLowConfidenceOffersOnlyExecutableActions(t *testing.T) {
 }
 
 func TestFinancialEmailFactsIsANoticeOutsideTheDecisionCount(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	source := f.source("FINANCIAL_EMAIL", "NEEDS_REVIEW")
@@ -191,6 +193,7 @@ func TestFinancialEmailFactsIsANoticeOutsideTheDecisionCount(t *testing.T) {
 }
 
 func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	seed := func() (string, string, string, string) {
@@ -248,6 +251,7 @@ func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
 }
 
 func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	salaryEventSource := f.source("TELEGRAM_TEXT", "PROCESSED")
@@ -311,6 +315,7 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 }
 
 func TestTransactionReviewListPagesWithACursor(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -330,6 +335,7 @@ func TestTransactionReviewListPagesWithACursor(t *testing.T) {
 }
 
 func TestTransferCaseWithoutPurposeOffersBoundedNewTransfer(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	source := f.source("TELEGRAM_TEXT", "NEEDS_REVIEW")
@@ -356,6 +362,7 @@ func TestTransferCaseWithoutPurposeOffersBoundedNewTransfer(t *testing.T) {
 }
 
 func TestMissingTransactionDateTakesAOneTapDateChoice(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	source := f.source("TELEGRAM_IMAGE", "NEEDS_REVIEW")
@@ -393,6 +400,7 @@ func TestMissingTransactionDateTakesAOneTapDateChoice(t *testing.T) {
 }
 
 func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	var category, transaction string
@@ -418,6 +426,7 @@ func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
 }
 
 func TestIgnoreOnOpenTransactionReviewRejectsThroughTheTransactionLane(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	var transaction, item string
@@ -434,6 +443,7 @@ func TestIgnoreOnOpenTransactionReviewRejectsThroughTheTransactionLane(t *testin
 }
 
 func TestTransferMergeWithoutProposedPurposeKeepsTheTargetPurpose(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	var account, classified, unclassified string
@@ -462,6 +472,7 @@ func TestTransferMergeWithoutProposedPurposeKeepsTheTargetPurpose(t *testing.T) 
 }
 
 func TestProviderEmailWealthReviewKeepsItsAccountChoice(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	source := f.source("FINANCIAL_EMAIL", "NEEDS_REVIEW")
@@ -483,6 +494,7 @@ func TestProviderEmailWealthReviewKeepsItsAccountChoice(t *testing.T) {
 }
 
 func TestTransactionReviewListOffersOnlyExecutableActions(t *testing.T) {
+	t.Parallel()
 	f := newLaneFixture(t)
 	ctx := context.Background()
 	var transaction string

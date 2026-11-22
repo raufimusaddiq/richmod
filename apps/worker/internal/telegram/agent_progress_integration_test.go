@@ -12,6 +12,7 @@ import (
 )
 
 func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 
@@ -74,6 +75,7 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 }
 
 func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	jobs := queue.New(f.pool)
@@ -106,6 +108,7 @@ func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
 }
 
 func TestProgressNoticeIgnoresRepliesOlderThanTheLookback(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	if _, err := f.pool.Exec(f.ctx, `INSERT INTO job(type,payload_json,created_at) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',31::bigint,'text','lama'),now()-interval '1 hour')`, f.chatID); err != nil {
@@ -149,6 +152,7 @@ func (f *terminalFixture) failedSourceItems(eventID string) (count int, sourceTy
 }
 
 func TestDeadButtonTapIsFinalizedAnnouncedAndRecorded(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	jobs := queue.New(f.pool)
@@ -201,6 +205,7 @@ func TestDeadButtonTapIsFinalizedAnnouncedAndRecorded(t *testing.T) {
 }
 
 func TestDeadTypedMessageLeavesADismissableItem(t *testing.T) {
+	t.Parallel()
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	jobs := queue.New(f.pool)

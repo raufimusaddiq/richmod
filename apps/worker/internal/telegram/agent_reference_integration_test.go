@@ -51,6 +51,7 @@ func recordAgentTransactionForRefTest(t *testing.T, ctx context.Context, f agent
 }
 
 func TestAgentRecordedTransactionRefsAreScopedAcrossTurns(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recorded-ref-scope")
 	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining')`, f.householdID)
@@ -62,7 +63,7 @@ func TestAgentRecordedTransactionRefsAreScopedAcrossTurns(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT transaction_id FROM transaction_evidence WHERE source_event_id=$1 AND evidence_type='TELEGRAM_TEXT' LIMIT 1`, f.sourceID).Scan(&firstTransactionID))
 
 	var secondSourceID string
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, f.householdID, fmt.Sprintf("agent-recorded-ref-second-%d", stamp), []byte(fmt.Sprintf("agent-recorded-ref-second-%d", stamp))).Scan(&secondSourceID))
 	secondUpdate := f.update
 	secondUpdate.Message.MessageID = 2
@@ -91,6 +92,7 @@ func TestAgentRecordedTransactionRefsAreScopedAcrossTurns(t *testing.T) {
 }
 
 func TestAgentMutationRefRollsBackWithCanonicalTransaction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recorded-ref-atomic")
 	tx, err := f.pool.Begin(ctx)

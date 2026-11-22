@@ -16,6 +16,7 @@ import (
 )
 
 func TestReopenConfirmedCategoryReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -32,7 +33,7 @@ func TestReopenConfirmedCategoryReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	household, user, category := seedTransferReviewOwner(t, pool, time.Now().UnixNano())
+	household, user, category := seedTransferReviewOwner(t, pool, uniqueStamp())
 	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	handler := NewHandler(pool)
 	call := func(method, path, id, body string, fn http.HandlerFunc) *httptest.ResponseRecorder {

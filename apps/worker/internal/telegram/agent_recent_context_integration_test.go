@@ -6,6 +6,7 @@ import (
 )
 
 func TestAgentTurnContextIncludesRecentTransactions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-ctx")
 	mustAgentTest(t, func() error {

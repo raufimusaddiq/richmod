@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -23,7 +23,7 @@ func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, transactionID, reviewID, itemID string
 	must := func(err error) {
@@ -80,6 +80,7 @@ func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 }
 
 func TestCategoryOnlyReviewSelectionCompletesReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -90,7 +91,7 @@ func TestCategoryOnlyReviewSelectionCompletesReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, categoryID, transactionID, reviewID, itemID string
 	must := func(err error) {

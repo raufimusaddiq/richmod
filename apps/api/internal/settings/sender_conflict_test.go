@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,6 +36,7 @@ func TestWriteSenderWriteErrorSeparatesDuplicatesFromRealErrors(t *testing.T) {
 }
 
 func TestDuplicateBankListenerSenderIs409(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -47,7 +47,7 @@ func TestDuplicateBankListenerSenderIs409(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var household, user string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Duplicate sender %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)

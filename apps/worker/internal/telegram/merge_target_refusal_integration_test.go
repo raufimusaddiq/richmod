@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -35,7 +34,7 @@ func newMergeTargetFixture(t *testing.T, kind, reviewType string) *mergeTargetFi
 	}
 	t.Cleanup(pool.Close)
 	f := &mergeTargetFixture{t: t, ctx: ctx, pool: pool}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	f.chat = stamp
 	must := func(err error) {
 		t.Helper()
@@ -106,6 +105,7 @@ func (f *mergeTargetFixture) refusedReply() {
 }
 
 func TestRejectBoundReviewRefusesActiveMergeTarget(t *testing.T) {
+	t.Parallel()
 	f := newMergeTargetFixture(t, "EXPENSE", "AMBIGUOUS_CATEGORY")
 	if err := NewProcessor(f.pool, nil).rejectBoundReview(f.ctx, f.replySource, f.household, f.request, f.target, "AMBIGUOUS_CATEGORY", f.update); err != nil {
 		t.Fatalf("a refusal is a reply, not a failed job: %v", err)
@@ -115,6 +115,7 @@ func TestRejectBoundReviewRefusesActiveMergeTarget(t *testing.T) {
 }
 
 func TestTransferIgnoreRefusesActiveMergeTarget(t *testing.T) {
+	t.Parallel()
 	f := newMergeTargetFixture(t, "UNCLASSIFIED", "TRANSFER_CLASSIFICATION")
 	if err := NewProcessor(f.pool, nil).resolveTransferReview(f.ctx, f.replySource, f.household, f.request, f.target, f.update, "UNCLASSIFIED", "VOIDED", "IGNORE", "Transfer disimpan sebagai diabaikan.", ""); err != nil {
 		t.Fatalf("a refusal is a reply, not a failed job: %v", err)
@@ -124,6 +125,7 @@ func TestTransferIgnoreRefusesActiveMergeTarget(t *testing.T) {
 }
 
 func TestAgentRejectRefusesActiveMergeTargetWithToolStatus(t *testing.T) {
+	t.Parallel()
 	f := newMergeTargetFixture(t, "EXPENSE", "AMBIGUOUS_CATEGORY")
 	state := &agentState{SourceEventID: f.replySource, HouseholdID: f.household, Update: f.update}
 	result, _, err := NewProcessor(f.pool, nil).agentRejectTransactionReview(f.ctx, state, gateway.ToolCall{CallID: "c1", Name: "reject_transaction_review"}, agentTransactionReview{reviewID: f.request, transactionID: f.target, reviewType: "AMBIGUOUS_CATEGORY"})
@@ -141,6 +143,7 @@ func TestAgentRejectRefusesActiveMergeTargetWithToolStatus(t *testing.T) {
 }
 
 func TestAgentSalaryIgnoreRefusesActiveMergeTarget(t *testing.T) {
+	t.Parallel()
 	f := newMergeTargetFixture(t, "INCOME", "PAYSLIP_CONFIRMATION")
 	if _, err := f.pool.Exec(f.ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date,status) VALUES($1,$2,$2,$3,'Test','2026-11-01','2026-11-25','PENDING')`, f.household, f.chat, f.target); err != nil {
 		t.Fatal(err)

@@ -33,7 +33,7 @@ func newAgentIntegrationFixture(t *testing.T, label string) agentIntegrationFixt
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, sourceID string
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("agent %s %d", label, stamp)).Scan(&householdID))
@@ -81,6 +81,7 @@ func assertNoDirectTelegramReplyJob(t *testing.T, ctx context.Context, f agentIn
 }
 
 func TestAgentRecordTransferReturnsStructuredResultWithoutCannedReply(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "transfer")
 	_, err := f.pool.Exec(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Jago','BANK','FULL_LEDGER')`, f.householdID)
@@ -103,6 +104,7 @@ func TestAgentRecordTransferReturnsStructuredResultWithoutCannedReply(t *testing
 }
 
 func TestAgentSalaryChoiceReturnsStructuredResultWithoutCannedReply(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "salary")
 	var transactionID string
@@ -124,6 +126,7 @@ func TestAgentSalaryChoiceReturnsStructuredResultWithoutCannedReply(t *testing.T
 }
 
 func TestAgentReviewConfirmationReturnsStructuredResultWithoutCannedReply(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "review")
 	var categoryID, transactionID, itemID, reviewID string

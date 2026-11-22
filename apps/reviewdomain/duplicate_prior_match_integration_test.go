@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestMergeDuplicateAcceptsCarriedPriorMatchOutsideAmountAndWindow(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -22,7 +22,7 @@ func TestMergeDuplicateAcceptsCarriedPriorMatchOutsideAmountAndWindow(t *testing
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	must := func(err error) {
 		t.Helper()
 		if err != nil {

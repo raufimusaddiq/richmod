@@ -16,6 +16,7 @@ func ageEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, d
 }
 
 func TestSingleFreshEvidenceBindsAsImmediateContext(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-immediate")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -35,6 +36,7 @@ func TestSingleFreshEvidenceBindsAsImmediateContext(t *testing.T) {
 }
 
 func TestTwoRecentReceiptsAreAmbiguousAndNeverChosen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-ambiguous")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -64,6 +66,7 @@ func TestTwoRecentReceiptsAreAmbiguousAndNeverChosen(t *testing.T) {
 }
 
 func TestRecencyWindowsDecideBindingDeterministically(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	p := func(f agentIntegrationFixture) *Processor { return NewProcessor(f.pool, nil) }
 
@@ -124,6 +127,7 @@ func TestRecencyWindowsDecideBindingDeterministically(t *testing.T) {
 }
 
 func TestRecentEvidenceIsScopedToTheChatHouseholdAndUsableDocuments(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-scope")
 	other := newAgentIntegrationFixture(t, "recent-scope-other")
@@ -153,6 +157,7 @@ func evidenceReadCall(t *testing.T, ref string) (gateway.ToolCall, map[string]an
 }
 
 func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-tool")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", linkTransaction: true})
@@ -222,6 +227,7 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 }
 
 func TestRecentEvidenceIsScopedToTheSendingUser(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-user")
 	mine := seedEvidence(t, ctx, f, "mine", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -246,6 +252,7 @@ func TestRecentEvidenceIsScopedToTheSendingUser(t *testing.T) {
 }
 
 func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "recent-broken")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})

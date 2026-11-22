@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -75,7 +74,7 @@ func seedRetireFixture(t *testing.T) retireFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	f := retireFixture{pool: pool, chatA: stamp, chatB: stamp + 1, chatC: stamp + 2}
 	var transactionID, itemID string
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Retire cards %d", stamp)).Scan(&f.householdID))
@@ -112,6 +111,7 @@ func (f retireFixture) retireJobs(t *testing.T) []RetireCardPayload {
 }
 
 func TestClosingReviewRequestQueuesOneRetirementPerDeliveredCard(t *testing.T) {
+	t.Parallel()
 	f := seedRetireFixture(t)
 	ctx := context.Background()
 	if jobs := f.retireJobs(t); len(jobs) != 0 {
@@ -164,6 +164,7 @@ func TestClosingReviewRequestQueuesOneRetirementPerDeliveredCard(t *testing.T) {
 }
 
 func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
+	t.Parallel()
 	f := seedRetireFixture(t)
 	ctx := context.Background()
 	_, err := f.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1`, f.requestID)
@@ -209,6 +210,7 @@ func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
 }
 
 func TestCardBoundAfterCloseIsRecordedAndRetired(t *testing.T) {
+	t.Parallel()
 	f := seedRetireFixture(t)
 	ctx := context.Background()
 	_, err := f.pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1`, f.requestID)
@@ -244,6 +246,7 @@ func TestCardBoundAfterCloseIsRecordedAndRetired(t *testing.T) {
 }
 
 func TestBindReviewMessageOpensPendingRequestWithoutRetiring(t *testing.T) {
+	t.Parallel()
 	f := seedRetireFixture(t)
 	ctx := context.Background()
 	_, err := f.pool.Exec(ctx, `UPDATE review_request SET status='PENDING_SEND' WHERE id=$1`, f.requestID)
@@ -260,6 +263,7 @@ func TestBindReviewMessageOpensPendingRequestWithoutRetiring(t *testing.T) {
 }
 
 func TestQueuedReviewEditIsDroppedAfterRetirement(t *testing.T) {
+	t.Parallel()
 	f := seedRetireFixture(t)
 	ctx := context.Background()
 	tx, err := f.pool.Begin(ctx)
@@ -299,6 +303,7 @@ func TestQueuedReviewEditIsDroppedAfterRetirement(t *testing.T) {
 }
 
 func TestMerchantLearningQuestionIsSeparateFromRetiredCard(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -307,7 +312,7 @@ func TestMerchantLearningQuestionIsSeparateFromRetiredCard(t *testing.T) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	mustAgentTest(t, err)
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID, categoryID, merchantID, transactionID, reviewID, confirmSourceID, rememberSourceID string
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Learning card %d", stamp)).Scan(&householdID))
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("learning-card-%d@example.test", stamp)).Scan(&userID))

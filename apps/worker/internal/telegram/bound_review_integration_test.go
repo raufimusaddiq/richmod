@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -19,6 +18,7 @@ func (boundReviewGateway) NativeToolCall(context.Context, string, string, any, [
 }
 
 func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -30,7 +30,7 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, categoryID, merchantID, transactionID, reviewID, sourceID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Remembered review %d", stamp)).Scan(&householdID); err != nil {
@@ -97,6 +97,7 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 }
 
 func TestTelegramCategoryCallbackDoesNotReopenCategoryOnlyReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -108,7 +109,7 @@ func TestTelegramCategoryCallbackDoesNotReopenCategoryOnlyReview(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	chatID := stamp
 	var householdID, userID, categoryID, transactionID, reviewID, itemID, sourceID string
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Category-only callback %d", stamp)).Scan(&householdID); err != nil {

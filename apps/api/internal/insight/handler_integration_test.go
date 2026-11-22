@@ -16,6 +16,7 @@ import (
 )
 
 func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -27,7 +28,7 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID, sourceID, transactionID, salarySourceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Insight %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)

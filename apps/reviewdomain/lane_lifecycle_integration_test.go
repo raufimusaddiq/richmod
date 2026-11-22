@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestFinancialEmailIgnoreSettlesThroughTheSharedLifecycle(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -28,7 +28,7 @@ func TestFinancialEmailIgnoreSettlesThroughTheSharedLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := time.Now().UnixNano()
+			stamp := uniqueStamp()
 			var household, user, source, observation, item string
 			must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Lane lifecycle %d", stamp)).Scan(&household))
 			must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("lane-%d@test.invalid", stamp)).Scan(&user))

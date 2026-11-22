@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -33,6 +32,7 @@ func seedCategory(t *testing.T, ctx context.Context, f agentIntegrationFixture, 
 }
 
 func TestRecordTurnIsOneModelCallWithADeterministicDetailedReply(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-record")
 	seedCategory(t, ctx, f, "makan", "Makan & Minum")
@@ -57,6 +57,7 @@ func TestRecordTurnIsOneModelCallWithADeterministicDetailedReply(t *testing.T) {
 }
 
 func TestNeedsReviewReplyPointsAtTheCardBelow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-review-reply")
 	args := strings.Replace(kopiRecordArgs, `"category_slug":"makan"`, `"category_slug":null`, 1)
@@ -71,6 +72,7 @@ func TestNeedsReviewReplyPointsAtTheCardBelow(t *testing.T) {
 }
 
 func TestMemoryKeepsFailuresAndSkipsBookkeepingRows(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-memory")
 	p := NewProcessor(f.pool, nil)
@@ -104,6 +106,7 @@ func TestMemoryKeepsFailuresAndSkipsBookkeepingRows(t *testing.T) {
 }
 
 func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-defer")
 	seedCategory(t, ctx, f, "makan", "Makan & Minum")
@@ -151,6 +154,7 @@ func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 }
 
 func TestGatewayOutageGivesUpAfterADay(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-defer-giveup")
 	down := &capturingGateway{err: &gateway.StatusError{StatusCode: 503}}
@@ -175,6 +179,7 @@ func TestGatewayOutageGivesUpAfterADay(t *testing.T) {
 }
 
 func TestGatewayOutageWithABoundCardCreatesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-defer-card")
 	seedCategory(t, ctx, f, "makan", "Makan")
@@ -193,6 +198,7 @@ func TestGatewayOutageWithABoundCardCreatesNothing(t *testing.T) {
 }
 
 func TestUnservablePeriodsAreRecoverableReadResults(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-periods")
 	p := NewProcessor(f.pool, nil)
@@ -235,6 +241,7 @@ func TestValidateCreateCoversDateAndTimeRules(t *testing.T) {
 }
 
 func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-correct")
 	var selfTx, bankTx, bankSource string
@@ -242,7 +249,7 @@ func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
 	_, err := f.pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TELEGRAM_TEXT')`, selfTx, f.sourceID)
 	mustAgentTest(t, err)
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',90000,'IDR',now(),'Toko Bank',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&bankTx))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'PROCESSED') RETURNING id`, f.householdID, fmt.Sprintf("bank-%d", time.Now().UnixNano()), []byte("bank")).Scan(&bankSource))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'PROCESSED') RETURNING id`, f.householdID, fmt.Sprintf("bank-%d", uniqueStamp()), []byte("bank")).Scan(&bankSource))
 	_, err = f.pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, bankTx, bankSource)
 	mustAgentTest(t, err)
 	p := NewProcessor(f.pool, nil)
@@ -281,6 +288,7 @@ func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
 }
 
 func TestPendingBatchDoesNotSwallowAnUnrelatedQuestion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-batch-unrelated")
 	_, err := f.pool.Exec(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status) VALUES($1,$2,$2,$3,'[{"Type":"EXPENSE","Amount":"1000","Merchant":"A","CategorySlug":"","Description":"","Note":"","TransactionAt":"2026-11-01T10:00:00+07:00"}]'::jsonb,'PENDING')`, f.householdID, f.chatID, f.sourceID)
@@ -298,6 +306,7 @@ func TestPendingBatchDoesNotSwallowAnUnrelatedQuestion(t *testing.T) {
 }
 
 func TestExplicitReplyToANonWorkflowMessageIsAnOrdinaryTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-reply-general")
 	model := &capturingGateway{}
@@ -319,6 +328,7 @@ func TestExplicitReplyToANonWorkflowMessageIsAnOrdinaryTurn(t *testing.T) {
 }
 
 func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-cards")
 	seedCategory(t, ctx, f, "makan", "Makan")
@@ -376,6 +386,7 @@ func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
 }
 
 func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-recover")
 	seedCategory(t, ctx, f, "makan", "Makan & Minum")
@@ -399,6 +410,7 @@ func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
 }
 
 func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-batch")
 	seedCategory(t, ctx, f, "makan", "Makan")
@@ -438,6 +450,7 @@ func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
 }
 
 func TestCycleResidualAuditStatementIsTyped(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-42p18")
 	tx, err := f.pool.Begin(ctx)
@@ -457,6 +470,7 @@ func TestCycleResidualAuditStatementIsTyped(t *testing.T) {
 }
 
 func TestRepeatedReadsRunOnceAndTheLastPhaseAnswers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-reads")
 	read := gateway.ToolCall{Name: "query_spending", Arguments: json.RawMessage(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)}
@@ -481,10 +495,11 @@ func TestRepeatedReadsRunOnceAndTheLastPhaseAnswers(t *testing.T) {
 }
 
 func TestRecentTransactionsPreferTheMembersOwnEntries(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-recent")
 	var otherUser string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Other','unused') RETURNING id`, fmt.Sprintf("other-%d@example.test", time.Now().UnixNano())).Scan(&otherUser))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Other','unused') RETURNING id`, fmt.Sprintf("other-%d@example.test", uniqueStamp())).Scan(&otherUser))
 	_, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,created_at,confirmed_at) VALUES
 		($1,'EXPENSE','CONFIRMED',1000,'IDR',now(),'mine',$2,now()-interval '5 minutes',now()),
 		($1,'EXPENSE','CONFIRMED',2000,'IDR',now(),'theirs',$3,now(),now())`, f.householdID, f.userID, otherUser)

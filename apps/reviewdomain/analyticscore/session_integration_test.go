@@ -13,6 +13,7 @@ import (
 )
 
 func TestSessionExcludesOnlyCurrentSourceFromNativeQuality(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -31,7 +32,7 @@ func TestSessionExcludesOnlyCurrentSourceFromNativeQuality(t *testing.T) {
 		}
 		return id
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household := insert(`INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Native quality %d", stamp))
 	otherHousehold := insert(`INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Other native quality %d", stamp))
 	user := insert(`INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Review member','unused') RETURNING id`, fmt.Sprintf("native-quality-%d@example.test", stamp))

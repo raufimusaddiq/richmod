@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -107,7 +106,7 @@ func (f *staleDocFixture) count(sql string, args ...any) int {
 }
 
 func TestSettleStaleNeedsReviewDocuments(t *testing.T) {
-	f := &staleDocFixture{t: t, pool: integrationPool(t), stamp: time.Now().UnixNano()}
+	f := &staleDocFixture{t: t, pool: integrationPool(t), stamp: uniqueStamp()}
 	hh, other := f.household(), f.household()
 
 	stuck := map[string]string{}

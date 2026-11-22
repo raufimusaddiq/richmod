@@ -42,7 +42,7 @@ func newGoogleEnv(t *testing.T) *googleEnv {
 		service: service,
 		handler: newTestHandler(fake, service),
 		fake:    fake,
-		stamp:   time.Now().UnixNano()*1000 + googleSeq.Add(1),
+		stamp:   uniqueStamp()*1000 + googleSeq.Add(1),
 	}
 }
 
@@ -167,6 +167,7 @@ func (e *googleEnv) assertSignedIn(result flowResult) Principal {
 }
 
 func TestGoogleLoginCreatesHouseholdlessUserForUnknownEmail(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	identity := googleIdentity{sub: e.sub("new"), email: e.email("newuser"), name: "New Person"}
 	result := runGoogleFlow(t, e.handler, e.fake, "", identity, func(c map[string]any) { c["email"] = "  " + identity.email + " " })
@@ -192,6 +193,7 @@ func TestGoogleLoginCreatesHouseholdlessUserForUnknownEmail(t *testing.T) {
 }
 
 func TestGoogleLoginDerivesDisplayNameFromEmailWhenNameMissing(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	identity := googleIdentity{sub: e.sub("noname"), email: e.email("noname")}
 	e.assertSignedIn(runGoogleFlow(t, e.handler, e.fake, "", identity, func(c map[string]any) { delete(c, "name") }))
@@ -202,6 +204,7 @@ func TestGoogleLoginDerivesDisplayNameFromEmailWhenNameMissing(t *testing.T) {
 }
 
 func TestGoogleLoginLinksEnrolledMemberByEmail(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	email := e.email("owner")
@@ -222,6 +225,7 @@ func TestGoogleLoginLinksEnrolledMemberByEmail(t *testing.T) {
 }
 
 func TestGoogleLoginMatchesEmailCaseInsensitively(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	email := e.email("casing")
 	userID := e.user(seedUser{email: email, initialized: true, active: true})
@@ -233,6 +237,7 @@ func TestGoogleLoginMatchesEmailCaseInsensitively(t *testing.T) {
 }
 
 func TestGoogleLoginKeepsSuperAdmin(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	email := e.email("root")
 	userID := e.user(seedUser{email: email, initialized: true, active: true, superAdmin: true})
@@ -248,6 +253,7 @@ func TestGoogleLoginKeepsSuperAdmin(t *testing.T) {
 }
 
 func TestGoogleLoginReusesLinkedAccountEvenWhenEmailChanged(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	email := e.email("linked")
 	sub := e.sub("linked")
@@ -263,6 +269,7 @@ func TestGoogleLoginReusesLinkedAccountEvenWhenEmailChanged(t *testing.T) {
 }
 
 func TestGoogleLoginRequiresInviteForUnenrolledMember(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	email := e.email("pending")
@@ -280,6 +287,7 @@ func TestGoogleLoginRequiresInviteForUnenrolledMember(t *testing.T) {
 }
 
 func TestGoogleLoginRejectsConflictingSubjectForSameEmail(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	email := e.email("conflict")
 	e.user(seedUser{email: email, initialized: true, active: true, googleSub: e.sub("original")})
@@ -292,6 +300,7 @@ func TestGoogleLoginRejectsConflictingSubjectForSameEmail(t *testing.T) {
 }
 
 func TestGoogleLoginRejectsInactiveUsers(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	byEmail := e.email("inactive-email")
 	e.user(seedUser{email: byEmail, initialized: true, active: false})
@@ -309,6 +318,7 @@ func TestGoogleLoginRejectsInactiveUsers(t *testing.T) {
 }
 
 func TestGoogleCallbackRevokesPreviousSession(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	email := e.email("switch")
 	e.user(seedUser{email: email, initialized: true, active: true})
@@ -324,6 +334,7 @@ func TestGoogleCallbackRevokesPreviousSession(t *testing.T) {
 }
 
 func TestGoogleInviteAcceptanceLinksAndConsumes(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	ownerID := e.user(seedUser{email: e.email("inv-owner"), initialized: true, active: true})
@@ -350,6 +361,7 @@ func TestGoogleInviteAcceptanceLinksAndConsumes(t *testing.T) {
 }
 
 func TestGoogleInviteRejectsMismatchedGoogleEmail(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	ownerID := e.user(seedUser{email: e.email("mm-owner"), initialized: true, active: true})
@@ -376,6 +388,7 @@ func TestGoogleInviteRejectsMismatchedGoogleEmail(t *testing.T) {
 }
 
 func TestGoogleInviteRejectsUnknownAndExpiredTokens(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	ownerID := e.user(seedUser{email: e.email("ex-owner"), initialized: true, active: true})
@@ -395,6 +408,7 @@ func TestGoogleInviteRejectsUnknownAndExpiredTokens(t *testing.T) {
 }
 
 func TestGoogleInviteRejectsSubjectOwnedByAnotherUser(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	ownerID := e.user(seedUser{email: e.email("dup-owner"), initialized: true, active: true})
@@ -413,6 +427,7 @@ func TestGoogleInviteRejectsSubjectOwnedByAnotherUser(t *testing.T) {
 }
 
 func TestGoogleInviteRejectsDeactivatedMember(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	ownerID := e.user(seedUser{email: e.email("deact-owner"), initialized: true, active: true})
@@ -429,6 +444,7 @@ func TestGoogleInviteRejectsDeactivatedMember(t *testing.T) {
 }
 
 func TestGoogleResetInviteRevokesExistingSessions(t *testing.T) {
+	t.Parallel()
 	e := newGoogleEnv(t)
 	householdID := e.household()
 	ownerID := e.user(seedUser{email: e.email("reset-owner"), initialized: true, active: true})

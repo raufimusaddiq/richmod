@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
@@ -72,6 +71,7 @@ func seedThumbnailDocument(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 }
 
 func TestProcessWritesThumbnailBeforeTheGatewayCall(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -86,7 +86,7 @@ func TestProcessWritesThumbnailBeforeTheGatewayCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, documentID, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, thumbnailPNG(t, 600, 900))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	gw := &thumbnailGateway{storage: storage, thumbRef: ref + ".thumb.jpg"}
@@ -110,6 +110,7 @@ func TestProcessWritesThumbnailBeforeTheGatewayCall(t *testing.T) {
 }
 
 func TestProcessKeepsAnExistingThumbnail(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -124,7 +125,7 @@ func TestProcessKeepsAnExistingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, documentID, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, thumbnailPNG(t, 600, 900))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	if err := storage.Put(ctx, ref+".thumb.jpg", []byte("existing"), "image/jpeg"); err != nil {
@@ -141,6 +142,7 @@ func TestProcessKeepsAnExistingThumbnail(t *testing.T) {
 }
 
 func TestUndecodableImageDoesNotFailTheDocumentJob(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -155,7 +157,7 @@ func TestUndecodableImageDoesNotFailTheDocumentJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, documentID, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, []byte("not an image"))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	gw := &thumbnailGateway{storage: storage, thumbRef: ref + ".thumb.jpg"}
@@ -175,6 +177,7 @@ func TestUndecodableImageDoesNotFailTheDocumentJob(t *testing.T) {
 }
 
 func TestBackfillThumbnailsSkipsExistingAndStaysHouseholdScoped(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -189,7 +192,7 @@ func TestBackfillThumbnailsSkipsExistingAndStaysHouseholdScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	householdID, _, ref := seedThumbnailDocument(t, ctx, pool, storage, stamp, thumbnailPNG(t, 600, 900))
 	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
 	otherHouseholdID, _, otherRef := seedThumbnailDocument(t, ctx, pool, storage, stamp+1, thumbnailPNG(t, 600, 900))

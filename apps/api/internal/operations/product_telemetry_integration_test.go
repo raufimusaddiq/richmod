@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 )
 
 func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var householdID, userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Telemetry %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE transaction SET description='corrected later' WHERE id=$1`, txID); err != nil {
 		t.Fatal(err)
 	}
-	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
+	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}

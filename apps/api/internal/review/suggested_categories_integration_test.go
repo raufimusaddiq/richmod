@@ -16,6 +16,7 @@ import (
 )
 
 func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -32,13 +33,13 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
 	foreign, foreignUser, foreignCategory := seedTransferReviewOwner(t, pool, stamp+1)
 	_ = foreignUser
 	category := func(owner, name string, active bool) string {
 		var id string
-		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug,active) VALUES($1,$2,$3,$4) RETURNING id`, owner, name, fmt.Sprintf("c%d-%s", time.Now().UnixNano(), strings.ToLower(name)), active).Scan(&id))
+		must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug,active) VALUES($1,$2,$3,$4) RETURNING id`, owner, name, fmt.Sprintf("c%d-%s", uniqueStamp(), strings.ToLower(name)), active).Scan(&id))
 		return id
 	}
 	food, transport, shopping, bills, retired := category(household, "Makan", true), category(household, "Transport", true), category(household, "Belanja", true), category(household, "Tagihan", true), category(household, "Lama", false)

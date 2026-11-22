@@ -13,9 +13,10 @@ import (
 )
 
 func TestStatusCountsOnlyTheOwnersHouseholdJobs(t *testing.T) {
+	t.Parallel()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	stamp := time.Now().UnixNano()
+	stamp := uniqueStamp()
 	var own, other string
 	for _, target := range []*string{&own, &other} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Ops scope %d", stamp)).Scan(target); err != nil {
@@ -31,7 +32,9 @@ func TestStatusCountsOnlyTheOwnersHouseholdJobs(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations/status", nil)
 	request = request.WithContext(auth.ContextWithPrincipal(ctx, auth.Principal{UserID: "00000000-0000-4000-8000-000000000001", HasHousehold: true, HouseholdID: own, HouseholdRole: "OWNER"}))
 	response := httptest.NewRecorder()
-	NewHandler(pool).Status(response, request)
+	handler := NewHandler(pool)
+	handler.probeTimeout, handler.statusTimeout = time.Minute, time.Minute
+	handler.Status(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d %s", response.Code, response.Body.String())
 	}
