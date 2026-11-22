@@ -71,7 +71,7 @@ export to assert the first render animates and the next one does not.
 
 Recharts series take their motion props from `useChartMotion`, which keys on the
 chart's data: a series animates when its data first mounts or changes, and the
-hook turns the animation off once the draw time has passed, so hover, tooltip
+hook turns the animation off when the series reports its draw finished (not on a timer, so a slow first paint cannot use it up), so hover, tooltip
 and resize re-renders never replay it. CSS bars animate when their keyed element
 mounts, which is also only on a dataset change. The category donut is the one
 chart that stays static.

@@ -50,6 +50,8 @@ test("the reduced-motion hook renders reduced on the server so nothing animates 
 
 test("chart motion props animate over the chart duration only when active", () => {
   assert.deepEqual(chartMotionProps(true), { isAnimationActive: true, animationBegin: 0, animationDuration: CHART_DRAW_MS, animationEasing: CHART_EASING });
+  const done = () => {};
+  assert.equal(chartMotionProps(true, done).onAnimationEnd, done, "the series reports when its draw has finished");
   assert.equal(chartMotionProps(false).isAnimationActive, false);
   assert.ok(CHART_DRAW_MS >= 500 && CHART_DRAW_MS <= 800, "charts draw in between 500 and 800ms");
   assert.ok(COUNT_UP_MS >= 600 && COUNT_UP_MS <= 900, "counters run between 600 and 900ms");
@@ -160,13 +162,13 @@ test("charts draw in through the shared hook and only the donut stays static", (
   }
 });
 
-test("the chart hook animates only until the dataset settles and never under reduced motion", () => {
+test("the chart hook stops animating a dataset when its series reports the draw finished, not on a timer, and never under reduced motion", () => {
   const hook = text("app/lib/useMotion.js");
   const body = hook.match(/export function useChartMotion[\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(body, /usePrefersReducedMotion\(\)/);
-  assert.match(body, /chartMotionProps\(!reduced && settledKey !== key\)/);
-  assert.match(body, /if \(reduced\) return undefined;/);
-  assert.match(body, /setTimeout\(\(\) => setSettledKey\(key\)/);
+  assert.match(body, /chartMotionProps\(!reduced && settledKey !== key, settle\)/);
+  assert.match(body, /useCallback\(\(\) => setSettledKey\(key\), \[key\]\)/);
+  assert.doesNotMatch(body, /setTimeout/, "a slow first paint must not use up the draw-in");
 });
 
 test("hero figures count up through one component that renders the final text for assistive tech", () => {

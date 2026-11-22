@@ -1,6 +1,5 @@
 export const CHART_DRAW_MS = 700;
 export const COUNT_UP_MS = 800;
-export const CHART_SETTLE_MS = 120;
 export const CHART_EASING = "ease-out";
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -30,8 +29,10 @@ export function easeOutCubic(progress) {
   return 1 - Math.pow(1 - clamped, 3);
 }
 
-export function chartMotionProps(active) {
-  return { isAnimationActive: active, animationBegin: 0, animationDuration: CHART_DRAW_MS, animationEasing: CHART_EASING };
+export function chartMotionProps(active, onAnimationEnd) {
+  const props = { isAnimationActive: active, animationBegin: 0, animationDuration: CHART_DRAW_MS, animationEasing: CHART_EASING };
+  if (onAnimationEnd) props.onAnimationEnd = onAnimationEnd;
+  return props;
 }
 
 export function datasetKey(data) {

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { CHART_DRAW_MS, CHART_SETTLE_MS, chartMotionProps, countUpText, datasetKey, parseCountUpText, prefersReducedMotion, startCountUp, subscribeReducedMotion } from "./motion.js";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { chartMotionProps, countUpText, datasetKey, parseCountUpText, prefersReducedMotion, startCountUp, subscribeReducedMotion } from "./motion.js";
 
 export function usePrefersReducedMotion() {
   return useSyncExternalStore(subscribeReducedMotion, prefersReducedMotion, () => true);
@@ -11,12 +11,8 @@ export function useChartMotion(data) {
   const reduced = usePrefersReducedMotion();
   const key = useMemo(() => datasetKey(data), [data]);
   const [settledKey, setSettledKey] = useState(null);
-  useEffect(() => {
-    if (reduced) return undefined;
-    const timer = setTimeout(() => setSettledKey(key), CHART_DRAW_MS + CHART_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [key, reduced]);
-  return chartMotionProps(!reduced && settledKey !== key);
+  const settle = useCallback(() => setSettledKey(key), [key]);
+  return chartMotionProps(!reduced && settledKey !== key, settle);
 }
 
 export function useCountUpText(text) {

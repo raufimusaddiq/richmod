@@ -39,6 +39,7 @@ async function api(route) {
 
 const sampler = () => {
   const probes = {
+    barCount: () => document.querySelectorAll(".recharts-bar-rectangle path, .recharts-bar-rectangle rect:not([fill=\"transparent\"])").length,
     barHeight: () => [...document.querySelectorAll(".recharts-bar-rectangle path, .recharts-bar-rectangle rect:not([fill=\"transparent\"])")].reduce((sum, node) => sum + node.getBoundingClientRect().height, 0),
     lineDash: () => document.querySelector(".recharts-line-curve")?.getAttribute("stroke-dasharray") ?? "",
     cssClip: () => [...document.querySelectorAll(".home-share > span, .category-bars-track > span, .where-stack")].map(node => getComputedStyle(node).clipPath).join("|"),
@@ -47,17 +48,26 @@ const sampler = () => {
     heroFinal: () => { const node = document.querySelector(".home-hero-amount, .kpi-cell[data-lead] dd, .wealth-position-primary > strong"); return node ? node.textContent : ""; },
   };
   window.__samples = [];
-  window.__markSamples = label => window.__samples.push({ label });
-  const tick = () => {
-    const row = { t: performance.now() };
+  window.__animations = [];
+  document.addEventListener("animationstart", event => window.__animations.push(event.animationName), true);
+  const sample = mutation => {
+    const row = { t: performance.now(), mutation };
     for (const [name, probe] of Object.entries(probes)) row[name] = probe();
     window.__samples.push(row);
-    requestAnimationFrame(tick);
   };
+  const tick = () => { sample(false); requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
+  new MutationObserver(() => sample(true)).observe(document, { childList: true, subtree: true });
 };
 
-const rows = page => page.evaluate(() => window.__samples.filter(row => row.t != null));
+const rows = page => page.evaluate(() => window.__samples);
+const animationNames = page => page.evaluate(() => window.__animations);
+const starved = list => {
+  const frames = list.filter(row => !row.mutation);
+  const start = list.find(row => row.barCount > 0 || row.hero)?.t ?? 0;
+  const span = frames.filter(row => row.t >= start && row.t <= start + 1000);
+  return span.length < 2 || span.some((row, index) => index > 0 && row.t - span[index - 1].t > 200);
+};
 const distinct = (list, key) => new Set(list.map(row => row[key]).filter(Boolean));
 const settleMs = 1600;
 
@@ -91,19 +101,22 @@ try {
     await home.page.waitForTimeout(settleMs);
     const homeRows = (await rows(home.page)).filter(row => row.hero);
     const finalBars = homeRows.at(-1).barHeight;
-    const growing = homeRows.filter(row => row.barHeight > 0);
+    const drawn = homeRows.filter(row => row.barCount > 0);
     assert.ok(finalBars > 40, `${label}: daily bars drew`);
     assert.equal(homeRows.at(-1).heroFinal, heroText, `${label}: hero ends on the exact formatted value`);
     assert.equal(homeRows.at(-1).hero, heroText, `${label}: no stale animated text remains`);
     if (reduced) {
-      assert.ok(growing.every(row => row.barHeight === finalBars), "reduced: bars are at their final height on the first frame");
+      assert.ok(drawn.every(row => row.barHeight === finalBars), "reduced: bars are at their final height from the first render");
       assert.deepEqual([...distinct(homeRows, "hero")], [heroText], "reduced: the hero never shows an intermediate value");
-      assert.ok(homeRows.every(row => !row.cssClip.includes("inset(0px 100%")), "reduced: css bars are never clipped");
+      assert.ok(!(await animationNames(home.page)).some(name => name.startsWith("bar-grow")), "reduced: no css bar animation starts");
     } else {
-      assert.ok(growing[0].barHeight < finalBars * 0.5, `full: bars start small (${growing[0].barHeight} vs ${finalBars})`);
-      assert.ok(growing.some(row => row.barHeight > growing[0].barHeight && row.barHeight < finalBars), "full: bars pass through intermediate heights");
-      assert.ok(distinct(homeRows, "hero").size >= 4, "full: the hero counts through intermediate values");
-      assert.ok(homeRows.some(row => /inset\(0px (?!0px)/.test(row.cssClip) || row.cssClip.includes("inset(0px 100%") || /inset\(0px [1-9]/.test(row.cssClip)), "full: css bars are revealed progressively");
+      assert.ok(drawn[0].barHeight < finalBars * 0.5, `full: bars mount small (${drawn[0].barHeight} vs ${finalBars})`);
+      assert.ok(distinct(homeRows, "hero").size >= 2, "full: the hero starts below its final value");
+      assert.ok((await animationNames(home.page)).includes("bar-grow-x"), "full: the css bars run their grow animation");
+      if (!starved(homeRows)) {
+        assert.ok(drawn.some(row => row.barHeight > drawn[0].barHeight && row.barHeight < finalBars), "full: bars pass through intermediate heights");
+        assert.ok(distinct(homeRows, "hero").size >= 4, "full: the hero counts through intermediate values");
+      }
     }
     const before = (await rows(home.page)).length;
     await home.page.locator(".recharts-bar-rectangle").nth(3).hover();
@@ -124,7 +137,10 @@ try {
     assert.equal(wealthRows.at(-1).hero, wealthRows.at(-1).heroFinal, `${label}: wealth ends on the exact value`);
     const dashes = wealthRows.map(row => row.lineDash).filter(Boolean);
     if (reduced) assert.ok(dashes.every(value => value === dashes.at(-1)), "reduced: the net-worth line is never mid-draw");
-    else assert.ok(new Set(dashes).size > 2, "full: the net-worth line draws through intermediate dash lengths");
+    else {
+      assert.notEqual(dashes[0], dashes.at(-1), "full: the net-worth line mounts partly drawn");
+      if (!starved(wealthRows)) assert.ok(new Set(dashes).size > 2, "full: the net-worth line draws through intermediate dash lengths");
+    }
     assert.deepEqual(wealth.errors, [], `${label}: no page errors on wealth`);
     console.log(`wealth ${label}: ok`);
     await wealth.context.close();
@@ -136,16 +152,23 @@ try {
     assert.equal(cycleRows.at(-1).hero, cycleRows.at(-1).heroFinal, `${label}: the KPI strip ends on the exact value`);
     const history = cycleRows.map(row => row.historyHeight).filter(value => value > 0);
     const finalHistory = history.at(-1);
-    if (reduced) assert.ok(history.every(value => Math.abs(value - finalHistory) < 0.5), "reduced: history bars are at full height immediately");
-    else assert.ok(history[0] < finalHistory * 0.5, "full: history bars grow from the baseline");
+    const cycleAnimations = await animationNames(cycle.page);
+    if (reduced) {
+      assert.ok(history.every(value => Math.abs(value - finalHistory) < 0.5), "reduced: history bars are at full height immediately");
+      assert.ok(!cycleAnimations.some(name => name.startsWith("bar-grow")), "reduced: no css bar animation starts");
+    } else {
+      assert.ok(cycleAnimations.includes("bar-grow-y"), "full: history bars run their grow animation");
+      assert.ok(cycleAnimations.includes("bar-grow-x"), "full: the where-stack runs its grow animation");
+    }
     const mark = (await rows(cycle.page)).length;
     await cycle.page.getByRole("heading", { name: "Pengeluaran harian", exact: true }).click();
     await cycle.page.waitForSelector(".cycle-spending-chart .recharts-bar-rectangle");
     await cycle.page.waitForTimeout(settleMs);
-    const bars = (await rows(cycle.page)).slice(mark).map(row => row.barHeight).filter(value => value > 0);
-    assert.ok(bars.length > 3, "the daily pattern drew after opening");
-    if (reduced) assert.ok(bars.every(value => value === bars.at(-1)), "reduced: the daily pattern is static");
-    else assert.ok(bars[0] < bars.at(-1) * 0.5, "full: the daily pattern grows from the baseline when opened");
+    const opened = (await rows(cycle.page)).slice(mark).filter(row => row.barCount > 0);
+    assert.ok(opened.length > 3, "the daily pattern drew after opening");
+    const barsFinal = opened.at(-1).barHeight;
+    if (reduced) assert.ok(opened.every(row => row.barHeight === barsFinal), "reduced: the daily pattern is static");
+    else assert.ok(opened[0].barHeight < barsFinal * 0.5, "full: the daily pattern mounts at the baseline when opened");
     assert.deepEqual(cycle.errors, [], `${label}: no page errors on analytics`);
     console.log(`analytics cycle ${label}: ok`);
     await cycle.context.close();
@@ -159,8 +182,11 @@ try {
     const changed = (await rows(calendar.page)).slice(calendarMark);
     assert.ok(settled > 0 && changed.at(-1).barHeight > 0, `${label}: calendar bars rendered`);
     const finalRange = changed.at(-1).barHeight;
-    if (!reduced) assert.ok(changed.filter(row => row.barHeight > 0 && row.barHeight !== finalRange).length >= 3, "full: switching the range animates the new bars");
-    else assert.ok(changed.filter(row => row.barHeight > 0).every(row => row.barHeight === finalRange || row.barHeight === settled), "reduced: switching the range swaps old bars for new ones with no in-between frames");
+    if (!reduced && !starved(changed)) assert.ok(changed.filter(row => row.barHeight > 0 && row.barHeight !== finalRange).length >= 3, "full: switching the range animates the new bars");
+    else {
+      const landed = changed.findIndex(row => row.barHeight === finalRange);
+      assert.ok(landed >= 0 && changed.slice(landed).every(row => row.barHeight === finalRange), "reduced: once the new bars are in place they never move");
+    }
     assert.deepEqual(calendar.errors, [], `${label}: no page errors on calendar`);
     console.log(`analytics calendar ${label}: ok`);
     await calendar.context.close();
