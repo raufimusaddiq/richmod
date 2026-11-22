@@ -159,8 +159,13 @@ jobs:
             apps/reviewdomain/go.sum
       - name: Migrate integration database
         working-directory: ${{ github.workspace }}
+        env:
+          GOOSE_VERSION: v3.24.1
+          GOOSE_LINUX_X86_64_SHA256: 313ba1c77a367f431faf690fe817aad297722623b62395a8ac64281f54f6c415
         run: |
-          go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
+          curl -fsSL -o "$RUNNER_TEMP/goose" "https://github.com/pressly/goose/releases/download/$GOOSE_VERSION/goose_linux_x86_64"
+          echo "$GOOSE_LINUX_X86_64_SHA256  $RUNNER_TEMP/goose" | sha256sum --check --strict
+          sudo install -m 0755 "$RUNNER_TEMP/goose" /usr/local/bin/goose
           goose -dir db/migrations postgres "$TEST_DATABASE_URL" up
       - name: Vet
         run: go vet ./...
@@ -199,7 +204,13 @@ jobs:
           mkdir -p test-results/logs
           pids=""
           for name in transaction-date analytics-review mobile-layout; do
-            node scripts/$name-smoke.mjs >test-results/logs/$name.log 2>&1 &
+            (
+              started=$SECONDS
+              code=0
+              node scripts/$name-smoke.mjs >test-results/logs/$name.log 2>&1 || code=$?
+              echo "$name smoke finished in $((SECONDS - started))s with exit $code" >>test-results/logs/$name.log
+              exit $code
+            ) &
             pids="$pids $name:$!"
           done
           status=0
