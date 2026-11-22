@@ -7,7 +7,7 @@ test("a loading screen announces itself with a name and busy state, and its note
   api.on("/api/v1/transactions", () => reply([transaction("tx-1")], { delay: 600 }));
   await page.goto("/transactions", { waitUntil: "domcontentloaded" });
   const loading = page.getByRole("status", { name: "Memuat data" });
-  await expect(loading).toHaveAttribute("aria-live", "polite");
+  await expect(loading).toHaveAttribute("aria-live", "assertive");
   await expect(loading).toHaveAttribute("aria-busy", "true");
   await expect(loading.locator(".skeleton-note")).toHaveAttribute("aria-hidden", "true");
   await expect(page.locator(".transaction-row").first()).toBeVisible();
