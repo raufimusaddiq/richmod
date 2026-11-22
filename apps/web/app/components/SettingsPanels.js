@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { capabilityLabel, financialSourceStatusLabel, label, labels, relationshipLabel, sideLabel, usageRoleLabel, wealthTypeLabel } from "../lib/labels";
 import useDialogs from "./useDialogs";

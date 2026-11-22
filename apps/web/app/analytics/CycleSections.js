@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { compactMillions, directionMark } from "../lib/cycleLedger";

@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "./router";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, CalendarBlank, Camera, Plus, WarningCircle } from "@phosphor-icons/react";
 import AppShell from "./components/AppShell";

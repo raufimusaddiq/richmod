@@ -1,7 +1,5 @@
-"use client";
-
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "../router";
 import AppShell from "../components/AppShell";
 import { useCategoryPalette } from "../components/CategoryPaletteProvider";
 import { ErrorNotice, Skeleton } from "../components/Feedback";

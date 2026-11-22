@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "../../router";
 import { useState } from "react";
 import { money } from "../../lib/format";
 import { ProposalFacts } from "./shared";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "../router";
 import { ArrowDown, ArrowRight, Check, FileText, Lightning, TelegramLogo, WarningCircle } from "@phosphor-icons/react";
 import { PublicFooter, PublicNav, PublicTrustNote } from "./PublicShell";
 

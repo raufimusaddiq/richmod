@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "../../router";
 import DateInput from "../DateInput";
 import { useState } from "react";
 import { dateTime, money, sourceLabel } from "../../lib/format";

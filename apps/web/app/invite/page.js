@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import GoogleMark from "../components/GoogleMark";
 import { GOOGLE_INVITE_START_PATH, googleStartHref } from "../lib/authErrors";

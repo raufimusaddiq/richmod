@@ -1,9 +1,4 @@
-import Link from "next/link";
-
-export const metadata = {
-  title: "Kebijakan Privasi · Richmod",
-  description: "Kebijakan privasi Richmod Family Finance.",
-};
+import { Link } from "../router";
 
 export default function PrivacyPage() {
   return <main className="public-legal"><article className="surface public-legal-card">

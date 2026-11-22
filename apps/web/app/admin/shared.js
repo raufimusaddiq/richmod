@@ -1,5 +1,3 @@
-"use client";
-
 import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export const time = (v) =>

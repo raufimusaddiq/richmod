@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import useDialogs from "../components/useDialogs";
 import { time, Badge, Empty, Pending, useDrawerA11y, useLoad, Table } from "./shared";

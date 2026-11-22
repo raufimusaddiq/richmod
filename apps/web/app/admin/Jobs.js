@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { time, duration, ms, Badge, Empty, Pending, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
 

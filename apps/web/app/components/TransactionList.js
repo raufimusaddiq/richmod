@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "../router";
 import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/react";
 import CategoryIcon from "./CategoryIcon";
 import { useCategoryPalette, useCategoryParents } from "./CategoryPaletteProvider";

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { CycleSpendingPatternChart } from "../components/Charts";
 import { baselineFor } from "../lib/cycleKpi";

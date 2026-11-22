@@ -1,4 +1,3 @@
-"use client";
 import { dateTime } from "../lib/format";
 import { emailDeliveryReasonLabel, emailDeliveryStatusLabel, label } from "../lib/labels";
 

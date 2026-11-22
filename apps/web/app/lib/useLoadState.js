@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const LOAD = Object.freeze({ IDLE: "idle", LOADING: "loading", REFRESHING: "refreshing", ERROR: "error", READY: "ready" });

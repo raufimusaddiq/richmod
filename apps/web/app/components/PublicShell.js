@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "../router";
 import { ArrowUpRight, LockKey, ShieldCheck } from "@phosphor-icons/react";
 
 export function PublicNav({ hideLogin = false }) {

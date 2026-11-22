@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "../router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DateInput from "./DateInput";
 import { createErrorMessage, trapTarget } from "../lib/transactionForm";

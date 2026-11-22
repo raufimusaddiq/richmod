@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { CategoryRankingChart, MonthlyCashflowChart } from "../components/Charts";
 import { ErrorNotice, Skeleton } from "../components/Feedback";

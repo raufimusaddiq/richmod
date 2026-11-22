@@ -1,9 +1,4 @@
-import Link from "next/link";
-
-export const metadata = {
-  title: "Halaman tidak ditemukan · Richmod",
-  description: "Halaman yang kamu cari tidak ada atau sudah dipindahkan.",
-};
+import { Link } from "./router";
 
 export default function NotFound() {
   return <>
