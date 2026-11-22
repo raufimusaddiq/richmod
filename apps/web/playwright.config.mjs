@@ -10,7 +10,7 @@ const wide = { desktop: { width: 1440, height: 1050 }, tablet: { width: 1024, he
 const viewports = { ...wide, ...phones };
 const appProjects = new Set(["desktop", "mobile"]);
 const desktopOnly = /@desktop-only/;
-const shardOrder = ["desktop", "tablet", "small-mobile", "widths-webkit", "motion", "mobile", "widths", "visual"];
+const shardOrder = ["visual", "widths-webkit", "widths", "desktop", "motion", "tablet", "mobile", "small-mobile"];
 
 const responsive = Object.entries(viewports).map(([name, viewport]) => ({
   name,
