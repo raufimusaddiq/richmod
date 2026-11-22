@@ -198,7 +198,7 @@ export function paceAxis(maxValue) {
   return { domain: [0, step * 4], ticks: [0, step, step * 2, step * 3, step * 4] };
 }
 
-export function paceEndLabels({ data = [], last, curves = {}, references = [], axis, plotHeight = 126, minGapPx = 17 } = {}) {
+export function paceEndLabels({ data = [], last, curves = {}, references = [], axis, plotHeight = 120, minGapPx = 21 } = {}) {
   if (!last || last.exact == null) return [];
   const entries = [];
   const push = (key, day, exact, fill, priority) => {
@@ -236,8 +236,9 @@ export function paceEndLabels({ data = [], last, curves = {}, references = [], a
     if (!group || entry.day - group.at(-1).day > dayWindow) clusters.push([entry]);
     else group.push(entry);
   }
-  const topBound = -14;
-  const bottomBound = plotHeight + 4;
+  const pad = Math.min(8, Math.floor(plotHeight / 6));
+  const topBound = pad;
+  const bottomBound = Math.max(topBound, plotHeight - pad);
   for (const group of clusters) {
     if (group.length < 2) continue;
     group.sort((left, right) => left.naturalY - right.naturalY || left.priority - right.priority);

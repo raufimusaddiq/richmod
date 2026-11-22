@@ -351,3 +351,73 @@ test("pace end labels emit one label per series end and offset close endpoints w
   const ys = sameEnd.map(pos).sort((a, b) => a - b);
   assert.ok(ys[1] - ys[0] >= 16 && ys[2] - ys[1] >= 16, "all three right-end labels keep clear vertical separation");
 });
+
+test("pace end labels separate close values by at least label height + 4px, stay inside plot, and keep far values unshifted", () => {
+  const items = Array.from({ length: 28 }, (_, index) => ({
+    period: `2026-10-${String(index + 1).padStart(2, "0")}`,
+    cumulativeExpense: String(Math.round((index + 1) * 11_000_000 / 28)),
+  }));
+  const previousFullCycle = Array.from({ length: 30 }, (_, index) => String(Math.round((index + 1) * 10_100_000 / 30)));
+  const data = mapPace(items, { previousFullCycle, median3: null });
+  const curves = paceCurves({ previousFullCycle, median3: null });
+  const last = data[items.length - 1];
+  const axis = paceAxis(paceCeiling({ data, last: last.exact }));
+  const plotHeight = 120;
+  const close = paceEndLabels({ data, last, curves, references: [], axis, plotHeight });
+  assert.deepEqual(
+    close.map(item => [item.key, item.text, item.fill]),
+    [["current", "11,0", "var(--ink)"], ["previous", "10,1", "var(--chart-axis)"]],
+    "close endpoints emit once per series in their own series colours",
+  );
+  const yOf = item => (1 - item.value / axis.domain[1]) * plotHeight + item.dy;
+  assert.ok(close[0].dy < 0 && close[1].dy > 0, "higher value pushes up, lower value pushes down");
+  assert.ok(yOf(close[1]) - yOf(close[0]) >= 20, "vertical separation exceeds one 16px label height + 4px gap");
+  for (const item of close) {
+    assert.ok(yOf(item) >= 0 && yOf(item) <= plotHeight, "close labels stay inside the plot area");
+  }
+
+  const farPrevious = Array.from({ length: 30 }, (_, index) => String(Math.round((index + 1) * 3_000_000 / 30)));
+  const farData = mapPace(items, { previousFullCycle: farPrevious, median3: null });
+  const far = paceEndLabels({
+    data: farData,
+    last: farData[items.length - 1],
+    curves: paceCurves({ previousFullCycle: farPrevious, median3: null }),
+    references: [],
+    axis,
+    plotHeight,
+  });
+  assert.deepEqual(far.map(item => item.dy), [0, 0], "far values stay unshifted");
+
+  const nearTopItems = items.map((row, index) => (index === items.length - 1 ? { ...row, cumulativeExpense: "19900000" } : row));
+  const nearTopPrev = Array.from({ length: 30 }, () => "19600000");
+  const topData = mapPace(nearTopItems, { previousFullCycle: nearTopPrev, median3: null });
+  const topLabels = paceEndLabels({
+    data: topData,
+    last: topData[nearTopItems.length - 1],
+    curves: paceCurves({ previousFullCycle: nearTopPrev, median3: null }),
+    references: [],
+    axis: { domain: [0, 20_000_000], ticks: [0, 5_000_000, 10_000_000, 15_000_000, 20_000_000] },
+    plotHeight: 100,
+  });
+  for (const item of topLabels) {
+    const y = (1 - item.value / 20_000_000) * 100 + item.dy;
+    assert.ok(y >= 0 && y <= 100, `top-clamped label ${item.key} stays inside [0, 100], got ${y}`);
+  }
+  assert.ok(((1 - topLabels[1].value / 20_000_000) * 100 + topLabels[1].dy) - ((1 - topLabels[0].value / 20_000_000) * 100 + topLabels[0].dy) >= 20);
+
+  const nearBottomItems = items.map((row, index) => (index === items.length - 1 ? { ...row, cumulativeExpense: "100000" } : row));
+  const nearBottomPrev = Array.from({ length: 30 }, () => "200000");
+  const bottomData = mapPace(nearBottomItems, { previousFullCycle: nearBottomPrev, median3: null });
+  const bottomLabels = paceEndLabels({
+    data: bottomData,
+    last: bottomData[nearBottomItems.length - 1],
+    curves: paceCurves({ previousFullCycle: nearBottomPrev, median3: null }),
+    references: [],
+    axis: { domain: [0, 20_000_000], ticks: [0, 5_000_000, 10_000_000, 15_000_000, 20_000_000] },
+    plotHeight: 100,
+  });
+  for (const item of bottomLabels) {
+    const y = (1 - item.value / 20_000_000) * 100 + item.dy;
+    assert.ok(y >= 0 && y <= 100, `bottom-clamped label ${item.key} stays inside [0, 100], got ${y}`);
+  }
+});

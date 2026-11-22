@@ -113,5 +113,5 @@ a.category-bars-row:hover { background: var(--surface-muted); color: var(--ink);
 .daily-facts dd { margin: 2px 0 0; font-size: var(--text-base); font-variant-numeric: tabular-nums; font-weight: 650; }
 .daily-facts small { color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
 .daily-spend { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
-.daily-spend .chart-wrap { flex: none; width: 100%; height: 240px; min-height: 240px; }
+.daily-spend .chart-wrap { flex: 1 1 240px; width: 100%; min-height: 240px; }
 .home-card.overview-wealth > strong { font-size: clamp(20px, 1.8vw, 26px); overflow-wrap: anywhere; }
