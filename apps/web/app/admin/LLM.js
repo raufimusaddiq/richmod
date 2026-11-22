@@ -23,7 +23,7 @@ export default function LLM({ setError }) {
         <input aria-label="Tugas LLM" placeholder="Tugas" value={filters.task} onChange={(e) => setFilters({...filters, task:e.target.value})} />
         <select aria-label="Status LLM" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option value="SUCCEEDED">Berhasil</option><option value="FAILED">Gagal</option></select>
       </div>
-      <div className="admin-metrics">
+      <div className="admin-metrics" data-stagger=".admin-metric">
         <Metric label="Panggilan 24 jam" value={number(summary.calls)} />
         <Metric
           label="Tingkat keberhasilan"

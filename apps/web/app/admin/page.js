@@ -69,7 +69,7 @@ function AdminConsole() {
         Operasi platform. Data sensitif dan isi finansial tidak ditampilkan.
       </p>
       <nav aria-label="Navigasi admin">
-        <div className="admin-tabs" role="tablist" aria-label="Navigasi admin">
+        <div className="admin-tabs" data-slide data-slide-panel="#admin-panel" role="tablist" aria-label="Navigasi admin">
           {tabs.map(([key, label], index) => (
             <button
               key={key}

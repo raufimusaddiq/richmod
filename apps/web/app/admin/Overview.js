@@ -18,7 +18,7 @@ export default function Overview({ setError }) {
           Perbarui
         </button>
       </div>
-      <div className="admin-metrics">
+      <div className="admin-metrics" data-stagger=".admin-metric">
         <Metric
           label="Platform"
           value={<Badge value={data.status} />}

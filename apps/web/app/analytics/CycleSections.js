@@ -79,7 +79,7 @@ export function CategoryHeatmap({ facts, colors = null, selectedCategory = "", o
   if (!heat) return <p className="empty compact">Matriks kategori belum tersedia untuk siklus ini.</p>;
   const deltaLabel = heat.mode === "SAME_DAY" ? "Selisih vs siklus lalu, hari yang sama" : "Selisih vs siklus lalu";
   return <div className="heat-section">
-    {sameDay && <div className="segmented" role="group" aria-label="Rentang kolom matriks">
+    {sameDay && <div className="segmented" data-slide role="group" aria-label="Rentang kolom matriks">
       <button type="button" aria-pressed={mode === "SAME_DAY"} className={mode === "SAME_DAY" ? "active" : "secondary"} onClick={() => setMode("SAME_DAY")}>Hari ke-{sameDay.elapsedDays} yang sama</button>
       <button type="button" aria-pressed={mode === "FULL"} className={mode === "FULL" ? "active" : "secondary"} onClick={() => setMode("FULL")}>Siklus penuh</button>
     </div>}

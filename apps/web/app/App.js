@@ -3,6 +3,7 @@ import AuthProvider from "./components/AuthProvider";
 import CategoryPaletteProvider from "./components/CategoryPaletteProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
 import KeyboardViewport from "./components/KeyboardViewport";
+import MotionEffects from "./components/MotionEffects";
 import QuickRecordProvider from "./components/QuickRecordProvider";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 import { RouterProvider, useDocumentMeta, usePathname, useRouter } from "./router";
@@ -27,6 +28,7 @@ export default function App({ initial }) {
   return <RouterProvider initial={initial}>
     <ServiceWorkerRegistrar />
     <KeyboardViewport />
+    <MotionEffects />
     <AuthProvider><CategoryPaletteProvider><InboxCountProvider><QuickRecordProvider>
       <RouteView />
     </QuickRecordProvider></InboxCountProvider></CategoryPaletteProvider></AuthProvider>

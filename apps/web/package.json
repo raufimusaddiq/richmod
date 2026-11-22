@@ -11,7 +11,7 @@
     "start": "bun scripts/static-server.mjs",
     "test": "bun test tests/",
     "test:mobile-layout": "node scripts/mobile-layout-smoke.mjs",
-    "test:motion": "node scripts/motion-one-shot-smoke.mjs",
+    "test:motion": "node scripts/motion-one-shot-smoke.mjs && node scripts/motion-interactions-smoke.mjs",
     "test:visual": "sh scripts/visual-smoke-docker.sh",
     "test:visual:local": "node scripts/visual-smoke.mjs",
     "test:visual:update": "UPDATE_VISUAL_BASELINES=1 sh scripts/visual-smoke-docker.sh",

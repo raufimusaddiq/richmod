@@ -42,7 +42,7 @@ export function CalendarReview({ selection, navigate }) {
   }
   const rangeProps = value => ({ type: "month", max: latest, required: true, "aria-invalid": rangeError ? true : undefined, "aria-describedby": rangeError ? "range-error" : undefined, value });
   return <>
-    <div className="range-controls"><div className="range-control-group" role="group" aria-label="Rentang bulan">{["3", "6", "12"].map(range => <button type="button" key={range} className={selection.range === range && !custom ? "active" : "secondary"} aria-pressed={selection.range === range && !custom} onClick={() => navigate({ range, from: "", to: "" })}>{range} Bulan</button>)}</div>
+    <div className="range-controls"><div className="range-control-group" data-slide data-slide-panel=".calendar-body" role="group" aria-label="Rentang bulan">{["3", "6", "12"].map(range => <button type="button" key={range} className={selection.range === range && !custom ? "active" : "secondary"} aria-pressed={selection.range === range && !custom} onClick={() => navigate({ range, from: "", to: "" })}>{range} Bulan</button>)}</div>
       <form className="custom-range" aria-label="Rentang bulan kustom" onSubmit={submitRange} noValidate><label>Bulan mulai<input name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}/></label><label>Bulan selesai<input name="to" {...rangeProps(to)} onChange={event => setTo(event.target.value)}/></label><button type="submit" disabled={!draft}>Terapkan</button></form>
     </div>
     {rangeError && <div id="range-error" className="notice error feedback" role="alert"><span>{rangeError}</span></div>}
