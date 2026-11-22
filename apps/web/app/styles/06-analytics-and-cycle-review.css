@@ -9,7 +9,7 @@
 .settings-sections { max-width: 1680px; }
 
 .cycle-review { gap: 0; }
-.cycle-review .range-controls { align-items: flex-end; flex-wrap: wrap; border: 0; background: none; padding: 0; overflow: visible; }
+.cycle-review .range-controls { align-items: center; flex-wrap: wrap; border: 0; background: none; padding: 0; overflow: visible; }
 .cycle-review .range-control-group { gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
 .cycle-review .cycle-step-button { border-color: var(--line-strong); background: var(--surface); color: var(--ink); }
 .cycle-review .custom-range { align-items: flex-end; }

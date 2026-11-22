@@ -54,7 +54,7 @@ test("invite page posts the hash token to GOOGLE_INVITE_START_PATH before naviga
   assert.match(invite, /Tautan atau kata sandi tidak valid\./);
 });
 
-test("NoHouseholdIntro shows the waiting state and its three actions", () => {
+test("NoHouseholdIntro shows the waiting state, working intro anchors, and its three actions", () => {
   const intro = text("app/components/NoHouseholdIntro.js");
   assert.match(intro, /RUANG KELUARGA BELUM AKTIF/);
   assert.match(intro, /Akun kamu sudah terdaftar\./);
@@ -65,6 +65,13 @@ test("NoHouseholdIntro shows the waiting state and its three actions", () => {
   assert.match(intro, /const \{ reload \} = useAuthContext\(\)/);
   assert.match(intro, /user\.isSuperAdmin && <Link[^>]*href="\/admin"[^>]*>[^]*Buka Konsol Admin/);
   assert.match(intro, /\/api\/v1\/auth\/logout/);
+  assert.match(intro, /id="cara-kerja"/);
+  assert.match(intro, /id="kepercayaan"/);
+});
+
+test("Laporan range-controls vertically aligns the mode switch and cycle picker", () => {
+  const css = globalCss();
+  assert.match(css, /\.cycle-review \.range-controls \{ align-items: center;/);
 });
 
 test("AuthProvider exposes reload and household-scoped fetches wait for a household", () => {

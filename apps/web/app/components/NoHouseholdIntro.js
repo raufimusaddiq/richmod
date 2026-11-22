@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowClockwise, ShieldChevron, SignOut } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowRight, Check, FileText, Lightning, ShieldChevron, SignOut, TelegramLogo, WarningCircle } from "@phosphor-icons/react";
 import { PublicNav } from "./PublicShell";
 import { useAuthContext } from "./AuthProvider";
 
@@ -21,7 +21,7 @@ export default function NoHouseholdIntro({ user }) {
     try { await fetch("/api/v1/auth/logout", { method: "POST" }); } finally { window.location.href = "/"; }
   }
 
-  return <main className="login-shell no-household-shell">
+  return <main className="public-shell login-shell no-household-shell">
     <PublicNav hideLogin />
     <div className="no-household-layout">
       <section className="no-household-card" aria-labelledby="no-household-title">
@@ -40,5 +40,35 @@ export default function NoHouseholdIntro({ user }) {
         </div>
       </section>
     </div>
+    <div className="public-content">
+      <section className="workflow-section" id="cara-kerja" aria-labelledby="intro-workflow-title">
+        <div className="section-heading"><span className="public-kicker">CARA KERJA</span><h2 id="intro-workflow-title">Dari bukti menjadi keputusan yang bisa ditinjau.</h2></div>
+        <div className="workflow-rail">
+          <article className="workflow-step"><span className="workflow-number">01</span><div className="workflow-icon"><TelegramLogo aria-hidden="true"/></div><h3>Bukti masuk</h3><p>Email bank, pesan Telegram, atau dokumen yang kamu kirim.</p></article>
+          <ArrowRight className="workflow-arrow" aria-hidden="true"/>
+          <article className="workflow-step"><span className="workflow-number">02</span><div className="workflow-icon"><Lightning aria-hidden="true"/></div><h3>Richmod memahami</h3><p>Model bahasa membaca konteks. Richmod memeriksa hasilnya dengan aturan yang konsisten.</p></article>
+          <ArrowRight className="workflow-arrow" aria-hidden="true"/>
+          <article className="workflow-step"><span className="workflow-number">03</span><div className="workflow-icon"><Check aria-hidden="true"/></div><h3>Ledger tercatat</h3><p>Yang cukup jelas masuk ke riwayat keluarga dengan sumbernya.</p></article>
+        </div>
+        <div className="workflow-review"><WarningCircle aria-hidden="true"/><div><strong>Belum cukup jelas?</strong><span>Richmod mengirimkannya ke Kotak Tinjauan—keputusan tetap di tangan kamu.</span></div></div>
+      </section>
+
+      <section className="trust-section" id="kepercayaan" aria-labelledby="intro-trust-title">
+        <div className="trust-copy">
+          <span className="public-kicker">AI MEMBANTU. SISTEM MEMUTUSKAN.</span>
+          <h2 id="intro-trust-title">Otomasi yang tahu kapan harus berhenti.</h2>
+          <p>Model bahasa membantu membaca input yang tidak terstruktur. Ia tidak punya akses untuk mengubah ledger. Richmod memeriksa hasilnya; hal yang ambigu menunggu keputusan manusia.</p>
+          <Link className="public-text-link" href="/privacy">Baca tentang privasi <ArrowRight aria-hidden="true"/></Link>
+        </div>
+        <div className="evidence-stack" aria-label="Hubungan bukti, interpretasi, dan ledger">
+          <div className="stack-item"><FileText aria-hidden="true"/><div><span>Bukti asli</span><strong>Bank Jago · email transaksi</strong><small>6 Sep 2026 · 09:20 WIB</small></div></div>
+          <div className="stack-connector" aria-hidden="true">↓</div>
+          <div className="stack-item"><Lightning aria-hidden="true"/><div><span>Interpretasi tervalidasi</span><strong>Pasar Minggu · Rp185.000</strong><small>Pengeluaran · Belanja rumah</small></div></div>
+          <div className="stack-connector" aria-hidden="true">↓</div>
+          <div className="stack-item stack-item-final"><Check aria-hidden="true"/><div><span>Ledger keluarga</span><strong>Tercatat dan dapat ditelusuri</strong><small>Sumber dan status tetap terlihat</small></div></div>
+        </div>
+      </section>
+    </div>
+    <footer className="login-footer"><span>Richmod · Keuangan keluarga, tanpa menebak.</span><Link href="/privacy">Privasi</Link><Link href="/terms">Ketentuan</Link></footer>
   </main>;
 }
