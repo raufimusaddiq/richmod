@@ -7,6 +7,7 @@ import AppShell from "./components/AppShell";
 import { ErrorNotice, Skeleton } from "./components/Feedback";
 import { DashboardDailySpendingChart } from "./components/Charts";
 import CategoryBars from "./components/CategoryBars";
+import CountUp from "./components/CountUp";
 import { useCategoryPalette } from "./components/CategoryPaletteProvider";
 import { useInboxCounts } from "./components/InboxCountProvider";
 import { useQuickRecord } from "./components/QuickRecordProvider";
@@ -94,7 +95,7 @@ export default function Home() {
   const categoryColors = categoryColorMap(categories, palette).colors;
   const owner = user?.household?.role === "OWNER";
   const compare = comparison && <span className={`home-compare ${comparison.direction}`}>{arrow(comparison.direction)} {comparison.direction !== "same" && <b>{money(comparison.amount)}</b>} {comparison.text}</span>;
-  const wealthCard = <Link className="surface home-card overview-wealth" href={latestWealth?.id ? `/wealth?snapshotId=${latestWealth.id}` : "/wealth"}><div><span className="eyebrow">Posisi kekayaan</span><h2>Kekayaan bersih</h2></div><strong>{latestWealth ? money(latestWealth.netWorthIdr) : "—"}</strong>{latestWealth && <div className="wealth-account-list" aria-label="Ringkasan aset dan kewajiban"><div className="wealth-account-row"><div><b>Total aset</b><small>{wealthAssetCount} akun</small></div><strong className={amountTone(latestWealth.assetTotalIdr)}>{money(latestWealth.assetTotalIdr)}</strong></div><div className="wealth-account-row"><div><b>Total kewajiban</b><small>{wealthLiabilityCount} akun</small></div><strong className={amountTone(latestWealth.liabilityTotalIdr, true)}>{money(latestWealth.liabilityTotalIdr)}</strong></div></div>}<small>{wealthDate ? `Diamati ${wealthDate}` : "Kekayaan belum diinisialisasi"}</small><span className="overview-wealth-link">Buka Kekayaan <ArrowRight aria-hidden="true"/></span></Link>;
+  const wealthCard = <Link className="surface home-card overview-wealth" href={latestWealth?.id ? `/wealth?snapshotId=${latestWealth.id}` : "/wealth"}><div><span className="eyebrow">Posisi kekayaan</span><h2>Kekayaan bersih</h2></div><strong>{latestWealth ? <CountUp text={money(latestWealth.netWorthIdr)}/> : "—"}</strong>{latestWealth && <div className="wealth-account-list" aria-label="Ringkasan aset dan kewajiban"><div className="wealth-account-row"><div><b>Total aset</b><small>{wealthAssetCount} akun</small></div><strong className={amountTone(latestWealth.assetTotalIdr)}><CountUp text={money(latestWealth.assetTotalIdr)}/></strong></div><div className="wealth-account-row"><div><b>Total kewajiban</b><small>{wealthLiabilityCount} akun</small></div><strong className={amountTone(latestWealth.liabilityTotalIdr, true)}><CountUp text={money(latestWealth.liabilityTotalIdr)}/></strong></div></div>}<small>{wealthDate ? `Diamati ${wealthDate}` : "Kekayaan belum diinisialisasi"}</small><span className="overview-wealth-link">Buka Kekayaan <ArrowRight aria-hidden="true"/></span></Link>;
   return <AppShell user={user} eyebrow="Ringkasan" title="Keuangan keluarga">
     <ErrorNotice message={error} retry={load}/>
     {owner && actionCount > 0 && <Link className="home-notice" href="/household?tab=sumber#tindakan"><WarningCircle aria-hidden="true" weight="fill"/><span>{actionCount} langkah setup atau pemrosesan butuh perhatian</span><strong>Buka <ArrowRight aria-hidden="true"/></strong></Link>}
@@ -117,7 +118,7 @@ export default function Home() {
       {state === "expenses-only"
         ? <div className="home-hero-main">
           <h2 id="overview-cashflow-title" className="visually-hidden">Pengeluaran {periodLabel}</h2>
-          <strong className="home-hero-amount">{money(overview?.expense)}</strong>
+          <strong className="home-hero-amount"><CountUp text={money(overview?.expense)}/></strong>
           {comparison && <p className="home-share-label">{compare}</p>}
           <p className="home-hero-prompt">Belum ada pemasukan tercatat {periodLabel}. Catat gaji atau pemasukan lain supaya sisa uang terlihat.</p>
           <div className="home-hero-actions"><button type="button" onClick={() => openQuickRecord()}><Plus aria-hidden="true"/> Catat pemasukan</button></div>
@@ -125,11 +126,11 @@ export default function Home() {
         : <>
           <div className="home-hero-main">
             <h2 id="overview-cashflow-title" className="visually-hidden">Sisa {periodLabel}</h2>
-            <strong className="home-hero-amount">{money(overview?.netCashflow)}</strong>
-            <div className="home-share" role="img" aria-label={`Pengeluaran ${share}% dari pemasukan`}><span style={{ width: `${share}%` }}/></div>
+            <strong className="home-hero-amount"><CountUp text={money(overview?.netCashflow)}/></strong>
+            <div className="home-share" role="img" aria-label={`Pengeluaran ${share}% dari pemasukan`}><span key={share} style={{ width: `${share}%` }}/></div>
             <p className="home-share-label">Keluar {share}% dari pemasukan{comparison && <> · {compare}</>}</p>
           </div>
-          <dl className="home-figures"><div><dt>Masuk</dt><dd>{money(overview?.income)}</dd></div><div><dt>Keluar</dt><dd>{money(overview?.expense)}</dd></div><div><dt>Sudah ditabung</dt><dd>{money(overview?.savingsAllocated)}</dd></div><div><dt>Belum dialokasikan</dt><dd>{money(overview?.unallocatedSurplus)}</dd></div></dl>
+          <dl className="home-figures"><div><dt>Masuk</dt><dd><CountUp text={money(overview?.income)}/></dd></div><div><dt>Keluar</dt><dd><CountUp text={money(overview?.expense)}/></dd></div><div><dt>Sudah ditabung</dt><dd><CountUp text={money(overview?.savingsAllocated)}/></dd></div><div><dt>Belum dialokasikan</dt><dd><CountUp text={money(overview?.unallocatedSurplus)}/></dd></div></dl>
         </>}
     </section>
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka tinjauan <ArrowRight aria-hidden="true"/></strong></Link>}

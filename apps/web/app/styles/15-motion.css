@@ -117,3 +117,11 @@ dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-emphasis)
   }
 }
 
+@keyframes bar-grow-x { from { clip-path: inset(0 100% 0 0); } }
+@keyframes bar-grow-y { from { transform: scaleY(0); } }
+.count-up { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) {
+  .home-share > span, .where-stack { animation: bar-grow-x var(--motion-chart) var(--ease-chart) backwards; }
+  .category-bars-track > span { animation: bar-grow-x var(--motion-chart) var(--ease-chart) backwards; animation-delay: calc(var(--bar-index, 0) * var(--motion-chart-stagger)); }
+  .history-bar { transform-origin: bottom; animation: bar-grow-y var(--motion-chart) var(--ease-chart) backwards; }
+}
