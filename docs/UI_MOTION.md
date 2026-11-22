@@ -43,7 +43,7 @@ drives a timer from an animation duration.
 | Toast in and out | `.toast` | the confirmation arrives and leaves instead of appearing and vanishing |
 | Changed figure | `[data-updated]` on a wealth figure, or on the cycle position | the number the user's save or cycle choice changed is marked, and its `CountUp` tween runs underneath the mark |
 | Drawer, sheet, dialog entry | `.detail-drawer`, `.admin-drawer`, `.mobile-more-panel`, `dialog[open]` | the panel used to cut into place |
-| Page entry | `.route-fade .app-main` via `app/template.js` | a route change lands, under 200 ms, opacity only |
+| Page entry | `.route-fade .app-main` fallback in `app/App.js`; `ViewTransition` in `AppShell` where supported | a route change lands, under 200 ms, opacity only |
 | Chart draw-in | Recharts bars and lines in `Charts.js`, `.history-bar`, `.where-stack`, `.category-bars-track`, `.home-share` | a series shows where its figures came from, once per dataset (see below) |
 | Hero count-up | `CountUp` on the home hero and figures, the cycle KPI strip, the wealth position | the headline figure lands on its exact value instead of cutting in |
 

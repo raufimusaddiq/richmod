@@ -48,8 +48,24 @@ try {
   await page.route("**/api/v1/**", api);
 
   await page.goto(`${base}/`, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    const record = { calls: 0, animations: [] };
+    window.__viewTransitions = record;
+    const original = document.startViewTransition.bind(document);
+    document.startViewTransition = (...args) => {
+      record.calls += 1;
+      const transition = original(...args);
+      transition.ready.then(() => { record.animations.push(...document.getAnimations().map(animation => animation.animationName)); }, () => {});
+      return transition;
+    };
+  });
   await page.click(".sidebar nav a[href='/transactions']");
   await page.waitForSelector(".ledger-panel");
+  await pause(600);
+  const swap = await page.evaluate(() => window.__viewTransitions);
+  assert.ok(swap.calls >= 1, "a sidebar navigation starts a view transition");
+  assert.ok(swap.animations.includes("page-enter"), `the entering page runs the page-swap animation, saw: ${swap.animations.join(",")}`);
+  console.log("route: sidebar navigation runs a view transition");
   const nested = await page.evaluate(() => ({ tagged: document.querySelectorAll("[data-reveal]").length, compounded: [...document.querySelectorAll("[data-reveal]")].filter(node => node.parentElement.closest("[data-reveal]")).length }));
   assert.ok(nested.tagged > 0, "content that replaces the skeleton is revealed");
   assert.equal(nested.compounded, 0, "a tagged node never sits inside another tagged node");
