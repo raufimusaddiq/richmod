@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildCategoryParents, categoryIconColorFor, OTHER_CATEGORY_COLOR } from "../app/lib/categoryColors.js";
+import { buildCategoryParents, categoryColorFor, categoryColorMap, categoryIconColorFor, OTHER_CATEGORY_COLOR } from "../app/lib/categoryColors.js";
 import { FALLBACK_ICON, categoryVisual, normalizeCategoryName } from "../app/lib/categoryIcons.js";
 import { categoryLedgerHref, clippedBarLabels, comparisonLine, dailyAxis, dailyChartModel, dayLedgerHref, formatDailyTick, homeState, rankedCategories, spendingShare } from "../app/lib/home.js";
 import { groupByDay, jakartaDay } from "../app/lib/ledgerDays.js";
@@ -38,50 +38,113 @@ test("category tone uses the six ranked chart tones for top-6 categories and oth
   assert.doesNotMatch(bars, /var\(--line-strong\)/, "Beranda Kategori lain no longer uses green-grey line-strong");
 });
 
-test("category icon tone falls back from own rank to parent top-6 rank to sand", () => {
+test("category icon tone falls back from own rank to highest-ranked top-6 member in the same family to sand", () => {
   const palette = new Map([
-    ["parent-food", "var(--chart-category-1)"],
-    ["child-coffee", "var(--chart-category-4)"],
-    ["parent-home", "var(--chart-category-2)"],
+    ["makan-luar", "var(--chart-category-6)"],
+    ["belanja-bahan", "var(--chart-category-5)"],
+    ["kopi-camilan", "var(--chart-category-4)"],
+    ["langganan", "var(--chart-category-3)"],
+    ["tempat-tinggal", "var(--chart-category-2)"],
+    ["orang-tua", "var(--chart-category-1)"],
   ]);
   const parents = buildCategoryParents([
-    { id: "parent-food", parentId: null, name: "Makanan & Minuman" },
-    { id: "child-coffee", parentId: "parent-food", name: "Kopi & Camilan" },
-    { id: "child-delivery", parentId: "parent-food", name: "Pesan Antar" },
-    { id: "parent-unranked", parentId: null, name: "Transportasi" },
-    { id: "child-fuel", parentId: "parent-unranked", name: "Bahan Bakar" },
+    { id: "rumah-tangga", parentId: null, name: "Rumah Tangga" },
+    { id: "tempat-tinggal", parentId: "rumah-tangga", name: "Tempat Tinggal" },
+    { id: "galon", parentId: "rumah-tangga", name: "Galon Isi Ulang" },
+    { id: "listrik", parentId: "rumah-tangga", name: "Listrik" },
+    { id: "makanan-minuman", parentId: null, name: "Makanan & Minuman" },
+    { id: "kopi-camilan", parentId: "makanan-minuman", name: "Kopi & Camilan" },
+    { id: "belanja-bahan", parentId: "makanan-minuman", name: "Belanja Bahan Makanan" },
+    { id: "makan-luar", parentId: "makanan-minuman", name: "Makan di Luar" },
+    { id: "pesan-antar", parentId: "makanan-minuman", name: "Pesan Antar" },
+    { id: "keluarga", parentId: null, name: "Keluarga" },
+    { id: "orang-tua", parentId: "keluarga", name: "Orang Tua" },
+    { id: "transportasi", parentId: null, name: "Transportasi" },
+    { id: "bahan-bakar", parentId: "transportasi", name: "Bahan Bakar" },
+    { id: "kesehatan", parentId: null, name: "Kesehatan" },
+    { id: "obat-perawatan", parentId: "kesehatan", name: "Obat & Perawatan" },
+    { id: "hiburan", parentId: null, name: "Hiburan" },
+    { id: "langganan", parentId: null, name: "Langganan" },
     { id: "self-loop", parentId: "self-loop", name: "Self" },
   ]);
-  assert.equal(parents.get("child-delivery"), "parent-food");
-  assert.equal(parents.has("parent-food"), false);
+  assert.equal(parents.get("galon"), "rumah-tangga");
+  assert.equal(parents.has("rumah-tangga"), false);
   assert.equal(parents.has("self-loop"), false);
 
-  const ownRank = categoryVisual({ id: "child-coffee", name: "Kopi & Camilan" }, palette, parents);
-  assert.equal(ownRank.tone, 4, "top-6 child keeps its own rank tone over its parent");
-  assert.equal(ownRank.color, "var(--chart-category-4)");
+  const ownRank = categoryVisual({ id: "belanja-bahan", name: "Belanja Bahan Makanan" }, palette, parents);
+  assert.equal(ownRank.tone, 5, "ranked child keeps its own top-6 tone even when a sibling ranks higher");
+  assert.equal(ownRank.color, "var(--chart-category-5)");
 
-  const inherited = categoryVisual({ id: "child-delivery", name: "Pesan Antar" }, palette, parents);
-  assert.equal(inherited.tone, 1, "unranked child inherits top-6 parent tone");
-  assert.equal(inherited.color, "var(--chart-category-1)");
+  const siblingGalon = categoryVisual({ id: "galon", name: "Galon Isi Ulang" }, palette, parents);
+  assert.equal(siblingGalon.tone, 2, "unranked child takes ranked sibling tone (mustard from Tempat Tinggal)");
+  assert.equal(siblingGalon.color, "var(--chart-category-2)");
 
-  const inlineParent = categoryVisual({ id: "child-inline", parentId: "parent-home", name: "Utilitas" }, palette);
-  assert.equal(inlineParent.tone, 2, "inline parentId resolves parent tone even without parents map");
+  const siblingListrik = categoryVisual({ id: "listrik", name: "Listrik" }, palette, parents);
+  assert.equal(siblingListrik.tone, 2, "Listrik takes mustard from sibling Tempat Tinggal");
+  assert.equal(siblingListrik.color, "var(--chart-category-2)");
+
+  const siblingHighest = categoryVisual({ id: "pesan-antar", name: "Pesan Antar" }, palette, parents);
+  assert.equal(siblingHighest.tone, 4, "unranked child with multiple ranked siblings picks the highest-ranked tone");
+  assert.equal(siblingHighest.color, "var(--chart-category-4)");
+
+  const parentSingle = categoryVisual({ id: "keluarga", name: "Keluarga" }, palette, parents);
+  assert.equal(parentSingle.tone, 1, "top-level parent takes ranked child tone (teal from Orang Tua)");
+  assert.equal(parentSingle.color, "var(--chart-category-1)");
+
+  const parentHighest = categoryVisual({ id: "makanan-minuman", name: "Makanan & Minuman" }, palette, parents);
+  assert.equal(parentHighest.tone, 4, "top-level parent with multiple ranked children picks highest-ranked child (plum from Kopi & Camilan)");
+  assert.equal(parentHighest.color, "var(--chart-category-4)");
+
+  const inlineParent = categoryVisual({ id: "child-inline", parentId: "rumah-tangga", name: "Utilitas" }, palette, parents);
+  assert.equal(inlineParent.tone, 2, "inline parentId resolves family tone");
   assert.equal(inlineParent.color, "var(--chart-category-2)");
 
-  const withOtherMap = new Map([...palette, ["child-delivery", OTHER_CATEGORY_COLOR]]);
-  assert.equal(categoryIconColorFor({ id: "child-delivery", name: "Pesan Antar" }, withOtherMap, parents), "var(--chart-category-1)", "sand entry in color map does not block parent fallback");
+  const inlineRankedParent = categoryVisual({ id: "child-langganan", parentId: "langganan", name: "Streaming" }, palette);
+  assert.equal(inlineRankedParent.tone, 3, "inline parentId resolves ranked top-level parent even without parents map");
+  assert.equal(inlineRankedParent.color, "var(--chart-category-3)");
 
-  const unrankedParent = categoryVisual({ id: "child-fuel", name: "Bahan Bakar" }, palette, parents);
-  assert.equal(unrankedParent.tone, "other", "child whose parent is not top-6 stays sand");
-  assert.equal(unrankedParent.color, OTHER_CATEGORY_COLOR);
+  const withOtherMap = new Map([...palette, ["galon", OTHER_CATEGORY_COLOR], ["keluarga", OTHER_CATEGORY_COLOR]]);
+  assert.equal(categoryIconColorFor({ id: "galon", name: "Galon Isi Ulang" }, withOtherMap, parents), "var(--chart-category-2)", "sand entry in color map does not block family fallback");
+  assert.equal(categoryIconColorFor({ id: "keluarga", name: "Keluarga" }, withOtherMap, parents), "var(--chart-category-1)");
 
-  const noParent = categoryVisual({ id: "standalone", name: "Perjalanan" }, palette, parents);
-  assert.equal(noParent.tone, "other");
-  assert.equal(noParent.color, OTHER_CATEGORY_COLOR);
+  for (const unranked of [
+    { id: "transportasi", name: "Transportasi" },
+    { id: "bahan-bakar", name: "Bahan Bakar" },
+    { id: "obat-perawatan", name: "Obat & Perawatan" },
+    { id: "hiburan", name: "Hiburan" },
+    { id: null, name: "Belum dikategorikan" },
+  ]) {
+    const visual = categoryVisual(unranked, palette, parents);
+    assert.equal(visual.tone, "other", `${unranked.name} with no ranked family member stays sand`);
+    assert.equal(visual.color, OTHER_CATEGORY_COLOR);
+  }
 
-  const uncategorized = categoryVisual({ id: null, name: "Belum dikategorikan" }, palette, parents);
-  assert.equal(uncategorized.tone, "other");
-  assert.equal(uncategorized.color, OTHER_CATEGORY_COLOR);
+  assert.equal(categoryColorFor({ id: "galon", name: "Galon Isi Ulang" }, palette), OTHER_CATEGORY_COLOR, "non-icon chart colour stays sand for unranked family members");
+  assert.equal(categoryColorFor({ id: "keluarga", name: "Keluarga" }, palette), OTHER_CATEGORY_COLOR);
+  const chartColors = categoryColorMap([{ id: "galon", name: "Galon Isi Ulang", amount: "100000" }, { id: "keluarga", name: "Keluarga", amount: "200000" }], palette).colors;
+  assert.equal(chartColors.get("galon"), OTHER_CATEGORY_COLOR);
+  assert.equal(chartColors.get("keluarga"), OTHER_CATEGORY_COLOR);
+
+  const deepParents = buildCategoryParents([
+    { id: "root", parentId: null },
+    { id: "branch-a", parentId: "root" },
+    { id: "branch-b", parentId: "root" },
+    { id: "leaf-a1", parentId: "branch-a" },
+    { id: "leaf-a2", parentId: "branch-a" },
+    { id: "deep-a", parentId: "leaf-a2" },
+    { id: "leaf-b1", parentId: "branch-b" },
+    { id: "cycle-1", parentId: "cycle-2" },
+    { id: "cycle-2", parentId: "cycle-1" },
+  ]);
+  const deepPalette = new Map([
+    ["leaf-a1", "var(--chart-category-5)"],
+    ["leaf-b1", "var(--chart-category-2)"],
+  ]);
+  assert.equal(categoryIconColorFor({ id: "deep-a", name: "Deep" }, deepPalette, deepParents), "var(--chart-category-2)", "deeper nesting resolves to the top-level ancestor and picks highest-ranked member in that family");
+  assert.equal(categoryIconColorFor({ id: "branch-a", name: "Branch A" }, deepPalette, deepParents), "var(--chart-category-2)");
+  assert.equal(categoryIconColorFor({ id: "root", name: "Root" }, deepPalette, deepParents), "var(--chart-category-2)");
+  assert.equal(categoryIconColorFor({ id: "leaf-a1", name: "Leaf A1" }, deepPalette, deepParents), "var(--chart-category-5)", "ranked descendant keeps its own tone");
+  assert.equal(categoryIconColorFor({ id: "cycle-1", name: "Cycle" }, deepPalette, deepParents), OTHER_CATEGORY_COLOR, "parent cycles terminate safely");
 });
 
 const day = (period, expense) => ({ period, expense: String(expense), expenseValue: expense });

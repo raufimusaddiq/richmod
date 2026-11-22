@@ -88,20 +88,40 @@ export function categoryColorFor(item, palette = null) {
   return OTHER_CATEGORY_COLOR;
 }
 
+function categoryRootId(id, parents, directParentId = "") {
+  let current = id;
+  const seen = new Set([current]);
+  let next = directParentId || parents?.get(current) || "";
+  while (next && !seen.has(next)) {
+    seen.add(next);
+    current = next;
+    next = parents?.get(current) || "";
+  }
+  return current;
+}
+
 export function categoryIconColorFor(item, palette = null, parents = null) {
   if (!item || item.other || item.remainder) return OTHER_CATEGORY_COLOR;
   const identity = categoryColorIdentity(item);
   if (identity === "uncategorized" || identity === "other") return OTHER_CATEGORY_COLOR;
-  if (palette?.has(identity)) {
+  if (!palette || palette.size === 0) return OTHER_CATEGORY_COLOR;
+  if (palette.has(identity)) {
     const own = palette.get(identity);
     if (own && own !== OTHER_CATEGORY_COLOR) return own;
   }
-  const parentId = (typeof item === "object" && item.parentId ? String(item.parentId) : "") || parents?.get(identity) || "";
-  if (parentId && palette?.has(parentId)) {
-    const parentColor = palette.get(parentId);
-    if (parentColor && parentColor !== OTHER_CATEGORY_COLOR) return parentColor;
+  const directParentId = typeof item === "object" && item.parentId ? String(item.parentId) : "";
+  const rootId = categoryRootId(identity, parents, directParentId);
+  let bestRank = CATEGORY_COLORS.length;
+  let bestColor = "";
+  for (const [rankedId, color] of palette.entries()) {
+    const rank = CATEGORY_COLORS.indexOf(color);
+    if (rank < 0 || rank >= bestRank) continue;
+    if (categoryRootId(String(rankedId), parents) === rootId) {
+      bestRank = rank;
+      bestColor = color;
+    }
   }
-  return OTHER_CATEGORY_COLOR;
+  return bestColor || OTHER_CATEGORY_COLOR;
 }
 
 function extractLists(source) {

@@ -15,7 +15,7 @@ const superAdmin = { id: "user-1", displayName: "Rafi", email: "rafi@example.tes
 const regularOwner = { ...superAdmin, isSuperAdmin: false };
 const categories = Array.from({ length: 14 }, (_, index) => ({
   id: `cat-${index + 1}`,
-  parentId: index === 7 ? "cat-1" : null,
+  parentId: index === 7 ? "cat-1" : (index === 1 || index === 4 || index === 10) ? "cat-10" : null,
   name: index === 0 ? "Belanja Bahan Makanan & Kebutuhan Rumah Tangga" : `Kategori Keluarga ${index + 1}`,
   amount: String((14 - index) * 120000),
   active: true,
@@ -453,10 +453,14 @@ try {
       };
       return {
         childOfTop1: toneFor("Kategori Keluarga 8"),
+        parentOfTop2AndTop5: toneFor("Kategori Keluarga 10"),
+        siblingOfTop2AndTop5: toneFor("Kategori Keluarga 11"),
         unparentedOther: toneFor("Kategori Keluarga 9"),
       };
     });
     assert.match(iconTones.childOfTop1, /\btone-1\b/, `${width}px Transaksi child of top-6 parent inherits parent tone: ${JSON.stringify(iconTones)}`);
+    assert.match(iconTones.parentOfTop2AndTop5, /\btone-2\b/, `${width}px Transaksi unranked parent inherits highest-ranked child tone: ${JSON.stringify(iconTones)}`);
+    assert.match(iconTones.siblingOfTop2AndTop5, /\btone-2\b/, `${width}px Transaksi unranked sibling inherits highest-ranked family tone: ${JSON.stringify(iconTones)}`);
     assert.match(iconTones.unparentedOther, /\btone-other\b/, `${width}px Transaksi unparented non-top-6 stays sand: ${JSON.stringify(iconTones)}`);
     await assertNoHorizontalOverflow(page, `${width}px /transactions`);
     const filterPrimary = await page.locator("div.filter-primary").evaluate(el => ({
