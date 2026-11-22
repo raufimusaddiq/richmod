@@ -1,5 +1,5 @@
 SELECT constraint_name, violations FROM (
-SELECT 'household_member_one_household_per_user' AS constraint_name, count(*) AS violations FROM (SELECT user_id FROM household_member GROUP BY user_id HAVING count(*) > 1) m
+SELECT 'household_member_one_active_household_per_user' AS constraint_name, count(*) AS violations FROM (SELECT user_id FROM household_member WHERE active GROUP BY user_id HAVING count(*) > 1) m
 UNION ALL
 SELECT 'telegram_identity_one_per_user', count(*) FROM (SELECT user_id FROM telegram_identity GROUP BY user_id HAVING count(*) > 1) t
 UNION ALL

@@ -18,6 +18,7 @@ type contextKey struct{}
 type Handler struct {
 	service      *Service
 	secureCookie bool
+	google       *googleRuntime
 }
 
 func NewHandler(service *Service, secureCookie bool) *Handler {

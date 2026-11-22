@@ -106,8 +106,14 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = tx.Rollback(r.Context())
-		var inThisHousehold bool
-		if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM "user" u JOIN household_member hm ON hm.user_id=u.id WHERE u.email=$1 AND hm.household_id=$2)`, in.Email, householdID).Scan(&inThisHousehold); err != nil {
+		tx, err = h.pool.Begin(r.Context())
+		if err != nil {
+			out(w, 500, map[string]string{"error": "unable to create member"})
+			return
+		}
+		defer tx.Rollback(r.Context())
+		var active, superAdmin, inThisHousehold, activeElsewhere bool
+		if err := tx.QueryRow(r.Context(), `SELECT u.id,u.active,u.is_super_admin,EXISTS(SELECT 1 FROM household_member hm WHERE hm.user_id=u.id AND hm.household_id=$2),EXISTS(SELECT 1 FROM household_member hm WHERE hm.user_id=u.id AND hm.active) FROM "user" u WHERE u.email=$1 FOR UPDATE OF u`, in.Email, householdID).Scan(&userID, &active, &superAdmin, &inThisHousehold, &activeElsewhere); err != nil {
 			out(w, 500, map[string]string{"error": "unable to create member"})
 			return
 		}
@@ -115,8 +121,14 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 			out(w, 409, map[string]string{"error": "email sudah menjadi anggota rumah tangga ini; lihat daftar anggota untuk membuat tautan undangan"})
 			return
 		}
-		out(w, 409, map[string]string{"error": "email sudah dipakai akun lain; gunakan email berbeda untuk anggota ini"})
-		return
+		if !active || superAdmin || activeElsewhere {
+			out(w, 409, map[string]string{"error": "email sudah dipakai akun lain; gunakan email berbeda untuk anggota ini"})
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `UPDATE "user" SET display_name=$2,updated_at=now() WHERE id=$1`, userID, in.DisplayName); err != nil {
+			out(w, 500, map[string]string{"error": "unable to create member"})
+			return
+		}
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'MEMBER')`, householdID, userID); err != nil {
 		out(w, 500, map[string]string{"error": "unable to create member"})
@@ -130,7 +142,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdID string) {
-	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.display_name,u.email,hm.role,hm.active,ti.telegram_user_id IS NOT NULL,u.password_initialized_at IS NOT NULL,di.status,di.expires_at,tl.expires_at FROM household_member hm JOIN "user" u ON u.id=hm.user_id LEFT JOIN telegram_identity ti ON ti.household_id=hm.household_id AND ti.user_id=u.id AND ti.active LEFT JOIN LATERAL (SELECT status,expires_at FROM dashboard_account_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) di ON true LEFT JOIN LATERAL (SELECT expires_at FROM telegram_link_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) tl ON true WHERE hm.household_id=$1 ORDER BY hm.created_at`, householdID)
+	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.display_name,u.email,hm.role,hm.active,ti.telegram_user_id IS NOT NULL,u.password_initialized_at IS NOT NULL,u.google_sub IS NOT NULL,di.status,di.expires_at,tl.expires_at FROM household_member hm JOIN "user" u ON u.id=hm.user_id LEFT JOIN telegram_identity ti ON ti.household_id=hm.household_id AND ti.user_id=u.id AND ti.active LEFT JOIN LATERAL (SELECT status,expires_at FROM dashboard_account_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) di ON true LEFT JOIN LATERAL (SELECT expires_at FROM telegram_link_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) tl ON true WHERE hm.household_id=$1 ORDER BY hm.created_at`, householdID)
 	if err != nil {
 		out(w, 500, map[string]string{"error": "unable to list members"})
 		return
@@ -139,14 +151,14 @@ func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdI
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, name, email, role string
-		var active, connected, passwordSet bool
+		var active, connected, passwordSet, googleLinked bool
 		var inviteStatus *string
 		var inviteExpires, telegramInviteExpires *time.Time
-		if rows.Scan(&id, &name, &email, &role, &active, &connected, &passwordSet, &inviteStatus, &inviteExpires, &telegramInviteExpires) != nil {
+		if rows.Scan(&id, &name, &email, &role, &active, &connected, &passwordSet, &googleLinked, &inviteStatus, &inviteExpires, &telegramInviteExpires) != nil {
 			out(w, 500, map[string]string{"error": "unable to list members"})
 			return
 		}
-		items = append(items, map[string]any{"id": id, "displayName": name, "email": email, "role": role, "active": active, "telegramConnected": connected, "passwordInitialized": passwordSet, "dashboardInviteStatus": inviteStatus, "dashboardInviteExpiresAt": inviteExpires, "telegramInviteExpiresAt": telegramInviteExpires})
+		items = append(items, map[string]any{"id": id, "displayName": name, "email": email, "role": role, "active": active, "telegramConnected": connected, "passwordInitialized": passwordSet, "googleLinked": googleLinked, "dashboardInviteStatus": inviteStatus, "dashboardInviteExpiresAt": inviteExpires, "telegramInviteExpiresAt": telegramInviteExpires})
 	}
 	out(w, 200, items)
 }

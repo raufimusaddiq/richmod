@@ -61,7 +61,7 @@ func run(logger *slog.Logger) error {
 	defer pool.Close()
 
 	mux := http.NewServeMux()
-	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
+	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie).WithGoogle(auth.GoogleConfig{ClientID: cfg.GoogleClientID, ClientSecret: cfg.GoogleClientSecret, WebOrigin: cfg.WebOrigin})
 	analyticsHandler := analytics.NewHandler(pool)
 	ledgerHandler := ledger.NewHandler(pool)
 	reviewHandler := review.NewHandler(pool)
@@ -102,6 +102,8 @@ func run(logger *slog.Logger) error {
 	})
 	mux.Handle("POST /api/v1/auth/login", loginLimiter.Handler(http.HandlerFunc(authHandler.Login)))
 	mux.Handle("POST /api/v1/auth/dashboard-invites/accept", loginLimiter.Handler(http.HandlerFunc(authHandler.AcceptDashboardInvite)))
+	mux.Handle("GET /api/v1/auth/google/start", loginLimiter.Handler(http.HandlerFunc(authHandler.GoogleStart)))
+	mux.Handle("GET /api/v1/auth/google/callback", loginLimiter.Handler(http.HandlerFunc(authHandler.GoogleCallback)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("GET /api/v1/household", authHandler.RequireSession(http.HandlerFunc(householdHandler.Get)))

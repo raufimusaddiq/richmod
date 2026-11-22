@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const AuthContext = createContext({ user: null, loaded: false });
+const AuthContext = createContext({ user: null, loaded: false, reload: async () => {} });
 
 const retryDelay = attempt => Math.min(30000, 2000 * 2 ** attempt);
 
@@ -38,6 +38,15 @@ export default function AuthProvider({ children }) {
     };
   }, [attempt]);
 
+  const reload = useCallback(async () => {
+    try {
+      const response = await fetch("/api/v1/auth/me");
+      if (response.status === 401) { setUser(false); return; }
+      if (response.ok) setUser(await response.json());
+    } catch {
+    }
+  }, []);
+
   if (unavailable && !loaded) {
     return (
       <main className="loading" role="alert">
@@ -48,7 +57,7 @@ export default function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loaded, unavailable }}>
+    <AuthContext.Provider value={{ user, loaded, unavailable, reload }}>
       {children}
     </AuthContext.Provider>
   );

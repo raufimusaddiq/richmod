@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,8 @@ import (
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrUnauthenticated = errors.New("unauthenticated")
 var ErrTenantInvariantViolation = errors.New("user has multiple active household memberships")
+var ErrInviteRequired = errors.New("invite acceptance required")
+var ErrGoogleEmailMismatch = errors.New("google email does not match invite")
 
 const SessionIdleTimeout = 24 * time.Hour
 
@@ -225,4 +228,175 @@ func newSessionToken() (string, []byte, error) {
 func hashToken(token string) []byte {
 	digest := sha256.Sum256([]byte(token))
 	return digest[:]
+}
+
+func normalizeGoogleClaims(claims GoogleClaims) (email, sub string) {
+	return strings.ToLower(strings.TrimSpace(claims.Email)), strings.TrimSpace(claims.Subject)
+}
+
+func googleDisplayName(claims GoogleClaims, email string) string {
+	name := strings.TrimSpace(claims.Name)
+	if name == "" {
+		name, _, _ = strings.Cut(email, "@")
+	}
+	if name == "" {
+		name = email
+	}
+	if utf8.RuneCountInString(name) > 120 {
+		name = strings.TrimSpace(string([]rune(name)[:120]))
+	}
+	return name
+}
+
+func (s *Service) LoginWithGoogle(ctx context.Context, claims GoogleClaims) (Principal, string, time.Time, error) {
+	email, sub := normalizeGoogleClaims(claims)
+	if email == "" || sub == "" {
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('richmod.household.create'))`); err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	var userID string
+	var active bool
+	err = tx.QueryRow(ctx, `SELECT id, active FROM "user" WHERE google_sub = $1 FOR UPDATE`, sub).Scan(&userID, &active)
+	switch {
+	case err == nil:
+		if !active {
+			return Principal{}, "", time.Time{}, ErrInvalidCredentials
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+		userID, err = s.linkOrCreateGoogleUser(ctx, tx, claims, email, sub)
+		if err != nil {
+			return Principal{}, "", time.Time{}, err
+		}
+	default:
+		return Principal{}, "", time.Time{}, fmt.Errorf("find google user: %w", err)
+	}
+	return s.finishGoogleSession(ctx, tx, userID)
+}
+
+func (s *Service) linkOrCreateGoogleUser(ctx context.Context, tx pgx.Tx, claims GoogleClaims, email, sub string) (string, error) {
+	var userID string
+	var active, passwordInitialized bool
+	var existingSub *string
+	err := tx.QueryRow(ctx, `SELECT id, active, password_initialized_at IS NOT NULL, google_sub FROM "user" WHERE email = $1 FOR UPDATE`, email).Scan(&userID, &active, &passwordInitialized, &existingSub)
+	switch {
+	case err == nil:
+		if !active {
+			return "", ErrInvalidCredentials
+		}
+		if existingSub != nil && *existingSub != sub {
+			return "", ErrInvalidCredentials
+		}
+		if !passwordInitialized && existingSub == nil {
+			return "", ErrInviteRequired
+		}
+		updated, err := tx.Exec(ctx, `UPDATE "user" SET google_sub = $1, google_linked_at = now(), updated_at = now() WHERE id = $2 AND active`, sub, userID)
+		if err != nil {
+			return "", fmt.Errorf("link google account: %w", err)
+		}
+		if updated.RowsAffected() != 1 {
+			return "", ErrInvalidCredentials
+		}
+		return userID, nil
+	case errors.Is(err, pgx.ErrNoRows):
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return "", fmt.Errorf("generate placeholder password: %w", err)
+		}
+		hash, err := HashPassword(base64.RawURLEncoding.EncodeToString(raw))
+		if err != nil {
+			return "", err
+		}
+		if err := tx.QueryRow(ctx, `INSERT INTO "user" (email, display_name, password_hash, password_initialized_at, google_sub, google_linked_at, is_super_admin)
+			VALUES ($1, $2, $3, NULL, $4, now(), FALSE) RETURNING id`, email, googleDisplayName(claims, email), hash, sub).Scan(&userID); err != nil {
+			return "", fmt.Errorf("create google user: %w", err)
+		}
+		return userID, nil
+	default:
+		return "", fmt.Errorf("find user by email: %w", err)
+	}
+}
+
+func (s *Service) finishGoogleSession(ctx context.Context, tx pgx.Tx, userID string) (Principal, string, time.Time, error) {
+	token, tokenHash, err := newSessionToken()
+	if err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	expiresAt := s.now().Add(SessionIdleTimeout)
+	if _, err = tx.Exec(ctx, `INSERT INTO session (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, userID, tokenHash, expiresAt); err != nil {
+		return Principal{}, "", time.Time{}, fmt.Errorf("create session: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	principal, err := s.principal(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrTenantInvariantViolation) {
+			return Principal{UserID: userID}, "", time.Time{}, err
+		}
+		return Principal{}, "", time.Time{}, fmt.Errorf("load authenticated user: %w", err)
+	}
+	return principal, token, expiresAt, nil
+}
+
+func (s *Service) AcceptDashboardInviteWithGoogle(ctx context.Context, inviteToken string, claims GoogleClaims) (Principal, string, time.Time, error) {
+	email, sub := normalizeGoogleClaims(claims)
+	if inviteToken == "" || email == "" || sub == "" {
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	defer tx.Rollback(ctx)
+	var inviteID, userID, invitedEmail string
+	var existingSub *string
+	var hadPassword bool
+	err = tx.QueryRow(ctx, `SELECT i.id, i.user_id, u.email, u.google_sub, u.password_initialized_at IS NOT NULL
+		FROM dashboard_account_invite i
+		JOIN household_member hm ON hm.household_id = i.household_id AND hm.user_id = i.user_id AND hm.active
+		JOIN "user" u ON u.id = i.user_id AND u.active
+		WHERE i.token_hash = $1 AND i.status = 'PENDING' AND i.expires_at > now()
+		FOR UPDATE OF i, u`, hashToken(inviteToken)).Scan(&inviteID, &userID, &invitedEmail, &existingSub, &hadPassword)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Principal{}, "", time.Time{}, ErrInvalidCredentials
+		}
+		return Principal{}, "", time.Time{}, fmt.Errorf("load invite: %w", err)
+	}
+	if strings.ToLower(strings.TrimSpace(invitedEmail)) != email {
+		return Principal{}, "", time.Time{}, ErrGoogleEmailMismatch
+	}
+	if existingSub != nil && *existingSub != sub {
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
+	}
+	var taken bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM "user" WHERE google_sub = $1 AND id <> $2)`, sub, userID).Scan(&taken); err != nil {
+		return Principal{}, "", time.Time{}, fmt.Errorf("check google subject: %w", err)
+	}
+	if taken {
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
+	}
+	if hadPassword || existingSub != nil {
+		if _, err = tx.Exec(ctx, `UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+			return Principal{}, "", time.Time{}, fmt.Errorf("revoke sessions: %w", err)
+		}
+	}
+	updated, err := tx.Exec(ctx, `UPDATE "user" SET google_sub = $1, google_linked_at = COALESCE(google_linked_at, now()), updated_at = now() WHERE id = $2 AND active`, sub, userID)
+	if err != nil {
+		return Principal{}, "", time.Time{}, fmt.Errorf("link google account: %w", err)
+	}
+	if updated.RowsAffected() != 1 {
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
+	}
+	if _, err = tx.Exec(ctx, `UPDATE dashboard_account_invite SET status = 'CONSUMED', consumed_at = now() WHERE id = $1`, inviteID); err != nil {
+		return Principal{}, "", time.Time{}, fmt.Errorf("consume invite: %w", err)
+	}
+	return s.finishGoogleSession(ctx, tx, userID)
 }

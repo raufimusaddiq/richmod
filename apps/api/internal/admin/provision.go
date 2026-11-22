@@ -63,7 +63,7 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
 	}
-	invite, err := provision.IssueOwnerInvite(r.Context(), tx, created.ID, principal.UserID, time.Now(), false)
+	invite, err := provision.IssueOwnerInvite(r.Context(), tx, created.ID, principal.UserID, time.Now(), true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return

@@ -23,6 +23,8 @@ type API struct {
 	DocumentStoragePath            string
 	VAPIDPrivateKey                string
 	VAPIDSubject                   string
+	GoogleClientID                 string
+	GoogleClientSecret             string
 }
 
 func LoadAPI() (API, error) {
@@ -42,12 +44,17 @@ func LoadAPI() (API, error) {
 		DocumentStoragePath:            valueOr("DOCUMENT_STORAGE_PATH", "/var/lib/finance/attachments"),
 		VAPIDPrivateKey:                os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:                   os.Getenv("VAPID_SUBJECT"),
+		GoogleClientID:                 os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret:             os.Getenv("GOOGLE_CLIENT_SECRET"),
 	}
 	if cfg.DatabaseURL == "" {
 		return API{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	if len(cfg.SessionKey) < 32 {
 		return API{}, fmt.Errorf("SESSION_SECRET must contain at least 32 bytes")
+	}
+	if (cfg.GoogleClientID == "") != (cfg.GoogleClientSecret == "") {
+		return API{}, fmt.Errorf("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together")
 	}
 	origin, err := url.Parse(cfg.WebOrigin)
 	if err != nil || origin.Host == "" {
