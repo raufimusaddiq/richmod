@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -192,58 +191,11 @@ func (p *Processor) readDocument(ctx context.Context, storageRef string) ([]byte
 }
 
 func validateReceipt(value receiptExtraction, receivedAt time.Time) (receiptValidation, error) {
-	if value.Currency != "IDR" || value.Confidence < 0 || value.Confidence > 1 || value.CategoryConfidence < 0 || value.CategoryConfidence > 1 {
-		return receiptValidation{}, fmt.Errorf("invalid receipt currency or confidence")
+	validated, issues := validateReceiptIssues(value, receivedAt)
+	if len(issues) > 0 {
+		return receiptValidation{}, fmt.Errorf("invalid receipt: %s", issues.String())
 	}
-	if _, ok := wholeMoney(value.Total, true); !ok {
-		return receiptValidation{}, fmt.Errorf("invalid receipt total")
-	}
-	if len([]rune(strings.TrimSpace(value.Merchant))) > 160 || len([]rune(strings.TrimSpace(value.PaymentMethodHint))) > 160 {
-		return receiptValidation{}, fmt.Errorf("receipt text exceeds limit")
-	}
-	for _, item := range value.Items {
-		if strings.TrimSpace(item.Name) == "" || len([]rune(item.Name)) > 300 {
-			return receiptValidation{}, fmt.Errorf("invalid receipt item name")
-		}
-		if _, ok := wholeMoney(item.Amount, false); !ok {
-			return receiptValidation{}, fmt.Errorf("invalid receipt item amount")
-		}
-	}
-	parts := []*string{value.Subtotal, value.Tax, value.ServiceCharge, value.Discount}
-	parsed := make([]*big.Int, len(parts))
-	for index, part := range parts {
-		if part == nil {
-			parsed[index] = big.NewInt(0)
-			continue
-		}
-		amount, ok := wholeMoney(*part, false)
-		if !ok {
-			return receiptValidation{}, fmt.Errorf("invalid receipt arithmetic component")
-		}
-		parsed[index] = amount
-	}
-	arithmeticOK := false
-	arithmeticAvailable := value.Subtotal != nil
-	if value.Subtotal != nil {
-		expected := new(big.Int).Add(new(big.Int).Set(parsed[0]), parsed[1])
-		expected.Add(expected, parsed[2])
-		expected.Sub(expected, parsed[3])
-		total, _ := wholeMoney(value.Total, true)
-		arithmeticOK = expected.Sign() >= 0 && expected.Cmp(total) == 0
-	}
-	transactionAt := receivedAt.In(jakarta())
-	dateKnown := value.TransactionAt != nil
-	if dateKnown {
-		parsedTime, err := time.Parse(time.RFC3339, *value.TransactionAt)
-		if err != nil {
-			return receiptValidation{}, fmt.Errorf("invalid receipt transaction time")
-		}
-		transactionAt = parsedTime.In(jakarta())
-		if transactionAt.Before(receivedAt.AddDate(-2, 0, 0)) || transactionAt.After(receivedAt.Add(24*time.Hour)) {
-			return receiptValidation{}, fmt.Errorf("implausible receipt transaction time")
-		}
-	}
-	return receiptValidation{TransactionAt: transactionAt, DateKnown: dateKnown, ArithmeticAvailable: arithmeticAvailable, ArithmeticOK: arithmeticOK}, nil
+	return validated, nil
 }
 
 func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {

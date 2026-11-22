@@ -83,7 +83,7 @@ func TestListSuggestedCategoriesRankByMerchantHistory(t *testing.T) {
 
 	list := func(owner, userID string) map[string][]suggestedCategory {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: userID, HouseholdID: owner, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: owner, Role: "OWNER"}}}))
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: userID, HouseholdID: owner, HasHousehold: true}))
 		res := httptest.NewRecorder()
 		NewHandler(pool).List(res, req)
 		if res.Code != http.StatusOK {

@@ -43,7 +43,7 @@ func TestEditTransactionDetails(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy,active) VALUES($1,'Lama','BANK','FULL_LEDGER',false) RETURNING id`, household).Scan(&inactive))
 	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Asing','BANK','FULL_LEDGER') RETURNING id`, foreign).Scan(&foreignAccount))
 	h := NewHandler(pool)
-	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	newTx := func(kind, status string) string {
 		var id string
 		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,voided_at) VALUES($1,$2,$3,5000,now(),'Awal',CASE WHEN $3='CONFIRMED' THEN now() END,CASE WHEN $3='VOIDED' THEN now() END) RETURNING id`, household, kind, status).Scan(&id))

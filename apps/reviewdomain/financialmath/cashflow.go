@@ -13,22 +13,30 @@ type Cashflow struct {
 	Surplus    string
 }
 
+func parseDecimalInt(raw string) (*big.Int, bool) {
+	value, ok := new(big.Int).SetString(raw, 10)
+	if !ok {
+		return big.NewInt(0), false
+	}
+	return value, true
+}
+
 func Add(a, b string) string {
-	x, _ := new(big.Int).SetString(a, 10)
-	y, _ := new(big.Int).SetString(b, 10)
+	x, _ := parseDecimalInt(a)
+	y, _ := parseDecimalInt(b)
 	return new(big.Int).Add(x, y).String()
 }
 
 func Subtract(a, b string) string {
-	x, _ := new(big.Int).SetString(a, 10)
-	y, _ := new(big.Int).SetString(b, 10)
+	x, _ := parseDecimalInt(a)
+	y, _ := parseDecimalInt(b)
 	return new(big.Int).Sub(x, y).String()
 }
 
 func Ratio(n, d string) (string, bool) {
-	num, _ := new(big.Int).SetString(n, 10)
-	den, _ := new(big.Int).SetString(d, 10)
-	if den.Sign() <= 0 {
+	num, numOK := parseDecimalInt(n)
+	den, denOK := parseDecimalInt(d)
+	if !numOK || !denOK || den.Sign() <= 0 {
 		return "", false
 	}
 	return new(big.Rat).SetFrac(num, den).FloatString(4), true

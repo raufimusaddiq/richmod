@@ -117,10 +117,12 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 }
 
 func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
-	if !principal.HasHousehold && len(principal.Memberships) > 0 {
-		if normalized, err := principalWithMemberships(principal, principal.Memberships); err == nil {
-			principal = normalized
-		}
+	if !principal.HasHousehold && principal.Household != nil {
+		principal.HouseholdID = principal.Household.HouseholdID
+		principal.HouseholdRole = principal.Household.Role
+		principal.HasHousehold = true
+	} else if principal.HasHousehold && principal.Household == nil && principal.HouseholdID != "" {
+		principal.Household = &Membership{HouseholdID: principal.HouseholdID, Role: principal.HouseholdRole}
 	}
 	return context.WithValue(ctx, contextKey{}, principal)
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
 type overviewComparison struct {

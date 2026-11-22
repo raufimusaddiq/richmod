@@ -45,7 +45,7 @@ func TestConfirmRefusesPartialCompoundResidualUntilAllSupplied(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	handler := NewHandler(pool)
 	confirm := func(body string) *httptest.ResponseRecorder {
 		t.Helper()

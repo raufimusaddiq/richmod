@@ -38,7 +38,7 @@ func TestEditTransactionMerchantRename(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Renamer','unused') RETURNING id`, fmt.Sprintf("rename-%d@example.test", time.Now().UnixNano())).Scan(&user))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Transport','transport') RETURNING id`, household).Scan(&category))
 	h := NewHandler(pool)
-	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	newTx := func(owner, kind, status, counterparty string) string {
 		var id string
 		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,counterparty_name,confirmed_at,voided_at,purpose) VALUES($1,$2,$3,5000,now(),'Awal',NULLIF($4,''),CASE WHEN $3='CONFIRMED' THEN now() END,CASE WHEN $3='VOIDED' THEN now() END,CASE WHEN $2='TRANSFER' THEN 'INTERNAL_TRANSFER' ELSE 'GENERAL' END) RETURNING id`, owner, kind, status, counterparty).Scan(&id))

@@ -127,7 +127,7 @@ func (f reviewFixture) webConfirm(t *testing.T, id, categoryID string) *httptest
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+id+"/confirm", bytes.NewBufferString(fmt.Sprintf(`{"categoryId":%q}`, categoryID)))
 	r.SetPathValue("id", id)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Household: &auth.Membership{HouseholdID: f.household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	review.NewHandler(f.pool).Confirm(w, r)
 	return w

@@ -62,7 +62,7 @@ func TestWebTransferClassificationPersistsFallbackResidual(t *testing.T) {
 			must(err)
 			_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}')`, household, transaction)
 			must(err)
-			call := reviewTestHTTP(t, pool, auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}})
+			call := reviewTestHTTP(t, pool, auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}})
 			w := call(http.MethodPost, "/reviews/"+transaction+"/classify-transfer", map[string]any{"classification": classification})
 			var conflict struct {
 				MissingFacts []string `json:"missingFacts"`
@@ -140,7 +140,7 @@ func TestWebLegacyAccountReplacementRequiresRepairableClassification(t *testing.
 			must(err)
 			_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["wealth_account"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}')`, household, transaction)
 			must(err)
-			call := reviewTestHTTP(t, pool, auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}})
+			call := reviewTestHTTP(t, pool, auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}})
 			values := map[string]any{"wealthAccountId": replacement}
 			w := call(http.MethodPost, "/reviews/"+transaction+"/classify-transfer", values)
 			var conflict struct {

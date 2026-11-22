@@ -76,7 +76,13 @@ func ListBankSourceAccountChoices(ctx context.Context, tx pgx.Tx, householdID, r
 	} else if !unlinked {
 		return nil, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT id::text,name FROM account WHERE household_id=$1 AND active ORDER BY name,id LIMIT $2`, householdID, limit)
+	var rows pgx.Rows
+	var err error
+	if limit > 0 {
+		rows, err = tx.Query(ctx, `SELECT id::text,name FROM account WHERE household_id=$1 AND active ORDER BY name,id LIMIT $2`, householdID, limit)
+	} else {
+		rows, err = tx.Query(ctx, `SELECT id::text,name FROM account WHERE household_id=$1 AND active ORDER BY name,id`, householdID)
+	}
 	if err != nil {
 		return nil, err
 	}

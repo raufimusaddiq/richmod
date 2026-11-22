@@ -95,7 +95,7 @@ function fixture(path, currentUser) {
   if (/\/api\/v1\/transactions\/[^/]+\/audit$/.test(path)) return [{ id: "audit-1", action: "CONFIRM", actorType: "SYSTEM", createdAt: "2026-09-28T09:21:00+07:00" }];
   if (/\/api\/v1\/transactions\/[^/]+$/.test(path)) return transactions[0];
   if (path.startsWith("/api/v1/transactions")) return transactions;
-  if (path === "/api/v1/reviews") return [{ id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "750000", merchantName: "Transfer ke rekening lain", transactionAt: "2026-09-05T15:00:00+07:00", sourceType: "BANK_EMAIL", proposalStatus: "NEEDS_REVIEW", missingFields: ["merchant"], description: "Tujuan transfer belum jelas" }];
+  if (path === "/api/v1/reviews") return [{ id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "750000", merchantName: "Transfer ke rekening lain", transactionAt: "2026-09-05T15:00:00+07:00", sourceType: "BANK_EMAIL", proposalStatus: "NEEDS_REVIEW", missingFacts: ["merchant"], description: "Tujuan transfer belum jelas" }];
   if (path === "/api/v1/integration-actions") return [];
   if (path === "/api/v1/categories") return categories;
   if (path === "/api/v1/accounts") return accounts;

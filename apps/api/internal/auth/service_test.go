@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -50,5 +51,16 @@ func TestPrincipalJSONExposesOneHousehold(t *testing.T) {
 	got := string(raw)
 	if got != `{"userId":"user-1","email":"","displayName":"","isSuperAdmin":false,"household":{"id":"household-1","role":"MEMBER"}}` {
 		t.Fatalf("principal JSON = %s", got)
+	}
+}
+
+func TestContextWithPrincipalNormalizesHousehold(t *testing.T) {
+	ctx := ContextWithPrincipal(context.Background(), Principal{
+		UserID:    "user-1",
+		Household: &Membership{HouseholdID: "household-1", Role: "OWNER"},
+	})
+	principal, ok := PrincipalFromContext(ctx)
+	if !ok || !principal.HasHousehold || principal.HouseholdID != "household-1" || principal.HouseholdRole != "OWNER" {
+		t.Fatalf("normalized principal = %#v, ok=%v", principal, ok)
 	}
 }

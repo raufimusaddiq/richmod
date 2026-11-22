@@ -2,6 +2,7 @@ package document
 
 import (
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -43,21 +44,18 @@ func (list validationIssues) String() string {
 }
 
 func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (receiptValidation, validationIssues) {
-	validation, legacyErr := validateReceipt(value, receivedAt)
-	if legacyErr == nil {
-		return validation, nil
-	}
 	issues := validationIssues{}
 	if value.Currency != "IDR" {
 		issues = append(issues, ValidationIssue{Field: "currency", Code: "INVALID_CURRENCY"})
 	}
-	if value.Confidence < 0 || value.Confidence > 1 {
+	if !(value.Confidence >= 0 && value.Confidence <= 1) {
 		issues = append(issues, ValidationIssue{Field: "confidence", Code: "INVALID_CONFIDENCE"})
 	}
-	if value.CategoryConfidence < 0 || value.CategoryConfidence > 1 {
+	if !(value.CategoryConfidence >= 0 && value.CategoryConfidence <= 1) {
 		issues = append(issues, ValidationIssue{Field: "category_confidence", Code: "INVALID_CONFIDENCE"})
 	}
-	if _, ok := wholeMoney(value.Total, true); !ok {
+	total, totalValid := wholeMoney(value.Total, true)
+	if !totalValid {
 		issues = append(issues, ValidationIssue{Field: "total", Code: "INVALID_AMOUNT"})
 	}
 	if len([]rune(strings.TrimSpace(value.Merchant))) > 160 {
@@ -75,37 +73,60 @@ func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (recei
 			issues = append(issues, ValidationIssue{Field: field + ".amount", Code: "INVALID_AMOUNT"})
 		}
 	}
-	for index, part := range []*string{value.Subtotal, value.Tax, value.ServiceCharge, value.Discount} {
-		if part == nil {
+	parts := []struct {
+		field string
+		value *string
+	}{
+		{field: "subtotal", value: value.Subtotal},
+		{field: "tax", value: value.Tax},
+		{field: "service_charge", value: value.ServiceCharge},
+		{field: "discount", value: value.Discount},
+	}
+	parsed := make([]*big.Int, len(parts))
+	partsValid := true
+	for index, part := range parts {
+		if part.value == nil {
+			parsed[index] = big.NewInt(0)
 			continue
 		}
-		if _, ok := wholeMoney(*part, false); !ok {
-			field := "subtotal"
-			switch index {
-			case 1:
-				field = "tax"
-			case 2:
-				field = "service_charge"
-			case 3:
-				field = "discount"
-			}
-			issues = append(issues, ValidationIssue{Field: field, Code: "INVALID_AMOUNT"})
+		amount, ok := wholeMoney(*part.value, false)
+		if !ok {
+			partsValid = false
+			issues = append(issues, ValidationIssue{Field: part.field, Code: "INVALID_AMOUNT"})
+			continue
 		}
+		parsed[index] = amount
 	}
-	if value.TransactionAt != nil {
-		if _, err := time.Parse(time.RFC3339, *value.TransactionAt); err != nil {
+	arithmeticAvailable := value.Subtotal != nil
+	arithmeticOK := false
+	if arithmeticAvailable && totalValid && partsValid {
+		expected := new(big.Int).Add(new(big.Int).Set(parsed[0]), parsed[1])
+		expected.Add(expected, parsed[2])
+		expected.Sub(expected, parsed[3])
+		arithmeticOK = expected.Sign() >= 0 && expected.Cmp(total) == 0
+	}
+	transactionAt := receivedAt.In(jakarta())
+	dateKnown := value.TransactionAt != nil
+	if dateKnown {
+		parsedTime, err := time.Parse(time.RFC3339, *value.TransactionAt)
+		if err != nil {
 			issues = append(issues, ValidationIssue{Field: "transaction_at", Code: "INVALID_FORMAT"})
-		} else if parsed, err := time.Parse(time.RFC3339, *value.TransactionAt); err == nil {
-			t := parsed.In(jakarta())
-			if t.Before(receivedAt.AddDate(-2, 0, 0)) || t.After(receivedAt.Add(24*time.Hour)) {
+		} else {
+			transactionAt = parsedTime.In(jakarta())
+			if transactionAt.Before(receivedAt.AddDate(-2, 0, 0)) || transactionAt.After(receivedAt.Add(24*time.Hour)) {
 				issues = append(issues, ValidationIssue{Field: "transaction_at", Code: "IMPLAUSIBLE_TIME"})
 			}
 		}
 	}
-	if len(issues) == 0 {
-		issues = append(issues, ValidationIssue{Field: "receipt", Code: "UNMAPPED_VALIDATION_FAILURE"})
+	if len(issues) > 0 {
+		return receiptValidation{}, issues
 	}
-	return validation, issues
+	return receiptValidation{
+		TransactionAt:       transactionAt,
+		DateKnown:           dateKnown,
+		ArithmeticAvailable: arithmeticAvailable,
+		ArithmeticOK:        arithmeticOK,
+	}, nil
 }
 
 func payslipValidationIssues(value payslipExtraction) validationIssues {

@@ -43,6 +43,6 @@ const fieldLabels = { amount_idr: "Jumlah", amount: "Jumlah", transaction_at: "W
 function label(key) { if (fieldLabels[key] || reviewTypes[key]) return fieldLabels[key] || reviewTypes[key]; const words = String(key).split("_").join(" ").toLowerCase(); return words.charAt(0).toUpperCase() + words.slice(1); }
 
 export function MissingInputs(item) {
-  const missing = item.missingFacts || item.missingFields || [];
+  const missing = item.missingFacts || [];
   return { category: missing.includes("category"), merchant: missing.includes("merchant"), transactionAt: missing.includes("transaction_at") };
 }

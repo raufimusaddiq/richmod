@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
 func TestAnalyticsWholeIDRAddition(t *testing.T) {

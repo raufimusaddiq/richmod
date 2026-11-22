@@ -53,7 +53,7 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 
 	handler := NewHandler(pool)
 	handler.now = func() time.Time { return time.Date(2026, 8, 31, 12, 0, 0, 0, time.FixedZone("UTC+7", 7*60*60)) }
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/insights/generate?period=cycle", nil)
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
 	response := httptest.NewRecorder()

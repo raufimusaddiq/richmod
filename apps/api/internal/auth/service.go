@@ -26,15 +26,14 @@ type Membership struct {
 }
 
 type Principal struct {
-	UserID        string       `json:"userId"`
-	Email         string       `json:"email"`
-	DisplayName   string       `json:"displayName"`
-	IsSuperAdmin  bool         `json:"isSuperAdmin"`
-	Household     *Membership  `json:"household"`
-	HouseholdID   string       `json:"-"`
-	HouseholdRole string       `json:"-"`
-	HasHousehold  bool         `json:"-"`
-	Memberships   []Membership `json:"-"`
+	UserID        string      `json:"userId"`
+	Email         string      `json:"email"`
+	DisplayName   string      `json:"displayName"`
+	IsSuperAdmin  bool        `json:"isSuperAdmin"`
+	Household     *Membership `json:"household"`
+	HouseholdID   string      `json:"-"`
+	HouseholdRole string      `json:"-"`
+	HasHousehold  bool        `json:"-"`
 }
 
 type Service struct {
@@ -148,15 +147,11 @@ func principalWithMemberships(principal Principal, memberships []Membership) (Pr
 	case 0:
 		return principal, nil
 	case 1:
-		var membership Membership
-		for _, item := range memberships {
-			membership = item
-		}
+		membership := memberships[0]
 		principal.Household = &membership
 		principal.HouseholdID = membership.HouseholdID
 		principal.HouseholdRole = membership.Role
 		principal.HasHousehold = true
-		principal.Memberships = memberships
 		return principal, nil
 	default:
 		return Principal{}, ErrTenantInvariantViolation

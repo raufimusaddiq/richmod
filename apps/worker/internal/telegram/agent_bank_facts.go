@@ -67,7 +67,7 @@ func (p *Processor) agentResolveBoundBankFacts(ctx context.Context, state *agent
 				result.Status = "STALE_REVIEW_BINDING"
 				return result, true, nil
 			case errors.Is(err, reviewdomain.ErrBankSourceUnlinked):
-				accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, state.HouseholdID, binding.TargetID, bankSourceID, 10)
+				accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, state.HouseholdID, binding.TargetID, bankSourceID, 0)
 				if listErr != nil {
 					return result, true, listErr
 				}

@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -31,11 +30,7 @@ func newTestVAPIDKey() string {
 }
 
 func newTestHandler(pool *pgxpool.Pool, privateKey, subject string) *Handler {
-	fn := reflect.ValueOf(NewHandler)
-	if fn.Type().NumIn() == 3 {
-		return fn.Call([]reflect.Value{reflect.ValueOf(pool), reflect.ValueOf(privateKey), reflect.ValueOf(subject)})[0].Interface().(*Handler)
-	}
-	return fn.Call([]reflect.Value{reflect.ValueOf(pool), reflect.ValueOf(PublicKey(privateKey))})[0].Interface().(*Handler)
+	return NewHandler(pool, privateKey, subject)
 }
 
 func newTestSubscriptionKeys() (string, string) {

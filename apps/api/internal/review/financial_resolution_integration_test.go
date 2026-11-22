@@ -175,7 +175,7 @@ func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+f.review+"/resolve", bytes.NewBufferString(body))
 	r.SetPathValue("id", f.review)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: f.user, Household: &auth.Membership{HouseholdID: f.household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	NewHandler(f.pool).Resolve(w, r)
 	return w
@@ -278,7 +278,7 @@ func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
 				}
 			}
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-			req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: fixture.user, Memberships: []auth.Membership{{HouseholdID: fixture.household, Role: "OWNER"}}}))
+			req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: fixture.user, Household: &auth.Membership{HouseholdID: fixture.household, Role: "OWNER"}}))
 			res := httptest.NewRecorder()
 			NewHandler(fixture.pool).List(res, req)
 			if res.Code != http.StatusOK {
@@ -308,7 +308,7 @@ func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
 func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: fixture.user, Memberships: []auth.Membership{{HouseholdID: fixture.household, Role: "OWNER"}}}))
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: fixture.user, Household: &auth.Membership{HouseholdID: fixture.household, Role: "OWNER"}}))
 	res := httptest.NewRecorder()
 	NewHandler(fixture.pool).List(res, req)
 	if res.Code != http.StatusOK {

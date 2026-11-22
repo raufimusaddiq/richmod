@@ -143,6 +143,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
 	if evidenceErr != nil {
+		slog.Default().Warn("bind turn evidence failed", "household_id", householdID, "source_event_id", sourceEventID, "error", evidenceErr)
 		evidence, evidenceReview = nil, nil
 	}
 	if reviewBinding == nil && evidenceReview != nil {
@@ -150,7 +151,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 	}
 	var recentEvidence []map[string]any
-	recentCandidates, _ := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
+	recentCandidates, recentErr := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
+	if recentErr != nil {
+		slog.Default().Warn("load recent evidence candidates failed", "household_id", householdID, "source_event_id", sourceEventID, "error", recentErr)
+	}
 	freshDocuments := freshEvidenceDocuments(recentCandidates)
 	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {

@@ -1,6 +1,8 @@
 package telegram
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -239,5 +241,105 @@ func TestEmptySummaryCardShowsItsTitleOnce(t *testing.T) {
 	}
 	if got := strings.Count(message, promptTitle(decision)); got != 1 {
 		t.Fatalf("title appears %d times in %q", got, message)
+	}
+}
+
+func TestBankAccountChooserPaginatesBeyondEightItems(t *testing.T) {
+	accounts := make([]reviewdomain.BankAccountChoice, 12)
+	for i := range accounts {
+		accounts[i] = reviewdomain.BankAccountChoice{ID: fmt.Sprintf("acc-%d", i), Name: fmt.Sprintf("Account %d", i)}
+	}
+	page0 := bankAccountChoicesMarkup(accounts, 0)
+	if len(page0.InlineKeyboard) != 9 {
+		t.Fatalf("page 0 rows = %d, want 9 (8 accounts + pager)", len(page0.InlineKeyboard))
+	}
+	if page0.InlineKeyboard[0][0].CallbackData != "review:bank:acc-0" || page0.InlineKeyboard[7][0].CallbackData != "review:bank:acc-7" {
+		t.Fatalf("page 0 account callbacks = %+v", page0.InlineKeyboard[:8])
+	}
+	if len(page0.InlineKeyboard[8]) != 1 || page0.InlineKeyboard[8][0].CallbackData != "review:bankpage:1" {
+		t.Fatalf("page 0 pager = %+v", page0.InlineKeyboard[8])
+	}
+	page1 := bankAccountChoicesMarkup(accounts, 1)
+	if len(page1.InlineKeyboard) != 5 {
+		t.Fatalf("page 1 rows = %d, want 5 (4 accounts + pager)", len(page1.InlineKeyboard))
+	}
+	if page1.InlineKeyboard[0][0].CallbackData != "review:bank:acc-8" || page1.InlineKeyboard[3][0].CallbackData != "review:bank:acc-11" {
+		t.Fatalf("page 1 account callbacks = %+v", page1.InlineKeyboard[:4])
+	}
+	if len(page1.InlineKeyboard[4]) != 1 || page1.InlineKeyboard[4][0].CallbackData != "review:bankpage:0" {
+		t.Fatalf("page 1 pager = %+v", page1.InlineKeyboard[4])
+	}
+}
+
+func TestDuplicateChooserPaginatesWithGlobalIndices(t *testing.T) {
+	candidates := make([]string, 11)
+	amounts := make([]string, 11)
+	for i := range candidates {
+		candidates[i] = fmt.Sprintf("tx-%d", i)
+		amounts[i] = fmt.Sprintf("%d", (i+1)*1000)
+	}
+	page0 := duplicateChoicesMarkupPage(candidates, amounts, 0)
+	if len(page0.InlineKeyboard) != 10 {
+		t.Fatalf("page 0 rows = %d, want 10 (8 candidates + pager + actions)", len(page0.InlineKeyboard))
+	}
+	if page0.InlineKeyboard[0][0].CallbackData != "review:dup:merge:0" || page0.InlineKeyboard[7][0].CallbackData != "review:dup:merge:7" {
+		t.Fatalf("page 0 merge callbacks = %+v", page0.InlineKeyboard[:8])
+	}
+	if len(page0.InlineKeyboard[8]) != 1 || page0.InlineKeyboard[8][0].CallbackData != "review:duppage:1" {
+		t.Fatalf("page 0 pager = %+v", page0.InlineKeyboard[8])
+	}
+	page1 := duplicateChoicesMarkupPage(candidates, amounts, 1)
+	if len(page1.InlineKeyboard) != 5 {
+		t.Fatalf("page 1 rows = %d, want 5 (3 candidates + pager + actions)", len(page1.InlineKeyboard))
+	}
+	if page1.InlineKeyboard[0][0].CallbackData != "review:dup:merge:8" || page1.InlineKeyboard[2][0].CallbackData != "review:dup:merge:10" {
+		t.Fatalf("page 1 global merge callbacks = %+v", page1.InlineKeyboard[:3])
+	}
+	if len(page1.InlineKeyboard[3]) != 1 || page1.InlineKeyboard[3][0].CallbackData != "review:duppage:0" {
+		t.Fatalf("page 1 pager = %+v", page1.InlineKeyboard[3])
+	}
+}
+
+func TestInvestmentChooserPaginatesBeyondEightItems(t *testing.T) {
+	page0Choices := make([]investmentAccountChoice, 8)
+	for i := range page0Choices {
+		page0Choices[i] = investmentAccountChoice{ID: fmt.Sprintf("inv-%d", i), Name: fmt.Sprintf("Invest %d", i)}
+	}
+	page0 := investmentChoicesMarkup(page0Choices, 0, 11)
+	if len(page0.InlineKeyboard) != 9 {
+		t.Fatalf("page 0 rows = %d, want 9 (8 accounts + pager)", len(page0.InlineKeyboard))
+	}
+	if len(page0.InlineKeyboard[8]) != 1 || page0.InlineKeyboard[8][0].CallbackData != "review:investpage:1" {
+		t.Fatalf("page 0 pager = %+v", page0.InlineKeyboard[8])
+	}
+	page1Choices := []investmentAccountChoice{
+		{ID: "inv-8", Name: "Invest 8"},
+		{ID: "inv-9", Name: "Invest 9"},
+		{ID: "inv-10", Name: "Invest 10"},
+	}
+	page1 := investmentChoicesMarkup(page1Choices, 1, 11)
+	if len(page1.InlineKeyboard) != 4 {
+		t.Fatalf("page 1 rows = %d, want 4 (3 accounts + pager)", len(page1.InlineKeyboard))
+	}
+	if page1.InlineKeyboard[2][0].CallbackData != "review:invest:inv-10" {
+		t.Fatalf("page 1 last account = %+v", page1.InlineKeyboard[2])
+	}
+	if len(page1.InlineKeyboard[3]) != 1 || page1.InlineKeyboard[3][0].CallbackData != "review:investpage:0" {
+		t.Fatalf("page 1 pager = %+v", page1.InlineKeyboard[3])
+	}
+}
+
+func TestAgentToolResultDecodesMissingFieldsAsStringSlice(t *testing.T) {
+	raw := []byte(`{"status":"RESIDUAL_FACTS_REQUIRED","review":{"required":true,"missing_fields":["category","transaction_at"]}}`)
+	var decoded agentToolResult
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got, ok := missingFields(decoded.Review)
+	if !ok || len(got) != 2 || got[0] != "category" || got[1] != "transaction_at" {
+		t.Fatalf("missingFields = %v,%v; want [category transaction_at],true", got, ok)
+	}
+	if reply, handled := agentMutationReply(decoded); !handled || reply == "" {
+		t.Fatalf("agentMutationReply = %q,%v", reply, handled)
 	}
 }

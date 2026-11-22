@@ -36,7 +36,7 @@ func TestVoidWebManualTransaction(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void foreign') RETURNING id`).Scan(&foreign))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Voider','unused') RETURNING id`, fmt.Sprintf("void-%d@example.test", time.Now().UnixNano())).Scan(&user))
 	h := NewHandler(pool)
-	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: household, Role: "MEMBER"}}}
+	principal := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
 	as := func(r *http.Request, p auth.Principal) *http.Request {
 		return r.WithContext(auth.ContextWithPrincipal(r.Context(), p))
 	}
@@ -105,7 +105,7 @@ func TestVoidWebManualTransaction(t *testing.T) {
 
 	t.Run("another_household_gets_404_and_nothing_changes", func(t *testing.T) {
 		id := create()
-		other := auth.Principal{UserID: user, HouseholdID: foreign, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: foreign, Role: "OWNER"}}}
+		other := auth.Principal{UserID: user, HouseholdID: foreign, HasHousehold: true}
 		if w := void(id, other); w.Code != http.StatusNotFound {
 			t.Fatalf("status=%d", w.Code)
 		}
@@ -120,7 +120,7 @@ func TestVoidWebManualTransaction(t *testing.T) {
 		var hh, usr, source, salarySource, startEvent, endEvent, startTx, expenseTx, caseID, review string
 		must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void cycle') RETURNING id`).Scan(&hh))
 		must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Cycle voider','unused') RETURNING id`, fmt.Sprintf("void-cycle-%d@example.test", time.Now().UnixNano())).Scan(&usr))
-		p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: hh, Role: "OWNER"}}}
+		p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true}
 		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(time.Now().UnixNano())).Scan(&source))
 		must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Test','test',true) RETURNING id`, hh, usr).Scan(&salarySource))
 		for _, row := range []struct {
@@ -197,7 +197,7 @@ func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
 	var hh, usr, source, salarySource, startEvent, endEvent, caseID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void reopen') RETURNING id`).Scan(&hh))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Reopener','unused') RETURNING id`, fmt.Sprintf("void-reopen-%d@example.test", time.Now().UnixNano())).Scan(&usr))
-	p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true, Memberships: []auth.Membership{{HouseholdID: hh, Role: "OWNER"}}}
+	p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true}
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(time.Now().UnixNano())).Scan(&source))
 	must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Test','test',true) RETURNING id`, hh, usr).Scan(&salarySource))
 	for _, row := range []struct {

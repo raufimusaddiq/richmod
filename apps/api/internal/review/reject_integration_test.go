@@ -46,7 +46,7 @@ func TestRejectReviewUsesSharedCanonicalTransition(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,$3,'UNKNOWN_MERCHANT','OPEN',$4) RETURNING id`, reviewItemID, householdID, transactionID, stamp).Scan(&requestID); err != nil {
 		t.Fatal(err)
 	}
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/reject", nil)
 	request.SetPathValue("id", transactionID)
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
@@ -65,7 +65,7 @@ func TestRejectReviewUsesSharedCanonicalTransition(t *testing.T) {
 
 	foreignHousehold, foreignUser, _ := seedTransferReviewOwner(t, pool, stamp+1)
 	_ = foreignHousehold
-	foreign := auth.Principal{UserID: foreignUser, Memberships: []auth.Membership{{HouseholdID: foreignHousehold, Role: "OWNER"}}}
+	foreign := auth.Principal{UserID: foreignUser, Household: &auth.Membership{HouseholdID: foreignHousehold, Role: "OWNER"}}
 	second := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/reject", nil)
 	second.SetPathValue("id", transactionID)
 	second = second.WithContext(auth.ContextWithPrincipal(second.Context(), foreign))

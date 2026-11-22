@@ -58,7 +58,7 @@ func TestDuplicateBankListenerSenderIs409(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
 		t.Fatal(err)
 	}
-	principal := auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}
 	handler := NewHandler(pool)
 	post := func(bank string) int {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/bank-email-listeners", bytes.NewBufferString(fmt.Sprintf(`{"bankName":%q,"senderAddress":"alerts@dup.test.invalid"}`, bank)))

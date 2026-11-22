@@ -231,7 +231,7 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 
 	list := func(query string) (total string, count int) {
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?type=SPENDING&from=2026-09-01&to=2026-09-10&"+query, nil)
-		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Memberships: []auth.Membership{{HouseholdID: f.household, Role: "OWNER"}}}))
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: f.user, Household: &auth.Membership{HouseholdID: f.household, Role: "OWNER"}}))
 		response := httptest.NewRecorder()
 		ledger.NewHandler(f.pool).ListTransactions(response, request)
 		if response.Code != 200 {

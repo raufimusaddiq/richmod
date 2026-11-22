@@ -27,7 +27,8 @@ var telegramCallbackTokenPrefixes = []string{
 }
 
 var telegramCallbackNumberPrefixes = []string{
-	"review:catpage:", "review:fepage:", "review:dup:merge:", "review:xfer:merge:",
+	"review:catpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
+	"review:dup:merge:", "review:xfer:merge:",
 }
 
 func ValidTelegramCallback(data string) bool {

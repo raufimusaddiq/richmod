@@ -50,7 +50,7 @@ func TestMerchantAliasCanBeDisabledOnlyWithinHousehold(t *testing.T) {
 	handler := NewHandler(pool)
 	request := httptest.NewRequest(http.MethodPatch, "/api/v1/merchant-aliases/"+aliasID, bytes.NewBufferString(`{"autoApply":false}`))
 	request.SetPathValue("id", aliasID)
-	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
 	response := httptest.NewRecorder()
 	handler.PatchMerchantAlias(response, request)
 	if response.Code != http.StatusNoContent {
@@ -63,7 +63,7 @@ func TestMerchantAliasCanBeDisabledOnlyWithinHousehold(t *testing.T) {
 
 	foreign := httptest.NewRequest(http.MethodPatch, "/api/v1/merchant-aliases/"+aliasID, bytes.NewBufferString(`{"autoApply":true}`))
 	foreign.SetPathValue("id", aliasID)
-	foreign = foreign.WithContext(auth.ContextWithPrincipal(foreign.Context(), auth.Principal{UserID: otherUser, Memberships: []auth.Membership{{HouseholdID: otherHousehold, Role: "OWNER"}}}))
+	foreign = foreign.WithContext(auth.ContextWithPrincipal(foreign.Context(), auth.Principal{UserID: otherUser, Household: &auth.Membership{HouseholdID: otherHousehold, Role: "OWNER"}}))
 	foreignResponse := httptest.NewRecorder()
 	handler.PatchMerchantAlias(foreignResponse, foreign)
 	if foreignResponse.Code != http.StatusNotFound {

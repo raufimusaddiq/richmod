@@ -59,7 +59,10 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	}
 	receipt := receiptExtraction{Currency: "USD", Total: "1.2", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: -1, Items: []receiptItem{{Name: "", Amount: "x"}}, TransactionAt: ptr("not-a-date")}
 	_, receiptActual := validateReceiptIssues(receipt, received)
-	assertIssueCoverage(t, "RECEIPT", receiptActual, "receipt")
+	assertIssueCoverage(t, "RECEIPT", receiptActual)
+	if receiptActual.has("receipt", "UNMAPPED_VALIDATION_FAILURE") {
+		t.Fatalf("receipt validation emitted unmapped fallback: %s", receiptActual.String())
+	}
 	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: ptr("x"), Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}, OtherComponents: []moneyLine{{Name: "other", Amount: "x"}}})
 	assertIssueCoverage(t, "PAYSLIP", payslipActual, "payslip")
 	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: ptr("x"), Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE")

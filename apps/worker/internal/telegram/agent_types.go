@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"time"
 
@@ -48,6 +49,27 @@ type agentToolResult struct {
 	Review     map[string]any   `json:"review,omitempty"`
 
 	confirmationToken string
+}
+
+func (r *agentToolResult) UnmarshalJSON(data []byte) error {
+	type alias agentToolResult
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.Review != nil {
+		if raw, ok := decoded.Review["missing_fields"].([]any); ok {
+			fields := make([]string, 0, len(raw))
+			for _, item := range raw {
+				if text, ok := item.(string); ok {
+					fields = append(fields, text)
+				}
+			}
+			decoded.Review["missing_fields"] = fields
+		}
+	}
+	*r = agentToolResult(decoded)
+	return nil
 }
 
 type agentPublicRef struct {

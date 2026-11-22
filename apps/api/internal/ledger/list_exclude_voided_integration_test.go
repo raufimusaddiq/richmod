@@ -47,7 +47,7 @@ func TestTransactionListExcludeVoided(t *testing.T) {
 	insert("VOIDED", 3)
 	insert("VOIDED", 4)
 	insert("VOIDED", 5)
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	list := func(query string) (int, []transactionView, http.Header) {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/transactions"+query, nil)

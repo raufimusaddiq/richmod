@@ -32,7 +32,7 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, householdID, fmt.Sprintf("Merchant %d", stamp)).Scan(&merchantID); err != nil {
 		t.Fatal(err)
 	}
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	handler := NewHandler(pool)
 
 	confirm := func(remember bool) string {
@@ -137,7 +137,7 @@ func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
 			case "missing-date":
 				wantCode = http.StatusConflict
 			}
-			principal := auth.Principal{UserID: reviewUser, Memberships: []auth.Membership{{HouseholdID: reviewHousehold, Role: "OWNER"}}}
+			principal := auth.Principal{UserID: reviewUser, Household: &auth.Membership{HouseholdID: reviewHousehold, Role: "OWNER"}}
 			request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewBufferString(body))
 			request.SetPathValue("id", transactionID)
 			request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
@@ -190,7 +190,7 @@ func TestBankReviewAllowsCategoryOnlyConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
 	handler := NewHandler(pool)
 	confirm := func(body string) *httptest.ResponseRecorder {
 		t.Helper()

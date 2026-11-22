@@ -195,7 +195,7 @@ func TestReviewU5WebResolutionWritesCanonicalTerminalState(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(`{"action":"IGNORE"}`))
 	r.SetPathValue("id", review)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	NewHandler(pool).Resolve(w, r)
 	if w.Code != http.StatusNoContent {
@@ -248,7 +248,7 @@ func TestReviewR3ReceiptDuplicateExposesBoundedCandidateChoices(t *testing.T) {
 func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/reviews/", nil)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	NewHandler(pool).List(w, r)
 	if w.Code != http.StatusOK {
@@ -264,7 +264,7 @@ func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user stri
 func listTransactionReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
-	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}))
 	w := httptest.NewRecorder()
 	NewHandler(pool).List(w, r)
 	if w.Code != http.StatusOK {

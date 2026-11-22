@@ -12,7 +12,7 @@ import (
 func TestProvisionRequiresOwner(t *testing.T) {
 	handler := &Handler{}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/integrations/email-ingress", nil)
-	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", Memberships: []auth.Membership{{HouseholdID: "household", Role: "MEMBER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", Household: &auth.Membership{HouseholdID: "household", Role: "MEMBER"}}))
 	response := httptest.NewRecorder()
 	handler.Integration(response, request)
 	if response.Code != http.StatusForbidden {
@@ -23,7 +23,7 @@ func TestProvisionRequiresOwner(t *testing.T) {
 func TestDeliveriesRequiresOwner(t *testing.T) {
 	handler := &Handler{}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/integrations/email-ingress/deliveries", nil)
-	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", Memberships: []auth.Membership{{HouseholdID: "household", Role: "MEMBER"}}}))
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", Household: &auth.Membership{HouseholdID: "household", Role: "MEMBER"}}))
 	response := httptest.NewRecorder()
 	handler.Deliveries(response, request)
 	if response.Code != http.StatusForbidden {
