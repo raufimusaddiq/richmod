@@ -9,13 +9,14 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
@@ -37,8 +38,8 @@ func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) 
 					t.Fatal(err)
 				}
 			}
-			household, user, category := seedTransferReviewOwner(t, pool, time.Now().UnixNano())
-			transaction, _, proposal := seedUnclassifiedTransfer(t, pool, household, time.Now().UnixNano())
+			household, user, category := seedTransferReviewOwner(t, pool, testsupport.UniqueStamp())
+			transaction, _, proposal := seedUnclassifiedTransfer(t, pool, household, testsupport.UniqueStamp())
 			_, err := pool.Exec(ctx, `UPDATE transaction_proposal SET metadata_json='{"date_known":false}' WHERE id=$1`, proposal)
 			must(err)
 			_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship","transaction_at"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}')`, household, transaction)
@@ -95,7 +96,7 @@ func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) 
 				if w.Code != http.StatusNotFound {
 					t.Fatalf("changed transfer purpose accepted: %d", w.Code)
 				}
-				foreignHousehold, _, _ := seedTransferReviewOwner(t, pool, time.Now().UnixNano())
+				foreignHousehold, _, _ := seedTransferReviewOwner(t, pool, testsupport.UniqueStamp())
 				var foreignAccount string
 				must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Synthetic foreign asset','ASSET','GOLD',$2) RETURNING id`, foreignHousehold, choice.role).Scan(&foreignAccount))
 				w = request("classify-transfer", map[string]any{"classification": choice.classification, "wealthAccountId": foreignAccount, "transactionAt": "2026-10-03"})

@@ -45,6 +45,8 @@ type Handler struct {
 	gatewayConfigured bool
 	protocol          string
 	probeSlots        chan struct{}
+	probeTimeout      time.Duration
+	statusTimeout     time.Duration
 }
 
 func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
@@ -115,7 +117,11 @@ func (h *Handler) probe(ctx context.Context, fn func(context.Context) error) err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	timeout := h.probeTimeout
+	if timeout == 0 {
+		timeout = probeTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return fn(ctx)
 }
@@ -137,7 +143,11 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	var judgment judgmentAggregate
 	var product productAggregate
 
-	ctx, cancel := context.WithTimeout(r.Context(), statusBudget)
+	budget := h.statusTimeout
+	if budget == 0 {
+		budget = statusBudget
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	defer cancel()
 	degradedSections := runGroups(ctx,
 		namedGroup{"jobs", func(ctx context.Context) error {

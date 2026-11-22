@@ -7,6 +7,7 @@ import (
 )
 
 func TestScreenshotF2DisputedPairMustNotAutoLink(t *testing.T) {
+	t.Parallel()
 	at := screenshotRowTime()
 	for _, tc := range []struct {
 		name        string

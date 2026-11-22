@@ -14,6 +14,7 @@ import (
 )
 
 func TestActionAuthorizationAndHouseholdScope(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -86,6 +87,7 @@ func TestActionAuthorizationAndHouseholdScope(t *testing.T) {
 }
 
 func TestResolvingAFailedSourceActionFinalizesItsSourceEvent(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

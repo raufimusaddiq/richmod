@@ -7,14 +7,15 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -30,7 +31,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, imageID, attachmentID, documentID, proposalID, itemID, requestID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Telegram payslip %d", stamp)).Scan(&householdID))
@@ -60,7 +61,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 		raw, err := json.Marshal(update)
 		must(err)
 		var sourceID string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("payslip-%s-%d", kind, time.Now().UnixNano()), raw).Scan(&sourceID))
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("payslip-%s-%d", kind, testsupport.UniqueStamp()), raw).Scan(&sourceID))
 		_, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
 		must(err)
 		return sourceID
@@ -115,6 +116,7 @@ func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, [
 }
 
 func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -130,7 +132,7 @@ func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, imageID, attachmentID, documentID, itemID, requestID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Telegram doc %d", stamp)).Scan(&householdID))
@@ -153,7 +155,7 @@ func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 		raw, err := json.Marshal(update)
 		must(err)
 		var sourceID string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("doc-%s-%d", kind, time.Now().UnixNano()), raw).Scan(&sourceID))
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("doc-%s-%d", kind, testsupport.UniqueStamp()), raw).Scan(&sourceID))
 		_, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
 		must(err)
 		return sourceID
@@ -181,6 +183,7 @@ func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 }
 
 func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -196,7 +199,7 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	chatID := stamp
 	var householdID, userID, sourceID, financialSourceID, eventID, observationID, accountID, itemID, requestID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Telegram fe %d", stamp)).Scan(&householdID))
@@ -221,7 +224,7 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 		raw, err := json.Marshal(update)
 		must(err)
 		var sid string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("fe-%s-%d", kind, time.Now().UnixNano()), raw).Scan(&sid))
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("fe-%s-%d", kind, testsupport.UniqueStamp()), raw).Scan(&sid))
 		_, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sid, string(raw))
 		must(err)
 		return sid
@@ -310,6 +313,7 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 }
 
 func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -325,12 +329,12 @@ func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdID, openItem, resolvedItem, expiredItem, openRequest, resolvedRequest, expiredRequest string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("queued send %d", stamp)).Scan(&householdID))
 	newItem := func(status string, resolved bool) string {
 		var sourceID, id string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("queued-%d-%s", time.Now().UnixNano(), status), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("queued-%d-%s", testsupport.UniqueStamp(), status), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
 		if resolved {
 			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID, status).Scan(&id))
 		} else {

@@ -9,6 +9,7 @@ import (
 )
 
 func TestPendingButtonsCannotAuthorizeReplacement(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, kind := range []string{"action", "batch"} {
 		for _, choice := range []string{"yes", "no"} {
@@ -120,6 +121,7 @@ func TestPendingButtonsCannotAuthorizeReplacement(t *testing.T) {
 }
 
 func TestPendingBatchEditRotatesConfirmation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "batch-edit-revision")
 	p := NewProcessor(f.pool, nil)
@@ -155,6 +157,7 @@ func TestPendingBatchEditRotatesConfirmation(t *testing.T) {
 }
 
 func TestImplicitDateCorrectionReplacesWholeRevision(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "implicit-edit-revision")
 	p := NewProcessor(f.pool, nil)

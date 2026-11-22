@@ -27,6 +27,7 @@ func (g *analyticalTelegramGateway) AgentTurn(_ context.Context, _ string, req g
 }
 
 func TestTelegramAnalyticalQuestionsReuseCanonicalEngineAndNaturalReply(t *testing.T) {
+	t.Parallel()
 	questions := []struct {
 		question  string
 		reads     []string

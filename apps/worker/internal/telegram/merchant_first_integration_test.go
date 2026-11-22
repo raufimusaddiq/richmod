@@ -26,6 +26,7 @@ func (g *merchantReplyGateway) AgentTurn(_ context.Context, _ string, request ga
 }
 
 func TestMerchantFirstActiveAgentReply(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"remembered", "legacy-card", "unknown", "inactive-category", "unconfirmed-alias", "other-household"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type failedBankFixture struct {
@@ -32,7 +32,7 @@ func newFailedBankFixture(t *testing.T) *failedBankFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	f := &failedBankFixture{t: t, pool: pool, ctx: ctx, stamp: time.Now().UnixNano()}
+	f := &failedBankFixture{t: t, pool: pool, ctx: ctx, stamp: testsupport.UniqueStamp()}
 	var user string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Failed source %d", f.stamp)).Scan(&f.household); err != nil {
 		t.Fatal(err)
@@ -85,6 +85,7 @@ func (f *failedBankFixture) inTx(fn func(pgx.Tx) error) {
 }
 
 func TestInvalidExtractionLeavesADismissableItemAndNoReview(t *testing.T) {
+	t.Parallel()
 	f := newFailedBankFixture(t)
 	source := f.source(1)
 	processor := &Processor{pool: f.pool}
@@ -106,6 +107,7 @@ func TestInvalidExtractionLeavesADismissableItemAndNoReview(t *testing.T) {
 }
 
 func TestRetryableFailureIsAnnouncedOnlyWhenTheJobGivesUp(t *testing.T) {
+	t.Parallel()
 	f := newFailedBankFixture(t)
 	source := f.source(2)
 	processor := &Processor{pool: f.pool}

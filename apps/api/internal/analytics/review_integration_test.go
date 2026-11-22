@@ -12,8 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 type reviewFixture struct {
@@ -34,7 +35,7 @@ func cycleReviewFixture(t *testing.T) reviewFixture {
 	}
 	t.Cleanup(pool.Close)
 	f := reviewFixture{pool: pool}
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	insert := func(target *string, sql string, args ...any) {
 		t.Helper()
 		if err := pool.QueryRow(ctx, sql, args...).Scan(target); err != nil {
@@ -168,6 +169,7 @@ func TestCycleReviewRefundBaselinesDriversWealthAndIsolation(t *testing.T) {
 }
 
 func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	fallback := f.review(t, "")
 	if fallback.Period.Kind != "CALENDAR_MONTH" || fallback.Comparison.Previous != nil || fallback.Comparison.Median3Available {
@@ -252,6 +254,7 @@ func TestCycleReviewAuthAndInvalidSelection(t *testing.T) {
 }
 
 func TestClosedCycleRecomputesAfterHistoricalCorrection(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
 		f.anchor(t, date)
@@ -272,6 +275,7 @@ func TestClosedCycleRecomputesAfterHistoricalCorrection(t *testing.T) {
 }
 
 func TestCycleReviewHistorySeriesWindowAndReconciliation(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
 		f.anchor(t, date)
@@ -344,6 +348,7 @@ func TestCycleReviewHistorySeriesWindowAndReconciliation(t *testing.T) {
 }
 
 func TestCycleReviewPaceCurvesComeFromServedDailyNetExpense(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
 		f.anchor(t, date)
@@ -376,6 +381,7 @@ func TestCycleReviewPaceCurvesComeFromServedDailyNetExpense(t *testing.T) {
 }
 
 func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) {
+	t.Parallel()
 	f := cycleReviewFixture(t)
 	ctx := context.Background()
 	f.anchor(t, "2026-08-01")
@@ -461,6 +467,7 @@ func hasBlocker(facts cycleReview, kind string) bool {
 }
 
 func TestCycleReviewWealthUsesCycleBoundaries(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T) reviewFixture {
 		f := cycleReviewFixture(t)
 		f.anchor(t, "2026-07-25")

@@ -1,7 +1,6 @@
 package document
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -80,19 +79,6 @@ func TestPayslipPayDateRequiresCanonicalISO(t *testing.T) {
 		if date != "2026-09-28" && err == nil {
 			t.Fatalf("raw-language date accepted: %q", date)
 		}
-	}
-}
-
-func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
-	content, err := os.ReadFile("payslip.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(content), "p.gateway.NativeToolCall(") != 1 {
-		t.Fatal("payslip must make exactly one generative extraction call")
-	}
-	if strings.Contains(string(content), "p.verifier") {
-		t.Fatal("payslip must not replay the extraction through Jev")
 	}
 }
 

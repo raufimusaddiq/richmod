@@ -41,6 +41,7 @@ func seedLaneTransaction(t *testing.T, fixture receiptFixture, status, evidenceT
 }
 
 func TestReceiptAfterAnotherLaneLinksInsteadOfDuplicating(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		name, status, evidence, merchant string
 		wantSource                       string
@@ -74,6 +75,7 @@ func TestReceiptAfterAnotherLaneLinksInsteadOfDuplicating(t *testing.T) {
 }
 
 func TestReceiptAfterAmbiguousLaneTransactionAsksAndNamesTheCandidate(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Cross-lane ambiguous receipt")
 	ctx := context.Background()
 	existing, _ := seedLaneTransaction(t, fixture, "NEEDS_REVIEW", "BANK_EMAIL", "", receiptTime().Add(-30*time.Minute))
@@ -93,6 +95,7 @@ func TestReceiptAfterAmbiguousLaneTransactionAsksAndNamesTheCandidate(t *testing
 }
 
 func TestScreenshotMatcherSeesTransactionsStillInReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Cross-lane screenshot")
 	ctx := context.Background()
 	existing, _ := seedLaneTransaction(t, fixture, "NEEDS_REVIEW", "RECEIPT_IMAGE", "Alfamart", receiptTime().Add(-10*time.Minute))
@@ -112,6 +115,7 @@ func TestScreenshotMatcherSeesTransactionsStillInReview(t *testing.T) {
 }
 
 func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Cross-lane race")
 	ctx := context.Background()
 	var bankSource, merchantID string
@@ -178,6 +182,7 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 }
 
 func TestScreenshotLedgerRecheckNeedsNoSecondConnection(t *testing.T) {
+	t.Parallel()
 	fixture := seedReceiptFixture(t, "Cross-lane single connection")
 	config, err := pgxpool.ParseConfig(os.Getenv("TEST_DATABASE_URL"))
 	if err != nil {

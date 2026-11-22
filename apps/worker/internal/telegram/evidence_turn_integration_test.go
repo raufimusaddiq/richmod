@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
-	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -58,11 +59,11 @@ func (g *capturingGateway) toolNames(call int) map[string]bool {
 	return names
 }
 
-var turnCounter int64
+var turnSequence atomic.Int64
 
 func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixture, p *Processor, text string, replyTo int64) (string, error) {
 	t.Helper()
-	turnCounter++
+	turnCounter := turnSequence.Add(1)
 	update := f.update
 	update.Message.Text = text
 	update.Message.MessageID = 9000 + turnCounter
@@ -73,7 +74,7 @@ func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixtur
 	}
 	raw, err := json.Marshal(update)
 	mustAgentTest(t, err)
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var sourceID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`,
 		f.householdID, fmt.Sprintf("turn-%d-%d", stamp, turnCounter), []byte(fmt.Sprintf("turn-%d-%d", stamp, turnCounter))).Scan(&sourceID))
@@ -87,6 +88,7 @@ func evidenceTurnProcessor(f agentIntegrationFixture, model *capturingGateway) *
 }
 
 func TestTurnReplyToUploadShowsTheModelOnlyThatEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-reply")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
@@ -120,6 +122,7 @@ func TestTurnReplyToUploadShowsTheModelOnlyThatEvidence(t *testing.T) {
 }
 
 func TestTurnWithoutReplyBindsUniqueRecentEvidenceAsContextOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-recent")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
@@ -139,6 +142,7 @@ func TestTurnWithoutReplyBindsUniqueRecentEvidenceAsContextOnly(t *testing.T) {
 }
 
 func TestTurnWithTwoRecentReceiptsCarriesCandidatesNotAChoice(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-ambiguous")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -156,6 +160,7 @@ func TestTurnWithTwoRecentReceiptsCarriesCandidatesNotAChoice(t *testing.T) {
 }
 
 func TestBareAmountAfterAReceiptDoesNotCreateASecondTransaction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-bare-amount")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
@@ -174,6 +179,7 @@ func TestBareAmountAfterAReceiptDoesNotCreateASecondTransaction(t *testing.T) {
 }
 
 func TestNaturalReplyResolvesTheReceiptReviewWithoutReaskingKnownFacts(t *testing.T) {
+	t.Parallel()
 	for _, replyTo := range []int64{101, 0} {
 		t.Run(fmt.Sprint(replyTo), func(t *testing.T) {
 			testNaturalCategoryReviewReply(t, replyTo)
@@ -229,6 +235,7 @@ func testNaturalCategoryReviewReply(t *testing.T, replyTo int64) {
 }
 
 func TestModelFailureOnAnEvidenceTurnCreatesNoReviewAndNoTransaction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-failure")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
@@ -244,6 +251,7 @@ func TestModelFailureOnAnEvidenceTurnCreatesNoReviewAndNoTransaction(t *testing.
 }
 
 func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name          string
 		merchant      any
@@ -297,6 +305,7 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 }
 
 func TestOnlyFreshEvidenceCountsForTheDuplicateGuard(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-fresh")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})

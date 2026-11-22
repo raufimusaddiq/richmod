@@ -6,21 +6,22 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 func TestT7CategoryProviderErrorIsRetryableMachineFailure(t *testing.T) {
+	t.Parallel()
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
 	if _, err := pool.Exec(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman')", householdID); err != nil {
 		t.Fatal(err)
 	}
 	var sourceEventID string
-	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("T7 %d", time.Now().UnixNano()), []byte("T7")).Scan(&sourceEventID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("T7 %d", testsupport.UniqueStamp()), []byte("T7")).Scan(&sourceEventID); err != nil {
 		t.Fatal(err)
 	}
 	verifier := &stubVerifier{err: errors.New("provider down")}
@@ -52,6 +53,7 @@ func TestT7CategoryProviderErrorIsRetryableMachineFailure(t *testing.T) {
 }
 
 func TestCategoryVerifierAbsenceIsMachineFailureWhenEvidenceExists(t *testing.T) {
+	t.Parallel()
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
 	if _, err := pool.Exec(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman')", householdID); err != nil {
@@ -65,6 +67,7 @@ func TestCategoryVerifierAbsenceIsMachineFailureWhenEvidenceExists(t *testing.T)
 }
 
 func TestT8CategoryDBQueryFailureIsMachineFailure(t *testing.T) {
+	t.Parallel()
 	ctx, pool := categoryBoundaryPool(t)
 	category, provenance, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}}))}}}).resolveNewMerchantCategory(ctx, "se", "not-a-uuid", outgoingCard("54000", "Toko"))
 	if err == nil {
@@ -73,6 +76,7 @@ func TestT8CategoryDBQueryFailureIsMachineFailure(t *testing.T) {
 }
 
 func TestT9UndecidedCategoryKeepsResidualReview(t *testing.T) {
+	t.Parallel()
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
 	if _, err := pool.Exec(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman')", householdID); err != nil {
@@ -89,6 +93,7 @@ func TestT9UndecidedCategoryKeepsResidualReview(t *testing.T) {
 }
 
 func TestT10DecisiveCategoryConfirms(t *testing.T) {
+	t.Parallel()
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
 	var categoryID string
@@ -123,13 +128,14 @@ func categoryBoundaryPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 func createCategoryBoundaryHousehold(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	t.Helper()
 	var householdID string
-	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("category boundary %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("category boundary %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
 	return householdID
 }
 
 func TestCategoryQuestionCarriesHouseholdPrecedent(t *testing.T) {
+	t.Parallel()
 	ctx, pool := categoryBoundaryPool(t)
 	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
 	otherHousehold := createCategoryBoundaryHousehold(t, ctx, pool)

@@ -6,6 +6,7 @@ import (
 )
 
 func TestTerminalDownstreamFailureFailsDocumentAndSource(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Terminal downstream failure")
 	ctx := context.Background()
 	if _, err := f.pool.Exec(ctx, `UPDATE document SET status='CLASSIFIED' WHERE id=$1`, f.documentID); err != nil {
@@ -40,6 +41,7 @@ func TestTerminalDownstreamFailureFailsDocumentAndSource(t *testing.T) {
 }
 
 func TestTerminalDownstreamFailureKeepsAFinishedDocument(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Terminal downstream finished")
 	ctx := context.Background()
 	if _, err := f.pool.Exec(ctx, `UPDATE document SET status='EXTRACTED' WHERE id=$1`, f.documentID); err != nil {

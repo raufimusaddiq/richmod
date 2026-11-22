@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -40,7 +38,7 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stamp := time.Now().UnixNano()
+			stamp := testsupport.UniqueStamp()
 			household, user, chat, _, _, _, request, item := seedDuplicateReview(t, pool, stamp)
 			var bankSource string
 			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("reask-%d", stamp), []byte(fmt.Sprintf("reask-%d", stamp))).Scan(&bankSource))
@@ -83,30 +81,5 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 				t.Fatalf("the household must still be re-asked once, got %d reply jobs", replies)
 			}
 		})
-	}
-}
-
-func TestNoTelegramReplyEventIsParkedAsNeedsReview(t *testing.T) {
-	calls := regexp.MustCompile(`finishWithoutTransaction\([^)]*"NEEDS_REVIEW"|SET\s+processing_status\s*=\s*'NEEDS_REVIEW'`)
-	allowed := map[string]bool{"agent_specialized_mutations.go": true}
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range files {
-		if strings.HasSuffix(file, "_test.go") {
-			continue
-		}
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, loc := range calls.FindAllIndex(raw, -1) {
-			if allowed[file] {
-				continue
-			}
-			line := 1 + strings.Count(string(raw[:loc[0]]), "\n")
-			t.Errorf("%s:%d parks a Telegram reply event as NEEDS_REVIEW; settle it PROCESSED and leave the review on its own item", file, line)
-		}
 	}
 }

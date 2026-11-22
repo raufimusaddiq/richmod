@@ -10,6 +10,7 @@ import (
 )
 
 func TestStandaloneMerchantReviewAnswerForOwnerAndMember(t *testing.T) {
+	t.Parallel()
 	for _, role := range []string{"OWNER", "MEMBER"} {
 		t.Run(role, func(t *testing.T) {
 			ctx := context.Background()
@@ -52,6 +53,7 @@ func TestStandaloneMerchantReviewAnswerForOwnerAndMember(t *testing.T) {
 }
 
 func TestStandaloneReviewUntouchedWhenModelDoesNotResolveIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "standalone-untouched")
 	reviewID, transactionID := createAgentTransactionReview(t, ctx, f, "36500", 842)
@@ -70,6 +72,7 @@ func TestStandaloneReviewUntouchedWhenModelDoesNotResolveIt(t *testing.T) {
 }
 
 func TestStandaloneReviewAmbiguityDoesNotExposeResolveReview(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "standalone-ambiguous")
 	createAgentTransactionReview(t, ctx, f, "36500", 842)
@@ -97,6 +100,7 @@ func createAgentTransactionReview(t *testing.T, ctx context.Context, f agentInte
 }
 
 func TestAgentReviewBindingExactReplyWinsOverOtherOpenReview(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "binding-exact")
 	firstReview, _ := createAgentTransactionReview(t, ctx, f, "70000", 101)
@@ -118,6 +122,7 @@ func TestAgentReviewBindingExactReplyWinsOverOtherOpenReview(t *testing.T) {
 }
 
 func TestAgentReviewBindingAmbiguityFailsClosed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "binding-ambiguous")
 	createAgentTransactionReview(t, ctx, f, "70000", 101)
@@ -132,6 +137,7 @@ func TestAgentReviewBindingAmbiguityFailsClosed(t *testing.T) {
 }
 
 func TestBoundReviewTargetDoesNotDriftWhenAnotherReviewAppears(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "binding-drift")
 	_, firstTransaction := createAgentTransactionReview(t, ctx, f, "70000", 101)
@@ -175,6 +181,7 @@ func createMerchantLearningReview(t *testing.T, ctx context.Context, f agentInte
 }
 
 func TestMerchantLearningRequiresUniqueOrExactBinding(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "merchant-binding")
 	firstReview, _ := createMerchantLearningReview(t, ctx, f, 301, "merchanta")

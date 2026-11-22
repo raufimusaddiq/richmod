@@ -50,6 +50,7 @@ func sectionsScenario(t *testing.T) reviewFixture {
 }
 
 func TestCycleReviewSameDayHistoryCutsEveryCycleAtTheSameDayAndReconciles(t *testing.T) {
+	t.Parallel()
 	f := sectionsScenario(t)
 	other := cycleReviewFixture(t)
 	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
@@ -171,6 +172,7 @@ func expenses(review cycleReview) []string {
 }
 
 func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T) {
+	t.Parallel()
 	f := sectionsScenario(t)
 	other := cycleReviewFixture(t)
 	other.anchor(t, "2026-08-01")
@@ -258,6 +260,7 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 }
 
 func TestCycleReviewMemberAttributionServesKindShareAndFixedOrder(t *testing.T) {
+	t.Parallel()
 	f := sectionsScenario(t)
 	review := f.review(t, "")
 	members := review.Members

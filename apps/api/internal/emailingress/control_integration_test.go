@@ -13,6 +13,7 @@ import (
 )
 
 func TestProvisionedConfirmationCreatesOnlyIntegrationAction(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -111,6 +112,7 @@ func TestProvisionedConfirmationCreatesOnlyIntegrationAction(t *testing.T) {
 }
 
 func TestForwardingVerificationIsExposedAndAutoResolves(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -218,6 +220,7 @@ func TestForwardingVerificationIsExposedAndAutoResolves(t *testing.T) {
 }
 
 func TestRejectedDeliveriesDoNotResolveForwardingVerification(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -295,6 +298,7 @@ func TestRejectedDeliveriesDoNotResolveForwardingVerification(t *testing.T) {
 }
 
 func TestOpenForwardingActionTiebreaksOnID(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

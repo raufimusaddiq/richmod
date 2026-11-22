@@ -21,6 +21,7 @@ import (
 )
 
 func TestDeliveryProvisionedActiveAndDuplicate(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -172,6 +173,7 @@ func TestDeliveryProvisionedActiveAndDuplicate(t *testing.T) {
 }
 
 func TestProvisionedWithoutAuthservAndActiveFailsClosed(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -234,6 +236,7 @@ func TestProvisionedWithoutAuthservAndActiveFailsClosed(t *testing.T) {
 }
 
 func TestUnknownRecipientReturnsAcceptedWithoutMutation(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -285,6 +288,7 @@ func signedInput(raw []byte, recipient, envelope, objectKey, secret string) deli
 }
 
 func TestRecentDeliveriesAreHouseholdScoped(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -376,6 +380,7 @@ func TestRecentDeliveriesAreHouseholdScoped(t *testing.T) {
 }
 
 func TestRecentDeliveriesPageWithCursor(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

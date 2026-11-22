@@ -10,6 +10,7 @@ import (
 )
 
 func TestAuditF11UnsupportedFinancialEvidenceDoesNotPromiseReview(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Synthetic unsupported evidence")
 	ctx := context.Background()
 	storage, err := blob.NewLocal(t.TempDir())

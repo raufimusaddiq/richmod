@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -25,7 +26,7 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 	defer pool.Close()
 
 	var householdID string
-	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank review reason %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank review reason %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
 	processor := &Processor{pool: pool}
@@ -39,7 +40,7 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var sourceEventID string
-			if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("bank-reason-%d-%s", time.Now().UnixNano(), testCase.reviewType), []byte(testCase.name)).Scan(&sourceEventID); err != nil {
+			if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("bank-reason-%d-%s", testsupport.UniqueStamp(), testCase.reviewType), []byte(testCase.name)).Scan(&sourceEventID); err != nil {
 				t.Fatal(err)
 			}
 			if err := processor.reviewIncompleteExtraction(ctx, householdID, sourceEventID, ToolSchemaVersion, testCase.reviewType, partialDecision(householdID, sourceEventID, Extraction{}, testCase.reviewType, []string{"amount"}, "test")); err != nil {
@@ -74,6 +75,7 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 }
 
 func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -85,16 +87,16 @@ func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T)
 	}
 	defer pool.Close()
 	var householdID, userID, listenerID, sourceEventID string
-	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank evidence audit %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank evidence audit %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-audit-%d@example.test", time.Now().UnixNano())).Scan(&userID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-audit-%d@example.test", testsupport.UniqueStamp())).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Synthetic Bank',$2,$3) RETURNING id`, householdID, fmt.Sprintf("listener-%d@example.test", time.Now().UnixNano()), userID).Scan(&listenerID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Synthetic Bank',$2,$3) RETURNING id`, householdID, fmt.Sprintf("listener-%d@example.test", testsupport.UniqueStamp()), userID).Scan(&listenerID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("bank-audit-%d", time.Now().UnixNano()), []byte("audit")).Scan(&sourceEventID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("bank-audit-%d", testsupport.UniqueStamp()), []byte("audit")).Scan(&sourceEventID); err != nil {
 		t.Fatal(err)
 	}
 	verification := EvidenceVerification{
@@ -120,6 +122,7 @@ func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T)
 }
 
 func TestBankSchemaFailureDoesNotCreateHumanReview(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -131,7 +134,7 @@ func TestBankSchemaFailureDoesNotCreateHumanReview(t *testing.T) {
 	}
 	defer pool.Close()
 	var household, user, listener, source string
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Schema failure %d", stamp)).Scan(&household); err != nil {
 		t.Fatal(err)
 	}

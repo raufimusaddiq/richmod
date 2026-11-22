@@ -6,13 +6,14 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestDatabaseBindsEachUserToOneHousehold(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -24,7 +25,7 @@ func TestDatabaseBindsEachUserToOneHousehold(t *testing.T) {
 	}
 	defer pool.Close()
 
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdA, householdB, userID string
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Invariant A %d", stamp)).Scan(&householdA); err != nil {
 		t.Fatal(err)
@@ -58,6 +59,7 @@ func TestDatabaseBindsEachUserToOneHousehold(t *testing.T) {
 }
 
 func TestDatabaseBindsTelegramIDAndUserOneToOne(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -68,7 +70,7 @@ func TestDatabaseBindsTelegramIDAndUserOneToOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdA, householdB, userA, userB string
 	for _, target := range []*string{&householdA, &householdB} {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Binding %d", stamp)).Scan(target); err != nil {

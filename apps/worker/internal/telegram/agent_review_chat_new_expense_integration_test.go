@@ -6,6 +6,7 @@ import (
 )
 
 func TestOpenReviewChatRecordsNewExpenseWithGeneralCatalog(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "review-chat-new-expense")
 	var categoryID string

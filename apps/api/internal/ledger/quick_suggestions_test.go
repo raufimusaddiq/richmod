@@ -10,10 +10,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestBuildQuickSuggestionsEmpty(t *testing.T) {
@@ -103,6 +103,7 @@ func TestQuickSuggestionsRequiresHousehold(t *testing.T) {
 }
 
 func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -113,7 +114,7 @@ func TestQuickSuggestionsHouseholdScopedAndActiveOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	newHousehold := func(label string) (household, user string) {
 		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Quick %s %d", label, stamp)).Scan(&household); err != nil {
 			t.Fatal(err)

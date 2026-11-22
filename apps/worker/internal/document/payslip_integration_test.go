@@ -30,6 +30,7 @@ func (g *invalidPayslipGateway) NativeToolCall(_ context.Context, _ string, _ st
 }
 
 func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
+	t.Parallel()
 	for _, first := range []bool{false, true} {
 		t.Run(map[bool]string{false: "existing-primary", true: "first-primary"}[first], func(t *testing.T) {
 			f := seedScreenshotFixture(t, "SAVR07 payslip")
@@ -109,6 +110,7 @@ func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
 }
 
 func TestPayslipInvalidMachineOutputDoesNotAskHousehold(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "SAVR08 payslip repair")
 	ctx := context.Background()
 	if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='PAYSLIP' WHERE id=$1`, f.documentID); err != nil {

@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 const staleDocMigration = "00099_settle_stale_needs_review_documents.sql"
@@ -107,7 +107,7 @@ func (f *staleDocFixture) count(sql string, args ...any) int {
 }
 
 func TestSettleStaleNeedsReviewDocuments(t *testing.T) {
-	f := &staleDocFixture{t: t, pool: integrationPool(t), stamp: time.Now().UnixNano()}
+	f := &staleDocFixture{t: t, pool: integrationPool(t), stamp: testsupport.UniqueStamp()}
 	hh, other := f.household(), f.household()
 
 	stuck := map[string]string{}

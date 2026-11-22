@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func TestNoticeAmountGroupsWholeRupiahAndDropsAnythingElse(t *testing.T) {
@@ -68,7 +68,7 @@ func noticeFixture(t *testing.T, ctx context.Context, withChat bool, sourceType 
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	var householdID, sourceID, attachmentID, documentID string
 	must := func(err error) {
 		t.Helper()
@@ -90,6 +90,7 @@ func noticeFixture(t *testing.T, ctx context.Context, withChat bool, sourceType 
 }
 
 func TestEvidenceNoticeIsOnePerDocumentToTheUploadChatAsAReply(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pool, sourceID, documentID, chat := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
 	for i := 0; i < 3; i++ {
@@ -117,6 +118,7 @@ func TestEvidenceNoticeIsOnePerDocumentToTheUploadChatAsAReply(t *testing.T) {
 }
 
 func TestEvidenceNoticeIsSkippedWithoutAnUploadChat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for name, c := range map[string]struct {
 		withChat   bool
@@ -141,6 +143,7 @@ func TestEvidenceNoticeIsSkippedWithoutAnUploadChat(t *testing.T) {
 }
 
 func TestEvidenceNoticeRollsBackWithItsMutation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
 	tx, err := pool.Begin(ctx)
@@ -160,6 +163,7 @@ func TestEvidenceNoticeRollsBackWithItsMutation(t *testing.T) {
 }
 
 func TestEvidenceNoticeStaysOnePerDocumentAfterJobsArePruned(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
 	enqueue := func() {
@@ -190,6 +194,7 @@ func TestEvidenceNoticeStaysOnePerDocumentAfterJobsArePruned(t *testing.T) {
 }
 
 func TestEvidenceNoticeMarkerRollsBackWithItsMutation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
 	tx, err := pool.Begin(ctx)

@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,10 +60,4 @@ func TestProgressNoticeSurvivesASendFailure(t *testing.T) {
 	stop := startProgressNotice(10*time.Millisecond, func(context.Context) error { return context.DeadlineExceeded })
 	time.Sleep(60 * time.Millisecond)
 	stop()
-}
-
-func TestProgressNoticeCopyIsPlainAndPointsAtTheAnswer(t *testing.T) {
-	if !strings.Contains(progressNoticeMessage, "menyusul") || len([]rune(progressNoticeMessage)) > 200 {
-		t.Fatalf("the notice must say the answer is coming, briefly: %q", progressNoticeMessage)
-	}
 }

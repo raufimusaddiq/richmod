@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -35,7 +36,7 @@ func seedScreenshotFixture(t *testing.T, label string) screenshotFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	stamp := time.Now().UnixNano()
+	stamp := testsupport.UniqueStamp()
 	fixture := screenshotFixture{pool: pool, categorySlug: "food-and-drink", secondCategorySlug: "groceries"}
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("%s %d", label, stamp)).Scan(&fixture.householdID); err != nil {
 		t.Fatal(err)
@@ -75,6 +76,7 @@ func screenshotRowTime() time.Time {
 }
 
 func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot ambiguous row")
 	ctx := context.Background()
 	categoryID := fixture.categoryID
@@ -111,6 +113,7 @@ func seedScreenshotCandidates(t *testing.T, f screenshotFixture, n int) []string
 }
 
 func TestScreenshotWriteRetriesWhenANonChosenCandidateVanished(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot vanished candidate")
 	ctx := context.Background()
 	categoryID := fixture.categoryID
@@ -150,6 +153,7 @@ func (f screenshotFixture) persist(t *testing.T, provenance rowChoiceProvenance,
 }
 
 func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot absent amount")
 	ctx := context.Background()
 	category := f.categoryID
@@ -208,6 +212,7 @@ func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
 }
 
 func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot absent amount ignored")
 	row := screenshotDataRow("EXPENSE", "54000", "Warung")
 	row.Value.Amount = nil
@@ -227,6 +232,7 @@ func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T)
 }
 
 func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
+	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot absent amount income")
 	ctx := context.Background()
 	row := screenshotDataRow("INCOME", "5000000", "Teman")
@@ -266,6 +272,7 @@ func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
 }
 
 func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot kill switch")
 	categoryID := fixture.categoryID
 	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
@@ -285,6 +292,7 @@ func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 }
 
 func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot kill switch residual")
 	ctx := context.Background()
 	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor(fixture.categorySlug, .95)}}
@@ -309,6 +317,7 @@ func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testin
 }
 
 func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot rows")
 	ctx := context.Background()
 	clear := screenshotDataRow("EXPENSE", "54000", "Indomaret")
@@ -353,6 +362,7 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 }
 
 func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot clean batch")
 	categoryID := fixture.categoryID
 	rows := []validatedScreenshotRow{screenshotDataRow("EXPENSE", "54000", "Indomaret"), screenshotDataRow("EXPENSE", "18000", "Kopi Kenangan")}
@@ -386,6 +396,7 @@ func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 }
 
 func TestScreenshotMixedResidualBatchConfirmsOnlyDecisiveRows(t *testing.T) {
+	t.Parallel()
 	fixture := seedScreenshotFixture(t, "Screenshot mixed residual batch")
 	rows := make([]validatedScreenshotRow, 20)
 	for i := range rows {
@@ -477,6 +488,7 @@ func assertScreenshotReviewDecisions(t *testing.T, fixture screenshotFixture, wa
 }
 
 func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ status, key string }{{"MERGED", "primary"}, {"REJECTED", "primary"}, {"NEEDS_REVIEW", "primary"}, {"MERGED", "row-001"}, {"REJECTED", "row-001"}, {"MERGED", "merged_into"}, {"REJECTED", "garbage"}} {
 		priorStatus, priorKey := tc.status, tc.key
 		t.Run(priorStatus+"/"+priorKey, func(t *testing.T) {
@@ -532,6 +544,7 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 }
 
 func TestScreenshotReprocessMissingAmountKeepsPriorMatch(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		priorType string
 		offered   bool

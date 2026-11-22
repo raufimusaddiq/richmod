@@ -9,6 +9,7 @@ import (
 )
 
 func TestNativeLegacyCycleDatesRefundsAndCategoryCompleteness(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "analytics-calculation")
 	f.state.Now = time.Date(2026, 9, 10, 12, 0, 0, 0, jakartaLocation())

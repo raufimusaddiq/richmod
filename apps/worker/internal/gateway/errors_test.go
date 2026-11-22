@@ -28,8 +28,10 @@ func TestGatewayFailureClasses(t *testing.T) {
 	if _, err := New("", "", "").AgentTurn(context.Background(), "r", AgentRequest{}); !IsUnavailable(err) {
 		t.Fatalf("an unconfigured gateway is unavailable, got %v", err)
 	}
-	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { time.Sleep(200 * time.Millisecond) }))
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
 	defer slow.Close()
+	defer close(release)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	_, err = New(slow.URL, "key", "model").AgentTurn(ctx, "r", AgentRequest{SystemPrompt: "s", Content: "x"})

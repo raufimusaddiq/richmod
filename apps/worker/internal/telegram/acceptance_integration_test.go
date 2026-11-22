@@ -95,6 +95,7 @@ func TestTelegramOrdinaryTurnExposesFullAgentCatalog(t *testing.T) {
 }
 
 func TestTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -165,14 +166,17 @@ func runIR04ComplexTransaction(t *testing.T, categorySlug, wantStatus string, wa
 }
 
 func TestTelegramComplexClearExtractionConfirmsWithOneAgentCall(t *testing.T) {
+	t.Parallel()
 	runIR04ComplexTransaction(t, "food-drink", "CONFIRMED", nil)
 }
 
 func TestTelegramCategoryResidualParksTransactionForReview(t *testing.T) {
+	t.Parallel()
 	runIR04ComplexTransaction(t, "", "NEEDS_REVIEW", []string{"category"})
 }
 
 func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -202,6 +206,7 @@ func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 }
 
 func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
+	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

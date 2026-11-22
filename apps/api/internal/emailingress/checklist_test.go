@@ -67,6 +67,7 @@ func TestIntegrationGetNeedsHousehold(t *testing.T) {
 }
 
 func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -178,6 +179,7 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 }
 
 func TestRotateSupersedesForwardingVerification(t *testing.T) {
+	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
