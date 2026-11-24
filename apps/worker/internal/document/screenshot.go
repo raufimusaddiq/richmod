@@ -161,6 +161,9 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		}
 	}
 	issues := screenshotValidationIssues(result, documentType, receivedAt)
+	if unpaidInvoiceOnly(result, documentType, receivedAt) {
+		return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, receivedAt, result, metadata.Model, fmt.Errorf("unpaid invoice is not payment evidence"))
+	}
 	if len(issues) > 0 {
 		patched, repairMeta, repairErr := repairExtracted(ctx, p.gateway, sourceID, documentType, content, &result, &issues, func(value screenshotExtraction) error {
 			normalizeScreenshotIdentifiers(&value)

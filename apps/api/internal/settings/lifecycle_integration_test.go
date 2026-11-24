@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -75,6 +76,61 @@ func TestFinancialSourceEditChangesAndClearsDefaultWealth(t *testing.T) {
 	}
 	if current != nil {
 		t.Fatalf("default was not cleared: %v", *current)
+	}
+}
+
+func TestFinancialSourceCreateAndStatusChangeAreAudited(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	var household, user string
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Financial source audit %d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','x') RETURNING id`, fmt.Sprintf("financial-source-audit-%d@test.invalid", stamp)).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	principal := auth.Principal{UserID: user, Household: &auth.Membership{HouseholdID: household, Role: "OWNER"}}
+	handler := NewHandler(pool)
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/financial-email-sources", bytes.NewBufferString(fmt.Sprintf(`{"providerName":"Audited","senderAddress":"audited-%d@test.invalid","capabilities":["CASH_MOVEMENT"]}`, stamp)))
+	create = create.WithContext(auth.ContextWithPrincipal(create.Context(), principal))
+	created := httptest.NewRecorder()
+	handler.FinancialEmailSources(created, create)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err = json.Unmarshal(created.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	patch := httptest.NewRequest(http.MethodPatch, "/api/v1/financial-email-sources/"+body.ID, bytes.NewBufferString(`{"status":"DISABLED"}`))
+	patch.SetPathValue("id", body.ID)
+	patch = patch.WithContext(auth.ContextWithPrincipal(patch.Context(), principal))
+	updated := httptest.NewRecorder()
+	handler.FinancialEmailSources(updated, patch)
+	if updated.Code != http.StatusNoContent {
+		t.Fatalf("patch status=%d body=%s", updated.Code, updated.Body.String())
+	}
+	var audited, statusChanges int
+	if err = pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE action='UPDATE' AND after_json->>'status'='DISABLED') FROM audit_log WHERE household_id=$1 AND entity_type='financial_email_source' AND entity_id=$2 AND action IN('CREATE','UPDATE')`, household, body.ID).Scan(&audited, &statusChanges); err != nil {
+		t.Fatal(err)
+	}
+	if audited != 2 || statusChanges != 1 {
+		t.Fatalf("audit rows=%d status changes=%d", audited, statusChanges)
 	}
 }
 

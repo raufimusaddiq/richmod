@@ -133,7 +133,8 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-120](#adr-120-retire-system-one-jev-and-harden-the-generative-ai-pipeline) | Retire System One (Jev) and harden the generative AI pipeline | Accepted |
 | [ADR-121](#adr-121-financial-safety-guards-for-document-auto-confirm-evidence-retention-and-review-actions) | Financial safety guards for document auto-confirm, evidence retention and review actions | Accepted |
 | [ADR-122](#adr-122-gateway-outage-deferral-deterministic-job-lane-and-graceful-worker-shutdown) | Gateway-outage deferral, deterministic job lane and graceful worker shutdown | Accepted |
-| [ADR-123](#adr-123-telegram-records-similar-expenses-and-validates-model-facts-against-user-text) | Telegram records similar expenses and validates model facts against user text | Accepted |
+| [ADR-123](#adr-123-unrepairable-document-facts-stay-terminal-or-reviewable) | Unrepairable document facts stay terminal or reviewable | Accepted |
+| [ADR-126](#adr-126-telegram-records-similar-expenses-and-validates-model-facts-against-user-text) | Telegram records similar expenses and validates model facts against user text | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1251,7 +1252,16 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 
 **Consequence:** the `job.lane` check constraint and Go `classifyLane` gain `DETERMINISTIC`; the admin console lists the lane; the worker runs two more loops (the 16-connection pool floor still holds). Gateway streaming now accumulates `function_call_arguments.delta` and `output_item.done` and fills gaps from `response.completed`; non-2xx responses are classified before the 2 MiB body is read; a mid-body connection reset is `gateway.IsUnavailable`; `chat_completions` keeps `strict` and no longer replays tool results twice; token and cost metadata survive a validation failure; and transport errors are classified `UNAVAILABLE`, not `HTTP_ERROR`.
 
-## ADR-123: Telegram records similar expenses and validates model facts against user text
+## ADR-123: Unrepairable document facts stay terminal or reviewable
+*Accepted · 2026-11-25*
+
+**Decision:** An unpaid bill or invoice never enters model repair: `ProcessScreenshot` takes the unpaid-invoice terminal path (`failScreenshotExtraction`) before `repairExtracted`, and `payment_status` is not a repairable field, so no repair pass can turn an unpaid invoice into a paid expense. A payslip auto-confirms only when its printed gross pay is arithmetically consistent with net pay and deductions (gross absent still auto-confirms, since arithmetic cannot be checked). A receipt without a printed date still searches ledger candidates with `received_at` as the anchor, but any hit parks the receipt in the `POSSIBLE_DUPLICATE` review and is never auto-linked or merged as evidence.
+
+**Reason:** the repair pass could "fix" the very facts that made an invoice or payslip unsafe, so validated output no longer reflected the printed document; a dateless receipt skipped duplicate detection entirely.
+
+**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane.
+
+## ADR-126: Telegram records similar expenses and validates model facts against user text
 *Accepted - 2026-11-25*
 
 **Decision:** On the Telegram single `record_transaction` path, a matching non-voided expense of the same amount and merchant within the last 7 days no longer blocks the entry or offers a date edit: the new expense is always recorded, and when a prior matching transaction exists the new row is created `NEEDS_REVIEW` with one `POSSIBLE_DUPLICATE` review whose `knownFacts.prior_match_transaction_ids` lists those transactions, so the existing merge, keep-as-new and ignore actions decide. Separately, `AmountSupported` is true only when an amount parsed from the user's own message text by `parseAmountToken` equals the model's amount, and `DateSupported` is false when `transaction_at` falls after the end of today in Asia/Jakarta; either failure parks the row in the existing `NEEDS_REVIEW` route instead of confirming it. A reply-bound `MISSING_AMOUNT` answer is parsed by `parseBankFactsAnswer` before validation, so `50rb`, `1,5jt` and `50.000` are accepted like any other amount text.

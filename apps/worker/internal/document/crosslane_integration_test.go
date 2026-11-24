@@ -2,6 +2,7 @@ package document
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"testing"
@@ -178,6 +179,70 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	}
 	if transactions != 1 || evidence != 2 {
 		t.Fatalf("concurrent lanes duplicated the event: transactions=%d evidence=%d", transactions, evidence)
+	}
+}
+
+func TestDatelessReceiptStillFlagsPossibleDuplicate(t *testing.T) {
+	t.Parallel()
+	fixture := seedReceiptFixture(t, "Dateless receipt duplicate")
+	ctx := context.Background()
+	var merchantID, existing, bankSource string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'QRIS ALFAMART SUDIRMAN') RETURNING id::text`, fixture.householdID).Scan(&merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',gen_random_uuid()::text,now(),decode(md5(random()::text),'hex'),'PROCESSED') RETURNING id::text`, fixture.householdID).Scan(&bankSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',85000,'IDR',$2,$3,now()) RETURNING id::text`, fixture.householdID, receiptTime().Add(-20*time.Minute), merchantID).Scan(&existing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'BANK_EMAIL',.95)`, existing, bankSource); err != nil {
+		t.Fatal(err)
+	}
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Alfamart", Total: "85000", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", receiptValidation{TransactionAt: receiptTime()}, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var transactions, existingEvidence int
+	var existingStatus, reviewType string
+	if err := fixture.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1),(SELECT count(*) FROM transaction_evidence WHERE transaction_id=$2),(SELECT status FROM transaction WHERE id=$2),
+		(SELECT review_type FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.household_id=$1 AND t.id<>$2::uuid AND ri.status='OPEN')`, fixture.householdID, existing).Scan(&transactions, &existingEvidence, &existingStatus, &reviewType); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 2 || existingEvidence != 1 || existingStatus != "CONFIRMED" {
+		t.Fatalf("a dateless receipt must not auto-link: transactions=%d existing_evidence=%d status=%s", transactions, existingEvidence, existingStatus)
+	}
+	if reviewType != "POSSIBLE_DUPLICATE" {
+		t.Fatalf("dateless receipt duplicate must open POSSIBLE_DUPLICATE: type=%s", reviewType)
+	}
+	var transactionID, reviewID string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.id::text,ri.id::text FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.household_id=$1 AND t.id<>$2::uuid AND ri.status='OPEN'`, fixture.householdID, existing).Scan(&transactionID, &reviewID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{HouseholdID: fixture.householdID, TransactionID: transactionID, ReviewItemID: reviewID, Action: "CONFIRM_REVIEW", ResolveReview: true}); err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if !errors.As(err, &missing) || len(missing.Facts) != 1 || missing.Facts[0] != "transaction_at" {
+			t.Fatalf("confirming a dateless non-duplicate must ask for the date, got %v", err)
+		}
+	} else {
+		t.Fatal("a dateless receipt must not confirm without a chosen date")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var status, followUp string
+	var missingFacts []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,ri.review_type,ARRAY(SELECT jsonb_array_elements_text(ri.decision->'missingFacts')) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.id=$1`, reviewID).Scan(&status, &followUp, &missingFacts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || followUp != "MISSING_TRANSACTION_DATE" || len(missingFacts) != 1 || missingFacts[0] != "transaction_at" {
+		t.Fatalf("non-duplicate answer must keep asking for the date: status=%s review=%s missing=%v", status, followUp, missingFacts)
 	}
 }
 
