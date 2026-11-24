@@ -258,7 +258,7 @@ func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt auto confirm")
 	ctx := context.Background()
 	slug := fixture.categorySlug
-	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.35}
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
 	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
 		t.Fatal(err)
@@ -384,7 +384,7 @@ func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) 
 		t.Fatal(err)
 	}
 	slug := fixture.categorySlug
-	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.35}
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
 	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
 		t.Fatal(err)
@@ -440,5 +440,29 @@ func TestLinkedReceiptQueuesALinkedNoticeAndStillCreatesNoDuplicate(t *testing.T
 	var transactions int
 	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&transactions); err != nil || transactions != 1 {
 		t.Fatalf("transactions=%d err=%v, want the notice to add no ledger row", transactions, err)
+	}
+}
+
+func TestLowConfidenceReceiptParksInReviewInsteadOfAutoConfirming(t *testing.T) {
+	t.Parallel()
+	for name, confidence := range map[string][2]float64{"extraction": {.84, .95}, "category": {.95, .84}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fixture := seedReceiptFixture(t, "Receipt low confidence "+name)
+			ctx := context.Background()
+			slug := fixture.categorySlug
+			value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Currency: "IDR", CategorySlug: &slug, Confidence: confidence[0], CategoryConfidence: confidence[1]}
+			validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+			if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+				t.Fatal(err)
+			}
+			var confirmed, needsReview int
+			if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
+				t.Fatal(err)
+			}
+			if confirmed != 0 || needsReview != 1 {
+				t.Fatalf("low confidence receipt must park in review: confirmed=%d needs_review=%d", confirmed, needsReview)
+			}
+		})
 	}
 }

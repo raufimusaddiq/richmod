@@ -57,9 +57,7 @@ func chatToolChoice(name string) any {
 
 func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentRequest) (response AgentResponse, err error) {
 	started := time.Now()
-	if sourceEventFrom(ctx) == "" {
-		ctx = withSourceEvent(ctx, requestID)
-	}
+	ctx = ensureSourceEvent(ctx, requestID)
 	defer func() {
 		if response.Metadata.CallKind == "" {
 			response.Metadata.CallKind = "AGENT_TEXT"
@@ -74,11 +72,15 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return AgentResponse{}, ErrNotConfigured
 	}
-	content, err := normalizeContent(request.Content)
-	if err != nil {
+	if err := validateAgentContinuation(request); err != nil {
 		return AgentResponse{}, err
 	}
-	if err := validateAgentContinuation(request); err != nil {
+	sourceContent := request.Content
+	if c.protocol == "chat_completions" && len(request.ToolOutputs) > 0 {
+		sourceContent = withoutReplayedToolResults(sourceContent)
+	}
+	content, err := normalizeContent(sourceContent)
+	if err != nil {
 		return AgentResponse{}, err
 	}
 
@@ -148,12 +150,12 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 		return AgentResponse{}, transportError(ctx, "call LLM agent gateway", err)
 	}
 	defer resp.Body.Close()
-	raw, err := readBounded(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return AgentResponse{}, statusFailure(resp, "responses")
+	}
+	raw, err := readBounded(ctx, resp.Body)
 	if err != nil {
 		return AgentResponse{}, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return AgentResponse{}, &StatusError{StatusCode: resp.StatusCode, Endpoint: "responses"}
 	}
 	result, err := decodeResponses(raw)
 	if err != nil {
@@ -161,7 +163,7 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 	}
 	response = AgentResponse{ResponseID: result.ID, Text: strings.TrimSpace(result.Text), ToolCalls: result.Calls, Metadata: result.Metadata}
 	if err := validateAgentResponse(response, allowed); err != nil {
-		return AgentResponse{}, err
+		return AgentResponse{Metadata: response.Metadata}, err
 	}
 	response.Metadata.CallKind = "AGENT_TEXT"
 	if len(response.ToolCalls) > 0 {
@@ -179,12 +181,7 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	}
 	functions := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
-		functions = append(functions, map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"],
-			},
-		})
+		functions = append(functions, chatFunction(tool))
 	}
 	messages := []map[string]any{
 		{"role": "system", "content": request.SystemPrompt},
@@ -233,7 +230,7 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	}
 	response := AgentResponse{ResponseID: result.id, Text: result.text, ToolCalls: result.calls, Metadata: result.metadata}
 	if err := validateAgentResponse(response, allowed); err != nil {
-		return AgentResponse{}, err
+		return AgentResponse{Metadata: response.Metadata}, err
 	}
 	response.Metadata.CallKind = "AGENT_TEXT"
 	if len(response.ToolCalls) > 0 {
@@ -241,6 +238,23 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 		response.Metadata.ToolName = joinedToolNames(response.ToolCalls)
 	}
 	return response, nil
+}
+
+func withoutReplayedToolResults(content any) any {
+	fields, ok := content.(map[string]any)
+	if !ok {
+		return content
+	}
+	if _, present := fields["agent_tool_results"]; !present {
+		return content
+	}
+	stripped := make(map[string]any, len(fields))
+	for key, value := range fields {
+		if key != "agent_tool_results" {
+			stripped[key] = value
+		}
+	}
+	return stripped
 }
 
 func validateAgentContinuation(request AgentRequest) error {

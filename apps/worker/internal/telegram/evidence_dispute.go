@@ -23,7 +23,10 @@ func evidenceDisputeMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Konfirmasi transaksi berbeda", CallbackData: "review:dispute:confirm"}, {Text: "Batalkan koreksi", CallbackData: "review:dispute:reject"}}}}
 }
 
-type disputeCategory struct{ id string }
+type disputeCategory struct {
+	id         string
+	confidence *float64
+}
 
 func (p *Processor) disputeCategory(ctx context.Context, tx pgx.Tx, household, document string) (disputeCategory, error) {
 	var slug, merchant, candidate *string
@@ -64,12 +67,13 @@ func (p *Processor) disputeCategory(ctx context.Context, tx pgx.Tx, household, d
 	case memory != nil && bySlug != "" && memory.CategoryID != bySlug:
 		return disputeCategory{}, nil
 	case memory != nil:
-		return disputeCategory{id: memory.CategoryID}, nil
+		certain := 1.0
+		return disputeCategory{id: memory.CategoryID, confidence: &certain}, nil
 	case bySlug != "":
-		return disputeCategory{id: bySlug}, nil
+		return disputeCategory{id: bySlug, confidence: confidence}, nil
 	case candidate != nil && *candidate != "":
 		id, err := active("id::text", *candidate)
-		return disputeCategory{id: id}, err
+		return disputeCategory{id: id, confidence: confidence}, err
 	}
 	return disputeCategory{}, nil
 }
@@ -103,7 +107,7 @@ func (p *Processor) agentDisputeEvidenceLink(ctx context.Context, state *agentSt
 	if err != nil {
 		return result, false, err
 	}
-	staged, err := reviewdomain.StageEvidenceDispute(ctx, tx, reviewdomain.EvidenceDisputeCommand{HouseholdID: state.HouseholdID, ActorUserID: user, DocumentID: string(document), SourceEventID: state.SourceEventID, CategoryID: category.id})
+	staged, err := reviewdomain.StageEvidenceDispute(ctx, tx, reviewdomain.EvidenceDisputeCommand{HouseholdID: state.HouseholdID, ActorUserID: user, DocumentID: string(document), SourceEventID: state.SourceEventID, CategoryID: category.id, CategoryConfidence: category.confidence})
 	if errors.Is(err, reviewdomain.ErrEvidenceDisputeInvalid) {
 		return result, false, nil
 	}
@@ -119,7 +123,7 @@ func (p *Processor) agentDisputeEvidenceLink(ctx context.Context, state *agentSt
 			return result, false, err
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-evidence-dispute',parser_version='1' WHERE id=$1::uuid`, state.SourceEventID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent-evidence-dispute',parser_version='1' WHERE id=$1::uuid`, state.SourceEventID); err != nil {
 		return result, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {

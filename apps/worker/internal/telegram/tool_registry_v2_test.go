@@ -105,13 +105,13 @@ func TestRecordTransferContractCarriesNoPurpose(t *testing.T) {
 }
 
 func TestNativeResidualAllocationUsesSnakeCaseFields(t *testing.T) {
-	call := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"ALLOCATE_RETAINED_BALANCE","category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[{"wealth_account_id":"account-1","amount_idr":"1000000","note":null}]}`)}
+	call := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"ALLOCATE_RETAINED_BALANCE","category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[{"wealth_account_hint":"Tabungan","amount_idr":"1000000","note":null}]}`)}
 	value, err := ValidateNativeToolCall(call)
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded, _ := json.Marshal(value)
-	if !strings.Contains(string(encoded), `"wealth_account_id":"account-1"`) || !strings.Contains(string(encoded), `"amount_idr":"1000000"`) {
+	if !strings.Contains(string(encoded), `"wealth_account_hint":"Tabungan"`) || !strings.Contains(string(encoded), `"amount_idr":"1000000"`) {
 		t.Fatalf("decoded=%#v", value)
 	}
 }

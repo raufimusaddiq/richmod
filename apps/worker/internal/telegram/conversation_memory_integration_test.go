@@ -95,7 +95,7 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 	if len(got) != 9 {
 		t.Fatalf("expected the 9 turns inside the window, got %d: %v", len(got), texts)
 	}
-	if !strings.HasPrefix(got[0].Text, "tadi pagi") || got[len(got)-1].Text != "Pengeluaran Rp6.312.512." {
+	if !strings.HasPrefix(got[0].Text, untrustedUser("tadi pagi")[:len(untrustedUserTag)+2+len("tadi pagi")]) || got[len(got)-1].Text != "Pengeluaran Rp6.312.512." {
 		t.Fatalf("turns must be oldest first, got %v", texts)
 	}
 	cut := verbatimStart(got)
@@ -105,7 +105,8 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 			if turn.Role == "ASSISTANT" {
 				limit = olderAssistantChars
 			}
-			if !turn.Compacted || len([]rune(turn.Text)) > limit {
+			plain := strings.TrimSuffix(strings.TrimPrefix(turn.Text, "<"+untrustedUserTag+">"), "</"+untrustedUserTag+">")
+			if !turn.Compacted || len([]rune(plain)) > limit {
 				t.Fatalf("older turn %d must be compacted and clipped: %+v", i, turn)
 			}
 		} else if turn.Compacted {

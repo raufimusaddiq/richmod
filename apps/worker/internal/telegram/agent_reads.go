@@ -187,7 +187,7 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		}
 		items := make([]map[string]any, 0, len(found))
 		for index, row := range found {
-			refs[index].Label = row.label
+			refs[index].Label = untrustedField(row.label)
 			items = append(items, map[string]any{
 				"ref": refs[index].Ref, "transaction_at": row.at.In(jakartaLocation()).Format(time.RFC3339),
 				"type": row.typ, "amount_idr": row.amount, "label": untrustedField(row.label),
@@ -222,7 +222,7 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			WHERE t.id=$1 AND t.household_id=$2 AND t.status<>'VOIDED'`, id, state.HouseholdID).Scan(&at, &typ, &status, &amount, &category, &description, &merchant); err != nil {
 			return result, err
 		}
-		result.Facts = map[string]any{"ref": ref, "transaction_at": at.In(jakartaLocation()).Format(time.RFC3339), "type": typ, "status": status, "amount_idr": amount, "category": category, "description": description, "merchant": merchant}
+		result.Facts = map[string]any{"ref": ref, "transaction_at": at.In(jakartaLocation()).Format(time.RFC3339), "type": typ, "status": status, "amount_idr": amount, "category": untrustedField(category), "description": untrustedField(description), "merchant": untrustedField(merchant)}
 
 	case "query_wealth":
 		var observed time.Time
@@ -256,7 +256,7 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			if err := rows.Scan(&name, &institution, &role, &side); err != nil {
 				return result, err
 			}
-			items = append(items, map[string]any{"name": name, "institution": institution, "usage_role": role, "side": side})
+			items = append(items, map[string]any{"name": untrustedField(name), "institution": untrustedField(institution), "usage_role": role, "side": side})
 		}
 		if err := rows.Err(); err != nil {
 			return result, err
@@ -279,7 +279,7 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			if err := rows.Scan(&kind, &amount, &label); err != nil {
 				return result, err
 			}
-			items = append(items, map[string]any{"review_type": kind, "amount_idr": amount, "label": label})
+			items = append(items, map[string]any{"review_type": kind, "amount_idr": amount, "label": untrustedField(label)})
 		}
 		if err := rows.Err(); err != nil {
 			return result, err
@@ -316,7 +316,7 @@ func (p *Processor) agentCategoryBreakdown(ctx context.Context, householdID stri
 		if err := rows.Scan(&slug, &name, &amount, &count, &total); err != nil {
 			return nil, 0, err
 		}
-		items = append(items, map[string]any{"slug": slug, "name": name, "amount_idr": amount, "transaction_count": count})
+		items = append(items, map[string]any{"slug": slug, "name": untrustedField(name), "amount_idr": amount, "transaction_count": count})
 	}
 	return items, total, rows.Err()
 }

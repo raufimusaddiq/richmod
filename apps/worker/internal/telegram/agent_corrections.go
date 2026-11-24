@@ -115,13 +115,32 @@ func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState,
 		return result, true, err
 	}
 	defer tx.Rollback(ctx)
-	var label, currentAmount, currentMerchant string
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Transaksi'),amount::text,COALESCE(counterparty_name,'') FROM transaction WHERE id=$1 AND household_id=$2 AND status<>'VOIDED' FOR UPDATE`, transactionID, state.HouseholdID).Scan(&label, &currentAmount, &currentMerchant); err != nil {
+	var label, currentAmount, currentMerchant, currentStatus, currentType string
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Transaksi'),amount::text,COALESCE(counterparty_name,''),status,type FROM transaction WHERE id=$1 AND household_id=$2 AND status<>'VOIDED' FOR UPDATE`, transactionID, state.HouseholdID).Scan(&label, &currentAmount, &currentMerchant, &currentStatus, &currentType); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			result.Status = "TARGET_UNAVAILABLE"
 			return result, true, nil
 		}
 		return result, true, err
+	}
+	blocker, err := correctionBlocker(ctx, tx, state.HouseholdID, transactionID, currentType, currentStatus, categoryID != nil)
+	if err != nil {
+		return result, true, err
+	}
+	if blocker != "" {
+		result.Status = blocker
+		result.Facts = map[string]any{"label": untrustedField(label)}
+		return result, true, nil
+	}
+	if amount == currentAmount {
+		amount = ""
+	}
+	if merchant == currentMerchant {
+		merchant = ""
+	}
+	if categoryID == nil && strings.TrimSpace(description) == "" && proposedAt == nil && amount == "" && merchant == "" {
+		result.Status = "MISSING_CHANGE"
+		return result, true, nil
 	}
 	if amount != "" || merchant != "" {
 		self, err := selfEnteredTransaction(ctx, tx, state.HouseholdID, transactionID)
@@ -133,12 +152,6 @@ func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState,
 			result.Facts = map[string]any{"label": untrustedField(label), "amount_idr": currentAmount}
 			return result, true, nil
 		}
-	}
-	if amount == currentAmount {
-		amount = ""
-	}
-	if merchant == currentMerchant {
-		merchant = ""
 	}
 	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description,proposed_amount,proposed_merchant,status,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8::text,'')::numeric,NULLIF($9::text,''),'PENDING',now()+$10::interval) ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=excluded.proposed_category_id,proposed_description=excluded.proposed_description,proposed_amount=excluded.proposed_amount,proposed_merchant=excluded.proposed_merchant,confirmation_token=gen_random_uuid(),expires_at=excluded.expires_at,created_at=now() RETURNING confirmation_token::text`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID, transactionID, proposedAt, categoryID, clean(description, 500), amount, merchant, pendingConfirmationWindow).Scan(&result.confirmationToken); err != nil {
 		return result, true, err
@@ -211,6 +224,10 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 			status = "REFUSED"
 			result.Status = "TRANSACTION_VOIDED"
 		}
+		if outcome.Blocked != "" {
+			status = "REFUSED"
+			result.Status = outcome.Blocked
+		}
 	} else if _, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID); err != nil {
 		return result, true, err
 	}
@@ -233,26 +250,60 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 type correctionOutcome struct {
 	Refused    bool
 	Voided     bool
+	Blocked    string
 	ProposedAt *time.Time
+}
+
+const (
+	correctionUnderReview      = "TRANSACTION_UNDER_REVIEW"
+	correctionTransferCategory = "TRANSFER_NOT_CATEGORIZABLE"
+)
+
+func correctionBlocker(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, householdID, transactionID, txType, txStatus string, setsCategory bool) (string, error) {
+	if txStatus == "NEEDS_REVIEW" {
+		return correctionUnderReview, nil
+	}
+	var open bool
+	if err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, householdID, transactionID).Scan(&open); err != nil {
+		return "", err
+	}
+	if open {
+		return correctionUnderReview, nil
+	}
+	if txType == "TRANSFER" && setsCategory {
+		return correctionTransferCategory, nil
+	}
+	return "", nil
 }
 
 func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actionID string, telegramUserID int64) (correctionOutcome, error) {
 	var outcome correctionOutcome
-	var transactionID, txStatus string
+	var transactionID, txStatus, txType string
 	var proposedCategoryID, proposedDescription, proposedAmount, proposedMerchant *string
 	var proposedAt *time.Time
 	var beforeAt time.Time
 	var beforeAmount, beforeMerchant, beforeCategory, beforeDescription string
 	if err := tx.QueryRow(ctx, `SELECT a.transaction_id,a.proposed_transaction_at,a.proposed_category_id::text,a.proposed_description,a.proposed_amount::text,a.proposed_merchant,
-			t.status,t.transaction_at,t.amount::text,COALESCE(t.counterparty_name,''),COALESCE(t.category_id::text,''),COALESCE(t.description,'')
+			t.status,t.type,t.transaction_at,t.amount::text,COALESCE(t.counterparty_name,''),COALESCE(t.category_id::text,''),COALESCE(t.description,'')
 		FROM telegram_pending_action a JOIN transaction t ON t.id=a.transaction_id AND t.household_id=a.household_id
 		WHERE a.id=$1 AND a.household_id=$2 FOR UPDATE OF a,t`, actionID, householdID).Scan(&transactionID, &proposedAt, &proposedCategoryID, &proposedDescription, &proposedAmount, &proposedMerchant,
-		&txStatus, &beforeAt, &beforeAmount, &beforeMerchant, &beforeCategory, &beforeDescription); err != nil {
+		&txStatus, &txType, &beforeAt, &beforeAmount, &beforeMerchant, &beforeCategory, &beforeDescription); err != nil {
 		return outcome, err
 	}
 	if txStatus == "VOIDED" {
 		outcome.Voided = true
 		_, err := tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
+	}
+	blocker, err := correctionBlocker(ctx, tx, householdID, transactionID, txType, txStatus, proposedCategoryID != nil)
+	if err != nil {
+		return outcome, err
+	}
+	if blocker != "" {
+		outcome.Blocked = blocker
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 		return outcome, err
 	}
 	if proposedAmount != nil || proposedMerchant != nil {

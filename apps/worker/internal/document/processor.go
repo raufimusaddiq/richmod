@@ -51,7 +51,7 @@ type Payload struct {
 }
 
 func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
-	rows, err := p.pool.Query(ctx, `SELECT DISTINCT a.storage_ref FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.status IN ('EXTRACTED','NEEDS_REVIEW') AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type IN ('PROCESS_DOCUMENT','PROCESS_PAYSLIP','PROCESS_RECEIPT','PROCESS_TRANSACTION_SCREENSHOT') AND j.status IN ('PENDING','RUNNING') AND j.payload_json->>'document_id'=d.id::text)`)
+	rows, err := p.pool.Query(ctx, `SELECT DISTINCT a.storage_ref FROM document d JOIN attachment a ON a.id=d.attachment_id OR a.id IN (SELECT dp.attachment_id FROM document_page dp WHERE dp.document_id=d.id) WHERE d.status IN ('EXTRACTED','NEEDS_REVIEW') AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type IN ('PROCESS_DOCUMENT','PROCESS_PAYSLIP','PROCESS_RECEIPT','PROCESS_TRANSACTION_SCREENSHOT') AND j.status IN ('PENDING','RUNNING') AND j.payload_json->>'document_id'=d.id::text)`)
 	if err != nil {
 		return err
 	}
@@ -385,20 +385,40 @@ func classificationTool() gateway.ToolDefinition {
 }
 
 func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string, cause error) error {
-	var householdID, sourceID string
-	if err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID); err != nil {
-		return fmt.Errorf("load failed document: %w", err)
-	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := p.TerminalClassificationFailureTx(ctx, tx, documentID, cause); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) TerminalClassificationFailureTx(ctx context.Context, tx pgx.Tx, documentID string, cause error) error {
+	if !reviewdomain.IsSourceEventID(documentID) {
+		return nil
+	}
+	var householdID, sourceID string
+	err := tx.QueryRow(ctx, `SELECT household_id::text,source_event_id::text FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load failed document: %w", err)
+	}
 	tag, err := tx.Exec(ctx, `UPDATE document SET status='FAILED',updated_at=now() WHERE id=$1 AND status NOT IN ('EXTRACTED','NEEDS_REVIEW','FAILED')`, documentID)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE household_id=$3 AND (id=$1 OR id IN (SELECT source_event_id FROM document_page WHERE document_id=$2)) AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID, documentID, householdID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE household_id=$3 AND id<>$1 AND id IN (SELECT source_event_id FROM document_page WHERE document_id=$2) AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID, documentID, householdID); err != nil {
+		return err
+	}
+	var sourceType string
+	err = tx.QueryRow(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND household_id=$2 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW') RETURNING source_type`, sourceID, householdID).Scan(&sourceType)
+	sourceFailed := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if tag.RowsAffected() > 0 {
@@ -406,10 +426,15 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 			return err
 		}
 	}
-	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
+	if !sourceFailed {
+		return reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID)
+	}
+	if err := reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
+		HouseholdID: householdID, SourceEventID: sourceID, SourceType: sourceType, Reason: "ERROR",
+	}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID)
 }
 
 func truncate(err error) string {

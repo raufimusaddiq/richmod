@@ -19,7 +19,7 @@ export default function Jobs({ setError }) {
       </div>
       <div className="admin-filters">
         <select aria-label="Status tugas" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option value="FAILED">Gagal</option><option value="PENDING">Menunggu</option><option value="RUNNING">Berjalan</option><option value="SUCCEEDED">Berhasil</option></select>
-        <select aria-label="Jalur tugas" value={filters.lane} onChange={(e) => setFilters({...filters, lane:e.target.value})}><option value="">Semua jalur</option><option value="INTERACTIVE">Interaktif</option><option value="DEFAULT">Bawaan</option><option value="BACKGROUND">Latar belakang</option></select>
+        <select aria-label="Jalur tugas" value={filters.lane} onChange={(e) => setFilters({...filters, lane:e.target.value})}><option value="">Semua jalur</option><option value="INTERACTIVE">Interaktif</option><option value="DETERMINISTIC">Deterministik</option><option value="DEFAULT">Bawaan</option><option value="BACKGROUND">Latar belakang</option></select>
         <input aria-label="Jenis job" placeholder="Jenis job" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})} />
         <select aria-label="Rentang job" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
         <input aria-label="Cari Job ID" type="search" enterKeyHint="search" placeholder="Cari Job ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />

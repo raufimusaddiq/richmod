@@ -15,8 +15,14 @@ func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, sta
 	}
 	messageID := binding.TelegramMessageID
 	if state.Update.Message.ReplyToMessage != nil && state.Update.Message.ReplyToMessage.MessageID != 0 {
-		if messageID == 0 || messageID != state.Update.Message.ReplyToMessage.MessageID {
+		if messageID == 0 {
 			return false, nil
+		}
+		if messageID != state.Update.Message.ReplyToMessage.MessageID {
+			bound, err := p.replyBoundToReviewCard(ctx, state, messageID)
+			if err != nil || !bound {
+				return false, err
+			}
 		}
 	}
 
@@ -62,6 +68,18 @@ func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, sta
 		return false, err
 	}
 	return lockedID == binding.ReviewRequestID, nil
+}
+
+func (p *Processor) replyBoundToReviewCard(ctx context.Context, state *agentState, cardMessageID int64) (bool, error) {
+	document, found, err := p.resolveReplyEvidence(ctx, state.HouseholdID, state.Update)
+	if err != nil || !found {
+		return false, err
+	}
+	card, err := p.reviewCardMessageForDocument(ctx, state.HouseholdID, state.Update.Message.Chat.ID, document)
+	if err != nil {
+		return false, err
+	}
+	return card != 0 && card == cardMessageID, nil
 }
 
 func (p *Processor) loadBoundWealthObservationTx(ctx context.Context, tx pgx.Tx, state *agentState, binding *agentReviewBinding) (resolved, institution, hint, originalSource string, valid bool, err error) {

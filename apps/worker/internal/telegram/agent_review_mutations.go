@@ -167,6 +167,9 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	}
 	if field == "description" && !reviewNeedsCategory(ctx, tx, review.reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, review.transactionID) {
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, "", reviewExtraction{Description: value, Confidence: 1}, userID); err != nil {
+			if refusal, ok := reviewConfirmRefusal(err, result, review); ok {
+				return refusal, true, nil
+			}
 			return result, true, err
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -180,6 +183,9 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, rememberedCategoryID, reviewExtraction{Confidence: 1}, userID); err != nil {
 			var residual errReviewResidualFactsRequired
 			if !errors.As(err, &residual) {
+				if refusal, ok := reviewConfirmRefusal(err, result, review); ok {
+					return refusal, true, nil
+				}
 				return result, true, err
 			}
 			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
@@ -257,6 +263,9 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": residual.facts}
 			return result, true, nil
 		}
+		if refusal, ok := reviewConfirmRefusal(err, result, review); ok {
+			return refusal, true, nil
+		}
 		return result, true, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -269,6 +278,7 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 	if conversationState == "AWAITING_MERCHANT_DECISION" {
 		result.Status = "AWAITING_MERCHANT_DECISION"
 		result.Review = map[string]any{"required": true, "review_type": review.reviewType, "merchant_learning": true}
+		result.merchantLearningReviewID = review.reviewID
 	}
 	return result, true, nil
 }
@@ -307,7 +317,7 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		if errors.As(err, &missing) {
 			return errReviewResidualFactsRequired{facts: missing.Facts}
 		}
-		if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+		if errors.Is(err, reviewdomain.ErrInvalidCandidate) || errors.Is(err, reviewdomain.ErrMissingCategory) {
 			return errReviewResidualFactsRequired{facts: []string{"category"}}
 		}
 		return err
@@ -367,6 +377,19 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		return err
 	}
 	return nil
+}
+
+func reviewConfirmRefusal(err error, result agentToolResult, review agentTransactionReview) (agentToolResult, bool) {
+	switch {
+	case errors.Is(err, reviewdomain.ErrAlreadyResolved):
+		result.Status = "STALE_REVIEW_BINDING"
+		return result, true
+	case errors.Is(err, reviewdomain.ErrTransferClassificationRequired):
+		result.Status = "TRANSFER_CLASSIFICATION_REQUIRED"
+		result.Review = map[string]any{"required": true, "review_type": review.reviewType}
+		return result, true
+	}
+	return result, false
 }
 
 type errReviewResidualFactsRequired struct{ facts []string }

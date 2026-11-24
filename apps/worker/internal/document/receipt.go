@@ -250,14 +250,17 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 			}
 		}
 	}
-	categoryID := p.receiptCategory(ctx, householdID, value, categories)
-	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown {
-		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID)
+	categoryID, merchantID, err := p.receiptCategory(ctx, householdID, value, categories)
+	if err != nil {
+		return err
 	}
-	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, pendingCandidateIDs(candidates)...)
+	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown && receiptAutoConfirmTrusted(value, merchantID != nil) {
+		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, merchantID)
+	}
+	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, merchantID, len(candidates) > 0, pendingCandidateIDs(candidates)...)
 }
 
-func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string) error {
+func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string, knownMerchantID *string) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -267,13 +270,9 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
 		return err
 	}
-	var merchantID *string
-	if normalized := strings.TrimSpace(value.Merchant); normalized != "" {
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
-			return err
-		}
-		merchantID = &id
+	merchantID, err := canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
+	if err != nil {
+		return err
 	}
 	var proposalID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),$6,'Pengeluaran dari struk',$7,'ACCEPTED',jsonb_build_object('document_id',$8::uuid,'arithmetic_ok',$9::boolean,'date_known',$10::boolean,'category_policy_version',$11::text)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, categoryID, value.Confidence, documentID, validation.ArithmeticOK, validation.DateKnown, ReceiptCategoryPolicyVersion).Scan(&proposalID); err != nil {
@@ -413,7 +412,7 @@ func receiptKnownFacts(value receiptExtraction, validation receiptValidation) ma
 	return known
 }
 
-func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID *string, possibleDuplicate bool, pendingCandidates ...string) error {
+func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID, knownMerchantID *string, possibleDuplicate bool, pendingCandidates ...string) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -423,13 +422,9 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
 		return err
 	}
-	var merchantID *string
-	if normalized := strings.TrimSpace(value.Merchant); normalized != "" {
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
-			return err
-		}
-		merchantID = &id
+	merchantID, err := canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
+	if err != nil {
+		return err
 	}
 	var proposalID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),$6,'Pengeluaran dari struk',$7,'NEEDS_REVIEW',jsonb_build_object('document_id',$8::uuid,'arithmetic_ok',$9::boolean,'date_known',$10::boolean)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, categoryID, value.Confidence, documentID, validation.ArithmeticOK, validation.DateKnown).Scan(&proposalID); err != nil {
@@ -492,20 +487,55 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) receiptCategory(ctx context.Context, householdID string, value receiptExtraction, categories []categoryOption) *string {
-	if match, err := merchantmemory.Lookup(ctx, p.pool, householdID, value.Merchant); err == nil && match != nil {
-		return &match.CategoryID
-	}
-	if value.CategorySlug == nil {
+const autoConfirmMinConfidence = 0.85
+
+func receiptAutoConfirmTrusted(value receiptExtraction, categoryFromMemory bool) bool {
+	return value.Confidence >= autoConfirmMinConfidence && (categoryFromMemory || value.CategoryConfidence >= autoConfirmMinConfidence)
+}
+
+func resolveCategorySlug(categories []categoryOption, slug *string) *string {
+	if slug == nil {
 		return nil
 	}
+	var found *string
+	matches := 0
 	for _, category := range categories {
-		if category.Slug == *value.CategorySlug {
+		if category.Slug == *slug {
 			id := category.ID
-			return &id
+			found = &id
+			matches++
 		}
 	}
-	return nil
+	if matches != 1 {
+		return nil
+	}
+	return found
+}
+
+func canonicalMerchantID(ctx context.Context, tx pgx.Tx, householdID, name string, known *string) (*string, error) {
+	if known != nil {
+		return known, nil
+	}
+	normalized := strings.TrimSpace(name)
+	if normalized == "" {
+		return nil, nil
+	}
+	var id string
+	if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
+func (p *Processor) receiptCategory(ctx context.Context, householdID string, value receiptExtraction, categories []categoryOption) (*string, *string, error) {
+	match, err := merchantmemory.Lookup(ctx, p.pool, householdID, value.Merchant)
+	if err != nil {
+		return nil, nil, err
+	}
+	if match != nil {
+		return &match.CategoryID, &match.MerchantID, nil
+	}
+	return resolveCategorySlug(categories, value.CategorySlug), nil, nil
 }
 
 func (p *Processor) documentCategories(ctx context.Context, householdID string) ([]categoryOption, error) {
@@ -524,7 +554,24 @@ func (p *Processor) documentCategories(ctx context.Context, householdID string) 
 		value.Label = categoryLabel(name, parentName)
 		result = append(result, value)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return uniqueCategorySlugs(result), nil
+}
+
+func uniqueCategorySlugs(categories []categoryOption) []categoryOption {
+	counts := make(map[string]int, len(categories))
+	for _, category := range categories {
+		counts[category.Slug]++
+	}
+	out := make([]categoryOption, 0, len(categories))
+	for _, category := range categories {
+		if counts[category.Slug] == 1 {
+			out = append(out, category)
+		}
+	}
+	return out
 }
 
 func categoryLabel(name, parentName string) string {

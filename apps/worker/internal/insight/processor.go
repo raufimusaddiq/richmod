@@ -78,6 +78,7 @@ type toolRead struct {
 }
 
 func (p *Processor) Process(ctx context.Context, insightID string, finalAttempt bool) error {
+	ctx = gateway.WithNonSourceRequest(ctx)
 	var household, status, version, completeness, selected string
 	var requestedAt time.Time
 	if err := p.pool.QueryRow(ctx, `SELECT household_id,status,prompt_version,data_completeness::text,COALESCE(input_metrics_json->>'period_start',''),COALESCE(input_metrics_json->'facts_snapshot'->>'generatedAt',created_at::text)::timestamptz FROM insight WHERE id=$1`, insightID).Scan(&household, &status, &version, &completeness, &selected, &requestedAt); err != nil {
@@ -99,7 +100,7 @@ func (p *Processor) Process(ctx context.Context, insightID string, finalAttempt 
 	session := analyticscore.NewSession(p.pool, household, requestedAt, "")
 	message, metadata, reads, err := p.generate(ctx, insightID, selected, session.Read)
 	if err != nil {
-		if finalAttempt {
+		if finalAttempt && !gateway.IsUnavailable(err) {
 			if persistErr := p.fail(ctx, insightID, household, err.Error()); persistErr != nil {
 				return persistErr
 			}
@@ -288,4 +289,22 @@ func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, insightID 
 	}
 	_, err := tx.Exec(ctx, `UPDATE insight SET status='FAILED',gateway_route='cloud-llm-gateway' WHERE id=$1 AND status='PENDING'`, insightID)
 	return err
+}
+
+const orphanedPendingSQL = `
+WITH orphaned AS (
+	UPDATE insight i SET status='FAILED',gateway_route='cloud-llm-gateway'
+	WHERE i.status='PENDING' AND i.created_at<now()-interval '15 minutes'
+	  AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type='GENERATE_INSIGHT' AND j.status IN ('PENDING','RUNNING') AND j.payload_json->>'insight_id'=i.id::text)
+	RETURNING i.id,i.household_id
+)
+INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json)
+SELECT household_id,'WORKER','FAIL_INSIGHT','insight',id,jsonb_build_object('reason','orphaned_pending','tool_contract',$1::text) FROM orphaned`
+
+func SweepOrphanedPending(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, orphanedPendingSQL, promptVersion)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }

@@ -545,6 +545,11 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 }
 
 func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, defaultWealthConfigured bool, v observation) error {
+	if positiveWholeMoney(v.AmountIDR) {
+		if err := reviewdomain.LockLedgerEvent(ctx, tx, household, strings.TrimSpace(*v.AmountIDR)); err != nil {
+			return err
+		}
+	}
 	var selectedAccount, selectedWealth string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, id).Scan(&selectedAccount, &selectedWealth); err != nil {
 		return err
@@ -688,6 +693,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	if p.gateway == nil {
 		return fmt.Errorf("financial email gateway unavailable")
 	}
+	ctx = gateway.WithNonSourceRequest(ctx)
 	var household, sourceID, provider, sender, subject, body, defaultWealth string
 	var defaultWealthConfigured bool
 	var capabilities []string
@@ -700,7 +706,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	if err := p.pool.QueryRow(ctx, `SELECT subject,body FROM financial_email_preview WHERE id=$1`, payload.PreviewID).Scan(&subject, &body); err != nil {
 		return err
 	}
-	call, _, err := p.gateway.NativeToolCall(gateway.WithSourceEvent(ctx, ""), "preview:"+payload.PreviewID, prompt, map[string]any{
+	call, _, err := p.gateway.NativeToolCall(ctx, "preview:"+payload.PreviewID, prompt, map[string]any{
 		"provider_name":      provider,
 		"sender_address":     sender,
 		"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", gateway.NormalizeEmailBody(subject, gateway.DefaultEmailSubjectMaxBytes)),

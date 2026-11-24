@@ -152,7 +152,7 @@ func TestDeferGivesAttemptsBackAndKeepsDeterministicRepliesFlowing(t *testing.T)
 	if err := pool.QueryRow(ctx, `SELECT attempts,deferrals,extract(epoch FROM run_after-now()) FROM job WHERE id=$1`, job.ID).Scan(&attempts, &deferrals, &wait); err != nil {
 		t.Fatal(err)
 	}
-	if attempts != 0 || deferrals != 1 || wait < 290 || wait > 310 {
+	if attempts != 0 || deferrals != 1 || wait < 295 || wait > 365 {
 		t.Fatalf("deferred job attempts=%d deferrals=%d wait=%.0fs", attempts, deferrals, wait)
 	}
 	if DeferralDelay(1) != 10*time.Minute || DeferralDelay(10) != time.Hour {

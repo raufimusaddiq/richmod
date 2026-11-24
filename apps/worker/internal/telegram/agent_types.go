@@ -48,7 +48,8 @@ type agentToolResult struct {
 	Mutation   map[string]any   `json:"mutation,omitempty"`
 	Review     map[string]any   `json:"review,omitempty"`
 
-	confirmationToken string
+	confirmationToken        string
+	merchantLearningReviewID string
 }
 
 func (r *agentToolResult) UnmarshalJSON(data []byte) error {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -154,5 +155,68 @@ func TestAgentFinalStatusPreservationContract(t *testing.T) {
 		if status != "IGNORED" && status != "NEEDS_REVIEW" {
 			t.Fatalf("unexpected preservation fixture %q", status)
 		}
+	}
+}
+
+func TestMerchantDecisionReplyAsksTheQuestionAndRefusalsAreNotSideEffects(t *testing.T) {
+	asked, ok := agentMutationReply(agentToolResult{Status: "AWAITING_MERCHANT_DECISION", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}})
+	if !ok || asked != merchantLearningQuestion {
+		t.Fatalf("merchant decision must ask whether to remember, got %q ok=%v", asked, ok)
+	}
+	if isNonMutatingRefusal(agentToolResult{Status: "AWAITING_MERCHANT_DECISION", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}}) {
+		t.Fatal("a confirmed review must count as a side effect")
+	}
+	for _, status := range []string{"TRANSFER_PURPOSE_REQUIRED", "ALLOCATION_TOTAL_MISMATCH", "INCOMPATIBLE_WEALTH_ACCOUNT", "MISSING_ASSET_PURCHASE_FACTS", "TOO_MANY_CANDIDATES", "WEALTH_ACCOUNT_AMBIGUOUS"} {
+		result := agentToolResult{Status: status}
+		if !isNonMutatingRefusal(result) {
+			t.Fatalf("%s must not count as a side effect", status)
+		}
+		if reply, _ := agentMutationReply(result); reply == genericMutationReply {
+			t.Fatalf("%s fell back to the generic completed-action reply", status)
+		}
+	}
+}
+
+func TestFinanceRequestsAreNotBoundAsCardDetailAnswers(t *testing.T) {
+	now := time.Now()
+	for _, text := range []string{"pengeluaran bulan ini", "cek saldo", "catat kopi", "bandingkan siklus"} {
+		if isDetailAnswer(text, now) {
+			t.Fatalf("%q is a finance request, not a merchant answer", text)
+		}
+	}
+	if !isDetailAnswer("Warung Bu Siti", now) {
+		t.Fatal("a plain merchant name must still bind to an UNKNOWN_MERCHANT card")
+	}
+}
+
+func TestResolveReviewActionMustBeAllowedForBoundReviewType(t *testing.T) {
+	call := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"COMPLETE_BANK_FACTS","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":"1000","transaction_at":"2026-01-02T03:04:05+07:00","allocations":[]}`)}
+	if _, err := validateAgentToolCall(call, "UNKNOWN_MERCHANT", "TRANSACTION"); err == nil {
+		t.Fatal("COMPLETE_BANK_FACTS must be rejected for a review type that does not allow it")
+	}
+	if _, err := validateAgentToolCall(call, "UNKNOWN_BANK_TEMPLATE", "TRANSACTION"); err != nil {
+		t.Fatalf("COMPLETE_BANK_FACTS must pass for a bank-facts review: %v", err)
+	}
+	if _, err := validateAgentToolCall(call, "", ""); err != nil {
+		t.Fatalf("unbound validation keeps the global action set: %v", err)
+	}
+}
+
+func TestResolveReviewActionValidationFollowsReviewMode(t *testing.T) {
+	arguments := func(action string) gateway.ToolCall {
+		return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"` + action + `","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[]}`)}
+	}
+	for _, tc := range []struct{ action, reviewType, mode string }{
+		{"SET_WEALTH_ACCOUNT", "WEALTH_OBSERVATION_CONFIRMATION", "WEALTH_OBSERVATION"},
+		{"RECORD_ASSET_PURCHASE", "WEALTH_OBSERVATION_CONFIRMATION", "WEALTH_OBSERVATION"},
+		{"MERGE_EXISTING", "TRANSFER_CLASSIFICATION", "TRANSFER_RECONCILIATION"},
+		{"CONFIRM_NEW_TRANSFER", "CONFLICTING_EVIDENCE", "TRANSFER_RECONCILIATION"},
+	} {
+		if _, err := validateAgentToolCall(arguments(tc.action), tc.reviewType, tc.mode); err != nil {
+			t.Fatalf("%s must pass for mode %s: %v", tc.action, tc.mode, err)
+		}
+	}
+	if _, err := validateAgentToolCall(arguments("SET_WEALTH_ACCOUNT"), "UNKNOWN_MERCHANT", "TRANSACTION"); err == nil {
+		t.Fatal("a wealth action must be rejected for a transaction review")
 	}
 }

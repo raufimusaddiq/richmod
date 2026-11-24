@@ -151,3 +151,59 @@ func TestCommentaryPersistenceCompatibilityAndFailureIsolation(t *testing.T) {
 	}
 	var _ Gateway = (*gateway.Client)(nil)
 }
+
+func TestSweepOrphanedPendingFailsOnlyInsightsWithoutALiveJob(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := time.Now().UnixNano()
+	var household, user string
+	check(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("sweep %d", stamp)).Scan(&household))
+	check(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("sweep-%d@example.test", stamp)).Scan(&user))
+	insert := func(period, age string) string {
+		var id string
+		check(pool.QueryRow(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id,created_at) VALUES($1,$2::date,'PENDING',jsonb_build_object('period_kind','SALARY_CYCLE','period_start',$2::text),$3,1,$4,now()-$5::interval) RETURNING id`, household, period, promptVersion, user, age).Scan(&id))
+		return id
+	}
+	enqueue := func(insightID, status string) {
+		_, err := pool.Exec(ctx, `INSERT INTO job(type,payload_json,status) VALUES('GENERATE_INSIGHT',jsonb_build_object('insight_id',$1::uuid),$2)`, insightID, status)
+		check(err)
+	}
+	missing := insert("2026-01-01", "30 minutes")
+	failedJob := insert("2026-02-01", "30 minutes")
+	liveJob := insert("2026-03-01", "30 minutes")
+	recent := insert("2026-04-01", "1 minute")
+	enqueue(failedJob, "FAILED")
+	enqueue(liveJob, "PENDING")
+	swept, err := SweepOrphanedPending(ctx, pool)
+	check(err)
+	if swept < 2 {
+		t.Fatalf("swept=%d, want at least the two orphans", swept)
+	}
+	want := map[string]string{missing: "FAILED", failedJob: "FAILED", liveJob: "PENDING", recent: "PENDING"}
+	for id, status := range want {
+		var got string
+		check(pool.QueryRow(ctx, `SELECT status FROM insight WHERE id=$1`, id).Scan(&got))
+		if got != status {
+			t.Errorf("insight %s status=%s, want %s", id, got, status)
+		}
+	}
+	var audits int
+	check(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE entity_type='insight' AND action='FAIL_INSIGHT' AND entity_id=ANY($1::uuid[]) AND after_json->>'reason'='orphaned_pending'`, []string{missing, failedJob}).Scan(&audits))
+	if audits != 2 {
+		t.Fatalf("orphan audits=%d, want 2", audits)
+	}
+}

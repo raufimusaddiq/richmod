@@ -30,27 +30,28 @@ func (p *Processor) deferForGateway(ctx context.Context, state *agentState, caus
 	if !state.ReceivedAt.IsZero() && p.now().Sub(state.ReceivedAt) >= gatewayDeferralWindow {
 		return TerminalError(failure)
 	}
-	tx, err := p.pool.Begin(context.WithoutCancel(ctx))
+	deferCtx := context.WithoutCancel(ctx)
+	tx, err := p.pool.Begin(deferCtx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, "telegram_deferral:"+state.SourceEventID); err != nil {
+	defer tx.Rollback(deferCtx)
+	if _, err := tx.Exec(deferCtx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, "telegram_deferral:"+state.SourceEventID); err != nil {
 		return err
 	}
 	var noticed bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM telegram_conversation_turn WHERE source_event_id=$1::uuid AND role='TOOL' AND tool_name=$2::text)`, state.SourceEventID, gatewayDeferredTool).Scan(&noticed); err != nil {
+	if err := tx.QueryRow(deferCtx, `SELECT EXISTS(SELECT 1 FROM telegram_conversation_turn WHERE source_event_id=$1::uuid AND role='TOOL' AND tool_name=$2::text)`, state.SourceEventID, gatewayDeferredTool).Scan(&noticed); err != nil {
 		return err
 	}
 	if !noticed {
-		if err := enqueueReply(ctx, tx, state.Update, gatewayDeferredMessage); err != nil {
+		if err := enqueueReply(deferCtx, tx, state.Update, gatewayDeferredMessage); err != nil {
 			return err
 		}
-		if err := insertTurnTx(ctx, tx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", gatewayDeferredTool, map[string]any{"deferred_at": p.now().Format(time.RFC3339)}); err != nil {
+		if err := insertTurnTx(deferCtx, tx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", gatewayDeferredTool, map[string]any{"deferred_at": p.now().Format(time.RFC3339)}); err != nil {
 			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(deferCtx); err != nil {
 		return err
 	}
 	return &GatewayDeferral{Err: failure}

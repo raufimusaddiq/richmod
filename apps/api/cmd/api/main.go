@@ -86,6 +86,7 @@ func run(logger *slog.Logger) error {
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
 	uiTelemetryLimiter := httpmw.NewLimiter(uitelemetry.RateLimitPerMinute, time.Minute)
+	insightGenerateLimiter := httpmw.NewLimiter(10, time.Minute)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -218,7 +219,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/wealth/cycle-recaps", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CycleRecaps)))
 	mux.Handle("GET /api/v1/wealth/current-cycle-savings", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CurrentCycleSavings)))
 	mux.Handle("GET /api/v1/insights", authHandler.RequireSession(http.HandlerFunc(insightHandler.List)))
-	mux.Handle("POST /api/v1/insights/generate", authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate)))
+	mux.Handle("POST /api/v1/insights/generate", insightGenerateLimiter.Handler(authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate))))
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
 	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))

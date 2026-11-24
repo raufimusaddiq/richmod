@@ -14,20 +14,16 @@ import (
 const ScreenshotRowCategoryPolicyVersion = "2026-11-screenshot-generative1"
 
 func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID, documentID, proposalKey string, index int, row validatedScreenshotRow) error {
-	var merchantID *string
-	if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
-			return err
-		}
-		merchantID = &id
+	merchantID, err := canonicalMerchantID(ctx, tx, householdID, row.Value.Merchant, row.MerchantID)
+	if err != nil {
+		return err
 	}
 	var proposalID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,'EXPENSE',$4,'IDR',$5,NULLIF($6,''),$7,NULLIF($8,''),$9,'ACCEPTED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'direction',$12::text,'date_known',$13::boolean,'auto_confirm',true,'category_policy_version',$14::text) || $15::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, ScreenshotRowCategoryPolicyVersion, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
 		return err
 	}
 	var transactionID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,NULLIF($6,''),$7,$8,now(),now()) RETURNING id`, householdID, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.Confidence).Scan(&transactionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,NULLIF($6,''),$7,$8,now(),now()) RETURNING id`, householdID, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.classificationConfidence()).Scan(&transactionID); err != nil {
 		return err
 	}
 	if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, row.TransactionAt, ""); err != nil {
@@ -36,7 +32,7 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_SCREENSHOT_ROW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text,'category_policy_version',$6::text))`, householdID, transactionID, documentID, index, row.Value.Direction, ScreenshotRowCategoryPolicyVersion)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_SCREENSHOT_ROW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text,'category_policy_version',$6::text))`, householdID, transactionID, documentID, index, row.Value.Direction, ScreenshotRowCategoryPolicyVersion)
 	return err
 }
 

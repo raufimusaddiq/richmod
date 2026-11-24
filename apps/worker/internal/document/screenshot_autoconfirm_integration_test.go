@@ -140,7 +140,7 @@ func TestScreenshotWriteRetriesWhenANonChosenCandidateVanished(t *testing.T) {
 }
 
 func screenshotDataRow(rowType, amount, merchant string) validatedScreenshotRow {
-	return validatedScreenshotRow{Value: screenshotRow{Amount: &amount, Currency: "IDR", Merchant: merchant, Confidence: .95}, Type: rowType, TransactionAt: screenshotRowTime(), DateKnown: true}
+	return validatedScreenshotRow{Value: screenshotRow{Amount: &amount, Currency: "IDR", Merchant: merchant, Confidence: .95, CategoryConfidence: .95}, Type: rowType, TransactionAt: screenshotRowTime(), DateKnown: true}
 }
 
 func (f screenshotFixture) persist(t *testing.T, rows []validatedScreenshotRow) {
@@ -294,7 +294,6 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot rows")
 	ctx := context.Background()
 	clear := screenshotDataRow("EXPENSE", "54000", "Indomaret")
-	clear.Value.Confidence = .35
 	categoryID := fixture.categoryID
 	clear.CategoryID, clear.CategoryDecided = &categoryID, true
 	incoming := screenshotDataRow("INCOME", "100000", "Teman")
