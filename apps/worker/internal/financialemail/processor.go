@@ -15,17 +15,17 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
+
+const FinancialEmailPolicyVersion = "financial-email-native.v1"
 
 type Gateway interface {
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 type Processor struct {
-	pool     *pgxpool.Pool
-	gateway  Gateway
-	verifier jeverifier
+	pool    *pgxpool.Pool
+	gateway Gateway
 }
 type Payload struct {
 	SourceEventID     string `json:"source_event_id"`
@@ -38,8 +38,6 @@ type PreviewPayload struct {
 func NewProcessor(pool *pgxpool.Pool, client Gateway) *Processor {
 	return &Processor{pool: pool, gateway: client}
 }
-
-func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 func DecodePreviewPayload(raw json.RawMessage) (PreviewPayload, error) {
 	var v PreviewPayload
 	err := json.Unmarshal(raw, &v)
@@ -116,7 +114,6 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	ctx = gateway.WithSourceEvent(ctx, payload.SourceEventID)
-	ctx = judgment.WithSourceEvent(ctx, payload.SourceEventID)
 	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	out, err := p.stagedOutput(ctx, payload.SourceEventID)
 	model := extractionModel
@@ -127,7 +124,13 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		if p.gateway == nil {
 			return fmt.Errorf("financial email gateway unavailable")
 		}
-		call, meta, callErr := p.gateway.NativeToolCall(ctx, payload.SourceEventID, prompt, map[string]any{"provider_name": provider, "sender_address": sender, "email_subject": subject, "email_body": "<untrusted_email_body>" + body + "</untrusted_email_body>", "household_timezone": "Asia/Jakarta"}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
+		call, meta, callErr := p.gateway.NativeToolCall(ctx, payload.SourceEventID, prompt, map[string]any{
+			"provider_name":      provider,
+			"sender_address":     sender,
+			"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", subject),
+			"email_body":         gateway.WrapUntrusted("untrusted_email_body", gateway.NormalizeEmailBody(body, gateway.DefaultEmailBodyMaxBytes)),
+			"household_timezone": "Asia/Jakarta",
+		}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
 		if callErr != nil {
 			return callErr
 		}
@@ -256,58 +259,6 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	return p.insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
 }
 
-func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification) error {
-	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
-		return err
-	}
-	missing, affected, consequence, provenance := classification.reviewFacts(classification.cashResidual())
-	decision, ok := reviewdec.Preset("FINANCIAL_EMAIL_FACTS", "financial_email_observation", id)
-	if !ok {
-		return fmt.Errorf("no review decision preset for provider evidence residual")
-	}
-	decision.Subject = reviewdec.Subject{Type: "financial_email_observation", ID: id}
-	decision.MissingFacts = missing
-	decision.AffectedFacts = affected
-	decision.Consequence = consequence
-	decision.PolicyVersion = classification.PolicyVersion
-	decision.Provenance = provenance
-	accepted := []string{}
-	if classification.TypeAccepted {
-		accepted = append(accepted, "observation_type")
-	}
-	if classification.MovementAccepted {
-		accepted = append(accepted, "movement_type")
-	}
-	decision.Provenance["accepted_dimensions_at_validation"] = accepted
-	valuesUnsupported := containsString(missing, "evidence_support")
-	declare := func(key, value string) {
-		if value == "" {
-			return
-		}
-		if valuesUnsupported {
-			decision.ProposedFacts[key] = value
-			return
-		}
-		decision.KnownFacts[key] = value
-	}
-	if observation.AmountIDR != nil {
-		declare("amount_idr", value(observation.AmountIDR))
-	}
-	if observation.OccurredAt != nil {
-		declare("transaction_at", value(observation.OccurredAt))
-	}
-	if observation.FundingAccountHint != nil {
-		declare("funding_account_hint", value(observation.FundingAccountHint))
-	}
-	if observation.ProviderAccountHint != nil {
-		declare("provider_account_hint", value(observation.ProviderAccountHint))
-	}
-	encoded, err := decision.JSON()
-	if err != nil {
-		return err
-	}
-	return p.projectObservationReview(ctx, tx, household, id, decision.ReasonCode, string(encoded))
-}
 func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) (string, error) {
 	if strings.TrimSpace(id) == "" {
 		return "", nil
@@ -391,7 +342,6 @@ type cashPlan struct {
 	account, wealth, amount, purpose, existing, providerReference, review string
 	accountConflictHint                                                   string
 	missingEntities                                                       []string
-	classification                                                        ObservationClassification
 	at                                                                    time.Time
 	candidates                                                            []string
 }
@@ -401,29 +351,6 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || (v.FundingAccountHint == nil && selectedAccount == "") {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
-	}
-	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
-	if classifyErr != nil {
-		return plan, fmt.Errorf("classify provider observation: %w", classifyErr)
-	}
-	if verified {
-		if !classification.TypeAccepted || classification.ObservationType != "CASH_MOVEMENT" {
-			plan.review = "TRANSFER_CLASSIFICATION"
-			return plan, nil
-		}
-		if residual := classification.cashResidual(); len(residual) > 0 {
-			plan.classification = classification
-			plan.review = "FINANCIAL_EMAIL_FACTS"
-			return plan, nil
-		}
-		if !classification.cashAllowed() {
-			plan.review = "TRANSFER_CLASSIFICATION"
-			return plan, nil
-		}
-		if classification.MovementType != "" {
-			movement := classification.MovementType
-			v.MovementType = &movement
-		}
 	}
 	var err error
 	if plan.at, err = time.Parse(time.RFC3339, *v.OccurredAt); err != nil {
@@ -586,44 +513,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	if err != nil {
 		return err
 	}
-	if plan.canReconcileSemantically() {
-		var candidateType, candidatePurpose, candidateAt string
-		if err = tx.QueryRow(ctx, `SELECT type,COALESCE(purpose,''),transaction_at::text FROM transaction WHERE id=$1`, plan.candidates[0]).Scan(&candidateType, &candidatePurpose, &candidateAt); err != nil {
-			return err
-		}
-		answer, reconcileErr := p.reconcileSemantically(ctx, "financial-email:"+id, plan.amount, plan.at.Format(time.RFC3339), "Financial provider email", candidateType, candidatePurpose, candidateAt)
-		if reconcileErr != nil {
-			return reconcileErr
-		}
-		if answer.SameEvent {
-			plan.existing = plan.candidates[0]
-			plan.candidates = nil
-			plan.review = ""
-		}
-	}
-	if plan.canReconcileCandidates() {
-		facts := make([]string, 0, len(plan.candidates))
-		for _, candidateID := range plan.candidates {
-			var typ, purpose, at, description string
-			if err = tx.QueryRow(ctx, `SELECT type,COALESCE(purpose,''),transaction_at::text,COALESCE(description,counterparty_name,'') FROM transaction WHERE id=$1 AND household_id=$2 AND account_id=$3 AND status<>'VOIDED'`, candidateID, household, plan.account).Scan(&typ, &purpose, &at, &description); err != nil {
-				return err
-			}
-			fact, _ := json.Marshal(map[string]string{"type": typ, "purpose": purpose, "transaction_at": at, "description": description, "amount_idr": plan.amount})
-			facts = append(facts, string(fact))
-		}
-		choice, choiceErr := p.reconcileCandidates(ctx, "financial-email-candidates:"+id, plan.amount, plan.at.Format(time.RFC3339), "Financial provider email", facts)
-		if choiceErr != nil {
-			return choiceErr
-		}
-		if choice.Index > 0 {
-			plan.existing = plan.candidates[choice.Index-1]
-			plan.candidates = nil
-			plan.review = ""
-		}
-	}
 	switch plan.review {
-	case "FINANCIAL_EMAIL_FACTS":
-		return p.evidenceReview(ctx, tx, household, source, id, v, plan.classification)
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities, plan.accountConflictHint)
 	case "CONFLICTING_EVIDENCE":
@@ -679,8 +569,8 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 		KnownFacts:      known,
 		MissingFacts:    missingEntities,
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: source}},
-		DecisionSource:  reviewdec.SourceGenerativePlusJev,
-		PolicyVersion:   ProviderEmailClassificationPolicyVersion,
+		DecisionSource:  reviewdec.SourceGenerativeExtraction,
+		PolicyVersion:   FinancialEmailPolicyVersion,
 		Provenance:      map[string]any{"pipeline": "financial-provider-email"},
 		WhyNotAuto:      "an entity the evidence identifies only in prose must be bound by the household",
 		AllowedActions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
@@ -760,7 +650,13 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	if err := p.pool.QueryRow(ctx, `SELECT subject,body FROM financial_email_preview WHERE id=$1`, payload.PreviewID).Scan(&subject, &body); err != nil {
 		return err
 	}
-	call, _, err := p.gateway.NativeToolCall(ctx, "preview:"+payload.PreviewID, prompt, map[string]any{"provider_name": provider, "sender_address": sender, "email_subject": subject, "email_body": "<untrusted_email_body>" + body + "</untrusted_email_body>", "household_timezone": "Asia/Jakarta"}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
+	call, _, err := p.gateway.NativeToolCall(ctx, "preview:"+payload.PreviewID, prompt, map[string]any{
+		"provider_name":      provider,
+		"sender_address":     sender,
+		"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", subject),
+		"email_body":         gateway.WrapUntrusted("untrusted_email_body", gateway.NormalizeEmailBody(body, gateway.DefaultEmailBodyMaxBytes)),
+		"household_timezone": "Asia/Jakarta",
+	}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return err
 	}

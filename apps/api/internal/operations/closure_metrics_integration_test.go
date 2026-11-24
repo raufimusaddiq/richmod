@@ -28,15 +28,6 @@ func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 		t.Fatal(err)
 	}
 	insertLegacyReviewItem(t, pool, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','RESOLVED',now())`, household, source)
-	if _, err := pool.Exec(ctx, `INSERT INTO intelligence_phase_telemetry(household_id,capability,purpose,semantic_dimensions,answered_dimensions,latency_ms,outcome,accepted_dimensions_at_entry) VALUES
-		($1,'JEV','RESIDUAL_CATEGORY',ARRAY['category'],ARRAY['category'],5,'SUCCEEDED',ARRAY[]::text[]),
-		($1,'JEV','RESIDUAL_CATEGORY',ARRAY['category'],ARRAY['category'],5,'SUCCEEDED',ARRAY['category']),
-		($1,'JEV','EVIDENCE_SUPPORT',ARRAY['amount_supported'],ARRAY['amount_supported'],5,'SUCCEEDED',ARRAY['amount_supported']),
-		($1,'JEV','OTHER_BOUNDED',ARRAY['same_real_event'],ARRAY['same_real_event'],5,'SUCCEEDED',ARRAY['same_real_event']),
-		($1,'JEV','RESIDUAL_CATEGORY',ARRAY['category'],ARRAY['category'],5,'SUCCEEDED',NULL),
-		($1,'GENERATIVE','EXTRACTION',ARRAY['amount'],ARRAY['amount'],5,'SUCCEEDED',NULL)`, household); err != nil {
-		t.Fatal(err)
-	}
 	aggregate, err := aggregateHandler(pool).loadProductAggregate(ctx, household)
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +35,10 @@ func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 	if aggregate.ValidatorEligibleReviews != 2 || aggregate.ValidatorInducedReviews != 1 || aggregate.ValidatorInducedRate != 0.5 || aggregate.ValidatorUnknownReviews != 1 {
 		t.Fatalf("validator-induced: eligible=%d induced=%d rate=%v unknown=%d", aggregate.ValidatorEligibleReviews, aggregate.ValidatorInducedReviews, aggregate.ValidatorInducedRate, aggregate.ValidatorUnknownReviews)
 	}
-	if aggregate.SemanticEligiblePhases != 2 || aggregate.SemanticReDecisions != 1 || aggregate.SemanticReDecisionRate != 0.5 || aggregate.SemanticUnknownPhases != 1 {
-		t.Fatalf("semantic re-decision: eligible=%d redecided=%d rate=%v unknown=%d", aggregate.SemanticEligiblePhases, aggregate.SemanticReDecisions, aggregate.SemanticReDecisionRate, aggregate.SemanticUnknownPhases)
-	}
 	if aggregate.ResidualEligibleReviews != 2 || aggregate.ResidualViolations != 0 || aggregate.ResidualFidelityRate != 1 || aggregate.ResidualUnknownReviews != 1 {
 		t.Fatalf("residual fidelity: eligible=%d violations=%d rate=%v unknown=%d", aggregate.ResidualEligibleReviews, aggregate.ResidualViolations, aggregate.ResidualFidelityRate, aggregate.ResidualUnknownReviews)
 	}
-	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" || len(aggregate.CoverageIncomplete) != 3 {
+	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" || len(aggregate.CoverageIncomplete) != 2 {
 		t.Fatalf("only historical coverage may remain incomplete: %+v / %+v", aggregate.Coverage, aggregate.CoverageIncomplete)
 	}
 }

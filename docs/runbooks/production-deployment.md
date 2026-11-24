@@ -44,63 +44,6 @@ Required integration settings are `LLM_GATEWAY_BASE_URL`, `LLM_GATEWAY_API_KEY`,
 `TELEGRAM_WEBHOOK_SECRET`. The worker joins `idx_default` only to reach the cloud
 gateway; PostgreSQL remains on the internal network. Never commit the real values.
 
-`JUDGMENT_MODEL` is **required** in production. Jev/System One owns bounded
-semantic mutation authority (ADR-038), so the worker refuses to start when the
-model is unset, which prevents silently disabling Jev-owned semantics. It uses
-the same LiteRouter URL/key and `/v1/systemone`; `JUDGMENT_TIMEOUT_MS` is capped
-by the worker. Non-production environments opt out explicitly by setting
-`JUDGMENT_MODE=disabled-dev`.
-
-Configuration and availability are different states. A configured-but-unreachable
-Jev degrades per turn: READ questions may still use a generative READ-only agent,
-while mutation requests are refused instead of falling back to generative
-semantic authority. Do not describe an outage as a reason to unset
-`JUDGMENT_MODEL`.
-
-Before trusting a new LiteRouter or Jev deployment, run the opt-in live residual
-category canary through Richmod → LiteRouter `/v1/systemone` → TypeSafe and back
-through the Richmod decoder. It submits synthetic receipt evidence with known
-merchant, amount, and date, asks only for category among server-owned household-
-style choices, and expects `makanan-minuman`. It makes one non-canonical decision
-and no database write. The check is skipped by default because it consumes live
-provider credits; run it from an approved secret-bearing environment:
-
-```bash
-cd apps/worker && SYSTEMONE_SMOKE_BASE_URL=<literouter base url> \
-  SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key> \
-  go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v
-```
-
-`SYSTEMONE_SMOKE_MODEL` is optional and defaults to `typesafe/jev-latest`, the
-same model id production sets in `JUDGMENT_MODEL`. The smoke
-asserts the provider accepts the native question schema, returns a real
-versioned model id, and chooses the residual category supported by the evidence
-from server-supplied criteria. Supply only the LiteRouter client key; no upstream
-provider key belongs in Richmod.
-
-Run the smoke from a host that shares a Docker network with LiteRouter and use
-its internal address (`http://9router:20128/v1`), not the public hostname. The
-worker reaches LiteRouter directly over the container network by design; sending
-a bounded decision out through Cloudflare and back into the same host would add
-a public round trip and a needless failure surface for no benefit. The internal
-name only resolves inside those networks, so a shell on the host itself cannot
-reach it:
-
-```bash
-docker run --rm --network idx_default -v "$PWD:/src" \
-  -v richmod-gomod:/go/pkg/mod -w /src/apps/worker \
-  --env-file /opt/family-finance/finance.env \
-  -e SYSTEMONE_SMOKE_BASE_URL=http://9router:20128/v1 \
-  golang:1.27-alpine sh -c '
-    export SYSTEMONE_SMOKE_LITEROUTER_KEY="${LLM_GATEWAY_API_KEY}"
-    go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v'
-```
-
-The smoke reports the concrete version the alias resolved to (for example
-`jev-1.13.0`). `typesafe/jev-latest` is intentionally an alias; the concrete
-version is what belongs on a stored `judgment_decision` row, so a decision stays
-reproducible after the alias advances (PRD §18).
-
 Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
 `OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments
 under `<prefix>/attachments`; backup stores encrypted restic data under
@@ -342,10 +285,10 @@ an unset or mistyped variable never silently changes behavior.
 
 | Variable | Source | Effect when disabled |
 | --- | --- | --- |
-| `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` | Bank Email | A merchant expense with a learned or decided category parks in review with the category proposed, instead of confirming |
-| `RICHMOD_AUTOCONFIRM_RECEIPT` | Receipt | Skips residual Jev category rescue; a clear new receipt parks in review with its extraction proposed |
-| `RICHMOD_AUTOCONFIRM_SCREENSHOT` | Screenshot | Skips the selective Jev category batch; screenshot rows park in review instead of confirming |
-| `RICHMOD_AUTOCONFIRM_TELEGRAM` | Telegram | A complete generative extraction parks in review with its facts proposed, instead of confirming directly; no Jev replay is added |
+| `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` | Bank Email | A merchant expense with a learned or extracted category parks in review with the category proposed, instead of confirming |
+| `RICHMOD_AUTOCONFIRM_RECEIPT` | Receipt | A clear new receipt parks in review with its extraction proposed instead of confirming |
+| `RICHMOD_AUTOCONFIRM_SCREENSHOT` | Screenshot | Clear screenshot rows park in review instead of confirming |
+| `RICHMOD_AUTOCONFIRM_TELEGRAM` | Telegram | A complete generative extraction parks in review with its facts proposed, instead of confirming directly |
 
 Setting the variable to `0`, `false`, `off`, `no` or `disabled` (any case)
 disables the switch; any other value keeps it on. Disabling is a worker-only

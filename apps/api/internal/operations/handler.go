@@ -140,7 +140,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	var pendingJobs, runningJobs, failedJobs, openReviews int
 	var lastHeartbeat *time.Time
 	lanes := map[string]any{}
-	var judgment judgmentAggregate
 	var product productAggregate
 
 	budget := h.statusTimeout
@@ -194,11 +193,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 				return rows.Err()
 			})
 		}},
-		namedGroup{"judgment", func(ctx context.Context) error {
-			var err error
-			judgment, err = h.loadJudgmentAggregate(ctx, householdID)
-			return err
-		}},
 		namedGroup{"product", func(ctx context.Context) error {
 			var err error
 			product, err = h.loadProductAggregate(ctx, householdID)
@@ -218,7 +212,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		"jobs":             map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
 		"reviewBacklog":    openReviews,
 		"llmGateway":       map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
-		"judgment":         judgment,
 		"product":          product,
 		"checkedAt":        time.Now(),
 	})

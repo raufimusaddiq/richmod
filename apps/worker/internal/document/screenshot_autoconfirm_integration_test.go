@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 type screenshotFixture struct {
@@ -88,8 +87,7 @@ func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
 		t.Fatalf("candidates=%v err=%v", matches, err)
 	}
 	row.Candidates = matches
-	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 1, QuestionKeys: []string{"row_001"}}
-	fixture.persist(t, provenance, []validatedScreenshotRow{row})
+	fixture.persist(t, []validatedScreenshotRow{row})
 	var confirmed, needsReview int
 	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND NOT id=ANY($2::uuid[])`, fixture.householdID, seeded).Scan(&confirmed, &needsReview); err != nil {
 		t.Fatal(err)
@@ -128,7 +126,7 @@ func TestScreenshotWriteRetriesWhenANonChosenCandidateVanished(t *testing.T) {
 	if _, err := fixture.pool.Exec(ctx, `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL WHERE id=$1`, seeded[0]); err != nil {
 		t.Fatal(err)
 	}
-	err = (&Processor{pool: fixture.pool}).persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	err = (&Processor{pool: fixture.pool}).persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", []validatedScreenshotRow{row})
 	if !errors.Is(err, reviewdomain.ErrLedgerRaced) {
 		t.Fatalf("a vanished non-chosen candidate must force a retry: %v", err)
 	}
@@ -145,9 +143,9 @@ func screenshotDataRow(rowType, amount, merchant string) validatedScreenshotRow 
 	return validatedScreenshotRow{Value: screenshotRow{Amount: &amount, Currency: "IDR", Merchant: merchant, Confidence: .95}, Type: rowType, TransactionAt: screenshotRowTime(), DateKnown: true}
 }
 
-func (f screenshotFixture) persist(t *testing.T, provenance rowChoiceProvenance, rows []validatedScreenshotRow) {
+func (f screenshotFixture) persist(t *testing.T, rows []validatedScreenshotRow) {
 	t.Helper()
-	if err := (&Processor{pool: f.pool}).persistScreenshot(context.Background(), f.documentID, f.householdID, f.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", provenance, rows); err != nil {
+	if err := (&Processor{pool: f.pool}).persistScreenshot(context.Background(), f.documentID, f.householdID, f.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rows); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -161,7 +159,7 @@ func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
 	row.Value.Amount = nil
 	row.Value.Direction, row.Value.CategorySlug = "OUT", &f.categorySlug
 	row.CategoryID, row.CategoryDecided = &category, true
-	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	f.persist(t, []validatedScreenshotRow{row})
 	var proposalID, reviewID, userID string
 	var amount *string
 	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,p.amount::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &amount, &userID); err != nil {
@@ -217,7 +215,7 @@ func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T)
 	row := screenshotDataRow("EXPENSE", "54000", "Warung")
 	row.Value.Amount = nil
 	row.Value.Direction = "OUT"
-	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	f.persist(t, []validatedScreenshotRow{row})
 	ctx := context.Background()
 	if _, err := f.pool.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED' WHERE source_event_id=$1 AND amount IS NULL AND proposal_status='NEEDS_REVIEW'`, f.sourceID); err != nil {
 		t.Fatalf("a rejected screenshot proposal must be allowed to keep its missing amount: %v", err)
@@ -237,7 +235,7 @@ func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
 	ctx := context.Background()
 	row := screenshotDataRow("INCOME", "5000000", "Teman")
 	row.Value.Amount, row.Value.Direction, row.Value.CategorySlug, row.CategoryID = nil, "IN", nil, nil
-	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	f.persist(t, []validatedScreenshotRow{row})
 	var proposalID, reviewID, userID, requestState string
 	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1),COALESCE((SELECT c.state FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id WHERE r.review_item_id=ri.id LIMIT 1),'') FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID, &requestState); err != nil {
 		t.Fatal(err)
@@ -279,7 +277,7 @@ func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	row.CategoryID, row.CategoryDecided = &categoryID, true
 	processor := &Processor{pool: fixture.pool}
 	processor.SetRowAutoConfirm(false)
-	if err := processor.persistScreenshot(context.Background(), fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 1, QuestionKeys: []string{"row_000"}}, []validatedScreenshotRow{row}); err != nil {
+	if err := processor.persistScreenshot(context.Background(), fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", []validatedScreenshotRow{row}); err != nil {
 		t.Fatal(err)
 	}
 	var confirmed, needsReview int
@@ -288,31 +286,6 @@ func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	}
 	if confirmed != 0 || needsReview != 1 {
 		t.Fatalf("the screenshot switch off must park the clear row: confirmed=%d needs_review=%d", confirmed, needsReview)
-	}
-}
-
-func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testing.T) {
-	t.Parallel()
-	fixture := seedScreenshotFixture(t, "Screenshot kill switch residual")
-	ctx := context.Background()
-	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor(fixture.categorySlug, .95)}}
-	processor := &Processor{pool: fixture.pool, verifier: verifier}
-	processor.SetRowAutoConfirm(false)
-	rows := []validatedScreenshotRow{unmatchedOutRow("25000")}
-	decided, provenance, err := processor.resolveScreenshotResidualCategories(ctx, fixture.sourceID, fixture.householdID, rows, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: fixture.secondCategoryID, Slug: fixture.secondCategorySlug}})
-	if err != nil || verifier.calls != 0 || len(decided) != 0 {
-		t.Fatalf("disabled screenshot rollout must skip Jev: calls=%d decided=%v err=%v", verifier.calls, decided, err)
-	}
-	if err := processor.persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", provenance, rows); err != nil {
-		t.Fatal(err)
-	}
-	var status string
-	var missingFacts []string
-	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,ARRAY(SELECT jsonb_array_elements_text(r.decision->'missingFacts')) FROM transaction t JOIN review_item r ON r.transaction_id=t.id WHERE t.household_id=$1`, fixture.householdID).Scan(&status, &missingFacts); err != nil {
-		t.Fatal(err)
-	}
-	if status != "NEEDS_REVIEW" || len(missingFacts) != 1 || missingFacts[0] != "category" {
-		t.Fatalf("disabled rollout must preserve category-only review: status=%s missing=%v", status, missingFacts)
 	}
 }
 
@@ -326,8 +299,7 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	clear.CategoryID, clear.CategoryDecided = &categoryID, true
 	incoming := screenshotDataRow("INCOME", "100000", "Teman")
 	undecided := screenshotDataRow("EXPENSE", "25000", "Warung Bu Tini")
-	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 0, QuestionKeys: []string{"row_002"}}
-	fixture.persist(t, provenance, []validatedScreenshotRow{clear, incoming, undecided})
+	fixture.persist(t, []validatedScreenshotRow{clear, incoming, undecided})
 
 	var confirmed, needsReview int
 	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
@@ -352,13 +324,6 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	}
 	assertScreenshotSummary(t, fixture, "3 transaksi ditemukan.", "1 berhasil dicatat", "2 butuh keputusan")
 	assertScreenshotReviewDecisions(t, fixture, 2)
-	var judgements int
-	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1 AND task='SCREENSHOT_ROW_CATEGORY' AND outcome='REVIEW'`, fixture.householdID).Scan(&judgements); err != nil {
-		t.Fatal(err)
-	}
-	if judgements != 1 {
-		t.Fatalf("a clear row must not make an undecided Jev batch look confirmed, got %d review decisions", judgements)
-	}
 }
 
 func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
@@ -369,7 +334,7 @@ func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 	for index := range rows {
 		rows[index].CategoryID, rows[index].CategoryDecided = &categoryID, true
 	}
-	fixture.persist(t, rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}, rows)
+	fixture.persist(t, rows)
 
 	var confirmed, reviews int
 	if err := fixture.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'),(SELECT count(*) FROM review_item WHERE household_id=$1)`, fixture.householdID).Scan(&confirmed, &reviews); err != nil {
@@ -393,45 +358,6 @@ func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 	if strings.Contains(summary, "butuh keputusan") {
 		t.Fatalf("no question may be asked for a clear batch: %q", summary)
 	}
-}
-
-func TestScreenshotMixedResidualBatchConfirmsOnlyDecisiveRows(t *testing.T) {
-	t.Parallel()
-	fixture := seedScreenshotFixture(t, "Screenshot mixed residual batch")
-	rows := make([]validatedScreenshotRow, 20)
-	for i := range rows {
-		rows[i] = screenshotDataRow("EXPENSE", "25000", fmt.Sprintf("Merchant %d", i))
-		if i < 17 {
-			rows[i].CategoryID, rows[i].CategoryDecided = &fixture.categoryID, true
-		}
-	}
-	rows[17].CategoryID, rows[17].CategoryDecided = &fixture.categoryID, true
-	rows[18].CategoryID, rows[18].CategoryDecided = &fixture.secondCategoryID, true
-	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 3, Decided: 2, QuestionKeys: []string{"row_017", "row_018", "row_019"}}
-	fixture.persist(t, provenance, rows)
-
-	var confirmed, reviews int
-	if err := fixture.pool.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &reviews); err != nil {
-		t.Fatal(err)
-	}
-	if confirmed != 19 || reviews != 1 {
-		t.Fatalf("17 clear + 2 rescued rows must confirm, one undecided stays in review: confirmed=%d reviews=%d", confirmed, reviews)
-	}
-	var decisionSource string
-	if err := fixture.pool.QueryRow(context.Background(), `SELECT decision->>'decisionSource' FROM review_item WHERE household_id=$1`, fixture.householdID).Scan(&decisionSource); err != nil {
-		t.Fatal(err)
-	}
-	if decisionSource != "GENERATIVE_PLUS_JEV" {
-		t.Fatalf("only the questioned residual row should carry Jev provenance, got %q", decisionSource)
-	}
-	var questioned []string
-	if err := fixture.pool.QueryRow(context.Background(), `SELECT question_keys FROM judgment_decision WHERE household_id=$1 AND task='SCREENSHOT_ROW_CATEGORY'`, fixture.householdID).Scan(&questioned); err != nil {
-		t.Fatal(err)
-	}
-	if len(questioned) != 3 || questioned[0] != "row_017" || questioned[1] != "row_018" || questioned[2] != "row_019" {
-		t.Fatalf("clear rows must not appear in Jev provenance: %v", questioned)
-	}
-	assertScreenshotSummary(t, fixture, "20 transaksi ditemukan.", "19 berhasil dicatat", "1 butuh keputusan")
 }
 
 type decisionFacts struct {
@@ -515,8 +441,7 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 			if !row.autoConfirmable() {
 				t.Fatal("fixture must be auto-confirmable once the matcher finds nothing")
 			}
-			provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion}
-			if err := (&Processor{pool: f.pool}).persistScreenshot(ctx, f.documentID, f.householdID, f.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", provenance, []validatedScreenshotRow{row}); err != nil {
+			if err := (&Processor{pool: f.pool}).persistScreenshot(ctx, f.documentID, f.householdID, f.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", []validatedScreenshotRow{row}); err != nil {
 				t.Fatalf("reprocess must resolve, not fail: %v", err)
 			}
 			var confirmed, total, evidenceOnOriginal, openReviews int
@@ -568,7 +493,7 @@ func reprocessMissingAmountWithPrior(t *testing.T, priorType string, offered boo
 	row.Value.Amount = nil
 	row.Value.Direction, row.Value.CategorySlug = "OUT", &f.categorySlug
 	row.CategoryID, row.CategoryDecided = &categoryID, true
-	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	f.persist(t, []validatedScreenshotRow{row})
 	var proposalID, reviewID string
 	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1 AND ri.review_type='MISSING_AMOUNT'`, f.sourceID).Scan(&proposalID, &reviewID, &userID); err != nil {
 		t.Fatal(err)

@@ -87,7 +87,7 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 	}
 	purpose, _ := args["reclassification_purpose"].(string)
 	if !contains(transferPurposes, purpose) {
-		result.Status = "JUDGMENT_UNAVAILABLE"
+		result.Status = "TRANSFER_PURPOSE_REQUIRED"
 		return result, true, nil
 	}
 	var compatible bool

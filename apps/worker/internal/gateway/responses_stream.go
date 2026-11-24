@@ -39,7 +39,7 @@ type responsesEnvelope struct {
 }
 
 func decodeResponses(raw []byte) (responsesResult, error) {
-	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("data:")) || bytes.Contains(raw, []byte("\ndata:")) {
+	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("data:")) || bytes.Contains(raw, []byte("\ndata:")) || bytes.Contains(raw, []byte("\r\ndata:")) {
 		return decodeResponsesSSE(raw)
 	}
 	var envelope responsesEnvelope
@@ -71,10 +71,11 @@ func decodeResponsesSSE(raw []byte) (responsesResult, error) {
 	items := map[string]ToolCall{}
 	order := make([]string, 0, 1)
 	completed := false
-	for _, block := range strings.Split(string(raw), "\n\n") {
+	normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	for _, block := range strings.Split(normalized, "\n\n") {
 		var data []string
 		for _, line := range strings.Split(block, "\n") {
-			line = strings.TrimSuffix(line, "\r")
 			if strings.HasPrefix(line, "data:") {
 				data = append(data, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 			}

@@ -1,40 +1,12 @@
 package document
 
 import (
-	"context"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
-
-type stubRowVerifier struct {
-	calls   int
-	request judgment.Request
-	answers map[string]judgment.Answer
-}
-
-func (s *stubRowVerifier) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	s.calls++
-	s.request = request
-	return judgment.Result{Model: "stub-jev", Answers: s.answers}, nil
-}
-
-var rowCategoryOptions = []categoryOption{{ID: "cat-food", Slug: "food-and-drink"}, {ID: "cat-groceries", Slug: "groceries"}}
-
-func rowAnswerFor(choice string, top float64) judgment.Answer {
-	distribution := map[string]float64{}
-	for _, key := range []string{"food-and-drink", "groceries", "OTHER_OR_UNCLEAR"} {
-		if key == choice {
-			distribution[key] = top
-		} else {
-			distribution[key] = (1 - top) / 2
-		}
-	}
-	return judgment.Answer{Type: "choice", Choice: choice, Distribution: distribution, Confidence: 0.9, HasConfidence: true}
-}
 
 func unmatchedOutRow(amount string) validatedScreenshotRow {
 	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: &amount, Currency: "IDR", Merchant: "Warung", Confidence: .95}, Type: "EXPENSE", DateKnown: true}
@@ -42,7 +14,7 @@ func unmatchedOutRow(amount string) validatedScreenshotRow {
 
 func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
 	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
-		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true}, false)
+		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true})
 		want, ok := reviewdec.Preset(reason, "transaction", "transaction")
 		if !ok {
 			t.Fatalf("missing shared preset for %s", reason)
@@ -71,71 +43,11 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 		{"missing amount only", "MISSING_AMOUNT", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryID: ptr("food"), CategoryDecided: true, Value: screenshotRow{CategorySlug: ptr("food")}}, []string{"amount"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := screenshotRowDecision("h", "s", "t", test.reason, 0, test.row, false)
+			got := screenshotRowDecision("h", "s", "t", test.reason, 0, test.row)
 			if !reflect.DeepEqual(got.MissingFacts, test.want) {
 				t.Fatalf("missing facts=%v; want %v", got.MissingFacts, test.want)
 			}
 		})
-	}
-}
-
-func TestResolveRowCategoriesBatchesOneRequestPerImage(t *testing.T) {
-	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_017": rowAnswerFor("food-and-drink", 0.9), "row_018": rowAnswerFor("groceries", 0.9), "row_019": {Type: "choice", Choice: "", Confidence: 0, HasConfidence: false}}}
-	rows := make([]validatedScreenshotRow, 20)
-	for i := range rows {
-		rows[i] = unmatchedOutRow("25000")
-		if i < 17 {
-			rows[i].CategoryID, rows[i].CategoryDecided = ptr("cat-food"), true
-		}
-	}
-	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", "household", rows, rowCategoryOptions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if verifier.calls != 1 {
-		t.Fatalf("rows of one image must share one bounded request, got %d calls", verifier.calls)
-	}
-	if len(verifier.request.Questions) != 3 {
-		t.Fatalf("only the 3 unresolved OUT rows are questioned, got %d", len(verifier.request.Questions))
-	}
-	if len(decided) != 2 || decided[17] != "cat-food" || decided[18] != "cat-groceries" {
-		t.Fatalf("two decisive residuals must map to canonical categories: %v", decided)
-	}
-	for i := 0; i < 17; i++ {
-		if _, ok := decided[i]; ok {
-			t.Fatalf("clear row %d was re-judged", i)
-		}
-	}
-	if provenance.Decided != 2 || provenance.Questions != 3 || provenance.Model != "stub-jev" {
-		t.Fatalf("unexpected selective batch provenance %+v", provenance)
-	}
-}
-
-func TestClearScreenshotRowsNeverEnterBatch(t *testing.T) {
-	verifier := &stubRowVerifier{}
-	clear := unmatchedOutRow("1000")
-	clear.CategoryID, clear.CategoryDecided = ptr("cat-food"), true
-	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", "household", []validatedScreenshotRow{clear}, rowCategoryOptions)
-	if err != nil || verifier.calls != 0 || len(decided) != 0 || provenance.Questions != 0 {
-		t.Fatalf("clear row must skip Jev: calls=%d decisions=%v provenance=%+v err=%v", verifier.calls, decided, provenance, err)
-	}
-}
-
-func TestResolveRowCategoriesLeavesThinMarginUndecided(t *testing.T) {
-	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("food-and-drink", 0.55)}}
-	decided, _, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", "household", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(decided) != 0 {
-		t.Fatalf("a thin-margin answer must not decide a category: %v", decided)
-	}
-}
-
-func TestResolveRowCategoriesWithoutVerifierDecidesNothing(t *testing.T) {
-	decided, provenance, err := (&Processor{}).resolveRowCategories(context.Background(), "evt", "household", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
-	if err != nil || len(decided) != 0 || provenance.Questions != 0 {
-		t.Fatalf("no verifier must decide nothing: decided=%v provenance=%+v err=%v", decided, provenance, err)
 	}
 }
 

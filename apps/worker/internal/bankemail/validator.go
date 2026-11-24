@@ -28,6 +28,7 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		Counterparty  *string           `json:"counterparty"`
 		Reference     *string           `json:"reference"`
 		Description   *string           `json:"description"`
+		CategorySlug  *string           `json:"category_slug"`
 		MissingFields []string          `json:"missing_fields"`
 		Confidence    float64           `json:"confidence"`
 		Review        *ReviewSuggestion `json:"review"`
@@ -84,6 +85,14 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 			return Extraction{}, fmt.Errorf("%s is too long", name)
 		}
 	}
+	var categorySlug *string
+	if raw.CategorySlug != nil {
+		trimmed := strings.TrimSpace(*raw.CategorySlug)
+		if trimmed == "" || len([]rune(trimmed)) > 160 {
+			return Extraction{}, fmt.Errorf("invalid category_slug")
+		}
+		categorySlug = &trimmed
+	}
 	if len(raw.MissingFields) > 8 {
 		return Extraction{}, fmt.Errorf("too many missing fields")
 	}
@@ -116,7 +125,7 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 			seen[action] = true
 		}
 	}
-	return Extraction{Kind: raw.Kind, Direction: raw.Direction, Channel: raw.Channel, AmountIDR: raw.AmountIDR, TransactionAt: at, Merchant: raw.Merchant, Counterparty: raw.Counterparty, Reference: raw.Reference, Description: raw.Description, MissingFields: raw.MissingFields, Confidence: raw.Confidence, Review: raw.Review}, nil
+	return Extraction{Kind: raw.Kind, Direction: raw.Direction, Channel: raw.Channel, AmountIDR: raw.AmountIDR, TransactionAt: at, Merchant: raw.Merchant, Counterparty: raw.Counterparty, Reference: raw.Reference, Description: raw.Description, CategorySlug: categorySlug, MissingFields: raw.MissingFields, Confidence: raw.Confidence, Review: raw.Review}, nil
 }
 
 func parseStrictBankRFC3339(value string) (time.Time, error) {

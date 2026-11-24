@@ -12,11 +12,12 @@ import (
 )
 
 type repairGateway struct {
-	call     gateway.ToolCall
-	required bool
-	tools    []gateway.ToolDefinition
-	content  any
-	prompt   string
+	call          gateway.ToolCall
+	required      bool
+	disableStrict bool
+	tools         []gateway.ToolDefinition
+	content       any
+	prompt        string
 }
 
 func (g *repairGateway) NativeToolCall(_ context.Context, _ string, prompt string, content any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -24,6 +25,7 @@ func (g *repairGateway) NativeToolCall(_ context.Context, _ string, prompt strin
 		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected repair tools")
 	}
 	g.required = len(options) == 1 && options[0].Required
+	g.disableStrict = len(options) == 1 && options[0].DisableStrict
 	g.tools = tools
 	g.content = content
 	g.prompt = prompt
@@ -73,8 +75,8 @@ func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || !llm.required || metadata.Model != "vision-model" {
-		t.Fatalf("patch=%+v required=%t err=%v", patched, llm.required, err)
+	if err != nil || !llm.required || !llm.disableStrict || metadata.Model != "vision-model" {
+		t.Fatalf("patch=%+v required=%t disableStrict=%t err=%v", patched, llm.required, llm.disableStrict, err)
 	}
 	llm = &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"95000"}}`)}}
 	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}

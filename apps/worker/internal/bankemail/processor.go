@@ -14,7 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -22,15 +21,12 @@ import (
 type Processor struct {
 	pool                   *pgxpool.Pool
 	extractor              *Extractor
-	verifier               jeverifier
 	categoryAutoConfirmOff bool
 }
 
 func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 	return &Processor{pool: pool, extractor: extractor}
 }
-
-func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
 func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirmOff = !enabled }
 
@@ -40,30 +36,6 @@ func applyCategoryAutoConfirmSwitch(result PolicyResult, enabled bool) PolicyRes
 	}
 	result.AutoConfirm = false
 	result.Status, result.ReviewType = "NEEDS_REVIEW", "AMBIGUOUS_CATEGORY"
-	return result
-}
-
-func applyVerificationGate(result PolicyResult, verified bool) PolicyResult {
-	if verified || !result.AutoConfirm {
-		return result
-	}
-	result.AutoConfirm = false
-	if result.Status == "" || result.Status == "CONFIRMED" {
-		result.Status = "NEEDS_REVIEW"
-	}
-	if result.ReviewType == "" {
-		switch result.Type {
-		case "TRANSFER":
-			result.ReviewType = "TRANSFER_CLASSIFICATION"
-		case "EXPENSE":
-			result.ReviewType = "AMBIGUOUS_CATEGORY"
-		default:
-			result.ReviewType = "DOCUMENT_EXTRACTION_LOW_CONFIDENCE"
-		}
-	}
-	if result.Description == "" {
-		result.Description = "Ekstraksi belum diverifikasi oleh bidang semantik."
-	}
 	return result
 }
 
@@ -146,6 +118,14 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, known, memory)
+	result = applyCategoryAutoConfirmSwitch(result, !p.categoryAutoConfirmOff)
+	if !p.categoryAutoConfirmOff && result.ReviewType == "AMBIGUOUS_CATEGORY" {
+		categories, catErr := p.activeExpenseCategories(ctx, household)
+		if catErr != nil {
+			return catErr
+		}
+		result = applyExtractedCategory(extraction, categories, result)
+	}
 	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result, payload.ReviewID); err != nil {
 		return err
 	}
@@ -256,12 +236,15 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return fmt.Errorf("load bank email event: %w", err)
 	}
 	ctx = gateway.WithSourceEvent(ctx, payload.SourceEventID)
-	ctx = judgment.WithSourceEvent(ctx, payload.SourceEventID)
 	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	var accountID string
 	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(account_id::text,'') FROM bank_email_listener WHERE id=$1 AND household_id=$2`, listenerID, household).Scan(&accountID)
+	categories, err := p.activeExpenseCategories(ctx, household)
+	if err != nil {
+		return err
+	}
 	listener := Listener{ID: listenerID, HouseholdID: household, BankName: bank, SenderAddress: sender, AccountID: accountID, TrackingPolicy: "SPENDING_ONLY", Active: true}
-	extraction, meta, err := p.extractor.Extract(ctx, payload.SourceEventID, listener, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
+	extraction, meta, err := p.extractor.Extract(ctx, payload.SourceEventID, listener, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body}, categories...)
 	if err != nil {
 		var schemaErr SchemaError
 		if errors.As(err, &schemaErr) {
@@ -290,10 +273,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
 	result = applyCategoryAutoConfirmSwitch(result, !p.categoryAutoConfirmOff)
 	if !p.categoryAutoConfirmOff {
-		result, err = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
-		if err != nil {
-			return err
-		}
+		result = applyExtractedCategory(extraction, categories, result)
 	}
 	status := result.Status
 	if status == "" {
@@ -326,27 +306,6 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", missingFacts, "a required canonical fact was absent from the email extraction"))
 	}
-	verification, verified, verifyErr := p.verifyEvidence(ctx, payload.SourceEventID, extraction, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
-	if verifyErr != nil {
-		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "VERIFICATION_FAILED", "RETRY")
-		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
-	}
-	if verified {
-		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
-			return persistErr
-		}
-	}
-	if verified && !verification.supported() {
-		fact, conflict, material := verification.materialResidual()
-		if !material {
-			return fmt.Errorf("bank email verification has no failed material predicate")
-		}
-		if verification.needsBankFactsReview() {
-			return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
-		}
-		verified = false
-	}
-	result = applyVerificationGate(result, verified)
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
 		return nil
@@ -413,7 +372,7 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 		ProposedFacts:   proposed,
 		MissingFacts:    missingFacts,
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
-		DecisionSource:  reviewdec.SourceGenerativePlusJev,
+		DecisionSource:  reviewdec.SourceGenerativeExtraction,
 		PolicyVersion:   ToolSchemaVersion,
 		Provenance:      map[string]any{"pipeline": "bank-email-generic"},
 		WhyNotAuto:      whyNotAuto,
@@ -422,71 +381,47 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	}
 }
 
-func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification, fact string, conflict bool) reviewdec.Decision {
-	missing := []string{fact}
-	why := "the email did not support a material transaction fact the household must confirm"
-	if conflict {
-		missing = nil
-		why = "the email evidence conflicts on a material fact; Go refuses to guess"
+func (p *Processor) activeExpenseCategories(ctx context.Context, householdID string) ([]CategoryOption, error) {
+	rows, err := p.pool.Query(ctx, `SELECT c.id,c.slug,c.name,COALESCE(p.name,'') FROM category c LEFT JOIN category p ON p.id=c.parent_id AND p.household_id=c.household_id WHERE c.household_id=$1 AND c.active ORDER BY c.slug`, householdID)
+	if err != nil {
+		return nil, err
 	}
-	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", missing, why)
-	decision.PolicyVersion = verification.PolicyVersion
-	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
-	accepted := []string{}
-	for _, entry := range []struct{ claim, dimension string }{{"amount_supported", "amount_idr"}, {"direction_supported", "direction"}, {"transaction_observed", "transaction_observed"}} {
-		if verification.ClaimOutcomes[entry.claim] == "YES" {
-			accepted = append(accepted, entry.dimension)
+	defer rows.Close()
+	out := make([]CategoryOption, 0)
+	for rows.Next() {
+		var option CategoryOption
+		var name, parentName string
+		if err := rows.Scan(&option.ID, &option.Slug, &name, &parentName); err != nil {
+			return nil, err
 		}
-	}
-	decision.Provenance["accepted_dimensions_at_validation"] = accepted
-	decision.AffectedFacts = []string{fact}
-	switch {
-	case conflict:
-		decision.DecisionClass = reviewdec.ClassEvidenceConflict
-		decision.Consequence = reviewdec.IndependentEvidenceConflict
-		if disputed, ok := decision.KnownFacts[fact]; ok {
-			decision.ProposedFacts[fact] = disputed
-			delete(decision.KnownFacts, fact)
+		name, parentName = strings.TrimSpace(name), strings.TrimSpace(parentName)
+		if parentName != "" {
+			option.Name = parentName + " > " + name
+		} else {
+			option.Name = name
 		}
-	default:
-		decision.Consequence = reviewdec.BoundedResidual
+		out = append(out, option)
 	}
-	return decision
+	return out, rows.Err()
 }
 
-func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEventID, listenerID, model string, verification EvidenceVerification) error {
-	summary, err := json.Marshal(map[string]any{
-		"transaction_observed": verification.TransactionObserved,
-		"amount_supported":     verification.AmountSupported,
-		"direction_supported":  verification.DirectionSupported,
-		"semantic_grounded":    verification.SemanticGrounded,
-		"claim_outcomes":       verification.ClaimOutcomes,
-		"supported":            verification.supported(),
-		"policy_version":       verification.PolicyVersion,
-	})
-	if err != nil {
-		return err
+func applyExtractedCategory(extraction Extraction, categories []CategoryOption, result PolicyResult) PolicyResult {
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" || extraction.CategorySlug == nil {
+		return result
 	}
-	_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_evidence_verification(source_event_id,listener_id,bank_email_verification_policy_version,gateway_model,answer_summary_json) VALUES($1,$2,$3,NULLIF($4,''),$5::jsonb) ON CONFLICT(source_event_id) DO UPDATE SET gateway_model=excluded.gateway_model,answer_summary_json=excluded.answer_summary_json,bank_email_verification_policy_version=excluded.bank_email_verification_policy_version`, sourceEventID, listenerID, verification.PolicyVersion, verification.Model, string(summary))
-	return err
-}
-
-func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) (PolicyResult, error) {
-	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
-		return result, nil
+	slug := strings.TrimSpace(*extraction.CategorySlug)
+	if slug == "" {
+		return result
 	}
-	categoryID, provenance, err := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
-	if err != nil {
-		return result, err
+	for _, category := range categories {
+		if category.Slug == slug && category.ID != "" {
+			result.CategoryID, result.AutoConfirm = category.ID, true
+			result.Status, result.ReviewType = "CONFIRMED", ""
+			result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
+			return result
+		}
 	}
-	if categoryID == "" {
-		return result, nil
-	}
-	result.CategoryID, result.AutoConfirm = categoryID, true
-	result.Status, result.ReviewType = "CONFIRMED", ""
-	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
-	result.CategoryProvenance = &provenance
-	return result, nil
+	return result
 }
 
 func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
@@ -728,15 +663,6 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_BANK_EMAIL','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'policy_result',$6::text,'auto_confirm',$7::boolean,'tool_schema_version',$8::text))`, listener.HouseholdID, transactionID, sourceID, listener.ID, proposalID, result.Status, result.AutoConfirm, ToolSchemaVersion); err != nil {
 		return err
-	}
-	if provenance := result.CategoryProvenance; provenance != nil {
-		summary, marshalErr := json.Marshal(map[string]any{"category": provenance.Slug, "category_accepted": provenance.Accepted})
-		if marshalErr != nil {
-			return marshalErr
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'BANK_EMAIL_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,'CONFIRMED')`, listener.HouseholdID, sourceID, provenance.Model, provenance.PolicyVersion, []string{"category"}, string(summary)); err != nil {
-			return err
-		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err

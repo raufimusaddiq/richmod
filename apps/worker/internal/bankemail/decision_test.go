@@ -37,7 +37,7 @@ func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
 	if d.InteractionMode != "SINGLE_FIELD" || len(d.AllowedActions) != 2 || d.AllowedActions[0] != "CONFIRM_REVIEW" || d.AllowedActions[1] != "IGNORE" {
 		t.Fatalf("category dropdown contract=%+v", d)
 	}
-	if d.DecisionSource != "GENERATIVE_PLUS_JEV" {
+	if d.DecisionSource != reviewdec.SourceGenerativeExtraction {
 		t.Fatalf("category decision source=%q", d.DecisionSource)
 	}
 }

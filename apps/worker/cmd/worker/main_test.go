@@ -7,37 +7,12 @@ import (
 )
 
 func TestPhaseMetricDimensionsAreNotNull(t *testing.T) {
-	phase := phaseMetric(gateway.CallMetric{Capability: "JEV", Dimensions: []string{"category"}}, "")
+	phase := phaseMetric(gateway.CallMetric{Capability: "GENERATIVE", Dimensions: []string{"category"}}, "")
 	if phase.Dimensions == nil || phase.AnsweredDimensions == nil || phase.ResidualDimensions == nil {
 		t.Fatal("telemetry dimensions must be non-null PostgreSQL arrays")
 	}
 	if len(phase.Dimensions) != 1 || phase.Dimensions[0] != "category" {
 		t.Fatalf("existing dimensions changed: %v", phase.Dimensions)
-	}
-}
-
-func TestRequireJudgmentModel(t *testing.T) {
-	cases := []struct {
-		name    string
-		mode    string
-		model   string
-		wantErr bool
-	}{
-		{name: "unset mode without model is rejected", mode: "", model: "", wantErr: true},
-		{name: "whitespace model is rejected", mode: "", model: "   ", wantErr: true},
-		{name: "explicit opt-out is allowed", mode: "disabled-dev", model: "", wantErr: false},
-		{name: "configured model is allowed", mode: "", model: "jev-latest", wantErr: false},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := requireJudgmentModel(testCase.mode, testCase.model)
-			if testCase.wantErr && err == nil {
-				t.Fatal("expected a configuration error")
-			}
-			if !testCase.wantErr && err != nil {
-				t.Fatalf("unexpected configuration error: %v", err)
-			}
-		})
 	}
 }
 

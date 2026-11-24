@@ -106,6 +106,7 @@ type agentState struct {
 	PreviousResponseID string
 	PreviousToolCalls  []gateway.ToolCall
 	PendingToolOutputs []gateway.AgentToolOutput
+	ReadHistory        []gateway.AgentReadPhase
 
 	ReviewBinding           *agentReviewBinding
 	ReviewBindingCount      int
