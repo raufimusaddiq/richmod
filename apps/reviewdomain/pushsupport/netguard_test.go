@@ -1,4 +1,4 @@
-package push
+package pushsupport
 
 import (
 	"net/netip"
@@ -19,7 +19,7 @@ func TestBlockedAddressRanges(t *testing.T) {
 		"255.255.255.255",
 	}
 	for _, raw := range blocked {
-		if !blockedAddress(netip.MustParseAddr(raw)) {
+		if !BlockedAddress(netip.MustParseAddr(raw)) {
 			t.Errorf("expected %s to be blocked", raw)
 		}
 	}
@@ -33,7 +33,7 @@ func TestBlockedAddressRanges(t *testing.T) {
 		"223.255.255.254",
 	}
 	for _, raw := range allowed {
-		if blockedAddress(netip.MustParseAddr(raw)) {
+		if BlockedAddress(netip.MustParseAddr(raw)) {
 			t.Errorf("expected %s to be allowed", raw)
 		}
 	}
