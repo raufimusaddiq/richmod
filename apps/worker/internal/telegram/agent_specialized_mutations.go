@@ -86,8 +86,14 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 		}
 	}
 	purpose, _ := args["reclassification_purpose"].(string)
+	if purpose == "" {
+		if purpose, err = deriveTransferPurpose(ctx, tx, state.HouseholdID, wealthID); err != nil {
+			return result, true, err
+		}
+	}
 	if !contains(transferPurposes, purpose) {
 		result.Status = "TRANSFER_PURPOSE_REQUIRED"
+		result.Facts = map[string]any{"wealth_account_hint": clean(wealthHint, 160)}
 		return result, true, nil
 	}
 	var compatible bool
@@ -185,6 +191,12 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
+		return result, true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RECORD_TRANSFER_FROM_TELEGRAM','transaction',$3,jsonb_build_object('purpose',$4::text,'source_event_id',$5::uuid,'agent_sprint',1))`, state.HouseholdID, userID, transactionID, purpose, state.SourceEventID); err != nil {
+		return result, true, err
+	}
+	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, state.HouseholdID, at, userID); err != nil {
 		return result, true, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -364,6 +376,29 @@ func (p *Processor) agentResolveMerchantLearning(ctx context.Context, state *age
 	result.Status = "CONFIRMED"
 	result.Mutation = map[string]any{"action": "MERCHANT_LEARNING_RESOLVED", "remember": remember, "merchant": merchantName, "category": categoryName}
 	return result, true, nil
+}
+
+func deriveTransferPurpose(ctx context.Context, tx pgx.Tx, householdID, wealthID string) (string, error) {
+	if wealthID == "" {
+		return "INTERNAL_TRANSFER", nil
+	}
+	var side, role string
+	err := tx.QueryRow(ctx, `SELECT side,usage_role FROM wealth_account WHERE id=$1 AND household_id=$2 AND active`, wealthID, householdID).Scan(&side, &role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case side == "LIABILITY":
+		return "DEBT_PRINCIPAL_PAYMENT", nil
+	case role == "SAVINGS":
+		return "SAVINGS_TRANSFER", nil
+	case role == "INVESTMENT":
+		return "INVESTMENT_CONTRIBUTION", nil
+	}
+	return "", nil
 }
 
 var transferPurposes = []string{

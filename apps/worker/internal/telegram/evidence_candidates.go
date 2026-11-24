@@ -85,6 +85,9 @@ func (p *Processor) agentMergeDuplicateReview(ctx context.Context, state *agentS
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
 		return result, true, err
 	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil {
+		return result, true, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return result, true, err
 	}

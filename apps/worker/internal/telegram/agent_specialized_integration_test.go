@@ -90,7 +90,7 @@ func TestAgentRecordTransferReturnsStructuredResultWithoutCannedReply(t *testing
 	p := NewProcessor(f.pool, nil)
 	result, synthesize, err := p.agentRecordTransfer(ctx, f.state, gateway.ToolCall{CallID: "call-transfer", Name: "record_transfer"}, map[string]any{
 		"amount_idr": "83000", "source_account_hint": "Jago", "destination_wealth_account_hint": nil,
-		"reclassification_purpose": "INTERNAL_TRANSFER", "date_reference": "TODAY", "date_provenance": "USER_STATED", "explicit_date": nil, "local_time": "12:30", "description": "pindah rekening",
+		"date_reference": "TODAY", "date_provenance": "USER_STATED", "explicit_date": nil, "local_time": "12:30", "description": "pindah rekening",
 	})
 	mustAgentTest(t, err)
 	if !synthesize || result.Status != "CONFIRMED" || result.Mutation["action"] != "TRANSFER_RECORDED" {
@@ -100,6 +100,11 @@ func TestAgentRecordTransferReturnsStructuredResultWithoutCannedReply(t *testing
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE auto_confirmed_at IS NOT NULL) FROM transaction WHERE household_id=$1 AND type='TRANSFER' AND status='CONFIRMED' AND amount=83000`, f.householdID).Scan(&count, &autoConfirmed))
 	if count != 1 || autoConfirmed != 1 {
 		t.Fatalf("confirmed transfer count=%d auto-confirmed=%d, want 1 each", count, autoConfirmed)
+	}
+	var audited int
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND action='RECORD_TRANSFER_FROM_TELEGRAM' AND after_json->>'purpose'='INTERNAL_TRANSFER'`, f.householdID).Scan(&audited))
+	if audited != 1 {
+		t.Fatalf("transfer audit rows=%d, want 1", audited)
 	}
 	assertNoDirectTelegramReplyJob(t, ctx, f)
 }

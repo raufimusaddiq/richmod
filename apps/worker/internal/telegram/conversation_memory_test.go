@@ -129,11 +129,11 @@ func TestCompactionBudgetDropsTheOldestCompactedTurnsFirstAndNeverTheNewest(t *t
 	}
 }
 
-func TestCompactionNeverDropsVerbatimTurnsEvenOverBudget(t *testing.T) {
+func TestCompactionKeepsOversizedVerbatimTurnsClippedToTheTurnCap(t *testing.T) {
 	huge := []PublicTurn{{Role: "USER", Text: strings.Repeat("z", conversationCharBudget*3)}}
 	got := compactConversation(huge)
-	if len(got) != 1 || got[0].Text != huge[0].Text || got[0].Compacted {
-		t.Fatalf("a recent turn must survive even when it alone exceeds the budget: %+v", got)
+	if len(got) != 1 || got[0].Compacted || len([]rune(got[0].Text)) != verbatimTurnChars {
+		t.Fatalf("a recent turn must survive, clipped to the per-turn cap: %+v", got)
 	}
 }
 

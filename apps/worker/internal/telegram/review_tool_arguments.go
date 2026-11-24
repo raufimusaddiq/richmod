@@ -11,7 +11,7 @@ var reviewActionArguments = map[string][]string{
 	"ASSET_PURCHASE":       {"wealth_account_hint"},
 	"MERGE_EXISTING":       {"candidate_ref"},
 	"SET_PAY_DATE":         {"pay_date", "transaction_at"},
-	"SET_TRANSACTION_DATE": {"pay_date", "transaction_at"},
+	"SET_TRANSACTION_DATE": {"transaction_at"},
 	"COMPLETE_BANK_FACTS":  {"amount_idr", "transaction_at"},
 }
 

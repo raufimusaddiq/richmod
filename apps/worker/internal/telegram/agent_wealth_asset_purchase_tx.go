@@ -215,6 +215,9 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RECLASSIFY_WEALTH_OBSERVATION','wealth_observation',$3,jsonb_build_object('transaction_id',$4::uuid,'purpose','ASSET_PURCHASE','agent_sprint',1))`, state.HouseholdID, userID, binding.TargetID, transactionID); err != nil {
 		return result, true, err
 	}
+	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, state.HouseholdID, at, userID); err != nil {
+		return result, true, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, true, err
 	}

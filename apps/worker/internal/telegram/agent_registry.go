@@ -132,7 +132,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	return tools
 }
 
-func validateAgentToolCall(call gateway.ToolCall, reviewType string) (map[string]any, error) {
+func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string) (map[string]any, error) {
 	switch call.Name {
 	case "get_transaction_details":
 		args, err := decodeAgentArgsRaw[transactionDetailsArgs](call)
@@ -180,7 +180,7 @@ func validateAgentToolCall(call gateway.ToolCall, reviewType string) (map[string
 		if err != nil {
 			return nil, err
 		}
-		if !containsAgentReviewAction(args.Action, reviewType) {
+		if !containsAgentReviewAction(args.Action, reviewType, reviewMode) {
 			return nil, fmt.Errorf("invalid review action")
 		}
 		for _, allocation := range args.Allocations {
@@ -234,10 +234,10 @@ type agentResolveReviewArgs struct {
 	Allocations   []agentResidualAllocationInput `json:"allocations"`
 }
 
-func containsAgentReviewAction(action, reviewType string) bool {
+func containsAgentReviewAction(action, reviewType, reviewMode string) bool {
 	allowed := reviewdec.AllAgentActions()
-	if reviewType != "" {
-		allowed = reviewdec.AgentActions(reviewType)
+	if reviewType != "" || reviewMode != "" {
+		allowed = reviewActionEnum(reviewType, reviewMode)
 	}
 	return slices.Contains(allowed, action)
 }
