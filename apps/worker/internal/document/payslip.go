@@ -133,7 +133,7 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, err)
 	}
-	autoConfirm := payslipAutoConfirmable(result)
+	autoConfirm := payslipAutoConfirmable(result, arithmeticOK)
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, period.Format("2006-01"), autoConfirm, arithmeticOK)
 }
 
@@ -142,8 +142,8 @@ func validPayslipEmployer(value string) bool {
 	return trimmed != "" && utf8.RuneCountInString(trimmed) <= 160
 }
 
-func payslipAutoConfirmable(value payslipExtraction) bool {
-	return value.PayDate != nil && value.Confidence >= autoConfirmMinConfidence
+func payslipAutoConfirmable(value payslipExtraction, arithmeticOK bool) bool {
+	return value.PayDate != nil && value.Confidence >= autoConfirmMinConfidence && (value.GrossPay == nil || arithmeticOK)
 }
 
 func validatePayslip(value payslipExtraction, receivedAt time.Time) (time.Time, time.Time, bool, error) {

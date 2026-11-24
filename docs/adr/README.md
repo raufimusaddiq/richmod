@@ -1249,3 +1249,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** an AI gateway outage burned the attempt budget of document, email and insight jobs, a single slow `BACKGROUND` job delayed residual reviews and Telegram media, a deploy could cancel the queue write that follows a committed job, and several error paths leaked internal URLs or produced unusable telemetry rows.
 
 **Consequence:** the `job.lane` check constraint and Go `classifyLane` gain `DETERMINISTIC`; the admin console lists the lane; the worker runs two more loops (the 16-connection pool floor still holds). Gateway streaming now accumulates `function_call_arguments.delta` and `output_item.done` and fills gaps from `response.completed`; non-2xx responses are classified before the 2 MiB body is read; a mid-body connection reset is `gateway.IsUnavailable`; `chat_completions` keeps `strict` and no longer replays tool results twice; token and cost metadata survive a validation failure; and transport errors are classified `UNAVAILABLE`, not `HTTP_ERROR`.
+
+## ADR-123: Unrepairable document facts stay terminal or reviewable
+*Accepted · 2026-11-25*
+
+**Decision:** An unpaid bill or invoice never enters model repair: `ProcessScreenshot` takes the unpaid-invoice terminal path (`failScreenshotExtraction`) before `repairExtracted`, and `payment_status` is not a repairable field, so no repair pass can turn an unpaid invoice into a paid expense. A payslip auto-confirms only when its printed gross pay is arithmetically consistent with net pay and deductions (gross absent still auto-confirms, since arithmetic cannot be checked). A receipt without a printed date still searches ledger candidates with `received_at` as the anchor, but any hit parks the receipt in the `POSSIBLE_DUPLICATE` review and is never auto-linked or merged as evidence.
+
+**Reason:** the repair pass could "fix" the very facts that made an invoice or payslip unsafe, so validated output no longer reflected the printed document; a dateless receipt skipped duplicate detection entirely.
+
+**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane.

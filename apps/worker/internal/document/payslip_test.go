@@ -139,20 +139,39 @@ func TestPayslipMalformedPayDateIsRepairable(t *testing.T) {
 
 func TestPayslipAutoConfirmNeedsDateAndConfidenceFloor(t *testing.T) {
 	date := "2026-08-25"
+	gross := "9000000"
 	for _, test := range []struct {
-		name       string
-		payDate    *string
-		confidence float64
-		want       bool
+		name         string
+		payDate      *string
+		grossPay     *string
+		confidence   float64
+		arithmeticOK bool
+		want         bool
 	}{
-		{"dated and confident", &date, .85, true},
-		{"low confidence parks in review", &date, .84, false},
-		{"missing pay date", nil, .99, false},
+		{"dated and confident", &date, nil, .85, false, true},
+		{"low confidence parks in review", &date, nil, .84, false, false},
+		{"missing pay date", nil, nil, .99, false, false},
+		{"known gross with unproved arithmetic parks in review", &date, &gross, .99, false, false},
+		{"known gross with proved arithmetic", &date, &gross, .99, true, true},
+		{"absent gross cannot be checked", &date, nil, .99, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := payslipAutoConfirmable(payslipExtraction{PayDate: test.payDate, Confidence: test.confidence}); got != test.want {
+			value := payslipExtraction{PayDate: test.payDate, GrossPay: test.grossPay, Confidence: test.confidence}
+			if got := payslipAutoConfirmable(value, test.arithmeticOK); got != test.want {
 				t.Fatalf("autoConfirm=%v want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestPayslipArithmeticMismatchIsNotAutoConfirmed(t *testing.T) {
+	date := "2026-09-25"
+	value := payslipExtraction{Period: "2026-09", Employer: "Example", GrossPay: ptr("9000000"), Deductions: []moneyLine{{Name: "Potongan", Amount: "500000"}}, NetPay: "9500000", Currency: "IDR", PayDate: &date, Confidence: .96}
+	_, _, arithmeticOK, err := validatePayslip(value, payslipTestReceived)
+	if err != nil || arithmeticOK {
+		t.Fatalf("gross 9000000 minus deductions 500000 cannot equal net 9500000: ok=%v err=%v", arithmeticOK, err)
+	}
+	if payslipAutoConfirmable(value, arithmeticOK) {
+		t.Fatal("an arithmetically inconsistent payslip must not auto-confirm")
 	}
 }

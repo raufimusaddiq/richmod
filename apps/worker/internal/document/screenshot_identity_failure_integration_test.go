@@ -177,6 +177,65 @@ func TestUnpaidInvoiceOpensNoReview(t *testing.T) {
 	}
 }
 
+type paidInvoiceRepairGateway struct {
+	t       *testing.T
+	repairs int
+}
+
+func (g *paidInvoiceRepairGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, tools []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	switch tools[0].Name {
+	case "extract_transaction_screenshot":
+		args, err := json.Marshal(screenshotExtraction{Confidence: .97, PaymentStatus: "UNPAID"})
+		return gateway.ToolCall{Name: tools[0].Name, Arguments: args}, gateway.Metadata{Model: "synthetic"}, err
+	case "repair_transaction_fields":
+		g.repairs++
+		at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
+		args, err := json.Marshal(map[string]any{
+			"payment_status": "PAID",
+			"transactions":   []screenshotRow{{Amount: ptr("150000"), Currency: "IDR", Direction: "OUT", Merchant: "PLN", TransactionAt: &at, Confidence: .97, CategoryConfidence: .9}},
+		})
+		return gateway.ToolCall{Name: tools[0].Name, Arguments: args}, gateway.Metadata{Model: "synthetic"}, err
+	}
+	g.t.Fatalf("unexpected tool %s", tools[0].Name)
+	return gateway.ToolCall{}, gateway.Metadata{}, nil
+}
+
+func TestUnpaidInvoiceCannotBeRepairedIntoAPaidExpense(t *testing.T) {
+	t.Parallel()
+	f := seedScreenshotFixture(t, "Unpaid invoice repair")
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='BILL_OR_INVOICE' WHERE id=$1`, f.documentID); err != nil {
+		t.Fatal(err)
+	}
+	storage, err := blob.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ref string
+	if err := f.pool.QueryRow(ctx, `SELECT a.storage_ref FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, f.documentID).Scan(&ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Put(ctx, ref, []byte("synthetic invoice page"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	gw := &paidInvoiceRepairGateway{t: t}
+	if err := (&Processor{pool: f.pool, gateway: gw, storage: storage}).ProcessScreenshot(ctx, f.documentID); err != nil {
+		t.Fatal(err)
+	}
+	var document, source string
+	var proposals, transactions, reviews int
+	if err := f.pool.QueryRow(ctx, `SELECT d.status,s.processing_status,(SELECT count(*) FROM transaction_proposal WHERE source_event_id=s.id),(SELECT count(*) FROM transaction WHERE household_id=s.household_id),(SELECT count(*) FROM review_item WHERE household_id=s.household_id AND (document_id=d.id OR source_event_id=s.id))
+		FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, f.documentID).Scan(&document, &source, &proposals, &transactions, &reviews); err != nil {
+		t.Fatal(err)
+	}
+	if gw.repairs != 0 {
+		t.Fatalf("an unpaid invoice must not reach repair: repairs=%d", gw.repairs)
+	}
+	if document != "FAILED" || source != "FAILED" || proposals != 0 || transactions != 0 || reviews != 0 {
+		t.Fatalf("document=%s source=%s proposals=%d transactions=%d reviews=%d", document, source, proposals, transactions, reviews)
+	}
+}
+
 func TestReprocessFromScreenshotReviewRerunsTheDocument(t *testing.T) {
 	t.Parallel()
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
