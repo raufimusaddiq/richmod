@@ -1257,4 +1257,4 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 
 **Reason:** the repair pass could "fix" the very facts that made an invoice or payslip unsafe, so validated output no longer reflected the printed document; a dateless receipt skipped duplicate detection entirely.
 
-**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses.
+**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane.

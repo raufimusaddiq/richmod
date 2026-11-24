@@ -2,6 +2,7 @@ package document
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"testing"
@@ -214,6 +215,34 @@ func TestDatelessReceiptStillFlagsPossibleDuplicate(t *testing.T) {
 	}
 	if reviewType != "POSSIBLE_DUPLICATE" {
 		t.Fatalf("dateless receipt duplicate must open POSSIBLE_DUPLICATE: type=%s", reviewType)
+	}
+	var transactionID, reviewID string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.id::text,ri.id::text FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.household_id=$1 AND t.id<>$2::uuid AND ri.status='OPEN'`, fixture.householdID, existing).Scan(&transactionID, &reviewID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{HouseholdID: fixture.householdID, TransactionID: transactionID, ReviewItemID: reviewID, Action: "CONFIRM_REVIEW", ResolveReview: true}); err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if !errors.As(err, &missing) || len(missing.Facts) != 1 || missing.Facts[0] != "transaction_at" {
+			t.Fatalf("confirming a dateless non-duplicate must ask for the date, got %v", err)
+		}
+	} else {
+		t.Fatal("a dateless receipt must not confirm without a chosen date")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var status, followUp string
+	var missingFacts []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,ri.review_type,ARRAY(SELECT jsonb_array_elements_text(ri.decision->'missingFacts')) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.id=$1`, reviewID).Scan(&status, &followUp, &missingFacts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || followUp != "MISSING_TRANSACTION_DATE" || len(missingFacts) != 1 || missingFacts[0] != "transaction_at" {
+		t.Fatalf("non-duplicate answer must keep asking for the date: status=%s review=%s missing=%v", status, followUp, missingFacts)
 	}
 }
 
