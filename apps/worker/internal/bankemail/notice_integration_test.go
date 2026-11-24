@@ -77,7 +77,9 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 			}
 			completing := ""
 			if mode == "completion_no_notice" {
-				completing, want = source, nil
+				var reviewID string
+				must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["IGNORE"]}'::jsonb) RETURNING id`, household, source).Scan(&reviewID))
+				completing, want = reviewID, nil
 			}
 			mismatchedHousehold := strings.HasSuffix(mode, "source_household_mismatch")
 			if mismatchedHousehold {

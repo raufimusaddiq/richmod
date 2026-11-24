@@ -135,6 +135,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-122](#adr-122-gateway-outage-deferral-deterministic-job-lane-and-graceful-worker-shutdown) | Gateway-outage deferral, deterministic job lane and graceful worker shutdown | Accepted |
 | [ADR-123](#adr-123-unrepairable-document-facts-stay-terminal-or-reviewable) | Unrepairable document facts stay terminal or reviewable | Accepted |
 | [ADR-124](#adr-124-voiding-a-salary-detaches-its-cycle-and-unmerging-retains-evidence) | Voiding a salary detaches its cycle, and unmerging retains evidence | Accepted |
+| [ADR-125](#adr-125-cross-check-model-email-facts-before-auto-confirm-and-bind-entities-on-exact-matches-only) | Cross-check model email facts before auto-confirm and bind entities on exact matches only | Accepted |
 | [ADR-126](#adr-126-telegram-records-similar-expenses-and-validates-model-facts-against-user-text) | Telegram records similar expenses and validates model facts against user text | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
@@ -1271,6 +1272,15 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** an audit found a residual could be allocated twice when two channels answered at once, a case ending at a voided salary stayed allocatable because the refresh window excluded that pay date, and unmerging silently deleted evidence the merge had copied (cascading the merge-evidence mapping) even though evidence is never hard-deleted.
 
 **Consequence:** no migration; `transaction_evidence` gains one more `link_status` value (`REVERSED`) that active readers already exclude through the `ACTIVE` filter; a duplicate resolution surfaces as "not found/already resolved" to both web and Telegram callers; a wealth recap can no longer show a zero-length duplicate salary cycle.
+
+## ADR-125: Cross-check model email facts before auto-confirm and bind entities on exact matches only
+*Accepted - 2026-11-25*
+
+**Decision:** Both email pipelines run one shared deterministic check (`apps/reviewdomain/email_evidence.go`) before auto-confirming a model-extracted ledger fact: the whole-IDR amount must appear in the email subject or body after Indonesian formatting is normalised (`Rp`/`IDR`, spaces, thousands dots and a trailing `,00`/`,0`/`.00`), and `transaction_at` must be at or before `received_at + 10 minutes`. A failed check demotes the item to the existing review path instead of dropping it. A financial-provider cash movement also auto-applies a funding account only when the hint is an exact normalised name or alias; a single shared 3+ letter word now goes to `FINANCIAL_EMAIL_RESOLUTION`.
+
+**Reason:** A model could return an amount 100x the email or a WIB wall-clock time as UTC and the pipeline confirmed it, and a word-only entity match could bind a transfer to another household member's account.
+
+**Consequence:** Supported facts auto-confirm as before; unsupported or offset-shifted facts park in the Review Inbox with the extracted facts shown, and the household can resolve the intended account there, which learns the alias.
 
 ## ADR-126: Telegram records similar expenses and validates model facts against user text
 *Accepted - 2026-11-25*

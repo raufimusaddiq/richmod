@@ -632,6 +632,9 @@ func seedFinancialEmail(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,account_id,alias,normalized_alias,source) VALUES($1,'ACCOUNT',$2,'Jago Autodebit','jago autodebit','SYSTEM')`, household, account); err != nil {
+		t.Fatal(err)
+	}
 	var financialSource string
 	if err = pool.QueryRow(ctx, `INSERT INTO financial_email_source(household_id,provider_name,sender_address,capabilities,default_wealth_account_id,status,created_by_user_id) VALUES($1,'Example Provider',$2,ARRAY['CASH_MOVEMENT','WEALTH_VALUE'],$3,$4,$5) RETURNING id`, household, fmt.Sprintf("provider-%d@test.invalid", stamp), wealth, status, user).Scan(&financialSource); err != nil {
 		t.Fatal(err)
@@ -647,7 +650,7 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, id, []byte(id)).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO financial_email_event(source_event_id,financial_source_id,observed_sender,message_id,subject,body) VALUES($1,$2,'provider@test.invalid',$3,'test','body')`, source, financialSource, id); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO financial_email_event(source_event_id,financial_source_id,observed_sender,message_id,subject,body) VALUES($1,$2,'provider@test.invalid',$3,'test','Transaksi Rp3.000.000,00 Rp1.500.000,00 Rp100,00 Rp200,00')`, source, financialSource, id); err != nil {
 		t.Fatal(err)
 	}
 	return source
@@ -793,7 +796,7 @@ func TestCashMovementSerializesOnLedgerEventLock(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 	defer cancel()
 	processor := &Processor{pool: pool}
-	if err := processor.cash(waitCtx, blocked, household, source, "", observationID, wealth, true, v); err == nil {
+	if err := processor.cash(waitCtx, blocked, household, source, "", observationID, wealth, true, v, emailEvidence{}); err == nil {
 		t.Fatal("cash movement must wait for the ledger event lock before planning a transfer")
 	}
 }
@@ -890,5 +893,75 @@ func TestFinancialEmailWithdrawalNeedsNoWealthBinding(t *testing.T) {
 	}
 	if purpose != "INTERNAL_TRANSFER" || observed != "APPLIED" {
 		t.Fatalf("purpose=%s observation=%s", purpose, observed)
+	}
+}
+
+func TestFinancialEmailUnsupportedModelFactsRequireReview(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
+	if _, err = pool.Exec(ctx, `UPDATE source_event SET received_at='2026-09-08T10:00:00+07:00' WHERE id=$1`, source); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"300000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"","provider_reference":"amount-mismatch","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99},{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"1500000","occurred_at":"2026-09-08T12:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"","provider_reference":"late-time","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err = NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var transactions, reviews int
+	var statuses string
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*),string_agg(status,',' ORDER BY ordinal) FROM financial_email_observation WHERE source_event_id=$1`, source).Scan(&reviews, &statuses); err != nil {
+		t.Fatal(err)
+	}
+	var reviewItems int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE financial_email_observation_id IN (SELECT id FROM financial_email_observation WHERE source_event_id=$1)`, source).Scan(&reviewItems); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 0 || reviews != 2 || statuses != "REVIEW,REVIEW" || reviewItems != 2 {
+		t.Fatalf("transactions=%d observations=%d statuses=%s reviews=%d", transactions, reviews, statuses, reviewItems)
+	}
+}
+
+func TestFinancialEmailWordOnlyAccountHintRequiresReview(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Bank Jago ****5678","provider_account_hint":"","provider_reference":"word-only","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err = NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var transactions int
+	var status, reviewType string
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE source_event_id=$1`, source).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT review_type FROM review_item WHERE financial_email_observation_id=(SELECT id FROM financial_email_observation WHERE source_event_id=$1)`, source).Scan(&reviewType); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 0 || status != "REVIEW" || reviewType != "FINANCIAL_EMAIL_RESOLUTION" {
+		t.Fatalf("transactions=%d observation=%s review=%s", transactions, status, reviewType)
 	}
 }
