@@ -27,7 +27,7 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"content type must be message/rfc822"}`, http.StatusBadRequest)
 		return
 	}
-	signed, err := parseSignedHeaders(r.Header.Get("X-Richmod-Recipient"), r.Header.Get("X-Richmod-Envelope-From"), r.Header.Get("X-Richmod-Timestamp"), r.Header.Get("X-Richmod-Content-SHA256"), r.Header.Get("X-Richmod-Signature"), r.Header.Get("X-Richmod-Message-ID"), r.Header.Get("X-Richmod-Object-Key"), h.service.domain)
+	signed, err := parseSignedHeaders(r.Header.Get("X-Richmod-Recipient"), r.Header.Get("X-Richmod-Envelope-From"), r.Header.Get("X-Richmod-Timestamp"), r.Header.Get("X-Richmod-Content-SHA256"), r.Header.Get("X-Richmod-Signature"), r.Header.Get("X-Richmod-Object-Key"), h.service.domain)
 	if err != nil {
 		http.Error(w, `{"error":"invalid ingress authentication"}`, http.StatusUnauthorized)
 		return

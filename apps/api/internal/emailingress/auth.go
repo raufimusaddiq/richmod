@@ -23,7 +23,7 @@ type SignedRequest struct {
 	ObjectKey    string
 }
 
-func parseSignedHeaders(recipient, envelopeFrom, timestamp, hash, signature, _ string, objectKey, domain string) (SignedRequest, error) {
+func parseSignedHeaders(recipient, envelopeFrom, timestamp, hash, signature, objectKey, domain string) (SignedRequest, error) {
 	recipient = strings.ToLower(strings.TrimSpace(recipient))
 	envelopeFrom = strings.TrimSpace(envelopeFrom)
 	if recipient == "" || envelopeFrom == "" || timestamp == "" || hash == "" || signature == "" || objectKey == "" {
@@ -88,13 +88,6 @@ func (s SignedRequest) verifyContent(body []byte) error {
 		return fmt.Errorf("content sha mismatch")
 	}
 	return nil
-}
-
-func (s SignedRequest) verify(body []byte, secret string, now time.Time) error {
-	if err := s.verifySignature(secret, now); err != nil {
-		return err
-	}
-	return s.verifyContent(body)
 }
 
 func parseAddress(value string) (string, error) {
