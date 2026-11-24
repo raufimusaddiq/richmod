@@ -75,16 +75,19 @@ test("the snapshot drawer shows an Indonesian source label, not the raw MANUAL v
   await expect(drawer).not.toContainText("MANUAL");
 });
 
-test("the net worth history tooltip names the series Kekayaan bersih, not the raw data key", { tag: "@desktop-only" }, async ({ page, api }) => {
+test("the net worth history tooltip names the series Kekayaan bersih and resolves each same-day snapshot", { tag: "@desktop-only" }, async ({ page, api }) => {
   wealthApi(api);
   const older = { ...snapshot("wealth-0", "800000"), observedAt: "2026-08-03T10:00:00+07:00" };
-  api.use(({ path }) => (path === "/api/v1/wealth/history" ? [older, snapshot("wealth-1", "1000000")] : undefined));
+  const sameDay = (id, value, hour) => ({ ...snapshot(id, value), observedAt: `2026-09-03T${hour}:00:00+07:00` });
+  api.use(({ path }) => (path === "/api/v1/wealth/history" ? [sameDay("wealth-3", "1200000", "14"), sameDay("wealth-2", "1100000", "12"), sameDay("wealth-1", "1000000", "10"), older] : undefined));
   await page.goto("/wealth", { waitUntil: "networkidle" });
   const chart = page.locator(".chart-wrap").filter({ has: page.locator(".recharts-line") }).first();
   await chart.scrollIntoViewIfNeeded();
   const box = await chart.boundingBox();
-  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width - 16, box.y + box.height / 2);
   const tooltip = page.locator(".recharts-tooltip-wrapper");
   await expect(tooltip).toContainText("Kekayaan bersih");
+  await expect(tooltip).toContainText("3 Sep");
+  await expect(tooltip).toContainText("1.200.000");
   await expect(tooltip).not.toContainText("value");
 });
