@@ -6,7 +6,7 @@
   "packageManager": "bun@1.4.4",
   "scripts": {
     "dev": "bun scripts/dev.mjs",
-    "build": "bun scripts/build.mjs",
+    "build": "bun scripts/build-id.mjs && bun scripts/build.mjs",
     "build:embed": "bun run build && bun scripts/sync-embed.mjs",
     "start": "bun scripts/static-server.mjs",
     "test": "bun test tests/",
