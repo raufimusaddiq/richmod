@@ -21,7 +21,7 @@ export function elapsedDaily(items = [], daysElapsed) {
 }
 
 export function mapDailySpending(items = []) {
-  return items.map(item => ({ ...item, label: item.period?.slice(8) || "", expenseValue: Number(item.expense || 0) }));
+  return items.map(item => ({ ...item, expenseValue: Number(item.expense || 0) }));
 }
 
 export function netWorthHistoryRows(items = []) {
