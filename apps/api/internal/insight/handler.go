@@ -3,6 +3,7 @@ package insight
 import (
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net/http"
 	"time"
 
@@ -20,7 +21,18 @@ type Handler struct {
 
 const insightPromptVersion = "cycle-analyst-v5"
 
-const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND input_metrics_json->>'period_end'=$6 AND prompt_version=$5 AND (status='PENDING' OR (status='SUCCEEDED' AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
+const minimumCompleteness = "0.7000"
+
+func belowMinimumCompleteness(completeness string) bool {
+	value, ok := new(big.Rat).SetString(completeness)
+	if !ok {
+		return true
+	}
+	floor, _ := new(big.Rat).SetString(minimumCompleteness)
+	return value.Cmp(floor) < 0
+}
+
+const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND input_metrics_json->>'period_end'=$6 AND prompt_version=$5 AND ((status='PENDING' AND created_at>now()-interval '15 minutes') OR (status='SUCCEEDED' AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 
@@ -117,6 +129,12 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	completeness := facts.Completeness()
+	if belowMinimumCompleteness(completeness) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "data coverage is too low for commentary", "dataCompleteness": completeness})
+		return
+	}
+
 	raw, err := json.Marshal(map[string]any{"period_kind": kind, "period_start": period, "period_end": facts.Period.MeasuredUntil, "period_open": facts.Period.State == "ACTIVE", "facts_snapshot": facts})
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to serialize insight facts"})
@@ -128,7 +146,6 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	completeness := facts.Completeness()
 	var id string
 	if err := tx.QueryRow(r.Context(), `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,$2::date,'PENDING',$3::jsonb,$4,$5,$6) RETURNING id`, household, period, string(raw), insightPromptVersion, completeness, p.UserID).Scan(&id); err != nil {
 		var pgErr *pgconn.PgError

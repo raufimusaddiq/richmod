@@ -59,8 +59,10 @@ func (e rateLimited) RetryAfter() time.Duration { return e.wait }
 
 func TestRetryDelayHonoursRetryAfterHint(t *testing.T) {
 	job := Job{Attempts: 1}
-	if got := retryDelaySeconds(job, errors.New("temporary")); got != 2 {
-		t.Fatalf("backoff after attempt 1 = %ds, want 2", got)
+	for range 50 {
+		if got := retryDelaySeconds(job, errors.New("temporary")); got < 2 || got > 3 {
+			t.Fatalf("backoff after attempt 1 = %ds, want 2s plus under 20%% jitter", got)
+		}
 	}
 	if got := retryDelaySeconds(job, fmt.Errorf("send: %w", rateLimited{wait: 37 * time.Second})); got != 37 {
 		t.Fatalf("Telegram retry_after was not honoured: %ds", got)
@@ -68,7 +70,92 @@ func TestRetryDelayHonoursRetryAfterHint(t *testing.T) {
 	if got := retryDelaySeconds(job, rateLimited{wait: 3 * time.Hour}); got != 3600 {
 		t.Fatalf("retry_after was not capped at one hour: %ds", got)
 	}
-	if got := retryDelaySeconds(Job{Attempts: 3}, rateLimited{}); got != 8 {
-		t.Fatalf("a zero hint must fall back to backoff: %ds", got)
+	if got := retryDelaySeconds(Job{Attempts: 3}, rateLimited{}); got < 8 || got > 10 {
+		t.Fatalf("a zero hint must fall back to jittered backoff: %ds", got)
+	}
+}
+
+func TestRetryDelayJitterNeverFiresBeforeTheBackoff(t *testing.T) {
+	distinct := map[time.Duration]bool{}
+	for range 200 {
+		got := jitter(10 * time.Minute)
+		if got < 10*time.Minute || got >= 12*time.Minute {
+			t.Fatalf("jitter(10m) = %s, want [10m, 12m)", got)
+		}
+		distinct[got] = true
+	}
+	if len(distinct) < 2 {
+		t.Fatal("jitter must spread retries")
+	}
+	if jitter(0) != 0 {
+		t.Fatal("zero delay must stay zero")
+	}
+}
+
+func TestDeferralDelayHonoursProviderBackoffUpToADay(t *testing.T) {
+	if got := deferralDelayFor(0, rateLimited{wait: 3 * time.Hour}); got != 3*time.Hour {
+		t.Fatalf("Retry-After above the exponential base must win exactly: %s", got)
+	}
+	if got := deferralDelayFor(0, fmt.Errorf("extract: %w", rateLimited{wait: 72 * time.Hour})); got != 24*time.Hour {
+		t.Fatalf("provider hint must cap at 24h: %s", got)
+	}
+	if got := deferralDelayFor(10, rateLimited{wait: time.Second}); got != time.Hour {
+		t.Fatalf("a tiny hint must not undercut the exponential base: %s", got)
+	}
+	for range 50 {
+		if got := deferralDelayFor(1, errors.New("down")); got < 10*time.Minute || got >= 12*time.Minute {
+			t.Fatalf("unhinted deferral = %s, want 10m plus under 20%% jitter", got)
+		}
+	}
+}
+
+func TestPermanentWrapsWithoutChangingTheCause(t *testing.T) {
+	cause := errors.New("HTTP 400")
+	wrapped := fmt.Errorf("extract: %w", Permanent(cause))
+	if !isPermanent(wrapped) || !errors.Is(wrapped, cause) {
+		t.Fatal("Permanent must be final yet still unwrap to its cause")
+	}
+	if !Final(Job{Attempts: 1, MaxAttempts: 5}, Permanent(cause)) {
+		t.Fatal("a permanent failure is final on the first attempt")
+	}
+	if Permanent(nil) != nil {
+		t.Fatal("nil must stay nil")
+	}
+	if again := Permanent(Permanent(cause)); !isPermanent(again) {
+		t.Fatal("already permanent errors stay permanent")
+	}
+}
+
+func TestFinalizeContextOutlivesACancelledWorker(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx, release := finalizeContext(parent)
+	defer release()
+	if ctx.Err() != nil {
+		t.Fatalf("finalising a committed job must survive SIGTERM: %v", ctx.Err())
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) > finalizeTimeout {
+		t.Fatalf("finalisation must stay bounded, deadline=%v", deadline)
+	}
+}
+
+func TestDeterministicJobsNeverShareALaneWithModelCalls(t *testing.T) {
+	deterministic := []string{"GENERATE_CYCLE_RESIDUAL_REVIEW", "FETCH_TELEGRAM_IMAGE", "FINALIZE_TELEGRAM_MEDIA_GROUP", "PROJECT_TELEGRAM_REVIEW"}
+	for _, jobType := range deterministic {
+		if got := classifyLane(jobType); got != "DETERMINISTIC" {
+			t.Errorf("%s lane = %s", jobType, got)
+		}
+	}
+	model := []string{"GENERATE_INSIGHT", "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW", "PROCESS_TELEGRAM_TEXT"}
+	for _, jobType := range model {
+		if lane := classifyLane(jobType); lane == "DETERMINISTIC" || lane == "INTERACTIVE" {
+			t.Errorf("%s must not share a lane with deterministic work: %s", jobType, lane)
+		}
+	}
+	for _, jobType := range []string{"PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "COMPLETE_BANK_REVIEW"} {
+		if got := classifyLane(jobType); got != "INTERACTIVE" {
+			t.Errorf("%s lane = %s", jobType, got)
+		}
 	}
 }

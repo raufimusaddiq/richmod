@@ -68,8 +68,7 @@ func resultFromEnvelope(envelope responsesEnvelope) responsesResult {
 
 func decodeResponsesSSE(raw []byte) (responsesResult, error) {
 	var result responsesResult
-	items := map[string]ToolCall{}
-	order := make([]string, 0, 1)
+	state := &streamState{}
 	completed := false
 	normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
@@ -101,47 +100,30 @@ func decodeResponsesSSE(raw []byte) (responsesResult, error) {
 			mergeResponsesMetadata(&result, event.Response)
 		case "response.output_item.added":
 			if event.Item.Type == "function_call" {
-				key := event.Item.ID
-				if key == "" {
-					key = event.Item.CallID
-				}
-				if key != "" {
-					if _, exists := items[key]; !exists {
-						order = append(order, key)
-					}
-					items[key] = ToolCall{ResponseID: result.ID, CallID: event.Item.CallID, Name: event.Item.Name}
-				}
+				state.fill(event.Item.ID, event.Item.CallID, event.Item.Name, nil, false)
 			}
+		case "response.function_call_arguments.delta":
+			state.appendDelta(event.ItemID, event.CallID, event.Delta)
 		case "response.function_call_arguments.done":
-			key := event.ItemID
-			if key == "" {
-				key = event.CallID
-			}
-			call := items[key]
-			if call.CallID == "" {
-				call.CallID = event.CallID
-			}
-			if call.Name == "" {
-				call.Name = event.Name
-			}
-			call.ResponseID = result.ID
-			call.Arguments = normalizeToolArguments(event.Arguments)
-			if key == "" {
-				key = call.CallID
-			}
-			if key != "" {
-				if _, exists := items[key]; !exists {
-					order = append(order, key)
-				}
-				items[key] = call
+			state.fill(event.ItemID, event.CallID, event.Name, event.Arguments, true)
+		case "response.output_item.done":
+			if event.Item.Type == "function_call" {
+				state.fill(event.Item.ID, event.Item.CallID, event.Item.Name, event.Item.Arguments, true)
 			}
 		case "response.output_text.delta":
 			result.Text += event.Delta
 		case "response.completed":
 			completed = true
 			mergeResponsesMetadata(&result, event.Response)
-			if len(items) == 0 && len(event.Response.Output) > 0 {
-				return resultFromEnvelope(event.Response), nil
+			for _, item := range event.Response.Output {
+				switch item.Type {
+				case "function_call":
+					state.fill(item.ID, item.CallID, item.Name, item.Arguments, false)
+				case "message":
+					if result.Text == "" {
+						result.Text = outputText(item)
+					}
+				}
 			}
 		case "response.failed", "error":
 			return responsesResult{}, fmt.Errorf("LLM gateway stream failed")
@@ -150,14 +132,92 @@ func decodeResponsesSSE(raw []byte) (responsesResult, error) {
 	if !completed {
 		return responsesResult{}, fmt.Errorf("LLM gateway stream ended before completion")
 	}
-	for _, key := range order {
-		call := items[key]
-		if call.ResponseID == "" {
-			call.ResponseID = result.ID
-		}
-		result.Calls = append(result.Calls, call)
-	}
+	result.Calls = state.calls(result.ID)
 	return result, nil
+}
+
+func outputText(item responsesOutputItem) string {
+	var text string
+	for _, content := range item.Content {
+		if content.Type == "output_text" {
+			text += content.Text
+		}
+	}
+	return text
+}
+
+type streamCall struct {
+	itemID    string
+	call      ToolCall
+	arguments strings.Builder
+	final     bool
+}
+
+type streamState struct {
+	entries []*streamCall
+}
+
+func (s *streamState) entry(itemID, callID string) *streamCall {
+	for _, candidate := range s.entries {
+		if itemID != "" && candidate.itemID == itemID {
+			return candidate
+		}
+	}
+	for _, candidate := range s.entries {
+		if callID != "" && candidate.call.CallID == callID {
+			return candidate
+		}
+	}
+	created := &streamCall{itemID: itemID}
+	s.entries = append(s.entries, created)
+	return created
+}
+
+func (s *streamState) fill(itemID, callID, name string, arguments json.RawMessage, final bool) {
+	if itemID == "" && callID == "" {
+		return
+	}
+	entry := s.entry(itemID, callID)
+	if entry.itemID == "" {
+		entry.itemID = itemID
+	}
+	if entry.call.CallID == "" {
+		entry.call.CallID = callID
+	}
+	if entry.call.Name == "" {
+		entry.call.Name = name
+	}
+	if entry.final && !final {
+		return
+	}
+	if normalized := normalizeToolArguments(arguments); len(normalized) > 0 && string(normalized) != "null" {
+		entry.call.Arguments = normalized
+		entry.final = final
+	}
+}
+
+func (s *streamState) appendDelta(itemID, callID, delta string) {
+	if itemID == "" && callID == "" {
+		return
+	}
+	entry := s.entry(itemID, callID)
+	if entry.call.CallID == "" {
+		entry.call.CallID = callID
+	}
+	entry.arguments.WriteString(delta)
+}
+
+func (s *streamState) calls(responseID string) []ToolCall {
+	calls := make([]ToolCall, 0, len(s.entries))
+	for _, entry := range s.entries {
+		call := entry.call
+		call.ResponseID = responseID
+		if len(call.Arguments) == 0 && entry.arguments.Len() > 0 {
+			call.Arguments = json.RawMessage(entry.arguments.String())
+		}
+		calls = append(calls, call)
+	}
+	return calls
 }
 
 func mergeResponsesMetadata(result *responsesResult, envelope responsesEnvelope) {

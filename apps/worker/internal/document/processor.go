@@ -357,20 +357,37 @@ func classificationTool() gateway.ToolDefinition {
 }
 
 func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string, cause error) error {
-	var householdID, sourceID string
-	if err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID); err != nil {
-		return fmt.Errorf("load failed document: %w", err)
-	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := p.TerminalClassificationFailureTx(ctx, tx, documentID, cause); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) TerminalClassificationFailureTx(ctx context.Context, tx pgx.Tx, documentID string, cause error) error {
+	if !reviewdomain.IsSourceEventID(documentID) {
+		return nil
+	}
+	var householdID, sourceID string
+	err := tx.QueryRow(ctx, `SELECT household_id::text,source_event_id::text FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load failed document: %w", err)
+	}
 	tag, err := tx.Exec(ctx, `UPDATE document SET status='FAILED',updated_at=now() WHERE id=$1 AND status NOT IN ('EXTRACTED','NEEDS_REVIEW','FAILED')`, documentID)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
+	var sourceType string
+	err = tx.QueryRow(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW') RETURNING source_type`, sourceID).Scan(&sourceType)
+	sourceFailed := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if tag.RowsAffected() > 0 {
@@ -378,7 +395,12 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if !sourceFailed {
+		return nil
+	}
+	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
+		HouseholdID: householdID, SourceEventID: sourceID, SourceType: sourceType, Reason: "ERROR",
+	})
 }
 
 func truncate(err error) string {

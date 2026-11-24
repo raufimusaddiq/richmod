@@ -18,7 +18,7 @@ Last audited: 2026-11 (see ADR-049 amendment, migrations 00097, 00098 and 00100)
 | `review_item` → `review_request` → `review_conversation` | item RESOLVED closes its request; request RESOLVED/CANCELLED resolves its conversations (not EXPIRED, not `AWAITING_MERCHANT_DECISION`) | triggers `review_item_close_request`, `review_request_close_conversation` (00098) |
 | `review_request` card delivery | see `review_request_recipient` below | triggers/functions of 00079 and 00094 |
 | `review_item.decision` | an item may never be (re)opened without a valid decision | trigger `review_item_require_decision` (00078) |
-| `job.lane` | assigned from the type | trigger `enforce_job_lane` (00081) |
+| `job.lane` | assigned from the type: INTERACTIVE / DETERMINISTIC / DEFAULT / BACKGROUND | trigger `enforce_job_lane` (00104) |
 
 ## Enforced in Go (single owner)
 
@@ -30,7 +30,7 @@ Last audited: 2026-11 (see ADR-049 amendment, migrations 00097, 00098 and 00100)
 | `transaction_proposal.proposal_status` | PENDING / NEEDS_REVIEW → ACCEPTED / REJECTED / MERGED; REJECTED → NEEDS_REVIEW (reopen); MERGED → NEEDS_REVIEW (unmerge) | moves in lockstep with the guarded transaction update that caused it | Unmerge only reopens MERGED proposals of the active evidence link. |
 | `financial_email_observation.status` | PENDING → APPLIED / REVIEW / IGNORED | `reviewdomain` resolvers, each behind a locked review item | |
 | `financial_email_preview.status` | PENDING → PROCESSING → SUCCEEDED / FAILED | financialemail processor | stays PROCESSING while the job retries; the job's final failure marks it FAILED. |
-| `insight.status` | PENDING → SUCCEEDED / FAILED | insight processor | the job's final failure marks it FAILED. |
+| `insight.status` | PENDING → SUCCEEDED / FAILED | insight processor | the job's final failure marks it FAILED; the worker sweep fails a PENDING row older than 15 minutes that no live job references. |
 | `dashboard_account_invite` / `telegram_link_invite` | PENDING → CONSUMED / REVOKED / EXPIRED | `auth`, `household`, `telegram` intake, all under `FOR UPDATE` | An invite for a deactivated user is refused, not consumed. Linking Telegram holds the member row (`FOR SHARE`) so a concurrent removal cannot miss the new identity. |
 | `telegram_pending_card_choice.status` | PENDING → RESOLVED | worker `processCardChoiceCallback` | the tap claims the choice first; a failed finalization hands it back. |
 | `telegram_pending_action`, `telegram_pending_batch` | PENDING → CONFIRMED / CANCELLED | worker, behind `FOR UPDATE ... status='PENDING' AND expires_at>now()` | A correction staged before its transaction was voided is cancelled, not applied. |
