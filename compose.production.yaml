@@ -33,10 +33,10 @@ services:
 
   backup:
     environment:
-      RESTIC_REPOSITORY: s3:${OSS_ENDPOINT:?set OSS_ENDPOINT in finance.env}/${OSS_BUCKET:?set OSS_BUCKET in finance.env}/${OSS_PREFIX:-richmod}/backups/restic
-      AWS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY:?set OSS_ACCESS_KEY in finance.env}
-      AWS_SECRET_ACCESS_KEY: ${OSS_SECRET_KEY:?set OSS_SECRET_KEY in finance.env}
-      AWS_DEFAULT_REGION: ${OSS_REGION:?set OSS_REGION in finance.env}
+      RESTIC_REPOSITORY: s3:${BACKUP_S3_ENDPOINT:-${OSS_ENDPOINT:?set OSS_ENDPOINT in finance.env}}/${BACKUP_S3_BUCKET:-${OSS_BUCKET:?set OSS_BUCKET in finance.env}}/${BACKUP_S3_PREFIX:-${OSS_PREFIX:-richmod}}/backups/restic
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-${OSS_ACCESS_KEY:?set OSS_ACCESS_KEY in finance.env}}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-${OSS_SECRET_KEY:?set OSS_SECRET_KEY in finance.env}}
+      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-${OSS_REGION:?set OSS_REGION in finance.env}}
     volumes:
       - /opt/family-finance/restic-password:/run/secrets/restic-password:ro
       - backup_data:/repository

@@ -48,6 +48,7 @@ for service in api worker; do
   esac
 done
 $compose pull migrate api worker
+$compose --profile operations run --rm backup
 $compose run --rm migrate
 $compose up -d --no-build --wait api worker
 if [ -n "$previous_image_tag" ]; then

@@ -46,8 +46,10 @@ gateway; PostgreSQL remains on the internal network. Never commit the real value
 
 Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
 `OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments
-under `<prefix>/attachments`; backup stores encrypted restic data under
-`<prefix>/backups/restic`. Never expose OSS credentials to web or browser code.
+under `<prefix>/attachments`. Backups prefer the dedicated `BACKUP_S3_*`
+repository (see [Encrypted backups](#encrypted-backups)) and fall back to
+`<prefix>/backups/restic` in the same bucket. Never expose OSS credentials to web
+or browser code, and never give the API or worker the backup variables.
 
 ## Deploy
 
@@ -66,8 +68,8 @@ images to GHCR tagged `sha-<full-main-commit>`. It does not deploy.
 `Deploy Production` is manual-only and uses the GitHub `production` Environment;
 configure required reviewers there before its first use. It accepts only a commit
 already reachable from `main`. The job sends the ephemeral GitHub token over SSH
-stdin for one GHCR login, pulls exact immutable images, runs the one-shot
-migration with `docker compose run --rm`, restarts
+stdin for one GHCR login, pulls exact immutable images, takes a fresh restic
+backup, runs the one-shot migration with `docker compose run --rm`, restarts
 the application with `--no-build`, checks public health, retains the current and
 previous release image on the host, removes older Richmod release tags, and
 logs out of GHCR. If the previous running image cannot be identified, cleanup
@@ -359,9 +361,27 @@ first run after that fix applies the policy to the whole backlog at once; take a
 
 1. Create `/opt/family-finance/restic-password` with a long random value and
    mode `0600`. Keep a separate recovery copy outside this server.
-2. Set `RESTIC_REPOSITORY` and any repository credentials in the restricted
-   production environment file.
-3. Test one backup manually:
+2. Create a storage location restic alone can reach: its own bucket, or its own
+   prefix in a dedicated bucket, with versioning and object lock (WORM) enabled.
+   Create an access key that can only reach that location.
+3. Set the dedicated backup variables in `/opt/family-finance/finance.env`:
+
+   ```text
+   BACKUP_S3_ENDPOINT=https://s3-compatible.example.com
+   BACKUP_S3_REGION=example-region
+   BACKUP_S3_BUCKET=private-richmod-backups
+   BACKUP_S3_PREFIX=richmod
+   BACKUP_S3_ACCESS_KEY_ID=replace-with-backup-only-key
+   BACKUP_S3_SECRET_ACCESS_KEY=replace-with-backup-only-secret
+   ```
+
+   `compose.production.yaml` uses these for the restic repository and its
+   credentials, one variable at a time, and falls back to the matching `OSS_*`
+   value when a backup variable is unset, so production keeps working until the
+   dedicated ones exist. Restrict the app's `OSS_*` key to `<OSS_PREFIX>/attachments`
+   so code in the API container cannot read or delete the backup repository.
+   Neither API nor worker receives the `BACKUP_S3_*` variables.
+4. Test one backup manually:
 
    ```text
    docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml --profile operations run --rm backup
@@ -374,6 +394,10 @@ first run after that fix applies the policy to the whole backlog at once; take a
 5. Monitor `systemctl status family-finance-backup.timer` and the most recent
    service result. A successful daily service run is the backup-freshness
    signal.
+
+`infra/deploy/release.sh` also runs the same `--profile operations` backup service
+immediately before the migration step, so every release starts from a fresh
+snapshot. A failed backup aborts the deploy.
 
 The backup image copies `infra/backup/*.sh` at build time, and the systemd unit
 only runs `compose run`, which does not rebuild an existing image. After a
