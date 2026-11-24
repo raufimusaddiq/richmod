@@ -160,6 +160,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 				return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Balas pesan ini (Reply) dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan.")
 			}
 		}
+		if parsed, ok := parseBankFactsAnswer(amount); ok {
+			amount = parsed
+		}
 		if !reviewdomain.ValidBankAmountIDR(amount) {
 			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Nominalnya belum terbaca. Balas pesan ini (Reply) dengan angka rupiah tanpa pemisah. Contoh: 75000.")
 		}
@@ -567,11 +570,11 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	if strings.HasPrefix(data, "review:catpage:") {
 		page, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:catpage:"))
 		if parseErr != nil || page < 0 || page > 1000 {
-			return tx.Commit(ctx)
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		markup := categoryChooserMarkup(ctx, tx, reviewID, page)
 		if markup == nil {
-			return tx.Commit(ctx)
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return err
@@ -583,11 +586,11 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	categoryID := strings.TrimPrefix(data, "review:cat:")
 	if !regexp.MustCompile(`^[0-9a-fA-F-]{36}$`).MatchString(categoryID) {
-		return tx.Commit(ctx)
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	var validCategory string
 	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
-		return tx.Commit(ctx)
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	var transactionType string
 	if err = tx.QueryRow(ctx, `SELECT type FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&transactionType); err != nil {

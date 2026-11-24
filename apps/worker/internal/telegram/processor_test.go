@@ -48,7 +48,7 @@ func TestUndatedEntryKeepsMessageDayWhenProcessedAfterMidnight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now); !ok {
+	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now, true); !ok {
 		t.Fatal("an undated entry must be accepted at its message time")
 	}
 	if want := time.Date(2026, time.October, 12, 23, 59, 0, 0, jakartaLocation()); !value.TransactionAt.Equal(want) {
@@ -72,7 +72,7 @@ func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
 	if value.DateProvenance == "USER_STATED" {
 		t.Fatal("model date was promoted to user-stated provenance")
 	}
-	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now); !ok {
+	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now, true); !ok {
 		t.Fatal("an in-the-moment entry with no stated date must be accepted at its message time")
 	}
 	base["date_reference"] = "YESTERDAY"
@@ -80,7 +80,7 @@ func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := directAcceptanceDecision(invented, []string{"dining"}, now); ok {
+	if _, ok := directAcceptanceDecision(invented, []string{"dining"}, now, true); ok {
 		t.Fatal("a model-supplied past date passed canonical acceptance")
 	}
 	delete(base, "date_provenance")
