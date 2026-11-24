@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-123**, in the heading form `## ADR-123: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-124**, in the heading form `## ADR-123: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -133,6 +133,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-120](#adr-120-retire-system-one-jev-and-harden-the-generative-ai-pipeline) | Retire System One (Jev) and harden the generative AI pipeline | Accepted |
 | [ADR-121](#adr-121-financial-safety-guards-for-document-auto-confirm-evidence-retention-and-review-actions) | Financial safety guards for document auto-confirm, evidence retention and review actions | Accepted |
 | [ADR-122](#adr-122-gateway-outage-deferral-deterministic-job-lane-and-graceful-worker-shutdown) | Gateway-outage deferral, deterministic job lane and graceful worker shutdown | Accepted |
+| [ADR-123](#adr-123-dedicated-backup-storage-pre-migration-backups-and-pinned-workflow-actions) | Dedicated backup storage, pre-migration backups and pinned workflow actions | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1249,3 +1250,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** an AI gateway outage burned the attempt budget of document, email and insight jobs, a single slow `BACKGROUND` job delayed residual reviews and Telegram media, a deploy could cancel the queue write that follows a committed job, and several error paths leaked internal URLs or produced unusable telemetry rows.
 
 **Consequence:** the `job.lane` check constraint and Go `classifyLane` gain `DETERMINISTIC`; the admin console lists the lane; the worker runs two more loops (the 16-connection pool floor still holds). Gateway streaming now accumulates `function_call_arguments.delta` and `output_item.done` and fills gaps from `response.completed`; non-2xx responses are classified before the 2 MiB body is read; a mid-body connection reset is `gateway.IsUnavailable`; `chat_completions` keeps `strict` and no longer replays tool results twice; token and cost metadata survive a validation failure; and transport errors are classified `UNAVAILABLE`, not `HTTP_ERROR`.
+
+## ADR-123: Dedicated backup storage, pre-migration backups and pinned workflow actions
+*Accepted · 2026-11-25*
+
+**Decision:** The backup service reads `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION`, `BACKUP_S3_BUCKET`, `BACKUP_S3_PREFIX`, `BACKUP_S3_ACCESS_KEY_ID` and `BACKUP_S3_SECRET_ACCESS_KEY` first and falls back per variable to the matching `OSS_*` value, so a dedicated versioned/object-locked repository and a backup-only key can be introduced without breaking production; `infra/deploy/release.sh` runs the `operations` backup service before the migration step, and every workflow `uses:` is pinned to a full commit SHA.
+
+**Reason:** the API and worker held the same key and bucket as the restic repository, so code that reached the attachment bucket could delete every backup; the only fresher-than-nightly guarantee before a schema migration was that timer; movable action tags can change under a workflow.
+
+**Consequence:** `OSS_*` can be restricted to the attachments prefix once the owner sets the `BACKUP_S3_*` variables (documented in the production deployment runbook) while unset backup variables keep today's behaviour; a failed pre-migration backup aborts the deploy; CI and release workflows update actions deliberately instead of tracking tags.
