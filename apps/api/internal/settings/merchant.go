@@ -52,6 +52,7 @@ func (h *Handler) PatchMerchantAlias(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AutoApply *bool `json:"autoApply"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if json.NewDecoder(r.Body).Decode(&in) != nil || in.AutoApply == nil {
 		jsonError(w, 400, "autoApply is required")
 		return
