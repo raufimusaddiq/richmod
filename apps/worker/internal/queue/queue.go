@@ -55,8 +55,13 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 		return Job{}, false, fmt.Errorf("select job: %w", err)
 	}
 	job.LockedBy = workerID
-	if _, err := tx.Exec(ctx, `UPDATE job SET status='RUNNING',attempts=$2,locked_at=now(),locked_by=$3,started_at=now(),finished_at=NULL,updated_at=now() WHERE id=$1`, job.ID, job.Attempts, workerID); err != nil {
+	tag, err := tx.Exec(ctx, `UPDATE job SET status='RUNNING',attempts=$2,locked_at=now(),locked_by=$3,started_at=now(),finished_at=NULL,updated_at=now()
+		WHERE id=$1 AND ((status='PENDING' AND run_after<=now()) OR (status='RUNNING' AND locked_at<now()-interval '5 minutes'))`, job.ID, job.Attempts, workerID)
+	if err != nil {
 		return Job{}, false, fmt.Errorf("lock job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return Job{}, false, nil
 	}
 	return job, true, nil
 }
@@ -85,6 +90,8 @@ const claimSQL = `
 	)
 	SELECT j.id,j.type,j.payload_json,j.attempts+1,j.max_attempts,COALESCE(j.household_id::text,''),j.deferrals
 	FROM ranked r JOIN job j ON j.id=r.id
+	WHERE (j.status='PENDING' AND j.run_after<=now())
+	   OR (j.status='RUNNING' AND j.locked_at<now()-interval '5 minutes')
 	ORDER BY r.last_started NULLS FIRST,r.run_after,r.created_at
 	FOR UPDATE OF j SKIP LOCKED
 	LIMIT 1`
@@ -252,7 +259,7 @@ func (q *Queue) failTx(ctx context.Context, job Job, processErr error, onFinal f
 }
 
 func (q *Queue) logRetry(ctx context.Context, job Job, processErr error) error {
-	if _, logErr := q.pool.Exec(ctx, `INSERT INTO job_retry_log(job_id,attempt,lane,job_type,error_class,duration_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (job_id,attempt) DO NOTHING`, job.ID, job.Attempts, classifyLane(job.Type), job.Type, classifyError(processErr), durationMillis(processErr)); logErr != nil {
+	if _, logErr := q.pool.Exec(ctx, `INSERT INTO job_retry_log(job_id,attempt,lane,job_type,error_class) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (job_id,attempt) DO NOTHING`, job.ID, job.Attempts, classifyLane(job.Type), job.Type, classifyError(processErr)); logErr != nil {
 		return fmt.Errorf("write job retry log: %w", logErr)
 	}
 	return nil
@@ -273,9 +280,9 @@ func isPermanent(err error) bool {
 
 func classifyLane(jobType string) string {
 	switch jobType {
-	case "PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "EDIT_TELEGRAM_MESSAGE", "PROCESS_TELEGRAM_REVIEW_TEXT", "RETIRE_TELEGRAM_REVIEW_CARD", "COMPLETE_BANK_REVIEW":
+	case "PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "EDIT_TELEGRAM_MESSAGE", "RETIRE_TELEGRAM_REVIEW_CARD", "COMPLETE_BANK_REVIEW":
 		return "INTERACTIVE"
-	case "FETCH_TELEGRAM_IMAGE", "FINALIZE_TELEGRAM_MEDIA_GROUP", "GENERATE_CYCLE_RESIDUAL_REVIEW", "PROJECT_TELEGRAM_REVIEW":
+	case "FETCH_TELEGRAM_IMAGE", "GENERATE_CYCLE_RESIDUAL_REVIEW", "PROJECT_TELEGRAM_REVIEW":
 		return "DETERMINISTIC"
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "GENERATE_INSIGHT", "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		return "BACKGROUND"
@@ -303,13 +310,6 @@ func classifyError(err error) string {
 	default:
 		return "OTHER"
 	}
-}
-
-func durationMillis(err error) int {
-	if err == nil {
-		return 0
-	}
-	return 0
 }
 
 func truncate(value string, limit int) string {
