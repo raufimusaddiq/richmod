@@ -32,6 +32,8 @@ const maxUploadBytes = 10 << 20
 const maxImagePixels = 24_000_000
 const maxImagesPerDocument = 10
 
+var decodeSlots = make(chan struct{}, 2)
+
 type Handler struct {
 	pool    *pgxpool.Pool
 	storage *blob.Store
@@ -52,6 +54,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	rc := http.NewResponseController(w)
+	deadline := time.Now().Add(2 * time.Minute)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline)
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+(1<<20))
 	parts, err := uploadParts(r)
 	if err != nil {
@@ -71,7 +77,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "image must be between 1 byte and 10 MB"})
 			return
 		}
+		select {
+		case decodeSlots <- struct{}{}:
+		case <-r.Context().Done():
+			writeJSON(w, 408, map[string]string{"error": "upload cancelled"})
+			return
+		}
 		normalized, mediaType, width, height, extension, normErr := normalizeImage(raw, part.filename)
+		<-decodeSlots
 		if normErr != nil {
 			writeJSON(w, 400, map[string]string{"error": normErr.Error()})
 			return

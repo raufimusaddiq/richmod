@@ -45,7 +45,7 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 			}
 		}
 	}
-	screenshotIssues := []string{"confidence", "account_hint", "payment_status", "transactions", "transactions[0]", "transactions[0].amount", "transactions[0].confidence", "transactions[0].category_confidence"}
+	screenshotIssues := []string{"confidence", "account_hint", "transactions", "transactions[0]", "transactions[0].amount", "transactions[0].confidence", "transactions[0].category_confidence"}
 	for _, docType := range []string{"BANK_TRANSACTION_SCREENSHOT", "TRANSFER_PROOF", "EWALLET_SCREENSHOT", "BILL_OR_INVOICE", "TRANSACTION_HISTORY_SCREENSHOT"} {
 		for _, field := range screenshotIssues {
 			for _, code := range []string{"INVALID_CONFIDENCE", "TEXT_TOO_LONG", "PAYMENT_NOT_CONFIRMED", "INVALID_ROW_COUNT", "INVALID_DIRECTION_OR_CURRENCY", "INVALID_AMOUNT", "UNMAPPED_VALIDATION_FAILURE"} {
@@ -55,6 +55,9 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 					t.Errorf("%s does not map to a repairable screenshot field for %s", issue, docType)
 				}
 			}
+		}
+		if repairableTopLevelField(docType, "payment_status") != "" {
+			t.Errorf("%s must never repair payment_status", docType)
 		}
 	}
 	receipt := receiptExtraction{Currency: "USD", Total: "1.2", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: -1, Items: []receiptItem{{Name: "", Amount: "x"}}, TransactionAt: ptr("not-a-date")}
@@ -66,7 +69,7 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: ptr("x"), Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}, OtherComponents: []moneyLine{{Name: "other", Amount: "x"}}}, received)
 	assertIssueCoverage(t, "PAYSLIP", payslipActual, "payslip")
 	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: ptr("x"), Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE", received)
-	assertIssueCoverage(t, "BILL_OR_INVOICE", screenshotActual)
+	assertIssueCoverage(t, "BILL_OR_INVOICE", screenshotActual, "payment_status")
 	if repairableTopLevelField("RECEIPT", "receipt") != "" || repairableTopLevelField("PAYSLIP", "payslip") != "" {
 		t.Fatal("family-level validation failures must remain no-repair")
 	}

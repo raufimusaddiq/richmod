@@ -9,11 +9,65 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
+
+func TestReactivatingDeactivatedMemberSucceeds(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	var householdID, owner, member string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Reactivation %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	for i, target := range []*string{&owner, &member} {
+		if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Person','x') RETURNING id`, fmt.Sprintf("reactivation-%d-%d@example.test", stamp, i)).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER'),($1,$3,'MEMBER')`, householdID, owner, member); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(pool, "")
+	patch := func(body string, want int) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPatch, "/api/v1/household/members/"+member, bytes.NewBufferString(body))
+		request.SetPathValue("id", member)
+		request = request.WithContext(auth.ContextWithPrincipal(ctx, auth.Principal{UserID: owner, HasHousehold: true, HouseholdID: householdID, HouseholdRole: "OWNER"}))
+		response := httptest.NewRecorder()
+		handler.PatchMember(response, request)
+		if response.Code != want {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
+	patch(`{"active":false}`, http.StatusNoContent)
+	patch(`{"active":true}`, http.StatusNoContent)
+	var active bool
+	var deactivatedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT active,deactivated_at FROM household_member WHERE household_id=$1 AND user_id=$2`, householdID, member).Scan(&active, &deactivatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !active || deactivatedAt != nil {
+		t.Fatalf("active=%t deactivatedAt=%v", active, deactivatedAt)
+	}
+	var audits int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND entity_type='household_member' AND entity_id=$2 AND action='ACTIVATE'`, householdID, member).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("activate audits=%d err=%v", audits, err)
+	}
+}
 
 func TestDeactivatingMemberRevokesEveryWayBackIn(t *testing.T) {
 	t.Parallel()

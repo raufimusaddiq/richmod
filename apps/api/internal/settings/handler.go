@@ -50,6 +50,7 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 		AccountType    string `json:"accountType"`
 		TrackingPolicy string `json:"trackingPolicy"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		jsonError(w, 400, "invalid account request")
 		return
@@ -92,6 +93,7 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 		TrackingPolicy *string `json:"trackingPolicy"`
 		Active         *bool   `json:"active"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if json.NewDecoder(r.Body).Decode(&in) != nil || (in.Name == nil && in.TrackingPolicy == nil && in.Active == nil) {
 		jsonError(w, 400, "account change is required")
 		return
@@ -171,6 +173,7 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		Slug     string  `json:"slug"`
 		ParentID *string `json:"parentId"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		jsonError(w, 400, "invalid category request")
 		return
@@ -220,6 +223,7 @@ func (h *Handler) PatchCategory(w http.ResponseWriter, r *http.Request) {
 		Name   *string `json:"name"`
 		Active *bool   `json:"active"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if json.NewDecoder(r.Body).Decode(&in) != nil || (in.Name == nil && in.Active == nil) {
 		jsonError(w, 400, "category change is required")
 		return

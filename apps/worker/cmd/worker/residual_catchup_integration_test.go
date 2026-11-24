@@ -69,4 +69,73 @@ func TestResidualCatchUpIsNotBlockedByAnotherHouseholdsSettledCycle(t *testing.T
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'end_salary_event_id'=$1`, endB).Scan(&jobsB); err != nil || jobsB != 1 {
 		t.Fatalf("household B jobs after second pass = %d (%v)", jobsB, err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE job SET status='FAILED',finished_at=now() WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'end_salary_event_id'=$1`, endB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, residualCatchUpSQL, 10000); err != nil {
+		t.Fatalf("catch-up after permanent failure failed: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'end_salary_event_id'=$1`, endB).Scan(&jobsB); err != nil || jobsB != 1 {
+		t.Fatalf("household B jobs after a FAILED residual review = %d (%v), want no re-enqueue", jobsB, err)
+	}
+}
+
+func TestPruneTerminalJobsKeepsResidualReviewsAndPrunesTheirDependents(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var household string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Prune %d", time.Now().UnixNano())).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	var terminalJob, residualJob string
+	if err := pool.QueryRow(ctx, `INSERT INTO job(type,household_id,status,payload_json,finished_at) VALUES('PROCESS_DOCUMENT',$1,'SUCCEEDED','{}',now()-interval '40 days') RETURNING id`, household).Scan(&terminalJob); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO job(type,household_id,status,payload_json,finished_at) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',$1,'SUCCEEDED','{}',now()-interval '40 days') RETURNING id`, household).Scan(&residualJob); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO job_retry_log(job_id,attempt,lane,job_type,error_class) VALUES($1,1,'BACKGROUND','PROCESS_DOCUMENT','OTHER'),($2,1,'DETERMINISTIC','GENERATE_CYCLE_RESIDUAL_REVIEW','OTHER')`, terminalJob, residualJob); err != nil {
+		t.Fatal(err)
+	}
+	var oldPhase, freshPhase string
+	if err := pool.QueryRow(ctx, `INSERT INTO intelligence_phase_telemetry(capability,purpose,latency_ms,outcome,created_at) VALUES('GENERATIVE','OTHER_BOUNDED',1,'SUCCEEDED',now()-interval '40 days') RETURNING id`).Scan(&oldPhase); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO intelligence_phase_telemetry(capability,purpose,latency_ms,outcome,created_at) VALUES('GENERATIVE','OTHER_BOUNDED',1,'SUCCEEDED',now()) RETURNING id`).Scan(&freshPhase); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := pruneTerminalJobs(ctx, pool, 10000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted < 1 {
+		t.Fatalf("pruned %d jobs, want the terminal job", deleted)
+	}
+	var terminalJobs, residualJobs, terminalLogs, residualLogs, oldPhases, freshPhases int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM job WHERE id=$1),
+		(SELECT count(*) FROM job WHERE id=$2),
+		(SELECT count(*) FROM job_retry_log WHERE job_id=$1),
+		(SELECT count(*) FROM job_retry_log WHERE job_id=$2),
+		(SELECT count(*) FROM intelligence_phase_telemetry WHERE id=$3),
+		(SELECT count(*) FROM intelligence_phase_telemetry WHERE id=$4)`, terminalJob, residualJob, oldPhase, freshPhase).Scan(&terminalJobs, &residualJobs, &terminalLogs, &residualLogs, &oldPhases, &freshPhases); err != nil {
+		t.Fatal(err)
+	}
+	if terminalJobs != 0 || terminalLogs != 0 {
+		t.Fatalf("terminal job=%d retry logs=%d, want both pruned", terminalJobs, terminalLogs)
+	}
+	if residualJobs != 1 || residualLogs != 1 {
+		t.Fatalf("residual job=%d retry logs=%d, want both retained", residualJobs, residualLogs)
+	}
+	if oldPhases != 0 || freshPhases != 1 {
+		t.Fatalf("telemetry old=%d fresh=%d, want old pruned and fresh retained", oldPhases, freshPhases)
+	}
 }

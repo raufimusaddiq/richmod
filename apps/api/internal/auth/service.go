@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -48,12 +49,25 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool, now: time.Now}
 }
 
+var dummyLoginHash struct {
+	once  sync.Once
+	value string
+}
+
+func loginDummyHash() string {
+	dummyLoginHash.once.Do(func() {
+		dummyLoginHash.value, _ = HashPassword("richmod-dummy-login-password")
+	})
+	return dummyLoginHash.value
+}
+
 func (s *Service) Login(ctx context.Context, email, password string) (Principal, string, time.Time, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	var userID, storedHash string
 	var active, initialized bool
 	err := s.pool.QueryRow(ctx, `SELECT id, password_hash, active, password_initialized_at IS NOT NULL FROM "user" WHERE email = $1`, email).Scan(&userID, &storedHash, &active, &initialized)
 	if err != nil || !active || !initialized {
+		_, _ = VerifyPassword(loginDummyHash(), password)
 		return Principal{}, "", time.Time{}, ErrInvalidCredentials
 	}
 	valid, err := VerifyPassword(storedHash, password)

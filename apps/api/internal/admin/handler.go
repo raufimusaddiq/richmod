@@ -69,6 +69,7 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	var input struct {
 		Active       *bool `json:"active"`
 		IsSuperAdmin *bool `json:"isSuperAdmin"`

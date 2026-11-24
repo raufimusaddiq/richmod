@@ -231,11 +231,15 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Active *bool `json:"active"`
 	}
-	if decode(r, &in) != nil || in.Active == nil || *in.Active {
-		out(w, 400, map[string]string{"error": "only member deactivation is supported"})
+	if decode(r, &in) != nil || in.Active == nil {
+		out(w, 400, map[string]string{"error": "invalid member change"})
 		return
 	}
 	memberID := r.PathValue("id")
+	if *in.Active {
+		h.reactivateMember(w, r, householdID, memberID, p.UserID)
+		return
+	}
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		out(w, 500, map[string]string{"error": "unable to deactivate member"})
@@ -263,6 +267,30 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 	}
 	if audit(r, tx, householdID, p.UserID, "DEACTIVATE", "household_member", memberID, map[string]any{"active": true}, map[string]any{"active": false}) != nil || tx.Commit(r.Context()) != nil {
 		out(w, 500, map[string]string{"error": "unable to deactivate member"})
+		return
+	}
+	w.WriteHeader(204)
+}
+
+func (h *Handler) reactivateMember(w http.ResponseWriter, r *http.Request, householdID, memberID, actorID string) {
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		out(w, 500, map[string]string{"error": "unable to activate member"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var role string
+	if err = tx.QueryRow(r.Context(), `UPDATE household_member SET active=true,deactivated_at=NULL WHERE household_id=$1 AND user_id=$2 AND role='MEMBER' AND NOT active RETURNING role`, householdID, memberID).Scan(&role); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			out(w, 409, map[string]string{"error": "anggota sudah aktif di rumah tangga lain"})
+			return
+		}
+		out(w, 404, map[string]string{"error": "inactive member not found"})
+		return
+	}
+	if audit(r, tx, householdID, actorID, "ACTIVATE", "household_member", memberID, map[string]any{"active": false}, map[string]any{"active": true}) != nil || tx.Commit(r.Context()) != nil {
+		out(w, 500, map[string]string{"error": "unable to activate member"})
 		return
 	}
 	w.WriteHeader(204)

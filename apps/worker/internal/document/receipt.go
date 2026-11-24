@@ -231,7 +231,7 @@ func lockReceiptLedger(ctx context.Context, tx pgx.Tx, householdID, sourceID str
 }
 
 func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
-	candidates, err := p.findMatches(ctx, householdID, sourceID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant, validation.DateKnown)
+	candidates, err := p.findMatches(ctx, householdID, sourceID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant)
 	if err != nil {
 		return err
 	}
@@ -243,7 +243,7 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 	for _, candidate := range candidates {
 		matches = append(matches, reviewdomain.LedgerMatch{ID: candidate.ID, Score: candidate.Score})
 	}
-	if strong := reviewdomain.StrongLedgerMatch(matches); strong != nil {
+	if strong := reviewdomain.StrongLedgerMatch(matches); strong != nil && validation.DateKnown {
 		for _, candidate := range candidates {
 			if candidate.ID == strong.ID {
 				return p.linkReceipt(ctx, documentID, householdID, sourceID, candidate, value, model, validation)
@@ -313,10 +313,7 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) findMatches(ctx context.Context, householdID, sourceID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
-	if !dateKnown {
-		return nil, nil
-	}
+func (p *Processor) findMatches(ctx context.Context, householdID, sourceID, transactionType, amount string, transactionAt time.Time, merchant string) ([]matchCandidate, error) {
 	matches, err := reviewdomain.FindLedgerMatches(ctx, p.pool, reviewdomain.LedgerMatchQuery{HouseholdID: householdID, Type: transactionType, AmountIDR: amount, At: transactionAt, Merchant: merchant, ExcludeSourceID: sourceID})
 	if err != nil {
 		return nil, err

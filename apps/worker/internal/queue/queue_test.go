@@ -141,7 +141,7 @@ func TestFinalizeContextOutlivesACancelledWorker(t *testing.T) {
 }
 
 func TestDeterministicJobsNeverShareALaneWithModelCalls(t *testing.T) {
-	deterministic := []string{"GENERATE_CYCLE_RESIDUAL_REVIEW", "FETCH_TELEGRAM_IMAGE", "FINALIZE_TELEGRAM_MEDIA_GROUP", "PROJECT_TELEGRAM_REVIEW"}
+	deterministic := []string{"GENERATE_CYCLE_RESIDUAL_REVIEW", "FETCH_TELEGRAM_IMAGE", "PROJECT_TELEGRAM_REVIEW"}
 	for _, jobType := range deterministic {
 		if got := classifyLane(jobType); got != "DETERMINISTIC" {
 			t.Errorf("%s lane = %s", jobType, got)
