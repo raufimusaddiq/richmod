@@ -15,6 +15,24 @@ func TestEmailAmountSupportsIndonesianFormatting(t *testing.T) {
 	if !EmailAmountSupports("54000", "Transaksi IDR 54.000") {
 		t.Fatal("a currency prefix must not hide the amount")
 	}
+	if EmailAmountSupports("125000050", "Pembayaran Rp1.250.000,50 berhasil") {
+		t.Fatal("a non-zero decimal part must not support a whole IDR amount")
+	}
+	if EmailAmountSupports("1250000", "Pembayaran Rp1.250.000,50 berhasil") {
+		t.Fatal("a non-zero decimal part must not support the integer part")
+	}
+	if !EmailAmountSupports("1250000", "Pembayaran Rp1.250.000,00 berhasil") {
+		t.Fatal("a zero decimal part with an Indonesian separator must support the amount")
+	}
+	if !EmailAmountSupports("1250000", "Transaksi IDR 1,250,000.00") {
+		t.Fatal("an English formatted amount must support the amount")
+	}
+	if !EmailAmountSupports("50000", "Transaksi Rp50.000") {
+		t.Fatal("a three-digit thousand group must not be read as a decimal part")
+	}
+	if EmailAmountSupports("15", "Transaksi Rp 1.5") {
+		t.Fatal("a short non-zero decimal part must not support a whole IDR amount")
+	}
 }
 
 func TestEmailTimePlausibleRejectsShiftedOffsets(t *testing.T) {

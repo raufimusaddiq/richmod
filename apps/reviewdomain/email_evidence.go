@@ -25,10 +25,13 @@ func EmailAmountSupports(amount string, texts ...string) bool {
 
 func normalizeIndonesianNumber(raw string) string {
 	raw = strings.TrimSpace(raw)
-	for _, suffix := range []string{",00", ",0", ".00"} {
-		if strings.HasSuffix(raw, suffix) {
-			raw = strings.TrimSuffix(raw, suffix)
-			break
+	if i := strings.LastIndexAny(raw, ".,"); i >= 0 {
+		fraction := raw[i+1:]
+		if len(fraction) > 0 && len(fraction) <= 2 && strings.Trim(fraction, "0123456789") == "" {
+			if strings.Trim(fraction, "0") != "" {
+				return ""
+			}
+			raw = raw[:i]
 		}
 	}
 	var out strings.Builder
