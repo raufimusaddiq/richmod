@@ -9,16 +9,15 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.T) {
+func TestAgentRecordTransactionRecordsSimilarExpenseWithDuplicateReview(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "no-implicit-correction")
-	var categoryID string
+	var categoryID, existingID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining') RETURNING id`, f.householdID).Scan(&categoryID))
-	_, err := f.pool.Exec(ctx, `
+	mustAgentTest(t, f.pool.QueryRow(ctx, `
 		INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,counterparty_name,description,created_by_user_id,confirmed_at)
-		VALUES($1,'EXPENSE','CONFIRMED',83000,'IDR',now()-interval '1 day',$2,'Gacoan','makan kemarin',$3,now()-interval '1 day')`, f.householdID, categoryID, f.userID)
-	mustAgentTest(t, err)
+		VALUES($1,'EXPENSE','CONFIRMED',83000,'IDR',now()-interval '1 day',$2,'Gacoan','makan kemarin',$3,now()-interval '1 day') RETURNING id`, f.householdID, categoryID, f.userID).Scan(&existingID))
 
 	p := NewProcessor(f.pool, nil)
 	f.state.Update.Message.Text = "Gacoan 83000 hari ini"
@@ -38,14 +37,15 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 		"category_confidence": 1.0,
 	}, gateway.Metadata{Model: "test-model"})
 	mustAgentTest(t, err)
-	if synthesize || result.Status != "EDIT_CONFIRMATION_REQUIRED" || result.Mutation["action"] != "POSSIBLE_EXISTING_TRANSACTION" {
+	if synthesize || result.Status != "NEEDS_REVIEW" {
 		t.Fatalf("unexpected record result: synthesize=%v result=%#v", synthesize, result)
 	}
-	var transactions, pendingCorrections int
+	var transactions, duplicateReviews int
+	var carried bool
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND type='EXPENSE' AND amount=83000 AND lower(COALESCE(counterparty_name,''))='gacoan'`, f.householdID).Scan(&transactions))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING'`, f.householdID, f.chatID, f.chatID).Scan(&pendingCorrections))
-	if transactions != 1 || pendingCorrections != 1 {
-		t.Fatalf("possible duplicate bypassed explicit correction choice: transactions=%d pending=%d", transactions, pendingCorrections)
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*),COALESCE(bool_or(decision->'knownFacts'->'prior_match_transaction_ids' ? $2),false) FROM review_item WHERE household_id=$1 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, existingID).Scan(&duplicateReviews, &carried))
+	if transactions != 2 || duplicateReviews != 1 || !carried {
+		t.Fatalf("similar expense was not recorded for review: transactions=%d duplicate_reviews=%d carried=%v", transactions, duplicateReviews, carried)
 	}
 }
 

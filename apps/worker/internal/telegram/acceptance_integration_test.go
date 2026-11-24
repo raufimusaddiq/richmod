@@ -134,7 +134,7 @@ func runIR04ComplexTransaction(t *testing.T, categorySlug, wantStatus string, wa
 	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-drink')`, f.householdID)
 	mustAgentTest(t, err)
 	f.update.Message.MessageID = 77
-	f.update.Message.Text = "I paid twenty five thousand for lunch today"
+	f.update.Message.Text = "I paid 25k for lunch today"
 	payload, err := json.Marshal(f.update)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)

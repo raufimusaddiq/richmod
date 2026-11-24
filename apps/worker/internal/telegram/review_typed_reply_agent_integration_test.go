@@ -193,8 +193,18 @@ func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 
 func TestTypedAmountReplyRecordsScreenshotRow(t *testing.T) {
 	t.Parallel()
+	runTypedAmountReply(t, "typed-amount", "34000", "34000")
+}
+
+func TestTypedAmountReplyAcceptsShorthand(t *testing.T) {
+	t.Parallel()
+	runTypedAmountReply(t, "typed-amount-shorthand", "50rb", "50000")
+}
+
+func runTypedAmountReply(t *testing.T, label, reply, wantAmount string) {
+	t.Helper()
 	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "typed-amount")
+	f := newAgentIntegrationFixture(t, label)
 	var categoryID, imageSourceID, attachmentID, documentID, proposalID, itemID, reviewID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Groceries','groceries') RETURNING id`, f.householdID).Scan(&categoryID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.householdID, fmt.Sprintf("typed-amount-%d", testsupport.UniqueStamp()), []byte("image")).Scan(&imageSourceID))
@@ -211,11 +221,11 @@ func TestTypedAmountReplyRecordsScreenshotRow(t *testing.T) {
 	mustAgentTest(t, tx.Commit(ctx))
 
 	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM"}`})
-	sendTypedReviewReply(t, ctx, f, p, reviewID, "34000", true)
+	sendTypedReviewReply(t, ctx, f, p, reviewID, reply, true)
 
 	var amount, status, itemStatus string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT COALESCE(t.amount::text,''),COALESCE(t.status,''),ri.status FROM review_item ri LEFT JOIN transaction_evidence te ON te.metadata_json->>'proposal_id'=ri.proposal_id::text LEFT JOIN transaction t ON t.id=te.transaction_id WHERE ri.id=$1 LIMIT 1`, itemID).Scan(&amount, &status, &itemStatus))
-	if !strings.HasPrefix(amount, "34000") || itemStatus != "RESOLVED" {
+	if !strings.HasPrefix(amount, wantAmount) || itemStatus != "RESOLVED" {
 		t.Fatalf("typed amount was not recorded: amount=%q transaction=%s review=%s", amount, status, itemStatus)
 	}
 }

@@ -126,8 +126,12 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	if residualInt.Sign() <= 0 {
 		result.Allocated = "0"
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
+	resolved, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID)
+	if err != nil {
 		return result, err
+	}
+	if resolved.RowsAffected() != 1 {
+		return result, ErrCycleCaseNotFound
 	}
 	if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
 		return result, err
@@ -140,6 +144,42 @@ const (
 	CycleReopenTransactionRecorded = "TRANSACTION_RECORDED"
 	CycleReopenTransactionVoided   = "TRANSACTION_VOIDED"
 )
+
+func CloseCyclesForVoidedSalary(ctx context.Context, tx pgx.Tx, householdID, transactionID, actorID string) error {
+	rows, err := tx.Query(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($3,'')::uuid,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('reason','SALARY_VOIDED'),updated_at=now()
+		FROM cycle_residual_case c
+		WHERE ri.cycle_residual_case_id=c.id AND ri.household_id=$1 AND c.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN')
+		  AND (c.start_salary_event_id IN (SELECT id FROM salary_event WHERE household_id=$1 AND transaction_id=$2::uuid)
+		    OR c.end_salary_event_id IN (SELECT id FROM salary_event WHERE household_id=$1 AND transaction_id=$2::uuid))
+		RETURNING ri.id::text,ri.cycle_residual_case_id::text`, householdID, transactionID, actorID)
+	if err != nil {
+		return err
+	}
+	type closedCycle struct{ itemID, caseID string }
+	var closed []closedCycle
+	for rows.Next() {
+		var v closedCycle
+		if err := rows.Scan(&v.itemID, &v.caseID); err != nil {
+			rows.Close()
+			return err
+		}
+		closed = append(closed, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, v := range closed {
+		if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN')`, v.itemID, householdID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,CASE WHEN $2='' THEN 'SYSTEM' ELSE 'USER' END,NULLIF($2,'')::uuid,'RESOLVE_REVIEW','review_item',$3,jsonb_build_object('action','NO_LONGER_APPLICABLE','reason','SALARY_VOIDED','cycle_residual_case_id',$4::text))`, householdID, actorID, v.itemID, v.caseID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
 	return RefreshOpenCycleResidualsFor(ctx, tx, householdID, at, actorID, CycleReopenTransactionRecorded)

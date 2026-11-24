@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -46,13 +48,11 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		result.Facts = map[string]any{"hint": "the document you just sent is already recorded; correct that transaction instead, or ask the user for what differs"}
 		return result, true, nil
 	}
+	var duplicateIDs []string
 	if value.Type == "EXPENSE" {
-		token, err := p.offerExistingEditForTurn(ctx, state, value, &result)
+		duplicateIDs, err = p.recentDuplicateExpenseIDs(ctx, state.HouseholdID, state.SourceEventID, value.Amount, value.Merchant)
 		if err != nil {
 			return result, true, err
-		}
-		if token != "" {
-			return result, false, nil
 		}
 	}
 
@@ -119,7 +119,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	if !decision.DateSupported {
 		state.ResidualDimensions = appendIfMissing(state.ResidualDimensions, "transaction_at")
 	}
-	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil)
+	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil) && len(duplicateIDs) == 0
 	proposalStatus, transactionStatus := "NEEDS_REVIEW", "NEEDS_REVIEW"
 	if autoConfirm {
 		proposalStatus, transactionStatus = "ACCEPTED", "CONFIRMED"
@@ -177,16 +177,26 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		}
 	}
 	if !autoConfirm {
-		reviewType := "AMBIGUOUS_CATEGORY"
-		if contains(state.ResidualDimensions, "transaction_at") && contains(state.ResidualDimensions, "category") {
-			reviewType = "TRANSACTION_FACTS_MISSING"
-		} else if contains(state.ResidualDimensions, "transaction_at") {
-			reviewType = "MISSING_TRANSACTION_DATE"
-		} else if value.Merchant == "" {
-			reviewType = "UNKNOWN_MERCHANT"
-		}
-		if err = EnqueueReviewRequest(ctx, tx, transactionID, reviewType, state.Update.Message.Chat.ID, state.Update.Message.MessageID, ReviewQuestion(value.Amount, value.Merchant)); err != nil {
-			return result, true, err
+		if len(duplicateIDs) > 0 {
+			duplicateDecision, _ := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
+			duplicateDecision.KnownFacts["prior_match_transaction_ids"] = duplicateIDs
+			duplicateDecision.Provenance = map[string]any{"pipeline": "telegram-agent", "possible_duplicate": true}
+			duplicateDecision.WhyNotAuto = "a matching expense was already recorded in the last 7 days"
+			if err = EnqueueReviewRequest(ctx, tx, transactionID, "POSSIBLE_DUPLICATE", state.Update.Message.Chat.ID, state.Update.Message.MessageID, "Transaksi mirip sudah ada dalam 7 hari terakhir. Pilih gabungkan, catat sebagai baru, atau abaikan.", duplicateDecision); err != nil {
+				return result, true, err
+			}
+		} else {
+			reviewType := "AMBIGUOUS_CATEGORY"
+			if contains(state.ResidualDimensions, "transaction_at") && contains(state.ResidualDimensions, "category") {
+				reviewType = "TRANSACTION_FACTS_MISSING"
+			} else if contains(state.ResidualDimensions, "transaction_at") {
+				reviewType = "MISSING_TRANSACTION_DATE"
+			} else if value.Merchant == "" {
+				reviewType = "UNKNOWN_MERCHANT"
+			}
+			if err = EnqueueReviewRequest(ctx, tx, transactionID, reviewType, state.Update.Message.Chat.ID, state.Update.Message.MessageID, ReviewQuestion(value.Amount, value.Merchant)); err != nil {
+				return result, true, err
+			}
 		}
 	}
 	categoryName := ""
@@ -212,7 +222,11 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		"status":         transactionStatus,
 	}
 	if !autoConfirm {
-		result.Review = map[string]any{"required": true, "reason": "TRANSACTION_NEEDS_REVIEW", "card_in_chat": true}
+		reason := "TRANSACTION_NEEDS_REVIEW"
+		if len(duplicateIDs) > 0 {
+			reason = "POSSIBLE_DUPLICATE"
+		}
+		result.Review = map[string]any{"required": true, "reason": reason, "card_in_chat": true}
 	}
 	if err = p.queueTurnReplyTx(ctx, tx, state, result); err != nil {
 		return result, true, err
@@ -221,4 +235,29 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, err
 	}
 	return result, false, nil
+}
+
+func (p *Processor) recentDuplicateExpenseIDs(ctx context.Context, householdID, sourceEventID, amount, merchant string) ([]string, error) {
+	if strings.TrimSpace(merchant) == "" {
+		return nil, nil
+	}
+	rows, err := p.pool.Query(ctx, `SELECT t.id::text FROM transaction t
+		WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.type='EXPENSE' AND t.amount=$2::numeric
+		  AND t.transaction_at>=now()-interval '7 days'
+		  AND (t.counterparty_name ILIKE '%'||$3::text||'%' OR t.description ILIKE '%'||$3::text||'%')
+		  AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.transaction_id=t.id AND te.source_event_id::text=$4)
+		ORDER BY t.transaction_at DESC`, householdID, amount, merchant, sourceEventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

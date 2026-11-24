@@ -14,9 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/financialmath"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -501,8 +501,8 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "unable to calculate wealth summary")
 			return
 		}
-		change := subtract(latest["netWorthIdr"].(string), previous["netWorthIdr"].(string))
-		out["previous"], out["netWorthChangeIdr"], out["confirmedCashflowIdr"], out["valuationAndOtherChangeIdr"] = previous, change, cashflow.Surplus, subtract(change, cashflow.Surplus)
+		change := financialmath.Subtract(latest["netWorthIdr"].(string), previous["netWorthIdr"].(string))
+		out["previous"], out["netWorthChangeIdr"], out["confirmedCashflowIdr"], out["valuationAndOtherChangeIdr"] = previous, change, cashflow.Surplus, financialmath.Subtract(change, cashflow.Surplus)
 	}
 	jsonOut(w, 200, out)
 }
@@ -522,17 +522,17 @@ func (h *Handler) snapshotSummary(r *http.Request, id string, at time.Time) (map
 		}
 		group := map[string]string{"usageRole": role, "valueIdr": amount}
 		if side == "ASSET" {
-			assets = add(assets, amount)
+			assets = financialmath.Add(assets, amount)
 			assetGroups = append(assetGroups, group)
 		} else {
-			liabilities = add(liabilities, amount)
+			liabilities = financialmath.Add(liabilities, amount)
 			liabilityGroups = append(liabilityGroups, group)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": id, "observedAt": at, "assetTotalIdr": assets, "liabilityTotalIdr": liabilities, "netWorthIdr": subtract(assets, liabilities), "assets": assetGroups, "liabilities": liabilityGroups}, nil
+	return map[string]any{"id": id, "observedAt": at, "assetTotalIdr": assets, "liabilityTotalIdr": liabilities, "netWorthIdr": financialmath.Subtract(assets, liabilities), "assets": assetGroups, "liabilities": liabilityGroups}, nil
 }
 
 func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
@@ -545,20 +545,31 @@ func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "limit must be between 1 and 100")
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `WITH cycles AS (SELECT se.id start_id,se.pay_date cycle_start,lead(se.id) OVER (ORDER BY se.pay_date,se.id) end_id,lead(se.pay_date) OVER (ORDER BY se.pay_date,se.id) cycle_end FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND se.status='CONFIRMED' AND ss.is_primary) SELECT start_id,end_id,cycle_start,cycle_end FROM cycles WHERE cycle_end IS NOT NULL ORDER BY cycle_start DESC,start_id DESC LIMIT $2`, p.HouseholdID, limit)
+	rows, err := h.pool.Query(r.Context(), `WITH anchors AS (SELECT DISTINCT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary), cycles AS (SELECT pay_date cycle_start,lead(pay_date) OVER (ORDER BY pay_date) cycle_end FROM anchors) SELECT cycle_start,cycle_end FROM cycles WHERE cycle_end IS NOT NULL ORDER BY cycle_start DESC LIMIT $2`, p.HouseholdID, limit)
 	if err != nil {
 		fail(w, 500, "unable to calculate cycle recaps")
 		return
 	}
-	defer rows.Close()
-	out := make([]map[string]any, 0)
+	type cycleBound struct{ start, end time.Time }
+	bounds := make([]cycleBound, 0)
 	for rows.Next() {
-		var startID, endID string
-		var start, end time.Time
-		if rows.Scan(&startID, &endID, &start, &end) != nil {
+		var value cycleBound
+		if rows.Scan(&value.start, &value.end) != nil {
+			rows.Close()
 			fail(w, 500, "unable to calculate cycle recaps")
 			return
 		}
+		bounds = append(bounds, value)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		fail(w, 500, "unable to calculate cycle recaps")
+		return
+	}
+	rows.Close()
+	out := make([]map[string]any, 0)
+	for _, bound := range bounds {
+		start, end := bound.start, bound.end
 		var income, expense, refund, savings string
 		err = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='REFUND'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < ($3::date::timestamp AT TIME ZONE 'Asia/Jakarta')`, p.HouseholdID, start.Format("2006-01-02"), end.Format("2006-01-02")).Scan(&income, &expense, &refund, &savings)
 		if err != nil {
@@ -571,7 +582,7 @@ func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		expense, surplus := cashflow.NetExpense, cashflow.Surplus
-		residual := subtract(surplus, savings)
+		residual := financialmath.Subtract(surplus, savings)
 		destinations, attributions := make([]map[string]string, 0), make([]map[string]string, 0)
 		destinationRows, e := h.pool.Query(r.Context(), `SELECT COALESCE(a.id::text,''),COALESCE(a.name,'Unlinked'),sum(t.amount)::text FROM transaction t LEFT JOIN wealth_account a ON a.id=t.related_wealth_account_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.transaction_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.transaction_at < ($3::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.type='TRANSFER' AND t.purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') GROUP BY a.id,a.name ORDER BY a.name,a.id`, p.HouseholdID, start.Format("2006-01-02"), end.Format("2006-01-02"))
 		if e != nil {
@@ -595,7 +606,7 @@ func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
 		destinationRows.Close()
 		status := "NOT_REVIEWED"
 		var caseID, basisIncome, basisExpense, basisSavings, allocated string
-		e = h.pool.QueryRow(r.Context(), `SELECT c.id::text,c.basis_income_idr::text,c.basis_expense_idr::text,c.basis_savings_idr::text,COALESCE(sum(a.amount_idr),0)::text FROM cycle_residual_case c LEFT JOIN cycle_residual_allocation a ON a.cycle_residual_case_id=c.id WHERE c.household_id=$1 AND c.start_salary_event_id=$2 AND c.end_salary_event_id=$3 GROUP BY c.id`, p.HouseholdID, startID, endID).Scan(&caseID, &basisIncome, &basisExpense, &basisSavings, &allocated)
+		e = h.pool.QueryRow(r.Context(), `SELECT c.id::text,c.basis_income_idr::text,c.basis_expense_idr::text,c.basis_savings_idr::text,COALESCE((SELECT sum(a.amount_idr) FROM cycle_residual_allocation a WHERE a.cycle_residual_case_id=c.id),0)::text FROM cycle_residual_case c WHERE c.household_id=$1 AND c.cycle_start=$2::date AND c.cycle_end=$3::date ORDER BY c.created_at DESC,c.id DESC LIMIT 1`, p.HouseholdID, start.Format("2006-01-02"), end.Format("2006-01-02")).Scan(&caseID, &basisIncome, &basisExpense, &basisSavings, &allocated)
 		if e == nil {
 			allocationRows, x := h.pool.Query(r.Context(), `SELECT a.wealth_account_id::text,w.name,a.amount_idr::text FROM cycle_residual_allocation a JOIN wealth_account w ON w.id=a.wealth_account_id WHERE a.cycle_residual_case_id=$1 ORDER BY w.name,w.id,a.id`, caseID)
 			if x != nil {
@@ -635,10 +646,6 @@ func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, map[string]any{"cycleStart": start.Format("2006-01-02"), "cycleEnd": end.Format("2006-01-02"), "income": income, "expense": expense, "cashflowSurplus": surplus, "savingsAllocated": savings, "rawResidual": residual, "savingsByDestination": destinations, "residualAttributions": attributions, "residualReviewStatus": status})
-	}
-	if rows.Err() != nil {
-		fail(w, 500, "unable to calculate cycle recaps")
-		return
 	}
 	jsonOut(w, 200, out)
 }
@@ -722,7 +729,7 @@ func (h *Handler) listSnapshots(w http.ResponseWriter, r *http.Request, househol
 				return
 			}
 			item["assetTotalIdr"], item["liabilityTotalIdr"] = assets, liabilities
-			item["netWorthIdr"] = subtract(assets, liabilities)
+			item["netWorthIdr"] = financialmath.Subtract(assets, liabilities)
 		} else if rows.Scan(&id, &observed, &created) != nil {
 			fail(w, 500, "unable to list snapshots")
 			return
@@ -924,18 +931,6 @@ func trim(value *string) *string {
 	}
 	trimmed := strings.TrimSpace(*value)
 	return &trimmed
-}
-
-func add(a, b string) string {
-	x, _ := new(big.Int).SetString(a, 10)
-	y, _ := new(big.Int).SetString(b, 10)
-	return new(big.Int).Add(x, y).String()
-}
-
-func subtract(a, b string) string {
-	x, _ := new(big.Int).SetString(a, 10)
-	y, _ := new(big.Int).SetString(b, 10)
-	return new(big.Int).Sub(x, y).String()
 }
 
 func decode(r *http.Request, value any) error {
