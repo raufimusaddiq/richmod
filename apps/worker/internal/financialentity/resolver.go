@@ -20,40 +20,41 @@ const (
 type Resolution struct {
 	ID     string
 	Status Status
+	Exact  bool
 }
 
 var lowInformation = map[string]bool{
-	"account": true,
+	"account":   true,
 	"autodebit": true,
-	"bank": true,
-	"payment": true,
-	"rekening": true,
-	"transfer": true,
-	"tabungan": true,
-	"dana": true,
-	"dompet": true,
+	"bank":      true,
+	"payment":   true,
+	"rekening":  true,
+	"transfer":  true,
+	"tabungan":  true,
+	"dana":      true,
+	"dompet":    true,
 	"reksadana": true,
-	"saham": true,
-	"emas": true,
+	"saham":     true,
+	"emas":      true,
 	"investasi": true,
-	"deposito": true,
-	"digital": true,
-	"gaji": true,
-	"utama": true,
-	"bersama": true,
-	"wallet": true,
-	"savings": true,
-	"saving": true,
-	"fund": true,
-	"gold": true,
-	"crypto": true,
-	"loan": true,
-	"pinjaman": true,
-	"kartu": true,
-	"kredit": true,
-	"debit": true,
-	"virtual": true,
-	"ewallet": true,
+	"deposito":  true,
+	"digital":   true,
+	"gaji":      true,
+	"utama":     true,
+	"bersama":   true,
+	"wallet":    true,
+	"savings":   true,
+	"saving":    true,
+	"fund":      true,
+	"gold":      true,
+	"crypto":    true,
+	"loan":      true,
+	"pinjaman":  true,
+	"kartu":     true,
+	"kredit":    true,
+	"debit":     true,
+	"virtual":   true,
+	"ewallet":   true,
 }
 
 func Normalize(value string) string {
@@ -111,7 +112,7 @@ func resolve(ctx context.Context, tx pgx.Tx, query, household, hint string) (Res
 	}
 	if len(exact) == 1 {
 		for id := range exact {
-			return Resolution{ID: id, Status: Resolved}, nil
+			return Resolution{ID: id, Status: Resolved, Exact: true}, nil
 		}
 	}
 	if len(exact) > 1 {

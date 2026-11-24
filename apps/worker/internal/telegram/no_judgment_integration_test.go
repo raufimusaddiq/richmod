@@ -20,7 +20,7 @@ func TestTelegramRecordsExpenseWithoutAJudgmentPlane(t *testing.T) {
 	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-drink')`, f.householdID)
 	mustAgentTest(t, err)
 	f.update.Message.MessageID = 79
-	f.update.Message.Text = "jam 3 sore"
+	f.update.Message.Text = "cilok 20rb jam 3 sore"
 	payload, err := json.Marshal(f.update)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)

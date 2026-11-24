@@ -46,6 +46,7 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 			BankName      string `json:"bankName"`
 			SenderAddress string `json:"senderAddress"`
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			jsonError(w, 400, "invalid listener request")
 			return
@@ -97,6 +98,7 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		SenderAddress *string `json:"senderAddress"`
 		Active        *bool   `json:"active"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if json.NewDecoder(r.Body).Decode(&in) != nil || (in.BankName == nil && in.SenderAddress == nil && in.Active == nil) {
 		jsonError(w, 400, "listener change is required")
 		return

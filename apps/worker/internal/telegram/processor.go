@@ -256,41 +256,6 @@ func stringPtr(v any) *string {
 	return &s
 }
 
-func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction, enqueueMessage bool) (string, error) {
-	if value.Merchant == "" {
-		return "", nil
-	}
-	var transactionID, label string
-	var existingAt time.Time
-	err := p.pool.QueryRow(ctx, `SELECT id,COALESCE(counterparty_name,description,'Transaksi'),transaction_at FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2 AND transaction_at>=now()-interval '7 days' AND (counterparty_name ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%') ORDER BY transaction_at DESC LIMIT 1`, householdID, value.Amount, value.Merchant).Scan(&transactionID, &label, &existingAt)
-	if errors.Is(err, pgx.ErrNoRows) || existingAt.Equal(value.TransactionAt) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback(ctx)
-	var token string
-	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=NULL,proposed_description=NULL,proposed_amount=NULL,proposed_merchant=NULL,confirmation_token=gen_random_uuid(),expires_at=now()+interval '30 minutes',created_at=now() RETURNING confirmation_token::text`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, value.TransactionAt).Scan(&token); err != nil {
-		return "", err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil {
-		return "", err
-	}
-	message := fmt.Sprintf("Aku menemukan %s · Rp%s. Mau ubah tanggalnya ke %s?", label, FormatIDR(value.Amount), formatIDDateTime(value.TransactionAt))
-	if enqueueMessage {
-		err = enqueueReplyMarkup(ctx, tx, update, message, pendingActionMarkup(token))
-	}
-	if err != nil {
-		return "", err
-	}
-	return token, tx.Commit(ctx)
-}
-
 func (p *Processor) processPendingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool, token string) (bool, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

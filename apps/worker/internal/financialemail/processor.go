@@ -135,8 +135,9 @@ func validateOutput(out output) error {
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, financialSource, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
 	var defaultWealthConfigured bool
+	var receivedAt time.Time
 	var capabilities []string
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.default_wealth_account_id IS NOT NULL,fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id AND fs.household_id=s.household_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &defaultWealthConfigured, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.default_wealth_account_id IS NOT NULL,fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,''),s.received_at FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id AND fs.household_id=s.household_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &defaultWealthConfigured, &capabilities, &sourceStatus, &extractionStatus, &extractionModel, &receivedAt)
 	if err != nil {
 		return err
 	}
@@ -190,7 +191,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		if !allowed[v.Kind] {
 			v.Kind = "NON_ACTIONABLE"
 		}
-		if err := p.persist(ctx, tx, household, payload.SourceEventID, financialSource, defaultWealth, defaultWealthConfigured, i, v); err != nil {
+		if err := p.persist(ctx, tx, household, payload.SourceEventID, financialSource, defaultWealth, defaultWealthConfigured, i, v, emailEvidence{subject: subject, body: body, receivedAt: receivedAt}); err != nil {
 			return err
 		}
 	}
@@ -234,7 +235,13 @@ func (p *Processor) stagedOutput(ctx context.Context, source string) (output, er
 	}
 	return out, rows.Err()
 }
-func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, financialSource, defaultWealth string, defaultWealthConfigured bool, ordinal int, v observation) error {
+
+type emailEvidence struct {
+	subject, body string
+	receivedAt    time.Time
+}
+
+func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, financialSource, defaultWealth string, defaultWealthConfigured bool, ordinal int, v observation, evidence emailEvidence) error {
 	if reference := normalizeProviderReference(v.ProviderReference); reference != "" {
 		v.ProviderReference = &reference
 	}
@@ -280,7 +287,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','ACCEPT_WEALTH_OBSERVATION','wealth_observation',$2,jsonb_build_object('resolved_wealth_account_id',$3::uuid,'observed_value_idr',$4::text,'financial_email_observation_id',$5::uuid))`, household, observationID, wealth, *v.ValueIDR, id)
 		return err
 	case "CASH_MOVEMENT":
-		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
+		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v, evidence)
 	default:
 		return p.review(ctx, tx, household, source, id)
 	}
@@ -424,9 +431,12 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			}
 		}
 	} else {
-		plan.account, err = financialentity.Account(ctx, tx, household, fundingHint)
-		if err != nil {
-			return plan, err
+		resolved, resolveErr := financialentity.ResolveAccount(ctx, tx, household, fundingHint)
+		if resolveErr != nil {
+			return plan, resolveErr
+		}
+		if resolved.Status == financialentity.Resolved && resolved.Exact {
+			plan.account = resolved.ID
 		}
 	}
 	hint := value(v.ProviderAccountHint)
@@ -544,7 +554,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	return plan, nil
 }
 
-func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, defaultWealthConfigured bool, v observation) error {
+func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, defaultWealthConfigured bool, v observation, evidence emailEvidence) error {
 	if positiveWholeMoney(v.AmountIDR) {
 		if err := reviewdomain.LockLedgerEvent(ctx, tx, household, strings.TrimSpace(*v.AmountIDR)); err != nil {
 			return err
@@ -569,6 +579,9 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 		return p.review(ctx, tx, household, source, id)
 	}
 	if plan.existing == "" {
+		if !reviewdomain.EmailAmountSupports(plan.amount, evidence.subject, evidence.body) || !reviewdomain.EmailTimePlausible(plan.at, evidence.receivedAt) {
+			return p.review(ctx, tx, household, source, id)
+		}
 		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at,auto_confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,NULLIF($6,'')::uuid,now(),now()) RETURNING id`, household, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth).Scan(&plan.existing); err != nil {
 			return err
 		}

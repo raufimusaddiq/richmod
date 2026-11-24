@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-124**, in the heading form `## ADR-123: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-128**, in the heading form `## ADR-128: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -133,7 +133,11 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-120](#adr-120-retire-system-one-jev-and-harden-the-generative-ai-pipeline) | Retire System One (Jev) and harden the generative AI pipeline | Accepted |
 | [ADR-121](#adr-121-financial-safety-guards-for-document-auto-confirm-evidence-retention-and-review-actions) | Financial safety guards for document auto-confirm, evidence retention and review actions | Accepted |
 | [ADR-122](#adr-122-gateway-outage-deferral-deterministic-job-lane-and-graceful-worker-shutdown) | Gateway-outage deferral, deterministic job lane and graceful worker shutdown | Accepted |
-| [ADR-123](#adr-123-dedicated-backup-storage-pre-migration-backups-and-pinned-workflow-actions) | Dedicated backup storage, pre-migration backups and pinned workflow actions | Accepted |
+| [ADR-123](#adr-123-unrepairable-document-facts-stay-terminal-or-reviewable) | Unrepairable document facts stay terminal or reviewable | Accepted |
+| [ADR-124](#adr-124-voiding-a-salary-detaches-its-cycle-and-unmerging-retains-evidence) | Voiding a salary detaches its cycle, and unmerging retains evidence | Accepted |
+| [ADR-125](#adr-125-cross-check-model-email-facts-before-auto-confirm-and-bind-entities-on-exact-matches-only) | Cross-check model email facts before auto-confirm and bind entities on exact matches only | Accepted |
+| [ADR-126](#adr-126-telegram-records-similar-expenses-and-validates-model-facts-against-user-text) | Telegram records similar expenses and validates model facts against user text | Accepted |
+| [ADR-127](#adr-127-dedicated-backup-storage-pre-migration-backups-and-pinned-workflow-actions) | Dedicated backup storage, pre-migration backups and pinned workflow actions | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -581,7 +585,7 @@ Scope: the deterministic gate before a model-extracted transaction may be CONFIR
 - **Ambiguity gate**: only an affirmative negative clears the inverted ambiguity question. An exact merchant-category match, decided by deterministic policy without asking the plane, is exempt. (`transaction_decision.go`)
 - **Unstated dates**: a user-stated date always qualifies; otherwise only the message's own send time does, and a model-supplied date is never promoted. (`acceptableTransactionTime`)
 - **Send time survives retry**: `turnTime` prefers the message timestamp over the processing clock, so a retried turn keeps the household-local day the household actually sent it. (`turnTime`)
-- **Reply parsing refuses to guess**: `parseBankFactsReply` rejects any amount containing `.` or `,` (ambiguous IDR) rather than reshaping it. `parseReplyDate` rejects dates whose day or month changed, since `time.Date` normalizes 31/02 into March. (`parseBankFactsReply`, `parseReplyDate`)
+- **Reply parsing refuses to guess**: `parseBankFactsReply` rejects any amount containing `.` or `,` (ambiguous IDR) rather than reshaping it. `parseDateValue` rejects dates whose day or month changed, since `time.Date` normalizes 31/02 into March. (`parseBankFactsReply`, `parseDateValue`)
 - **Category list sent once**: the household category list goes in `turn_context` `allowed_category_slugs`, not as an enum in every tool schema. Go validates the slug (`INVALID_CATEGORY`). (`tool_registry.go`)
 - **Transfer purpose is Go-owned**: the transfer tool contract omits purpose, so the model supplies only arbitrary facts. A missing destination hint is valid because INTERNAL_TRANSFER has none. Go derives the purpose from the resolved Wealth Account (liability is DEBT_PRINCIPAL_PAYMENT, savings role SAVINGS_TRANSFER, investment role INVESTMENT_CONTRIBUTION); any other account answers TRANSFER_PURPOSE_REQUIRED and nothing is written. A refusal is not a completed side effect. (`deriveTransferPurpose`, `isNonMutatingRefusal`)
 - **Stored turns and refs**: bookkeeping rows (`agentBookkeepingTools`) give opaque refs a durable owner and are never replayed. Analytics refs like `category.3` are turn-scoped and not replayed across turns, while server-bound transaction and review refs stay. (`turn_store.go`, `expiredAnalyticsRef`)
@@ -1251,7 +1255,44 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 
 **Consequence:** the `job.lane` check constraint and Go `classifyLane` gain `DETERMINISTIC`; the admin console lists the lane; the worker runs two more loops (the 16-connection pool floor still holds). Gateway streaming now accumulates `function_call_arguments.delta` and `output_item.done` and fills gaps from `response.completed`; non-2xx responses are classified before the 2 MiB body is read; a mid-body connection reset is `gateway.IsUnavailable`; `chat_completions` keeps `strict` and no longer replays tool results twice; token and cost metadata survive a validation failure; and transport errors are classified `UNAVAILABLE`, not `HTTP_ERROR`.
 
-## ADR-123: Dedicated backup storage, pre-migration backups and pinned workflow actions
+## ADR-123: Unrepairable document facts stay terminal or reviewable
+*Accepted · 2026-11-25*
+
+**Decision:** An unpaid bill or invoice never enters model repair: `ProcessScreenshot` takes the unpaid-invoice terminal path (`failScreenshotExtraction`) before `repairExtracted`, and `payment_status` is not a repairable field, so no repair pass can turn an unpaid invoice into a paid expense. A payslip auto-confirms only when its printed gross pay is arithmetically consistent with net pay and deductions (gross absent still auto-confirms, since arithmetic cannot be checked). A receipt without a printed date still searches ledger candidates with `received_at` as the anchor, but any hit parks the receipt in the `POSSIBLE_DUPLICATE` review and is never auto-linked or merged as evidence.
+
+**Reason:** the repair pass could "fix" the very facts that made an invoice or payslip unsafe, so validated output no longer reflected the printed document; a dateless receipt skipped duplicate detection entirely.
+
+**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane.
+
+## ADR-124: Voiding a salary detaches its cycle, and unmerging retains evidence
+
+*Accepted — 2026-11-25*
+
+**Decision:** Applying a cycle residual checks that the review-item resolution update affected exactly one row and otherwise returns `ErrCycleCaseNotFound`, so a second concurrent resolution (web and Telegram) rolls back instead of inserting another allocation. Voiding a transaction whose `salary_event` is the start or end of an open `cycle_residual_case` closes that case's review item as `NO_LONGER_APPLICABLE` (`resolution_values.reason = 'SALARY_VOIDED'`, audited `RESOLVE_REVIEW`) inside the void transaction; already-resolved cases are history and are untouched. Reversing a reconciliation merge no longer deletes the copied `transaction_evidence` rows: it sets `metadata_json.link_status='REVERSED'`, and a later merge reactivates the same copy and repoints `reconciliation_merge_evidence`. Wealth cycle recaps derive anchors from `DISTINCT pay_date` like `analyticscore`, and web candidate scoring calls `reviewdomain.LedgerMatchScore`/`CompatibleMerchant` instead of keeping a second copy.
+
+**Reason:** an audit found a residual could be allocated twice when two channels answered at once, a case ending at a voided salary stayed allocatable because the refresh window excluded that pay date, and unmerging silently deleted evidence the merge had copied (cascading the merge-evidence mapping) even though evidence is never hard-deleted.
+
+**Consequence:** no migration; `transaction_evidence` gains one more `link_status` value (`REVERSED`) that active readers already exclude through the `ACTIVE` filter; a duplicate resolution surfaces as "not found/already resolved" to both web and Telegram callers; a wealth recap can no longer show a zero-length duplicate salary cycle.
+
+## ADR-125: Cross-check model email facts before auto-confirm and bind entities on exact matches only
+*Accepted - 2026-11-25*
+
+**Decision:** Both email pipelines run one shared deterministic check (`apps/reviewdomain/email_evidence.go`) before auto-confirming a model-extracted ledger fact: the whole-IDR amount must appear in the email subject or body after Indonesian formatting is normalised (`Rp`/`IDR`, spaces, thousands dots and a trailing `,00`/`,0`/`.00`), and `transaction_at` must be at or before `received_at + 10 minutes`. A failed check demotes the item to the existing review path instead of dropping it. A financial-provider cash movement also auto-applies a funding account only when the hint is an exact normalised name or alias; a single shared 3+ letter word now goes to `FINANCIAL_EMAIL_RESOLUTION`.
+
+**Reason:** A model could return an amount 100x the email or a WIB wall-clock time as UTC and the pipeline confirmed it, and a word-only entity match could bind a transfer to another household member's account.
+
+**Consequence:** Supported facts auto-confirm as before; unsupported or offset-shifted facts park in the Review Inbox with the extracted facts shown, and the household can resolve the intended account there, which learns the alias.
+
+## ADR-126: Telegram records similar expenses and validates model facts against user text
+*Accepted - 2026-11-25*
+
+**Decision:** On the Telegram single `record_transaction` path, a matching non-voided expense of the same amount and merchant within the last 7 days no longer blocks the entry or offers a date edit: the new expense is always recorded, and when a prior matching transaction exists the new row is created `NEEDS_REVIEW` with one `POSSIBLE_DUPLICATE` review whose `knownFacts.prior_match_transaction_ids` lists those transactions, so the existing merge, keep-as-new and ignore actions decide. Separately, `AmountSupported` is true only when an amount parsed from the user's own message text by `parseAmountToken` equals the model's amount, and `DateSupported` is false when `transaction_at` falls after the end of today in Asia/Jakarta; either failure parks the row in the existing `NEEDS_REVIEW` route instead of confirming it. A reply-bound `MISSING_AMOUNT` answer is parsed by `parseBankFactsAnswer` before validation, so `50rb`, `1,5jt` and `50.000` are accepted like any other amount text.
+
+**Reason:** the duplicate guard silently dropped a second real purchase or forced a date edit that lost one event, and the model could auto-confirm an amount or a future date the user never stated ("bayar listrik 1,5jt" becoming Rp15.000.000, "sepatu 25 Desember" dated in the future).
+
+**Consequence:** a genuine repeat purchase within 7 days is recorded and opens a possible-duplicate card; an amount or date the user did not state now requires review. Model facts remain untrusted input validated in Go before mutation.
+
+## ADR-127: Dedicated backup storage, pre-migration backups and pinned workflow actions
 *Accepted · 2026-11-25*
 
 **Decision:** The backup service reads `BACKUP_S3_ENDPOINT`, `BACKUP_S3_REGION`, `BACKUP_S3_BUCKET`, `BACKUP_S3_PREFIX`, `BACKUP_S3_ACCESS_KEY_ID` and `BACKUP_S3_SECRET_ACCESS_KEY` first and falls back per variable to the matching `OSS_*` value, so a dedicated versioned/object-locked repository and a backup-only key can be introduced without breaking production; `infra/deploy/release.sh` runs the `operations` backup service before the migration step, and every workflow `uses:` is pinned to a full commit SHA.

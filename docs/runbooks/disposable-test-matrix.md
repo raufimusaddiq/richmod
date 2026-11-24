@@ -164,7 +164,6 @@ POSTGRES_DB=richmod_test \
 POSTGRES_USER=richmod_test \
 POSTGRES_PASSWORD=test-only-password \
 DATABASE_URL='postgres://richmod_test:test-only-password@db:5432/richmod_test?sslmode=disable' \
-SESSION_SECRET='12345678901234567890123456789012' \
 docker compose config --quiet
 ```
 

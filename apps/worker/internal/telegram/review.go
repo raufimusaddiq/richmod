@@ -128,15 +128,45 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return false, nil
 	}
 	var amountItemID, amountProposalID, amountSourceID, amountUserID, amountRequestID, amountState, stagedAmount, amountType string
-	err = p.pool.QueryRow(ctx, `SELECT ri.id::text,p.id::text,p.source_event_id::text,ti.user_id::text,r.id::text,c.state,COALESCE(c.context_json->>'amount_idr',''),p.proposed_type
-		FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
-		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active
-		JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now()
-		AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='MISSING_AMOUNT' AND c.state IN ('AWAITING_DETAIL','AWAITING_CONFIRMATION')
-		`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID).Scan(&amountItemID, &amountProposalID, &amountSourceID, &amountUserID, &amountRequestID, &amountState, &stagedAmount, &amountType)
+	var proposalReviewID, proposalID, sourceID, documentID, userID, requestID string
+	var amountBound, payslipBound bool
+	bindTx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	item, err := bindOpenCardItem(ctx, bindTx, householdID, update, update.Message.ReplyToMessage.MessageID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		_ = bindTx.Rollback(ctx)
+		return true, err
+	}
 	if err == nil {
+		switch item.ReviewType {
+		case "MISSING_AMOUNT":
+			err = bindTx.QueryRow(ctx, `SELECT p.id::text,p.source_event_id::text,c.state,COALESCE(c.context_json->>'amount_idr',''),p.proposed_type
+				FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
+				WHERE r.id=$1 AND c.state IN ('AWAITING_DETAIL','AWAITING_CONFIRMATION')`, item.RequestID).Scan(&amountProposalID, &amountSourceID, &amountState, &stagedAmount, &amountType)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				_ = bindTx.Rollback(ctx)
+				return true, err
+			}
+			if err == nil {
+				amountItemID, amountUserID, amountRequestID, amountBound = item.ItemID, item.UserID, item.RequestID, true
+			}
+		case "PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE":
+			err = bindTx.QueryRow(ctx, `SELECT ri.proposal_id::text,COALESCE(ri.source_event_id,p.source_event_id)::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text
+				FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
+				WHERE r.id=$1 AND r.household_id=$2 AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') AND c.state='AWAITING_DATE'`, item.RequestID, householdID).Scan(&proposalID, &sourceID, &documentID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				_ = bindTx.Rollback(ctx)
+				return true, err
+			}
+			if err == nil {
+				proposalReviewID, userID, requestID, payslipBound = item.ItemID, item.UserID, item.RequestID, true
+			}
+		}
+	}
+	_ = bindTx.Rollback(ctx)
+	if amountBound {
 		amount := strings.TrimSpace(update.Message.Text)
 		incomeConfirmed := false
 		if amountState == "AWAITING_CONFIRMATION" {
@@ -159,6 +189,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			default:
 				return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Balas pesan ini (Reply) dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan.")
 			}
+		}
+		if parsed, ok := parseBankFactsAnswer(amount); ok {
+			amount = parsed
 		}
 		if !reviewdomain.ValidBankAmountIDR(amount) {
 			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Nominalnya belum terbaca. Balas pesan ini (Reply) dengan angka rupiah tanpa pemisah. Contoh: 75000.")
@@ -199,17 +232,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		}
 		return true, tx.Commit(ctx)
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return true, err
-	}
-	var proposalReviewID, proposalID, sourceID, documentID, userID, requestID string
-	err = p.pool.QueryRow(ctx, `SELECT ri.id::text,ri.proposal_id::text,COALESCE(ri.source_event_id,p.source_event_id)::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text,ti.user_id::text,r.id::text
-		FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
-		JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') AND c.state='AWAITING_DATE'`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&proposalReviewID, &proposalID, &sourceID, &documentID, &userID, &requestID)
-	if err == nil {
+	if payslipBound {
 		var payDate string
-		if parsed, ok := parseReplyDate(update.Message.Text, p.turnTime(update)); ok {
+		if parsed, ok := parseDateValue(update.Message.Text, p.turnTime(update), 31); ok {
 			payDate = parsed.Format("2006-01-02")
 		} else {
 			extracted, extractErr := p.extractReview(ctx, sourceEventID, update.Message.Text, nil)
@@ -249,9 +274,6 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			return true, err
 		}
 		return true, tx.Commit(ctx)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return true, err
 	}
 	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
 	var missingFactsJSON *string
@@ -534,20 +556,23 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
-		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
-		JOIN review_item ri ON ri.id=r.review_item_id
-		JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
-		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
-	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
+	item, err := bindOpenCardItem(ctx, tx, householdID, update, update.Message.MessageID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
+	bound := err == nil
+	var transactionID, transactionStatus string
+	if bound {
+		err = tx.QueryRow(ctx, `SELECT t.id::text,t.status FROM review_request r JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id WHERE r.id=$1`, item.RequestID).Scan(&transactionID, &transactionStatus)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		bound = err == nil
+	}
+	if !bound || transactionStatus != "NEEDS_REVIEW" {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	reviewID, reviewType := item.RequestID, item.ReviewType
 	if reviewType == "POSSIBLE_DUPLICATE" {
 		var dispute bool
 		if err = tx.QueryRow(ctx, `SELECT COALESCE(ri.decision->'decisionProvenance'->>'evidence_link_dispute','')='true' FROM review_item ri JOIN review_request r ON r.review_item_id=ri.id WHERE r.id=$1`, reviewID).Scan(&dispute); err != nil {
@@ -567,11 +592,11 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	if strings.HasPrefix(data, "review:catpage:") {
 		page, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:catpage:"))
 		if parseErr != nil || page < 0 || page > 1000 {
-			return tx.Commit(ctx)
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		markup := categoryChooserMarkup(ctx, tx, reviewID, page)
 		if markup == nil {
-			return tx.Commit(ctx)
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return err
@@ -583,11 +608,11 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	categoryID := strings.TrimPrefix(data, "review:cat:")
 	if !regexp.MustCompile(`^[0-9a-fA-F-]{36}$`).MatchString(categoryID) {
-		return tx.Commit(ctx)
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	var validCategory string
 	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
-		return tx.Commit(ctx)
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	var transactionType string
 	if err = tx.QueryRow(ctx, `SELECT type FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&transactionType); err != nil {

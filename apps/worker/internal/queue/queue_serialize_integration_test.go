@@ -70,6 +70,7 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 	insertTextJob(t, pool, "20000000-0000-4000-8000-000000000004", serialHouseholdB, 5*time.Second)
 
 	var mu sync.Mutex
+	claims := 0
 	claimed := map[string]string{}
 	claimedJobs := map[string]Job{}
 	var wg sync.WaitGroup
@@ -84,6 +85,7 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 			}
 			if found {
 				mu.Lock()
+				claims++
 				claimed[job.ID] = job.HouseholdID
 				claimedJobs[job.ID] = job
 				mu.Unlock()
@@ -91,8 +93,8 @@ func TestClaimSerializesTelegramTextPerHouseholdUnderConcurrency(t *testing.T) {
 		}(worker)
 	}
 	wg.Wait()
-	if len(claimed) != 2 || claimed["20000000-0000-4000-8000-000000000001"] != serialHouseholdA || claimed["20000000-0000-4000-8000-000000000004"] != serialHouseholdB {
-		t.Fatalf("concurrent claims = %v, want A's oldest and B's only", claimed)
+	if claims != 2 || len(claimed) != 2 || claimed["20000000-0000-4000-8000-000000000001"] != serialHouseholdA || claimed["20000000-0000-4000-8000-000000000004"] != serialHouseholdB {
+		t.Fatalf("concurrent claims = %d (%v), want exactly A's oldest and B's only", claims, claimed)
 	}
 	if job, found, err := q.Claim(ctx, "w9", "DEFAULT"); err != nil || found {
 		t.Fatalf("claimed %s while household A's message was running (err=%v)", job.ID, err)
