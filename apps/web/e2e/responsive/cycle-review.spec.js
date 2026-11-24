@@ -1,6 +1,7 @@
 import { test, expect, FIXED_NOW } from "../support/fixtures.js";
 import { idr } from "../support/data.js";
 import { cycleReviewApi, cycleUser } from "../support/cycleApi.js";
+import { fullCycleFacts } from "../../tests/fixtures/cycle-review.mjs";
 import { defaultRange } from "../../app/lib/calendarReview.js";
 
 test.use({ user: cycleUser });
@@ -162,13 +163,18 @@ test("the category drawer links to its merchant, its transactions and the scoped
   await drawer.waitFor({ state: "detached" });
 });
 
-test("the daily chart tooltip names net spending and refunds", async ({ page }) => {
+test("the daily chart tooltip names net spending and refunds for the hovered date when a long cycle repeats a day of month", async ({ page, api }) => {
+  const facts = fullCycleFacts();
+  facts.daily.push({ period: "2026-10-01", expense: "250000", grossExpense: "250000", refund: "0", income: "0", cumulativeExpense: "3250000" });
+  facts.period = { ...facts.period, measuredUntil: "2026-10-01" };
+  facts.pace = { previousFullCycle: [...facts.pace.previousFullCycle, "2900000"], median3: [...facts.pace.median3, "3900000"] };
+  api.use(({ path }) => (path === "/api/v1/analytics/cycle-review" ? facts : undefined));
   await visit(page, CYCLE);
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
   await openDisclosure(page, "#daily > details", ".cycle-spending-chart");
-  await page.locator(".cycle-spending-chart .recharts-bar-rectangle").first().hover();
+  await page.locator(".cycle-spending-chart .recharts-bar-rectangle").last().hover();
   await page.locator(".chart-tooltip").waitFor();
-  await expect(page.locator(".chart-tooltip")).toHaveText(/Pengeluaran bersih.*Rp.*Refund.*Rp/);
+  await expect(page.locator(".chart-tooltip")).toHaveText(/^1 Okt 2026Pengeluaran bersih.*Rp.*250\.000.*Refund.*Rp/);
 });
 
 test("the category matrix marks the running column, switches same-day and full, and opens evidence by keyboard", async ({ page }) => {
