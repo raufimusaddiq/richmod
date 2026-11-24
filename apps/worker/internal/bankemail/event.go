@@ -2,6 +2,7 @@ package bankemail
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -48,21 +49,38 @@ type ReviewSuggestion struct {
 
 type KnownAccount struct{ MatchHint, Relationship string }
 
+func uniqueCategories(categories []CategoryOption) []CategoryOption {
+	counts := make(map[string]int, len(categories))
+	for _, category := range categories {
+		slug := strings.TrimSpace(category.Slug)
+		if slug != "" {
+			counts[slug]++
+		}
+	}
+	out := make([]CategoryOption, 0, len(categories))
+	for _, category := range categories {
+		slug := strings.TrimSpace(category.Slug)
+		if slug == "" || counts[slug] != 1 {
+			continue
+		}
+		category.Slug = slug
+		out = append(out, category)
+	}
+	return out
+}
+
 func EmitBankTransactionTool(categories ...CategoryOption) gateway.ToolDefinition {
 	categoryProp := map[string]any{"type": []string{"string", "null"}}
 	required := []string{"kind", "direction", "channel", "amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "missing_fields", "confidence"}
-	if len(categories) > 0 {
-		slugs := make([]string, 0, len(categories))
-		for _, category := range categories {
-			if category.Slug != "" {
-				slugs = append(slugs, category.Slug)
-			}
+	unique := uniqueCategories(categories)
+	if len(unique) > 0 {
+		slugs := make([]string, 0, len(unique))
+		for _, category := range unique {
+			slugs = append(slugs, category.Slug)
 		}
 		sort.Strings(slugs)
-		if len(slugs) > 0 {
-			categoryProp = nullableEnum(slugs)
-			required = append(required, "category_slug")
-		}
+		categoryProp = nullableEnum(slugs)
+		required = append(required, "category_slug")
 	}
 	return gateway.ToolDefinition{Name: "emit_bank_transaction", Description: "Extract observed facts from one trusted bank notification email.", Parameters: map[string]any{
 		"type": "object", "additionalProperties": false, "properties": map[string]any{

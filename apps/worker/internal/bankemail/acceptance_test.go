@@ -27,6 +27,7 @@ func TestBankEmailB2ExtractedCategoryConfirmsWithoutReview(t *testing.T) {
 	extraction := outgoingCard("54000", "Warung Baru")
 	slug := "makanan-minuman"
 	extraction.CategorySlug = &slug
+	extraction.Confidence = ExtractedCategoryMinConfidence
 	categories := []CategoryOption{{ID: "cat-food", Slug: "makanan-minuman", Name: "Makanan & Minuman"}}
 
 	result := EvaluateBankEmail(spendingListener(), extraction, nil)
@@ -36,7 +37,30 @@ func TestBankEmailB2ExtractedCategoryConfirmsWithoutReview(t *testing.T) {
 
 	decided := applyExtractedCategory(extraction, categories, result)
 	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != "cat-food" {
-		t.Fatalf("an extracted active household category must confirm with no review: %+v", decided)
+		t.Fatalf("an extracted active household category at threshold must confirm with no review: %+v", decided)
+	}
+
+	lowConfidence := extraction
+	lowConfidence.Confidence = ExtractedCategoryMinConfidence - 0.01
+	held := applyExtractedCategory(lowConfidence, categories, result)
+	if held.Status != "NEEDS_REVIEW" || held.AutoConfirm || held.ReviewType != "AMBIGUOUS_CATEGORY" {
+		t.Fatalf("low confidence extracted category must stay in review: %+v", held)
+	}
+
+	colliding := []CategoryOption{
+		{ID: "cat-root", Slug: "makanan-minuman", Name: "Makanan & Minuman"},
+		{ID: "cat-child", Slug: "makanan-minuman", Name: "Harian > Makanan & Minuman"},
+		{ID: "cat-unique", Slug: "transportasi", Name: "Transportasi"},
+	}
+	ambiguous := applyExtractedCategory(extraction, colliding, result)
+	if ambiguous.Status != "NEEDS_REVIEW" || ambiguous.AutoConfirm || ambiguous.ReviewType != "AMBIGUOUS_CATEGORY" {
+		t.Fatalf("duplicate category slug must never auto-confirm: %+v", ambiguous)
+	}
+	tool := EmitBankTransactionTool(colliding...)
+	props := tool.Parameters["properties"].(map[string]any)
+	catEnum := props["category_slug"].(map[string]any)["enum"].([]any)
+	if len(catEnum) != 2 || catEnum[0] != "transportasi" || catEnum[1] != nil {
+		t.Fatalf("duplicate slug must be excluded from schema enum: %v", catEnum)
 	}
 
 	unknownSlug := "not-a-household-category"
@@ -98,7 +122,7 @@ func TestBankEmailMerchantlessExpenseCollectsMerchantBeforeCategory(t *testing.T
 	for _, channel := range []string{"DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "ATM", "BANK_FEE", "OTHER"} {
 		t.Run(channel, func(t *testing.T) {
 			direction, description := "OUTGOING", "Pembayaran makan siang di kantin"
-			extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction, Description: &description, CategorySlug: &slug}
+			extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction, Description: &description, CategorySlug: &slug, Confidence: ExtractedCategoryMinConfidence}
 			result := EvaluateBankEmail(spendingListener(), extraction, nil)
 			kept := applyExtractedCategory(extraction, categories, result)
 			if kept.Status != "NEEDS_REVIEW" || kept.ReviewType != "UNKNOWN_MERCHANT" || kept.AutoConfirm {

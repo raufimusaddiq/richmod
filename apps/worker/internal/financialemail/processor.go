@@ -127,7 +127,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		call, meta, callErr := p.gateway.NativeToolCall(ctx, payload.SourceEventID, prompt, map[string]any{
 			"provider_name":      provider,
 			"sender_address":     sender,
-			"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", subject),
+			"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", gateway.NormalizeEmailBody(subject, gateway.DefaultEmailSubjectMaxBytes)),
 			"email_body":         gateway.WrapUntrusted("untrusted_email_body", gateway.NormalizeEmailBody(body, gateway.DefaultEmailBodyMaxBytes)),
 			"household_timezone": "Asia/Jakarta",
 		}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})
@@ -653,7 +653,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	call, _, err := p.gateway.NativeToolCall(ctx, "preview:"+payload.PreviewID, prompt, map[string]any{
 		"provider_name":      provider,
 		"sender_address":     sender,
-		"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", subject),
+		"email_subject":      gateway.WrapUntrusted("untrusted_email_subject", gateway.NormalizeEmailBody(subject, gateway.DefaultEmailSubjectMaxBytes)),
 		"email_body":         gateway.WrapUntrusted("untrusted_email_body", gateway.NormalizeEmailBody(body, gateway.DefaultEmailBodyMaxBytes)),
 		"household_timezone": "Asia/Jakarta",
 	}, []gateway.ToolDefinition{tool(capabilities)}, gateway.NativeToolOptions{Required: true})

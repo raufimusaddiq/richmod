@@ -331,6 +331,9 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				ToolCalls:   state.PreviousToolCalls,
 				ToolOutputs: state.PendingToolOutputs,
 			})
+			if limit := defaultAgentLimits.MaxModelPhases - 1; limit > 0 && len(state.ReadHistory) > limit {
+				state.ReadHistory = append([]gateway.AgentReadPhase(nil), state.ReadHistory[len(state.ReadHistory)-limit:]...)
+			}
 		}
 		state.PreviousResponseID = ""
 		state.PreviousToolCalls = nil

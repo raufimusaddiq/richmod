@@ -119,13 +119,6 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	}
 	result := EvaluateBankEmail(listener, extraction, known, memory)
 	result = applyCategoryAutoConfirmSwitch(result, !p.categoryAutoConfirmOff)
-	if !p.categoryAutoConfirmOff && result.ReviewType == "AMBIGUOUS_CATEGORY" {
-		categories, catErr := p.activeExpenseCategories(ctx, household)
-		if catErr != nil {
-			return catErr
-		}
-		result = applyExtractedCategory(extraction, categories, result)
-	}
 	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result, payload.ReviewID); err != nil {
 		return err
 	}
@@ -381,6 +374,8 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	}
 }
 
+const ExtractedCategoryMinConfidence = 0.85
+
 func (p *Processor) activeExpenseCategories(ctx context.Context, householdID string) ([]CategoryOption, error) {
 	rows, err := p.pool.Query(ctx, `SELECT c.id,c.slug,c.name,COALESCE(p.name,'') FROM category c LEFT JOIN category p ON p.id=c.parent_id AND p.household_id=c.household_id WHERE c.household_id=$1 AND c.active ORDER BY c.slug`, householdID)
 	if err != nil {
@@ -402,25 +397,34 @@ func (p *Processor) activeExpenseCategories(ctx context.Context, householdID str
 		}
 		out = append(out, option)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return uniqueCategories(out), nil
 }
 
 func applyExtractedCategory(extraction Extraction, categories []CategoryOption, result PolicyResult) PolicyResult {
-	if result.ReviewType != "AMBIGUOUS_CATEGORY" || extraction.CategorySlug == nil {
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" || extraction.CategorySlug == nil || extraction.Confidence < ExtractedCategoryMinConfidence {
 		return result
 	}
 	slug := strings.TrimSpace(*extraction.CategorySlug)
 	if slug == "" {
 		return result
 	}
+	var matched CategoryOption
+	matches := 0
 	for _, category := range categories {
-		if category.Slug == slug && category.ID != "" {
-			result.CategoryID, result.AutoConfirm = category.ID, true
-			result.Status, result.ReviewType = "CONFIRMED", ""
-			result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
-			return result
+		if strings.TrimSpace(category.Slug) == slug && category.ID != "" {
+			matched = category
+			matches++
 		}
 	}
+	if matches != 1 {
+		return result
+	}
+	result.CategoryID, result.AutoConfirm = matched.ID, true
+	result.Status, result.ReviewType = "CONFIRMED", ""
+	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
 	return result
 }
 
