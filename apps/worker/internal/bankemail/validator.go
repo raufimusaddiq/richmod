@@ -128,6 +128,18 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	return Extraction{Kind: raw.Kind, Direction: raw.Direction, Channel: raw.Channel, AmountIDR: raw.AmountIDR, TransactionAt: at, Merchant: raw.Merchant, Counterparty: raw.Counterparty, Reference: raw.Reference, Description: raw.Description, CategorySlug: categorySlug, MissingFields: raw.MissingFields, Confidence: raw.Confidence, Review: raw.Review}, nil
 }
 
+func applyExtractionEvidence(result PolicyResult, extraction Extraction, subject, body string, receivedAt time.Time) PolicyResult {
+	if !result.AutoConfirm || extraction.AmountIDR == nil || extraction.TransactionAt == nil {
+		return result
+	}
+	if reviewdomain.EmailAmountSupports(*extraction.AmountIDR, subject, body) && reviewdomain.EmailTimePlausible(*extraction.TransactionAt, receivedAt) {
+		return result
+	}
+	result.AutoConfirm = false
+	result.Status, result.ReviewType = "NEEDS_REVIEW", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE"
+	return result
+}
+
 func parseStrictBankRFC3339(value string) (time.Time, error) {
 	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
 	if err != nil {

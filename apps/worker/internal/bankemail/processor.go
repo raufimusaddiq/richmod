@@ -55,7 +55,7 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	var household, listenerID, bank, sender, accountID string
 	var itemStatus string
 	var raw []byte
-	if err := p.pool.QueryRow(ctx, `SELECT s.household_id,l.id,l.bank_name,l.sender_address,COALESCE(l.account_id::text,''),e.output_json,ri.status FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.source_event_id=$2 FOR UPDATE`, payload.ReviewID, payload.SourceEventID).Scan(&household, &listenerID, &bank, &sender, &accountID, &raw, &itemStatus); err != nil {
+	if err := p.pool.QueryRow(ctx, `SELECT s.household_id,l.id,l.bank_name,l.sender_address,COALESCE(l.account_id::text,''),e.output_json,ri.status FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.source_event_id=$2`, payload.ReviewID, payload.SourceEventID).Scan(&household, &listenerID, &bank, &sender, &accountID, &raw, &itemStatus); err != nil {
 		return err
 	}
 	if itemStatus != "OPEN" && itemStatus != "PENDING_SEND" {
@@ -222,16 +222,30 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 }
 
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
+	var alreadyPersisted bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err != nil {
+		return err
+	}
+	if alreadyPersisted {
+		return nil
+	}
 	var household, listenerID, bank, sender, subject, date, auth, body, messageID string
 	var receivedAt time.Time
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id AND l.household_id=s.household_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
+	var active bool
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.message_id,l.active FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id AND l.household_id=s.household_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID, &active)
 	if err != nil {
 		return fmt.Errorf("load bank email event: %w", err)
+	}
+	if !active {
+		_, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='bank-email-disabled',parser_version=$2 WHERE id=$1`, payload.SourceEventID, ToolSchemaVersion)
+		return err
 	}
 	ctx = gateway.WithSourceEvent(ctx, payload.SourceEventID)
 	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	var accountID string
-	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(account_id::text,'') FROM bank_email_listener WHERE id=$1 AND household_id=$2`, listenerID, household).Scan(&accountID)
+	if err = p.pool.QueryRow(ctx, `SELECT COALESCE(account_id::text,'') FROM bank_email_listener WHERE id=$1 AND household_id=$2`, listenerID, household).Scan(&accountID); err != nil {
+		return err
+	}
 	categories, err := p.activeExpenseCategories(ctx, household)
 	if err != nil {
 		return err
@@ -248,16 +262,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	}
 	applyEmailReceivedTimeFallback(&extraction, receivedAt)
 	output, _ := json.Marshal(extraction)
-	knownAccounts := []KnownAccount{}
-	rows, queryErr := p.pool.Query(ctx, `SELECT match_hint,relationship FROM known_account WHERE household_id=$1 AND active`, household)
-	if queryErr == nil {
-		for rows.Next() {
-			var item KnownAccount
-			if rows.Scan(&item.MatchHint, &item.Relationship) == nil {
-				knownAccounts = append(knownAccounts, item)
-			}
-		}
-		rows.Close()
+	knownAccounts, err := p.loadKnownAccounts(ctx, household)
+	if err != nil {
+		return err
 	}
 	memory, err := loadMerchantMemory(ctx, p.pool, household, value(extraction.Merchant))
 	if err != nil {
@@ -268,6 +275,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if !p.categoryAutoConfirmOff {
 		result = applyExtractedCategory(extraction, categories, result)
 	}
+	result = applyExtractionEvidence(result, extraction, subject, body, receivedAt)
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -298,10 +306,6 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 			missingFacts = append(missingFacts, "transaction_at")
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", missingFacts, "a required canonical fact was absent from the email extraction"))
-	}
-	var alreadyPersisted bool
-	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
-		return nil
 	}
 	return p.persist(ctx, listener, payload.SourceEventID, extraction, result, "")
 }
@@ -515,6 +519,19 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if completingReviewID != "" {
+		var reviewStatus string
+		err = tx.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1 FOR UPDATE`, completingReviewID).Scan(&reviewStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if reviewStatus != "OPEN" && reviewStatus != "PENDING_SEND" {
+			return nil
+		}
+	}
 	var noticeHousehold string
 	var noticeAt *time.Time
 	err = tx.QueryRow(ctx, `SELECT s.household_id,e.notice_at FROM source_event s JOIN bank_email_extraction e ON e.source_event_id=s.id WHERE s.id=$1 FOR UPDATE OF e`, sourceID).Scan(&noticeHousehold, &noticeAt)

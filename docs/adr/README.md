@@ -1249,3 +1249,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** an AI gateway outage burned the attempt budget of document, email and insight jobs, a single slow `BACKGROUND` job delayed residual reviews and Telegram media, a deploy could cancel the queue write that follows a committed job, and several error paths leaked internal URLs or produced unusable telemetry rows.
 
 **Consequence:** the `job.lane` check constraint and Go `classifyLane` gain `DETERMINISTIC`; the admin console lists the lane; the worker runs two more loops (the 16-connection pool floor still holds). Gateway streaming now accumulates `function_call_arguments.delta` and `output_item.done` and fills gaps from `response.completed`; non-2xx responses are classified before the 2 MiB body is read; a mid-body connection reset is `gateway.IsUnavailable`; `chat_completions` keeps `strict` and no longer replays tool results twice; token and cost metadata survive a validation failure; and transport errors are classified `UNAVAILABLE`, not `HTTP_ERROR`.
+
+## ADR-123: Cross-check model email facts before auto-confirm and bind entities on exact matches only
+*Accepted - 2026-11-25*
+
+**Decision:** Both email pipelines run one shared deterministic check (`apps/reviewdomain/email_evidence.go`) before auto-confirming a model-extracted ledger fact: the whole-IDR amount must appear in the email subject or body after Indonesian formatting is normalised (`Rp`/`IDR`, spaces, thousands dots and a trailing `,00`/`,0`/`.00`), and `transaction_at` must be at or before `received_at + 10 minutes`. A failed check demotes the item to the existing review path instead of dropping it. A financial-provider cash movement also auto-applies a funding account only when the hint is an exact normalised name or alias; a single shared 3+ letter word now goes to `FINANCIAL_EMAIL_RESOLUTION`.
+
+**Reason:** A model could return an amount 100x the email or a WIB wall-clock time as UTC and the pipeline confirmed it, and a word-only entity match could bind a transfer to another household member's account.
+
+**Consequence:** Supported facts auto-confirm as before; unsupported or offset-shifted facts park in the Review Inbox with the extracted facts shown, and the household can resolve the intended account there, which learns the alias.
