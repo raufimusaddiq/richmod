@@ -157,6 +157,7 @@ type screenshotCandidateEvidence struct {
 
 func reconcileScreenshotCandidate(candidate matchCandidate, row validatedScreenshotRow, evidence []screenshotCandidateEvidence) (matchCandidate, bool) {
 	if len(evidence) == 0 {
+		candidate.Score = min(candidate.Score, .80)
 		return candidate, true
 	}
 	equal, timeConflict, invalid := false, false, false

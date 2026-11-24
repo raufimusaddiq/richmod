@@ -384,7 +384,7 @@ func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) 
 		t.Fatal(err)
 	}
 	slug := fixture.categorySlug
-	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.35}
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
 	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
 		t.Fatal(err)
@@ -457,7 +457,7 @@ func TestLowConfidenceReceiptParksInReviewInsteadOfAutoConfirming(t *testing.T) 
 				t.Fatal(err)
 			}
 			var confirmed, needsReview int
-			if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status=CONFIRMED),count(*) FILTER (WHERE status=NEEDS_REVIEW) FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
+			if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
 				t.Fatal(err)
 			}
 			if confirmed != 0 || needsReview != 1 {

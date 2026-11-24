@@ -774,7 +774,7 @@ func TestCashMovementSerializesOnLedgerEventLock(t *testing.T) {
 	at, amount, movement := "2026-09-09T10:00:00+07:00", "4100000", "CONTRIBUTION"
 	v := observation{Kind: "CASH_MOVEMENT", MovementType: &movement, AmountIDR: &amount, OccurredAt: &at, Confidence: .99}
 	var observationID string
-	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status,resolved_account_id,resolved_wealth_account_id) VALUES($1,$2,0,CASH_MOVEMENT,{},PENDING,$3,$4) RETURNING id`, household, source, account, wealth).Scan(&observationID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status,resolved_account_id,resolved_wealth_account_id) VALUES($1,$2,0,'CASH_MOVEMENT','{}','PENDING',$3,$4) RETURNING id`, household, source, account, wealth).Scan(&observationID); err != nil {
 		t.Fatal(err)
 	}
 	holder, err := pool.Begin(ctx)
