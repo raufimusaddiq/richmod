@@ -358,40 +358,6 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	return outcome, nil
 }
 
-func (p *Processor) offerExistingEditForTurn(ctx context.Context, state *agentState, value validatedExtraction, result *agentToolResult) (string, error) {
-	label, existingAt, found, err := p.similarRecentExpense(ctx, state.HouseholdID, value.Amount, value.Merchant, value.TransactionAt)
-	if err != nil || !found {
-		return "", err
-	}
-	_ = existingAt
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback(ctx)
-	var transactionID string
-	if err := tx.QueryRow(ctx, `SELECT id FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2::numeric AND transaction_at>=now()-interval '7 days' AND (counterparty_name ILIKE '%'||$3::text||'%' OR description ILIKE '%'||$3::text||'%') ORDER BY transaction_at DESC LIMIT 1`, state.HouseholdID, value.Amount, value.Merchant).Scan(&transactionID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return "", err
-	}
-	var token string
-	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status,expires_at) VALUES($1,$2,$3,$4,$5,'PENDING',now()+$6::interval) ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=NULL,proposed_description=NULL,proposed_amount=NULL,proposed_merchant=NULL,confirmation_token=gen_random_uuid(),expires_at=excluded.expires_at,created_at=now() RETURNING confirmation_token::text`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID, transactionID, value.TransactionAt, pendingConfirmationWindow).Scan(&token); err != nil {
-		return "", err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent-edit-proposal',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
-		return "", err
-	}
-	result.confirmationToken = token
-	result.Status = "EDIT_CONFIRMATION_REQUIRED"
-	result.Mutation = map[string]any{"action": "POSSIBLE_EXISTING_TRANSACTION", "label": label, "amount_idr": value.Amount, "transaction_at": value.TransactionAt.In(jakartaLocation()).Format(time.RFC3339)}
-	if err = p.queueTurnReplyTx(ctx, tx, state, *result); err != nil {
-		return "", err
-	}
-	return token, tx.Commit(ctx)
-}
-
 func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw string) (string, *merchantmemory.Match, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

@@ -42,7 +42,7 @@ func (d TransactionSemanticDecision) decisionAllowed() bool {
 }
 
 func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
-	if direct, ok := directAcceptanceDecision(value, categories, state.Now); ok {
+	if direct, ok := directAcceptanceDecision(value, categories, state.Now, state.Update.Message.Text); ok {
 		if p.postGenerativeAutoConfirmOff {
 			return TransactionSemanticDecision{DecisionSource: direct.DecisionSource, PolicyVersion: direct.PolicyVersion}, nil
 		}
@@ -56,7 +56,8 @@ func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentSta
 	decision := TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: decisionPolicyVersion}
 	if len(state.ResidualDimensions) == 1 && state.ResidualDimensions[0] == "category" && directNonCategoryFieldsAccepted(value, state.Now) {
 		decision.RouteAccepted, decision.TransactionType, decision.TypeAccepted = true, value.Type, true
-		decision.AmountSupported, decision.DateSupported = true, true
+		decision.AmountSupported = userStatedAmount(value.Amount, state.Update.Message.Text)
+		decision.DateSupported = !afterToday(value.TransactionAt, state.Now)
 	}
 	return decision, nil
 }
@@ -91,7 +92,7 @@ func directNonCategoryFieldsAccepted(value validatedExtraction, now time.Time) b
 	return !value.Ambiguous
 }
 
-func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time) (TransactionSemanticDecision, bool) {
+func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time, userText string) (TransactionSemanticDecision, bool) {
 	if !directNonCategoryFieldsAccepted(value, now) {
 		return TransactionSemanticDecision{}, false
 	}
@@ -100,13 +101,36 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 	if len(residual) == 0 {
 		return TransactionSemanticDecision{
 			RouteAccepted: true, TransactionType: value.Type, TypeAccepted: true,
-			AmountSupported: true, DateSupported: true,
+			AmountSupported: userStatedAmount(value.Amount, userText), DateSupported: !afterToday(value.TransactionAt, now),
 			CategorySlug: value.CategorySlug, CategoryAccepted: value.Type == "INCOME" || categoryKnown,
 			AmbiguityDecidedNotAmbiguous: true, DecisionSource: "GENERATIVE_EXTRACTION",
 			PolicyVersion: decisionPolicyVersion,
 		}, true
 	}
 	return TransactionSemanticDecision{}, false
+}
+
+func afterToday(at, now time.Time) bool {
+	local := now.In(jakartaLocation())
+	endOfToday := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, jakartaLocation())
+	return !at.Before(endOfToday)
+}
+
+func userStatedAmount(amount, userText string) bool {
+	fields := strings.Fields(strings.ToLower(userText))
+	for index := 0; index < len(fields); index++ {
+		token := strings.Trim(fields[index], `.,!?()"'`)
+		unit := ""
+		if index+1 < len(fields) {
+			if value, ok := amountUnits[strings.Trim(fields[index+1], `.,!?()"'`)]; ok {
+				unit = value
+			}
+		}
+		if value, ok := parseAmountToken(token, unit); ok && value == amount {
+			return true
+		}
+	}
+	return false
 }
 
 func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {

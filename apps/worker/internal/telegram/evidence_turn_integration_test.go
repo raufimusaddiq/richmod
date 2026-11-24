@@ -262,7 +262,7 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 		{"merchant spelled differently", "mirota swalayan", 0, 0},
 		{"no merchant", nil, 0, 0},
 		{"a different merchant, same price", "Gacoan", 0, 1},
-		{"an old receipt is left to the existing edit-confirmation guard", "Mirota", 30, 0},
+		{"an old receipt records a new row for duplicate review", "Mirota", 30, 1},
 	}
 	for _, c := range cases {
 		c := c
