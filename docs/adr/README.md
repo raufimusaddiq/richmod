@@ -51,7 +51,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-038](#adr-038-system-one-semantic-decision-plane) | System One semantic decision plane | Superseded by ADR-120 (2026-11-24) |
 | [ADR-039](#adr-039-canonical-reviewdecision-contract) | Canonical ReviewDecision contract | Accepted for implementation |
 | [ADR-040](#adr-040-bank-email-zero-touch-classification) | Bank email zero-touch classification | Accepted, amended by ADR-045 and ADR-120 |
-| [ADR-041](#adr-041-receipt-auto-confirm-for-clear-new-receipts) | Receipt auto-confirm for clear new receipts | Accepted, amended by ADR-045, ADR-048 and ADR-120 |
+| [ADR-041](#adr-041-receipt-auto-confirm-for-clear-new-receipts) | Receipt auto-confirm for clear new receipts | Accepted, amended by ADR-045, ADR-048 and ADR-120 and ADR-121 |
 | [ADR-042](#adr-042-per-row-screenshot-auto-confirm-with-one-bounded-ruling-per-image) | Per-row screenshot auto-confirm with one bounded ruling per image | Accepted, amended by ADR-045 and ADR-120 |
 | [ADR-043](#adr-043-partial-financial-email-entity-resolution) | Partial financial-email entity resolution | Accepted for implementation |
 | [ADR-044](#adr-044-proposal-first-review-inbox) | Proposal-first Review Inbox | Accepted for implementation, amended by ADR-046 |
@@ -131,6 +131,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-118](#adr-118-go-tests-assert-behaviour-isolate-by-household-and-run-in-parallel-source-text-checks-only-for-architecture-rules) | Go tests assert behaviour, isolate by household and run in parallel; source-text checks only for architecture rules | Accepted |
 | [ADR-119](#adr-119-web-browser-tests-run-on-the-playwright-test-runner-and-assert-rendered-behavior) | Web browser tests run on the Playwright test runner and assert rendered behavior | Accepted |
 | [ADR-120](#adr-120-retire-system-one-jev-and-harden-the-generative-ai-pipeline) | Retire System One (Jev) and harden the generative AI pipeline | Accepted |
+| [ADR-121](#adr-121-financial-safety-guards-for-document-auto-confirm-evidence-retention-and-review-actions) | Financial safety guards for document auto-confirm, evidence retention and review actions | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1229,3 +1230,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** Telegram already ran without Jev (ADR-052), `financialemail` had been calling Jev without the source email body, maintaining a second inference protocol added operational coupling and startup failure modes for marginal residual category rescue that the single generative extraction pass plus Perlu dicek's history-ranked one-tap answers already cover, and the generative gateway had concrete protocol and sanitization bugs.
 
 **Consequence:** Every AI call now flows through `/v1/responses` or `/v1/chat/completions` on LiteRouter; no migration is run and historical `judgment_decision`, `judgment_turn_telemetry` and `bank_email_evidence_verification` tables remain read-only history (as in ADR-051). Existing kill switches (`RICHMOD_AUTOCONFIRM_*`) continue to gate per-source auto-confirmation.
+
+## ADR-121: Financial safety guards for document auto-confirm, evidence retention and review actions
+*Accepted · 2026-11-24*
+
+**Decision:** Receipt, screenshot-row and payslip auto-confirm require extraction confidence of at least 0.85, and a category chosen by the model (not by household merchant memory) also requires category confidence of at least 0.85; below the floor the item parks in the Review Inbox with its known facts. This amends ADR-048 (which removed the receipt confidence requirement) and ADR-042. Category slugs shared by more than one active household category are never offered to the model or resolved. A merchant-memory hit supplies its canonical merchant ID to the persisted transaction, and a merchant-memory lookup error fails the job for retry instead of silently using the model category. A non-screenshot prior transaction (bank email, receipt, Telegram, web) is never dropped from screenshot reconciliation by the screenshot-identity rule. `EvictLocal` is a no-op without object storage so a local-only deployment never deletes retained evidence, and terminal cache eviction covers every album page. The Telegram `resolve_review` action is validated against the bound review type, `COMPLETE_BANK_FACTS` never mutates a transaction review, and the financial-email cash path takes the ledger-event advisory lock before planning a transfer.
+
+**Reason:** A Wave 1 audit of the AI pipeline found paths that could double-record a real event, delete the only copy of source evidence, auto-confirm low-confidence or ambiguously categorized extractions, and mutate a transaction outside a transaction.
+
+**Consequence:** Low-confidence but otherwise clear receipts, screenshot rows and payslips now produce reviews instead of confirmed transactions; the `RICHMOD_AUTOCONFIRM_*` kill switches are unchanged.

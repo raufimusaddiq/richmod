@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 func TestLocalStoreRoundTripAndTraversalGuard(t *testing.T) {
@@ -26,8 +29,19 @@ func TestLocalStoreRoundTripAndTraversalGuard(t *testing.T) {
 	if err := store.EvictLocal(ref); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(store.root, filepath.FromSlash(ref))); err != nil {
+		t.Fatalf("local-only store must retain evidence: %v", err)
+	}
+	client, err := minio.New("example.invalid", &minio.Options{Creds: credentials.NewStaticV4("a", "b", "")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.client = client
+	if err := store.EvictLocal(ref); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(filepath.Join(store.root, filepath.FromSlash(ref))); !os.IsNotExist(err) {
-		t.Fatalf("local cache still exists: %v", err)
+		t.Fatalf("object-backed store must evict the local cache: %v", err)
 	}
 	outside := filepath.Join(filepath.Dir(store.root), "outside")
 	if err := os.WriteFile(outside, []byte("secret"), 0600); err != nil {

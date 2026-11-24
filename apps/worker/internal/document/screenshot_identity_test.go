@@ -72,6 +72,10 @@ func TestScreenshotIdentityReconciliation(t *testing.T) {
 			}
 		})
 	}
+	cross, keep := reconcileScreenshotCandidate(matchCandidate{Score: .90, Merchant: "Synthetic Store", Hours: 14.5}, row, nil)
+	if !keep || cross.Score != .90 {
+		t.Fatalf("non-screenshot prior transaction must keep its score and not be dropped: keep=%v score=%v", keep, cross.Score)
+	}
 	withoutIDs := row
 	withoutIDs.Value.TransactionIdentifiers = nil
 	got, keep := reconcileScreenshotCandidate(candidate, withoutIDs, []screenshotCandidateEvidence{{TransactionAt: row.TransactionAt.Add(-10 * time.Minute), Metadata: json.RawMessage(`{}`)}})

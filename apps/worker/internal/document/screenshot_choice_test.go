@@ -9,7 +9,7 @@ import (
 )
 
 func unmatchedOutRow(amount string) validatedScreenshotRow {
-	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: &amount, Currency: "IDR", Merchant: "Warung", Confidence: .95}, Type: "EXPENSE", DateKnown: true}
+	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: &amount, Currency: "IDR", Merchant: "Warung", Confidence: .95, CategoryConfidence: .95}, Type: "EXPENSE", DateKnown: true}
 }
 
 func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
@@ -78,11 +78,33 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 			row.CategoryConflict = true
 			return row
 		}(), false},
-		{"low extraction confidence", func() validatedScreenshotRow {
+		{"extraction confidence at the floor", func() validatedScreenshotRow {
 			row := decided
 			row.Value.Confidence = .85
 			return row
 		}(), true},
+		{"extraction confidence below the floor", func() validatedScreenshotRow {
+			row := decided
+			row.Value.Confidence = .84
+			return row
+		}(), false},
+		{"model category confidence below the floor", func() validatedScreenshotRow {
+			row := decided
+			row.Value.CategoryConfidence = .5
+			return row
+		}(), false},
+		{"merchant memory category ignores model category confidence", func() validatedScreenshotRow {
+			row := decided
+			row.Value.CategoryConfidence = .1
+			row.CategoryFromMemory = true
+			return row
+		}(), true},
+		{"merchant memory category with low extraction confidence", func() validatedScreenshotRow {
+			row := decided
+			row.Value.Confidence = .5
+			row.CategoryFromMemory = true
+			return row
+		}(), false},
 	}
 	for _, testCase := range cases {
 		if got := testCase.row.autoConfirmable(); got != testCase.want {
@@ -100,5 +122,17 @@ func TestScreenshotSummaryReportsBatchOutcome(t *testing.T) {
 	}
 	if clean := screenshotSummary(2, 2, 0, 0); strings.Contains(clean, "butuh keputusan") {
 		t.Fatalf("a fully recorded batch asks for nothing: %q", clean)
+	}
+}
+
+func TestScreenshotClassificationConfidenceFollowsCategorySource(t *testing.T) {
+	row := unmatchedOutRow("1000")
+	row.Value.Confidence, row.Value.CategoryConfidence = .9, .7
+	if got := row.classificationConfidence(); got != .7 {
+		t.Fatalf("model category confidence must be persisted, got %v", got)
+	}
+	row.CategoryFromMemory = true
+	if got := row.classificationConfidence(); got != 1 {
+		t.Fatalf("merchant memory category is decisive, got %v", got)
 	}
 }
