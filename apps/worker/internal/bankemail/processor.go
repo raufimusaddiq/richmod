@@ -95,8 +95,12 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 			return err
 		}
 		defer tx.Rollback(ctx)
-		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID); err != nil {
+		tag, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
 		}
 		if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
 			return err
@@ -134,6 +138,17 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var completionStatus string
+	err = tx.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1 FOR UPDATE`, payload.ReviewID).Scan(&completionStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if completionStatus != "OPEN" && completionStatus != "PENDING_SEND" {
+		return nil
+	}
 	if _, err = tx.Exec(ctx, `UPDATE bank_email_extraction SET output_json=$2::jsonb,validation_status='VALID',policy_result=$3 WHERE source_event_id=$1`, payload.SourceEventID, mustJSON(extraction), result.Status); err != nil {
 		return err
 	}

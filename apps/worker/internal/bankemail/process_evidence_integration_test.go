@@ -67,7 +67,7 @@ func TestBankEmailAmountMismatchRequiresReview(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT status FROM transaction WHERE household_id=$1`, household).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE source_event_id=$1`, source).Scan(&reviews); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, household).Scan(&reviews); err != nil {
 		t.Fatal(err)
 	}
 	if status != "NEEDS_REVIEW" || reviews != 1 {
@@ -146,7 +146,7 @@ func TestBankEmailReplayCallsModelOnce(t *testing.T) {
 	}
 	defer pool.Close()
 	wib := time.FixedZone("WIB", 7*60*60)
-	_, _, source := seedBankEmailProcess(t, ctx, pool, testsupport.UniqueStamp(), time.Date(2026, 9, 7, 10, 1, 0, 0, wib), "Bayar Rp54.000 di Warung")
+	household, _, source := seedBankEmailProcess(t, ctx, pool, testsupport.UniqueStamp(), time.Date(2026, 9, 7, 10, 1, 0, 0, wib), "Bayar Rp54.000 di Warung")
 	raw := `{"kind":"TRANSACTION","direction":"OUTGOING","channel":"QR","amount_idr":"54000","transaction_at":"2026-09-07T10:00:00+07:00","merchant":"Warung","counterparty":null,"reference":null,"description":null,"missing_fields":[],"confidence":0.9}`
 	g := &countingGateway{raw: raw}
 	processor := NewProcessor(pool, NewExtractor(g))
@@ -158,7 +158,7 @@ func TestBankEmailReplayCallsModelOnce(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, source).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE source_event_id=$1`, source).Scan(&reviews); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, household).Scan(&reviews); err != nil {
 		t.Fatal(err)
 	}
 	if err = processor.Process(ctx, Payload{SourceEventID: source}); err != nil {
@@ -169,13 +169,13 @@ func TestBankEmailReplayCallsModelOnce(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, source).Scan(&replayStatus); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE source_event_id=$1`, source).Scan(&replayReviews); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, household).Scan(&replayReviews); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction_proposal WHERE source_event_id=$1`, source).Scan(&proposals); err != nil {
 		t.Fatal(err)
 	}
-	if g.calls != 1 || status != replayStatus || reviews != replayReviews || proposals != 1 {
+	if g.calls != 1 || status != replayStatus || reviews != 1 || reviews != replayReviews || proposals != 1 {
 		t.Fatalf("calls=%d status=%s/%s reviews=%d/%d proposals=%d", g.calls, status, replayStatus, reviews, replayReviews, proposals)
 	}
 }
@@ -232,7 +232,7 @@ func TestBankPersistStopsWhenCompletionReviewClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reviewID string
-	if err = pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','CANCELLED','{}'::jsonb) RETURNING id`, household, source).Scan(&reviewID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','CANCELLED','{"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["IGNORE"]}'::jsonb) RETURNING id`, household, source).Scan(&reviewID); err != nil {
 		t.Fatal(err)
 	}
 	var account, householdFromListener string
