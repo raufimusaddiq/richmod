@@ -7,19 +7,18 @@ import (
 	"time"
 )
 
-var indonesianMonthNames = map[string]time.Month{
-	"jan": time.January, "januari": time.January, "january": time.January,
-	"feb": time.February, "februari": time.February, "february": time.February, "peb": time.February, "pebruari": time.February,
-	"mar": time.March, "maret": time.March, "march": time.March,
-	"apr": time.April, "april": time.April,
-	"mei": time.May, "may": time.May,
-	"jun": time.June, "juni": time.June, "june": time.June,
-	"jul": time.July, "juli": time.July, "july": time.July,
-	"agu": time.August, "agt": time.August, "ags": time.August, "agus": time.August, "agustus": time.August, "aug": time.August, "august": time.August,
-	"sep": time.September, "sept": time.September, "september": time.September,
-	"okt": time.October, "oktober": time.October, "oct": time.October, "october": time.October,
-	"nov": time.November, "nopember": time.November, "november": time.November,
-	"des": time.December, "desember": time.December, "dec": time.December, "december": time.December,
+var monthNames = map[string]time.Month{
+	"jan": 1, "januari": 1, "january": 1, "feb": 2, "februari": 2, "february": 2, "peb": 2, "pebruari": 2,
+	"mar": 3, "maret": 3, "march": 3, "apr": 4, "april": 4, "mei": 5, "may": 5, "jun": 6, "juni": 6, "june": 6,
+	"jul": 7, "juli": 7, "july": 7, "agu": 8, "agt": 8, "ags": 8, "agus": 8, "agustus": 8, "aug": 8, "august": 8,
+	"sep": 9, "sept": 9, "september": 9, "okt": 10, "oktober": 10, "oct": 10, "october": 10,
+	"nov": 11, "november": 11, "nop": 11, "nopember": 11, "des": 12, "desember": 12, "dec": 12, "december": 12,
+}
+
+var indonesianDays = map[string]int{
+	"hari ini": 0, "hariini": 0, "today": 0,
+	"kemarin": -1, "kemaren": -1, "kmrn": -1, "yesterday": -1,
+	"kemarin lusa": -2, "lusa kemarin": -2,
 }
 
 var (
@@ -29,20 +28,25 @@ var (
 	namedDatePattern   = regexp.MustCompile(`^(\d{1,2})\s+([a-z]+)\.?(?:\s+(\d{4}))?$`)
 )
 
-func parseReplyDate(text string, now time.Time) (time.Time, bool) {
+func parseDateValue(text string, now time.Time, futureDays int) (time.Time, bool) {
 	location := jakartaLocation()
-	now = now.In(location)
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+	local := now.In(location)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
 	value := strings.ToLower(strings.Join(strings.Fields(text), " "))
 	value = dateReplyPrefix.ReplaceAllString(value, "")
 	value = strings.Trim(value, " .,!?")
-	switch value {
-	case "hari ini", "today":
-		return today, true
-	case "kemarin", "kmrn", "yesterday":
-		return today.AddDate(0, 0, -1), true
-	case "kemarin lusa", "lusa kemarin":
-		return today.AddDate(0, 0, -2), true
+	if date, ok := parseDateToken(value, today, futureDays); ok {
+		return date, true
+	}
+	if stripped := stripAnswerFiller(text); stripped != "" && stripped != value {
+		return parseDateToken(stripped, today, futureDays)
+	}
+	return time.Time{}, false
+}
+
+func parseDateToken(value string, today time.Time, futureDays int) (time.Time, bool) {
+	if offset, ok := indonesianDays[value]; ok {
+		return today.AddDate(0, 0, offset), true
 	}
 	var day, month, year int
 	var yearKnown bool
@@ -67,7 +71,7 @@ func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 	case namedDatePattern.MatchString(value):
 		parts := namedDatePattern.FindStringSubmatch(value)
 		day, _ = strconv.Atoi(parts[1])
-		named, ok := indonesianMonthNames[parts[2]]
+		named, ok := monthNames[parts[2]]
 		if !ok {
 			return time.Time{}, false
 		}
@@ -82,13 +86,13 @@ func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 	if !yearKnown {
 		year = today.Year()
 	}
-	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, location)
+	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, today.Location())
 	if month < 1 || month > 12 || date.Day() != day || int(date.Month()) != month {
 		return time.Time{}, false
 	}
-	if !yearKnown && date.After(today.AddDate(0, 0, 31)) {
+	if !yearKnown && date.After(today.AddDate(0, 0, futureDays)) {
 		date = date.AddDate(-1, 0, 0)
-		if date.Day() != day {
+		if date.Day() != day || int(date.Month()) != month {
 			return time.Time{}, false
 		}
 	}

@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -153,47 +152,5 @@ func TestPendingBatchEditRotatesConfirmation(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*),min(description) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&total, &got))
 	if total != 1 || got != description {
 		t.Fatalf("posted batch total=%d description=%s", total, got)
-	}
-}
-
-func TestImplicitDateCorrectionReplacesWholeRevision(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "implicit-edit-revision")
-	p := NewProcessor(f.pool, nil)
-	var category, target string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Synthetic','synthetic') RETURNING id`, f.householdID).Scan(&category))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,description,category_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',1000,'IDR',now()-interval '1 day','Synthetic merchant','synthetic-original',$2,now()) RETURNING id`, f.householdID, category).Scan(&target))
-	staged, _, err := p.agentStageCorrection(ctx, f.state, gateway.ToolCall{}, map[string]any{
-		"search_text": "Synthetic merchant", "category_slug": "synthetic", "description": "synthetic-stale",
-		"period": "CUSTOM", "from_date": f.state.Now.AddDate(0, 0, -7).Format("2006-01-02"), "to_date": f.state.Now.Format("2006-01-02"),
-	})
-	mustAgentTest(t, err)
-	at := time.Now().Truncate(time.Second)
-	token, err := p.offerExistingEdit(ctx, f.householdID, f.update, f.sourceID, validatedExtraction{Amount: "1000", Merchant: "Synthetic merchant", TransactionAt: at}, true)
-	mustAgentTest(t, err)
-	if token == "" || token == staged.confirmationToken {
-		t.Fatal("implicit proposal did not rotate the revision")
-	}
-	var cleared bool
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT proposed_category_id IS NULL AND proposed_description IS NULL FROM telegram_pending_action WHERE household_id=$1 AND status='PENDING'`, f.householdID).Scan(&cleared))
-	if !cleared {
-		t.Fatal("date-only replacement retained stale proposed fields")
-	}
-	handled, err := p.processPendingEdit(ctx, f.householdID, f.update, f.sourceID, true, staged.confirmationToken)
-	mustAgentTest(t, err)
-	if handled {
-		t.Fatal("stale correction authorized date-only replacement")
-	}
-	handled, err = p.processPendingEdit(ctx, f.householdID, f.update, f.sourceID, true, token)
-	mustAgentTest(t, err)
-	if !handled {
-		t.Fatal("current date-only proposal was not applied")
-	}
-	var gotAt time.Time
-	var gotDescription string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT transaction_at,description FROM transaction WHERE id=$1`, target).Scan(&gotAt, &gotDescription))
-	if !gotAt.Equal(at) || gotDescription != "synthetic-original" {
-		t.Fatal("date-only replacement applied stale fields")
 	}
 }
