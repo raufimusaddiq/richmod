@@ -141,13 +141,7 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 			writeSenderWriteError(w, err, "unable to create financial source")
 			return
 		}
-		if in.Status == "ACTIVE" {
-			if _, err = tx.Exec(r.Context(), `INSERT INTO email_sender_route(household_id,sender_address,route_kind,financial_source_id) VALUES($1,$2,'FINANCIAL',$3)`, p.HouseholdID, in.SenderAddress, sourceID); err != nil {
-				writeSenderWriteError(w, err, "unable to create financial source")
-				return
-			}
-		}
-		if err = tx.Commit(r.Context()); err != nil {
+		if auditCreate(r.Context(), tx, p.HouseholdID, p.UserID, "financial_email_source", sourceID, map[string]any{"providerName": in.ProviderName, "senderAddress": in.SenderAddress, "capabilities": in.Capabilities, "defaultWealthAccountId": in.DefaultWealthAccountID, "status": in.Status}) != nil || tx.Commit(r.Context()) != nil {
 			jsonError(w, 500, "unable to create financial source")
 			return
 		}
@@ -248,12 +242,13 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if err = tx.Commit(r.Context()); err != nil {
+	if auditUpdate(r.Context(), tx, p.HouseholdID, p.UserID, "financial_email_source", id, map[string]any{"senderAddress": oldSender, "status": oldStatus}, map[string]any{"senderAddress": sender, "status": status}) != nil || tx.Commit(r.Context()) != nil {
 		jsonError(w, 500, "unable to update financial source")
 		return
 	}
 	jsonOut(w, 204, nil)
 }
+
 func validCapabilities(values []string) bool {
 	if len(values) == 0 {
 		return false

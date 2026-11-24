@@ -19,3 +19,19 @@ func auditCreate(ctx context.Context, tx pgx.Tx, householdID, userID, entityType
 	}
 	return nil
 }
+
+func auditUpdate(ctx context.Context, tx pgx.Tx, householdID, userID, entityType, entityID string, before, after any) error {
+	beforePayload, err := json.Marshal(before)
+	if err != nil {
+		return fmt.Errorf("encode audit payload: %w", err)
+	}
+	afterPayload, err := json.Marshal(after)
+	if err != nil {
+		return fmt.Errorf("encode audit payload: %w", err)
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'USER',$2,'UPDATE',$3,$4,$5::jsonb,$6::jsonb)`, householdID, userID, entityType, entityID, beforePayload, afterPayload)
+	if err != nil {
+		return fmt.Errorf("create audit record: %w", err)
+	}
+	return nil
+}

@@ -2,17 +2,8 @@ package config
 
 import "testing"
 
-func TestLoadAPIRejectsShortSessionSecret(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "too-short")
-	if _, err := LoadAPI(); err == nil {
-		t.Fatal("LoadAPI accepted a short session secret")
-	}
-}
-
 func TestLoadAPIAcceptsRequiredConfiguration(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
 	cfg, err := LoadAPI()
 	if err != nil {
 		t.Fatalf("LoadAPI() error = %v", err)
@@ -27,7 +18,6 @@ func TestLoadAPIAcceptsRequiredConfiguration(t *testing.T) {
 
 func TestLoadAPIRequiresGoogleCredentialsTogether(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
 	for name, env := range map[string][2]string{
 		"id only":     {"client-id", ""},
 		"secret only": {"", "client-secret"},
@@ -44,7 +34,6 @@ func TestLoadAPIRequiresGoogleCredentialsTogether(t *testing.T) {
 
 func TestLoadAPIAcceptsGoogleCredentials(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
 	t.Setenv("GOOGLE_CLIENT_ID", "client-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "client-secret")
 	cfg, err := LoadAPI()
@@ -58,7 +47,6 @@ func TestLoadAPIAcceptsGoogleCredentials(t *testing.T) {
 
 func TestLoadAPIAllowsGoogleLoginDisabled(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "")
 	if _, err := LoadAPI(); err != nil {
@@ -68,7 +56,6 @@ func TestLoadAPIAllowsGoogleLoginDisabled(t *testing.T) {
 
 func TestLoadAPIWebOriginDefaultsToServedPort(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
 	t.Setenv("WEB_ORIGIN", "")
 	cfg, err := LoadAPI()
 	if err != nil {
@@ -81,7 +68,6 @@ func TestLoadAPIWebOriginDefaultsToServedPort(t *testing.T) {
 
 func TestLoadAPIUsesSecureCookiesForHTTPSOrigin(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
 	t.Setenv("WEB_ORIGIN", "https://finance.musaddiqr.com")
 	cfg, err := LoadAPI()
 	if err != nil {

@@ -10,7 +10,6 @@ type API struct {
 	Address                        string
 	DatabaseURL                    string
 	WebOrigin                      string
-	SessionKey                     string
 	SecureCookie                   bool
 	LLMGatewayBaseURL              string
 	LLMGatewayAPIKey               string
@@ -32,7 +31,6 @@ func LoadAPI() (API, error) {
 		Address:                        valueOr("API_ADDR", ":8080"),
 		DatabaseURL:                    os.Getenv("DATABASE_URL"),
 		WebOrigin:                      valueOr("WEB_ORIGIN", "http://localhost:8080"),
-		SessionKey:                     os.Getenv("SESSION_SECRET"),
 		LLMGatewayBaseURL:              os.Getenv("LLM_GATEWAY_BASE_URL"),
 		LLMGatewayAPIKey:               os.Getenv("LLM_GATEWAY_API_KEY"),
 		LLMGatewayProtocol:             valueOr("LLM_GATEWAY_PROTOCOL", "responses"),
@@ -49,9 +47,6 @@ func LoadAPI() (API, error) {
 	}
 	if cfg.DatabaseURL == "" {
 		return API{}, fmt.Errorf("DATABASE_URL is required")
-	}
-	if len(cfg.SessionKey) < 32 {
-		return API{}, fmt.Errorf("SESSION_SECRET must contain at least 32 bytes")
 	}
 	if (cfg.GoogleClientID == "") != (cfg.GoogleClientSecret == "") {
 		return API{}, fmt.Errorf("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together")
