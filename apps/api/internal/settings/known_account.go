@@ -56,6 +56,7 @@ func (h *Handler) KnownAccounts(w http.ResponseWriter, r *http.Request) {
 		Relationship    string  `json:"relationship"`
 		WealthAccountID *string `json:"wealthAccountId"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if json.NewDecoder(r.Body).Decode(&in) != nil {
 		jsonError(w, 400, "invalid known account request")
 		return
@@ -107,6 +108,7 @@ func (h *Handler) PatchKnownAccount(w http.ResponseWriter, r *http.Request) {
 		Active          *bool   `json:"active"`
 		WealthAccountID *string `json:"wealthAccountId"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if json.NewDecoder(r.Body).Decode(&in) != nil || (in.Active == nil && in.WealthAccountID == nil) {
 		jsonError(w, 400, "active or wealthAccountId is required")
 		return

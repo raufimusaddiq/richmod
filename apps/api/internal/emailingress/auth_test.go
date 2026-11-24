@@ -19,41 +19,44 @@ func TestSignedRequestVerify(t *testing.T) {
 	canonical := strconv.FormatInt(ts, 10) + "\n" + recipient + "\n" + envelope + "\n" + hex.EncodeToString(digest[:])
 	mac := hmac.New(sha256.New, []byte("secret"))
 	_, _ = mac.Write([]byte(canonical))
-	signed, err := parseSignedHeaders(recipient, envelope, strconv.FormatInt(ts, 10), hex.EncodeToString(digest[:]), hex.EncodeToString(mac.Sum(nil)), "<id>", "raw/key.eml", "richmod.link")
+	signed, err := parseSignedHeaders(recipient, envelope, strconv.FormatInt(ts, 10), hex.EncodeToString(digest[:]), hex.EncodeToString(mac.Sum(nil)), "raw/key.eml", "richmod.link")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := signed.verify(body, "secret", time.Unix(ts, 0)); err != nil {
+	if err := signed.verifySignature("secret", time.Unix(ts, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := signed.verify([]byte("tampered"), "secret", time.Unix(ts, 0)); err == nil {
+	if err := signed.verifyContent(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := signed.verifyContent([]byte("tampered")); err == nil {
 		t.Fatal("tampered body accepted")
 	}
-	if err := signed.verify(body, "wrong", time.Unix(ts, 0)); err == nil {
+	if err := signed.verifySignature("wrong", time.Unix(ts, 0)); err == nil {
 		t.Fatal("wrong secret accepted")
 	}
 	tamperedRecipient := signed
 	tamperedRecipient.Recipient = "h_ffffffffffffffffffffffffffffffff@richmod.link"
-	if err := tamperedRecipient.verify(body, "secret", time.Unix(ts, 0)); err == nil {
+	if err := tamperedRecipient.verifySignature("secret", time.Unix(ts, 0)); err == nil {
 		t.Fatal("changed recipient accepted with original signature")
 	}
 	tamperedEnvelope := signed
 	tamperedEnvelope.EnvelopeFrom = "other@example.test"
-	if err := tamperedEnvelope.verify(body, "secret", time.Unix(ts, 0)); err == nil {
+	if err := tamperedEnvelope.verifySignature("secret", time.Unix(ts, 0)); err == nil {
 		t.Fatal("changed envelope sender accepted with original signature")
 	}
 	tamperedHash := signed
 	tamperedHash.ContentHash[0] ^= 0xff
-	if err := tamperedHash.verify(body, "secret", time.Unix(ts, 0)); err == nil {
+	if err := tamperedHash.verifySignature("secret", time.Unix(ts, 0)); err == nil {
 		t.Fatal("changed SHA accepted")
 	}
-	if err := signed.verify(body, "secret", time.Unix(ts+301, 0)); err == nil {
+	if err := signed.verifySignature("secret", time.Unix(ts+301, 0)); err == nil {
 		t.Fatal("stale timestamp accepted")
 	}
-	if err := signed.verify(body, "secret", time.Unix(ts-301, 0)); err == nil {
+	if err := signed.verifySignature("secret", time.Unix(ts-301, 0)); err == nil {
 		t.Fatal("future timestamp accepted")
 	}
-	if _, err := parseSignedHeaders(recipient, envelope, strconv.FormatInt(ts, 10), "not-hex", hex.EncodeToString(mac.Sum(nil)), "<id>", "raw/key.eml", "richmod.link"); err == nil {
+	if _, err := parseSignedHeaders(recipient, envelope, strconv.FormatInt(ts, 10), "not-hex", hex.EncodeToString(mac.Sum(nil)), "raw/key.eml", "richmod.link"); err == nil {
 		t.Fatal("invalid hash accepted")
 	}
 }
