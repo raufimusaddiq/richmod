@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -141,24 +142,29 @@ func run(logger *slog.Logger) error {
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	logger.Info("worker started", "worker_id", workerID)
+	var running sync.WaitGroup
 	pushSender, pushErr := push.NewSender(pool, os.Getenv("VAPID_PRIVATE_KEY"), os.Getenv("VAPID_SUBJECT"), logger)
 	if pushErr != nil {
 		logger.Warn("push notifications disabled", "reason", pushErr.Error())
 	} else {
-		go pushSender.Run(ctx)
+		running.Go(func() { pushSender.Run(ctx) })
 	}
 	catchUpResidualReviews(ctx, logger, pool, 100)
+	sweepOrphanedInsights(ctx, logger, pool)
 	if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
 		logger.Warn("attachment cache eviction failed", "error", err)
 	}
-	go maintainHeartbeat(ctx, logger, pool, workerID)
+	running.Go(func() { maintainHeartbeat(ctx, logger, pool, workerID) })
 	for _, lane := range []struct {
 		name     string
 		interval time.Duration
 		workers  int
-	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"DEFAULT", time.Second, defaultLaneWorkers}, {"BACKGROUND", time.Second, 1}} {
+	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"DETERMINISTIC", 500 * time.Millisecond, deterministicLaneWorkers}, {"DEFAULT", time.Second, defaultLaneWorkers}, {"BACKGROUND", time.Second, 1}} {
 		for i := 0; i < lane.workers; i++ {
-			go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1), lane.name, lane.interval)
+			laneID := fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1)
+			running.Go(func() {
+				runLaneLoop(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, laneID, lane.name, lane.interval)
+			})
 		}
 	}
 	maintenanceTicker := time.NewTicker(time.Minute)
@@ -166,6 +172,9 @@ func run(logger *slog.Logger) error {
 	for {
 		select {
 		case <-ctx.Done():
+			if !waitForLanes(&running, laneShutdownTimeout) {
+				logger.Warn("worker loops did not stop before the shutdown deadline", "timeout", laneShutdownTimeout.String())
+			}
 			return nil
 		case <-maintenanceTicker.C:
 			if _, err := push.Expire(ctx, pool, logger, push.DefaultExpiry); err != nil {
@@ -175,6 +184,7 @@ func run(logger *slog.Logger) error {
 				logger.Warn("push retention purge failed", "error", err)
 			}
 			catchUpResidualReviews(ctx, logger, pool, 25)
+			sweepOrphanedInsights(ctx, logger, pool)
 			if expired, released, err := processor.SweepReviewProjections(ctx, 100); err != nil {
 				logger.Warn("review projection sweep failed", "error", err)
 			} else if expired > 0 || released > 0 {
@@ -213,6 +223,9 @@ func phaseMetric(metric gateway.CallMetric, fallbackSourceEventID string) gatewa
 	if metric.SourceEventID == "" {
 		metric.SourceEventID = fallbackSourceEventID
 	}
+	if !reviewdomain.IsSourceEventID(metric.SourceEventID) {
+		metric.SourceEventID = ""
+	}
 	if metric.Purpose == "" {
 		metric.Purpose = "OTHER_BOUNDED"
 	}
@@ -231,6 +244,19 @@ func phaseOutcome(status string) string {
 		return "SUCCEEDED"
 	}
 	return "FAILED"
+}
+
+func sweepOrphanedInsights(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool) {
+	failed, err := workerInsight.SweepOrphanedPending(ctx, pool)
+	if err != nil {
+		if ctx.Err() == nil {
+			logger.Warn("orphaned insight sweep failed", "error", err)
+		}
+		return
+	}
+	if failed > 0 {
+		logger.Info("orphaned insight sweep", "failed", failed)
+	}
 }
 
 func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, limit int) {
@@ -277,12 +303,14 @@ func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int6
 
 const defaultLaneWorkers = 3
 
+const deterministicLaneWorkers = 2
+
 const minWorkerPoolConns = 16
 
 func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for {
+	for ctx.Err() == nil {
 		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, workerID, lane); err != nil && ctx.Err() == nil {
 			logger.Error("job polling failed", "lane", lane, "error", err)
 		}
@@ -358,6 +386,14 @@ func terminalStep(job queue.Job, cause error, processor *telegram.Processor, ban
 		return func(ctx context.Context, tx pgx.Tx) error {
 			return financialProcessor.TerminalPreviewFailureTx(ctx, tx, id, cause)
 		}
+	case "PROCESS_DOCUMENT":
+		id := ""
+		if payload, err := workerDocument.DecodePayload(job.Payload); err == nil {
+			id = payload.DocumentID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error {
+			return documentProcessor.TerminalClassificationFailureTx(ctx, tx, id, cause)
+		}
 	case "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT":
 		id := ""
 		if payload, err := workerDocument.DecodePayload(job.Payload); err == nil {
@@ -395,26 +431,24 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			if finishErr := jobs.Succeed(ctx, job); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
 			}
-		} else if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsGatewayDeferral(err) {
-			logger.Warn("typed message deferred: AI gateway unavailable", "job_id", job.ID, "deferrals", job.Deferrals)
-			if deferErr := jobs.Defer(ctx, job, err); deferErr != nil {
-				return fmt.Errorf("defer job: %w", deferErr)
-			}
 		} else {
-			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
-			if job.Type == "PROCESS_TELEGRAM_TEXT" {
-				err = telegram.TextFailurePolicy(err, job.Attempts)
-			}
-			onFinal := terminalStep(job, err, processor, bankProcessor, financialProcessor, documentProcessor, insightProcessor)
-			if finishErr := jobs.FailWithHook(ctx, job, err, onFinal); finishErr != nil {
-				return fmt.Errorf("reschedule job: %w", finishErr)
-			}
-			if job.Type == "PROCESS_DOCUMENT" && job.Attempts >= job.MaxAttempts {
-				payload, decodeErr := workerDocument.DecodePayload(job.Payload)
-				if decodeErr != nil {
-					logger.Error("terminal document failure payload invalid", "job_id", job.ID, "error", decodeErr)
-				} else if failureErr := documentProcessor.HandleTerminalFailure(ctx, payload.DocumentID, err); failureErr != nil {
-					logger.Error("terminal document failure handling failed", "job_id", job.ID, "document_id", payload.DocumentID, "error", failureErr)
+			action, effective := settle(ctx.Err() != nil, job, err)
+			switch action {
+			case settleRelease:
+				logger.Info("job released for shutdown", "job_id", job.ID, "type", job.Type)
+				if releaseErr := jobs.Release(ctx, job); releaseErr != nil {
+					return fmt.Errorf("release job: %w", releaseErr)
+				}
+			case settleDefer:
+				logger.Warn("job deferred: AI gateway unavailable", "job_id", job.ID, "type", job.Type, "deferrals", job.Deferrals)
+				if deferErr := jobs.Defer(ctx, job, effective); deferErr != nil {
+					return fmt.Errorf("defer job: %w", deferErr)
+				}
+			default:
+				logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", effective)
+				onFinal := terminalStep(job, effective, processor, bankProcessor, financialProcessor, documentProcessor, insightProcessor)
+				if finishErr := jobs.FailWithHook(ctx, job, effective, onFinal); finishErr != nil {
+					return fmt.Errorf("reschedule job: %w", finishErr)
 				}
 			}
 		}

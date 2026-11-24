@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
@@ -30,10 +31,17 @@ func (p *Processor) TerminalPreviewFailureTx(ctx context.Context, tx pgx.Tx, pre
 	if !reviewdomain.IsSourceEventID(previewID) {
 		return nil
 	}
-	message := "preview failed"
-	if cause != nil {
-		message = cause.Error()
-	}
-	_, err := tx.Exec(ctx, `UPDATE financial_email_preview SET status='FAILED',error_message=$2,updated_at=now() WHERE id=$1 AND status IN ('PENDING','PROCESSING')`, previewID, message)
+	_, err := tx.Exec(ctx, `UPDATE financial_email_preview SET status='FAILED',error_message=$2,updated_at=now() WHERE id=$1 AND status IN ('PENDING','PROCESSING')`, previewID, previewFailureMessage(cause))
 	return err
+}
+
+func previewFailureMessage(cause error) string {
+	switch {
+	case cause == nil:
+		return "preview failed"
+	case gateway.IsUnavailable(cause):
+		return "AI gateway unavailable"
+	default:
+		return "AI extraction failed"
+	}
 }

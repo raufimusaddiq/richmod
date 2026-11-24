@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,6 +78,22 @@ func WithSourceEvent(ctx context.Context, sourceEventID string) context.Context 
 	return withSourceEvent(ctx, sourceEventID)
 }
 
+type nonSourceContextKey struct{}
+
+func WithNonSourceRequest(ctx context.Context) context.Context {
+	return context.WithValue(withSourceEvent(ctx, ""), nonSourceContextKey{}, true)
+}
+
+func ensureSourceEvent(ctx context.Context, requestID string) context.Context {
+	if sourceEventFrom(ctx) != "" {
+		return ctx
+	}
+	if nonSource, _ := ctx.Value(nonSourceContextKey{}).(bool); nonSource {
+		return ctx
+	}
+	return withSourceEvent(ctx, requestID)
+}
+
 func sourceEventFrom(ctx context.Context) string {
 	sourceEventID, _ := ctx.Value(sourceEventContextKey{}).(string)
 	return sourceEventID
@@ -106,9 +123,7 @@ type ToolCall struct {
 }
 
 func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
-	if sourceEventFrom(ctx) == "" {
-		ctx = withSourceEvent(ctx, requestID)
-	}
+	ctx = ensureSourceEvent(ctx, requestID)
 	started := time.Now()
 	defer func() {
 		metadata.Dimensions = semanticDimensions(call.Arguments)
@@ -185,12 +200,12 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 		return ToolCall{}, Metadata{}, transportError(ctx, "call LLM tool gateway", err)
 	}
 	defer resp.Body.Close()
-	raw, err := readBounded(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ToolCall{}, Metadata{}, statusFailure(resp, "responses")
+	}
+	raw, err := readBounded(ctx, resp.Body)
 	if err != nil {
 		return ToolCall{}, Metadata{}, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ToolCall{}, Metadata{}, &StatusError{StatusCode: resp.StatusCode, Endpoint: "responses"}
 	}
 	result, err := decodeResponses(raw)
 	if err != nil {
@@ -218,8 +233,7 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 	}
 	functions := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
-		fn := map[string]any{"type": "function", "function": map[string]any{"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"]}}
-		functions = append(functions, fn)
+		functions = append(functions, chatFunction(tool))
 	}
 	choice := any("auto")
 	if options.Required {
@@ -231,6 +245,14 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 	}
 	payload["parallel_tool_calls"] = false
 	return c.doChatToolCall(ctx, requestID, payload, options)
+}
+
+func chatFunction(tool map[string]any) map[string]any {
+	definition := map[string]any{"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"]}
+	if strict, ok := tool["strict"]; ok {
+		definition["strict"] = strict
+	}
+	return map[string]any{"type": "function", "function": definition}
 }
 
 func chatMessages(systemPrompt string, userContent any) []map[string]any {
@@ -323,12 +345,12 @@ func (c *Client) doChatCompletion(ctx context.Context, requestID string, payload
 		return result, transportError(ctx, "call chat completion gateway", err)
 	}
 	defer resp.Body.Close()
-	raw, err := readBounded(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return result, statusFailure(resp, "chat completion")
+	}
+	raw, err := readBounded(ctx, resp.Body)
 	if err != nil {
 		return result, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return result, &StatusError{StatusCode: resp.StatusCode, Endpoint: "chat completion"}
 	}
 	var env struct {
 		ID, Model, Cost string
@@ -370,16 +392,16 @@ func (c *Client) doChatCompletion(ctx context.Context, requestID string, payload
 func validateNativeCalls(calls []ToolCall, allowed map[string]bool, options NativeToolOptions, metadata Metadata) (ToolCall, Metadata, error) {
 	if len(calls) != 1 {
 		if len(calls) == 0 {
-			return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
+			return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned no native tool call")
 		}
-		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned multiple native tool calls")
+		return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned multiple native tool calls")
 	}
 	for _, call := range calls {
 		if !allowed[call.Name] {
-			return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned unknown tool")
+			return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned unknown tool")
 		}
 		if len(call.Arguments) == 0 || !json.Valid(call.Arguments) {
-			return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned invalid tool arguments")
+			return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned invalid tool arguments")
 		}
 	}
 	return calls[0], metadata, nil
@@ -506,27 +528,33 @@ func (c *Client) observe(ctx context.Context, started time.Time, metadata Metada
 
 func metricErrorClass(err error) string {
 	message := strings.ToLower(err.Error())
+	var status *StatusError
+	var unavailable *UnavailableError
 	switch {
+	case errors.Is(err, ErrNotConfigured):
+		return "NOT_CONFIGURED"
 	case strings.Contains(message, "timeout") || strings.Contains(message, "deadline"):
 		return "TIMEOUT"
+	case errors.As(err, &status):
+		return "HTTP_ERROR"
+	case errors.As(err, &unavailable) || strings.Contains(message, "unavailable"):
+		return "UNAVAILABLE"
 	case strings.Contains(message, "http"):
 		return "HTTP_ERROR"
 	case strings.Contains(message, "decode") || strings.Contains(message, "invalid") || strings.Contains(message, "trailing json"):
 		return "INVALID_RESPONSE"
 	case strings.Contains(message, "not configured"):
 		return "NOT_CONFIGURED"
-	case strings.Contains(message, "unavailable"):
-		return "UNAVAILABLE"
 	default:
 		return "GATEWAY_ERROR"
 	}
 }
 
-func readBounded(reader io.Reader) ([]byte, error) {
+func readBounded(ctx context.Context, reader io.Reader) ([]byte, error) {
 	limited := io.LimitReader(reader, (2<<20)+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("read LLM response: %w", err)
+		return nil, transportError(ctx, "read LLM response", err)
 	}
 	if len(raw) > 2<<20 {
 		return nil, fmt.Errorf("LLM gateway response exceeds 2 MiB")

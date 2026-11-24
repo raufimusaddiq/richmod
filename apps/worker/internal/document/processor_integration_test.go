@@ -58,6 +58,13 @@ func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 	if documentStatus != "FAILED" || sourceStatus != "FAILED" || reviews != 0 || replies != 0 || audits != 1 {
 		t.Fatalf("document=%s source=%s reviews=%d replies=%d audits=%d", documentStatus, sourceStatus, reviews, replies, audits)
 	}
+	var failedSourceActions int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM integration_action WHERE household_id=$1 AND integration_type='SOURCE_PROCESSING' AND action_type='SOURCE_FAILED' AND dedupe_key=$2::text`, householdID, sourceID).Scan(&failedSourceActions); err != nil {
+		t.Fatal(err)
+	}
+	if failedSourceActions != 1 {
+		t.Fatalf("terminal document failure must record exactly one failed-source action, got %d", failedSourceActions)
+	}
 	if err := processor.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "RECEIPT", map[string]any{"total": "unknown"}, .2, "stub", fmt.Errorf("schema repair failed")); err != nil {
 		t.Fatal(err)
 	}

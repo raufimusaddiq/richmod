@@ -35,3 +35,18 @@ func TestListRejectsInvalidCycleBeforeDatabase(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestOrphanedPendingInsightExpiresFromLookup(t *testing.T) {
+	if !strings.Contains(existingInsightQuery, "(status='PENDING' AND created_at>now()-interval '15 minutes')") {
+		t.Fatal("a pending insight whose job vanished must stop answering EXISTING after 15 minutes")
+	}
+}
+
+func TestCommentaryRejectsCoverageBelowTheWorkerFloor(t *testing.T) {
+	cases := map[string]bool{"0.0000": true, "0.5000": true, "0.6999": true, "0.7000": false, "0.7500": false, "1.0000": false, "": true, "n/a": true}
+	for completeness, rejected := range cases {
+		if belowMinimumCompleteness(completeness) != rejected {
+			t.Errorf("completeness %q rejected=%v, want %v", completeness, !rejected, rejected)
+		}
+	}
+}

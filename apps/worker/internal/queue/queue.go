@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -91,9 +92,54 @@ const claimSQL = `
 const serializedChatTypesSQL = `'PROCESS_TELEGRAM_TEXT'`
 
 const (
-	deferralBase = 5 * time.Minute
-	deferralCap  = time.Hour
+	deferralBase     = 5 * time.Minute
+	deferralCap      = time.Hour
+	deferralHintCap  = 24 * time.Hour
+	finalizeTimeout  = 10 * time.Second
+	jitterFraction   = 5
+	retryDelayCap    = time.Hour
+	retryBackoffBits = 8
 )
+
+func finalizeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), finalizeTimeout)
+}
+
+func jitter(delay time.Duration) time.Duration {
+	spread := delay / jitterFraction
+	if spread <= 0 {
+		return delay
+	}
+	return delay + rand.N(spread)
+}
+
+type permanentFailure struct{ err error }
+
+func (e permanentFailure) Error() string   { return e.err.Error() }
+func (e permanentFailure) Unwrap() error   { return e.err }
+func (e permanentFailure) Permanent() bool { return true }
+
+func Permanent(err error) error {
+	if err == nil || isPermanent(err) {
+		return err
+	}
+	return permanentFailure{err: err}
+}
+
+func retryHint(err error) time.Duration {
+	var hinted interface{ RetryAfter() time.Duration }
+	if errors.As(err, &hinted) {
+		return hinted.RetryAfter()
+	}
+	return 0
+}
+
+func deferralDelayFor(deferrals int, reason error) time.Duration {
+	if hint := retryHint(reason); hint > 0 {
+		return min(max(hint, DeferralDelay(deferrals)), deferralHintCap)
+	}
+	return jitter(DeferralDelay(deferrals))
+}
 
 func DeferralDelay(deferrals int) time.Duration {
 	delay := deferralBase
@@ -107,15 +153,17 @@ func DeferralDelay(deferrals int) time.Duration {
 }
 
 func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := finalizeContext(ctx)
 	defer cancel()
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='PENDING',attempts=GREATEST(attempts-1,0),deferrals=deferrals+1,
 		run_after=now()+$2*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$3,updated_at=now()
-		WHERE id=$1 AND status='RUNNING' AND locked_by=$4`, job.ID, DeferralDelay(job.Deferrals).Seconds(), truncate("DEFERRED: "+reason.Error(), 1000), job.LockedBy)
+		WHERE id=$1 AND status='RUNNING' AND locked_by=$4`, job.ID, deferralDelayFor(job.Deferrals, reason).Seconds(), truncate("DEFERRED: "+reason.Error(), 1000), job.LockedBy)
 	return err
 }
 
 func (q *Queue) Succeed(ctx context.Context, job Job) error {
+	ctx, cancel := finalizeContext(ctx)
+	defer cancel()
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$2`, job.ID, job.LockedBy)
 	return err
 }
@@ -165,7 +213,7 @@ func Final(job Job, processErr error) bool {
 }
 
 func (q *Queue) FailWithHook(ctx context.Context, job Job, processErr error, onFinal func(context.Context, pgx.Tx) error) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := finalizeContext(ctx)
 	defer cancel()
 	if onFinal != nil && Final(job, processErr) {
 		err := q.failTx(ctx, job, processErr, onFinal)
@@ -211,12 +259,9 @@ func (q *Queue) logRetry(ctx context.Context, job Job, processErr error) error {
 }
 
 func retryDelaySeconds(job Job, processErr error) int {
-	delay := time.Duration(1<<min(job.Attempts, 8)) * time.Second
-	var hinted interface{ RetryAfter() time.Duration }
-	if errors.As(processErr, &hinted) {
-		if wait := hinted.RetryAfter(); wait > 0 {
-			delay = min(wait, time.Hour)
-		}
+	delay := jitter(time.Duration(1<<min(job.Attempts, retryBackoffBits)) * time.Second)
+	if wait := retryHint(processErr); wait > 0 {
+		delay = min(wait, retryDelayCap)
 	}
 	return int((delay + time.Second - 1) / time.Second)
 }
@@ -230,7 +275,9 @@ func classifyLane(jobType string) string {
 	switch jobType {
 	case "PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "EDIT_TELEGRAM_MESSAGE", "PROCESS_TELEGRAM_REVIEW_TEXT", "RETIRE_TELEGRAM_REVIEW_CARD", "COMPLETE_BANK_REVIEW":
 		return "INTERACTIVE"
-	case "FETCH_TELEGRAM_IMAGE", "FINALIZE_TELEGRAM_MEDIA_GROUP", "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "GENERATE_INSIGHT", "GENERATE_CYCLE_RESIDUAL_REVIEW", "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
+	case "FETCH_TELEGRAM_IMAGE", "FINALIZE_TELEGRAM_MEDIA_GROUP", "GENERATE_CYCLE_RESIDUAL_REVIEW", "PROJECT_TELEGRAM_REVIEW":
+		return "DETERMINISTIC"
+	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "GENERATE_INSIGHT", "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		return "BACKGROUND"
 	default:
 		return "DEFAULT"
@@ -270,4 +317,11 @@ func truncate(value string, limit int) string {
 		return value
 	}
 	return value[:limit]
+}
+
+func (q *Queue) Release(ctx context.Context, job Job) error {
+	ctx, cancel := finalizeContext(ctx)
+	defer cancel()
+	_, err := q.pool.Exec(ctx, `UPDATE job SET status='PENDING',attempts=GREATEST(attempts-1,0),run_after=now(),locked_at=NULL,locked_by=NULL,updated_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$2`, job.ID, job.LockedBy)
+	return err
 }

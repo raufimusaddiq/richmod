@@ -643,6 +643,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	if p.gateway == nil {
 		return fmt.Errorf("financial email gateway unavailable")
 	}
+	ctx = gateway.WithNonSourceRequest(ctx)
 	var household, sourceID, provider, sender, subject, body, defaultWealth string
 	var defaultWealthConfigured bool
 	var capabilities []string
