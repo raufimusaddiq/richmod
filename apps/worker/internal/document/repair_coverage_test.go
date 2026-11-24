@@ -63,9 +63,9 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	if receiptActual.has("receipt", "UNMAPPED_VALIDATION_FAILURE") {
 		t.Fatalf("receipt validation emitted unmapped fallback: %s", receiptActual.String())
 	}
-	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: ptr("x"), Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}, OtherComponents: []moneyLine{{Name: "other", Amount: "x"}}})
+	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: ptr("x"), Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}, OtherComponents: []moneyLine{{Name: "other", Amount: "x"}}}, received)
 	assertIssueCoverage(t, "PAYSLIP", payslipActual, "payslip")
-	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: ptr("x"), Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE")
+	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: ptr("x"), Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE", received)
 	assertIssueCoverage(t, "BILL_OR_INVOICE", screenshotActual)
 	if repairableTopLevelField("RECEIPT", "receipt") != "" || repairableTopLevelField("PAYSLIP", "payslip") != "" {
 		t.Fatal("family-level validation failures must remain no-repair")

@@ -21,6 +21,13 @@ import (
 
 const maxTelegramImageBytes int64 = 10 << 20
 
+const (
+	MaxAlbumPages       = 10
+	MaxAlbumBytes int64 = 32 << 20
+)
+
+const pageSequenceShift = 1_000_000_000
+
 type ImagePayload struct {
 	SourceEventID  string `json:"source_event_id"`
 	FileID         string `json:"file_id"`
@@ -116,16 +123,25 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 	if err != nil {
 		return err
 	}
-	pageIndex := input.MessageID
-	if input.MediaGroupID == "" {
-		pageIndex = 0
-	} else if pageIndex == 0 {
-		if err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(page_index)+1,0) FROM document_page WHERE document_id=$1`, documentID).Scan(&pageIndex); err != nil {
+	pageIndex := 0
+	if input.MediaGroupID != "" {
+		var pages int
+		var pageBytes int64
+		var alreadyPage bool
+		if err = tx.QueryRow(ctx, `SELECT count(*),COALESCE(sum(a.byte_size),0),COALESCE(bool_or(dp.source_event_id=$2),false),COALESCE(MAX(dp.page_index)+1,0) FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1`, documentID, input.SourceEventID).Scan(&pages, &pageBytes, &alreadyPage, &pageIndex); err != nil {
 			return err
+		}
+		if !alreadyPage && (pages >= MaxAlbumPages || pageBytes+int64(len(normalized)) > MaxAlbumBytes) {
+			return p.rejectAlbumOverflow(ctx, tx, householdID, input.SourceEventID, documentID)
 		}
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, documentID, input.SourceEventID, attachmentID, pageIndex); err != nil {
 		return err
+	}
+	if input.MediaGroupID != "" {
+		if err = sequenceAlbumPages(ctx, tx, documentID); err != nil {
+			return err
+		}
 	}
 	metadata, _ := json.Marshal(map[string]any{"media_type": media, "byte_size": len(normalized), "width": width, "height": height, "caption": input.Caption, "telegram_user_id": input.TelegramUserID})
 	if _, err = tx.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json || $2::jsonb WHERE source_event_id=$1`, input.SourceEventID, string(metadata)); err != nil {
@@ -147,6 +163,28 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 		removeNew = false
 	}
 	return nil
+}
+
+func sequenceAlbumPages(ctx context.Context, tx pgx.Tx, documentID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE document_page SET page_index=page_index+$2 WHERE document_id=$1 AND page_index<$2`, documentID, pageSequenceShift); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE document_page dp SET page_index=ordered.position FROM (
+		SELECT p.id,(row_number() OVER (ORDER BY COALESCE(s.telegram_message_id,0),p.created_at,p.id)-1)::integer AS position
+		FROM document_page p JOIN source_event s ON s.id=p.source_event_id WHERE p.document_id=$1
+	) ordered WHERE dp.id=ordered.id`, documentID)
+	return err
+}
+
+func (p *ImageProcessor) rejectAlbumOverflow(ctx context.Context, tx pgx.Tx, householdID, sourceEventID, documentID string) error {
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		return err
+	}
+	if _, err := p.pool.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name=COALESCE(parser_name,'telegram-image-v1'),parser_version=COALESCE(parser_version,'1') WHERE id=$1 AND processing_status IN ('RECEIVED','PROCESSING')`, sourceEventID); err != nil {
+		return err
+	}
+	_, err := p.pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_ALBUM_PAGE_LIMIT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'max_pages',$4::integer,'max_bytes',$5::bigint))`, householdID, sourceEventID, documentID, MaxAlbumPages, MaxAlbumBytes)
+	return err
 }
 
 func normalizeTelegramImage(raw []byte, filename string) ([]byte, string, int, int, string, error) {

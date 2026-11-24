@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
@@ -39,7 +40,8 @@ type payslipExtraction struct {
 
 func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error {
 	var householdID, sourceID, status, documentType string
-	err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id,status,COALESCE(document_type,'') FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID, &status, &documentType)
+	var receivedAt time.Time
+	err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,d.status,COALESCE(d.document_type,''),s.received_at FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &status, &documentType, &receivedAt)
 	if err != nil {
 		return fmt.Errorf("load payslip document: %w", err)
 	}
@@ -62,6 +64,9 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		text += " Caption (untrusted evidence): " + gateway.WrapUntrusted("evidence", caption) + "."
 	}
 	content := []map[string]any{{"type": "input_text", "text": text}}
+	if err := p.enforceDocumentLimits(ctx, documentID); err != nil {
+		return err
+	}
 	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
 	if err != nil {
 		return err
@@ -105,14 +110,17 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if err != nil {
 		return fmt.Errorf("invalid payslip native tool arguments: %w", err)
 	}
-	issues := payslipValidationIssues(result)
+	issues := payslipValidationIssues(result, receivedAt)
 	if len(issues) > 0 {
-		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", content, &result, &issues, func(value payslipExtraction) error {
-			if repairIssues := payslipValidationIssues(value); len(repairIssues) > 0 {
+		patched, repairMeta, repairErr := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", content, &result, &issues, func(value payslipExtraction) error {
+			if repairIssues := payslipValidationIssues(value, receivedAt); len(repairIssues) > 0 {
 				return fmt.Errorf("payslip still invalid: %s", repairIssues.String())
 			}
 			return nil
 		})
+		if repairErr != nil {
+			return repairErr
+		}
 		if repairMeta.Model != "" {
 			metadata.Model = repairMeta.Model
 		}
@@ -121,7 +129,7 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		}
 		result = patched
 	}
-	transactionAt, period, arithmeticOK, err := validatePayslip(result)
+	transactionAt, period, arithmeticOK, err := validatePayslip(result, receivedAt)
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, err)
 	}
@@ -129,13 +137,21 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, period.Format("2006-01"), autoConfirm, arithmeticOK)
 }
 
+func validPayslipEmployer(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed != "" && utf8.RuneCountInString(trimmed) <= 160
+}
+
 func payslipAutoConfirmable(value payslipExtraction) bool {
 	return value.PayDate != nil && value.Confidence >= autoConfirmMinConfidence
 }
 
-func validatePayslip(value payslipExtraction) (time.Time, time.Time, bool, error) {
-	if value.Currency != "IDR" || value.Confidence < 0 || value.Confidence > 1 {
+func validatePayslip(value payslipExtraction, receivedAt time.Time) (time.Time, time.Time, bool, error) {
+	if value.Currency != "IDR" || !(value.Confidence >= 0 && value.Confidence <= 1) {
 		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip currency or confidence")
+	}
+	if !validPayslipEmployer(value.Employer) {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip employer")
 	}
 	netPay, ok := wholeMoney(value.NetPay, true)
 	if !ok {
@@ -149,7 +165,7 @@ func validatePayslip(value payslipExtraction) (time.Time, time.Time, bool, error
 			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip gross pay")
 		}
 	}
-	period, err := parsePayslipPeriod(value.Period)
+	period, err := parsePayslipPeriod(value.Period, receivedAt)
 	if err != nil {
 		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip period")
 	}
@@ -179,8 +195,8 @@ func validatePayslip(value payslipExtraction) (time.Time, time.Time, bool, error
 	}
 	transactionAt := time.Date(period.Year(), period.Month()+1, 0, 12, 0, 0, 0, jakarta())
 	if value.PayDate != nil {
-		parsed, err := time.ParseInLocation("2006-01-02", *value.PayDate, jakarta())
-		if err != nil || parsed.Format("2006-01-02") != *value.PayDate || parsed.Before(period.AddDate(0, 0, -7)) || parsed.After(period.AddDate(0, 2, 7)) {
+		parsed, ok := parsePayslipPayDate(*value.PayDate, period)
+		if !ok {
 			return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip pay date")
 		}
 		transactionAt = parsed.Add(12 * time.Hour)
@@ -188,10 +204,21 @@ func validatePayslip(value payslipExtraction) (time.Time, time.Time, bool, error
 	return transactionAt, period, arithmeticOK, nil
 }
 
-func parsePayslipPeriod(value string) (time.Time, error) {
+func parsePayslipPayDate(value string, period time.Time) (time.Time, bool) {
+	parsed, err := time.ParseInLocation("2006-01-02", value, jakarta())
+	if err != nil || parsed.Format("2006-01-02") != value || parsed.Before(period.AddDate(0, 0, -7)) || parsed.After(period.AddDate(0, 2, 7)) {
+		return time.Time{}, false
+	}
+	return parsed, true
+}
+
+func parsePayslipPeriod(value string, receivedAt time.Time) (time.Time, error) {
 	parsed, err := time.ParseInLocation("2006-01", value, jakarta())
 	if err != nil || parsed.Format("2006-01") != value {
 		return time.Time{}, fmt.Errorf("invalid payslip period")
+	}
+	if parsed.AddDate(0, 1, 0).Before(receivedAt.AddDate(-2, 0, 0)) || parsed.After(receivedAt.Add(60*24*time.Hour)) {
+		return time.Time{}, fmt.Errorf("implausible payslip period")
 	}
 	return parsed, nil
 }
@@ -201,15 +228,28 @@ func validPayrollComponent(amount string) bool {
 	return ok
 }
 
+const maxWholeMoneyDigits = 20
+
 func wholeMoney(value string, positive bool) (*big.Int, bool) {
+	if len(value) > maxWholeMoneyDigits+1 {
+		return nil, false
+	}
 	amount, ok := new(big.Int).SetString(value, 10)
-	if !ok || amount.String() != value || amount.Sign() < 0 || (positive && amount.Sign() == 0) {
+	if !ok || amount.String() != value || amount.Sign() < 0 || (positive && amount.Sign() == 0) || len(value) > maxWholeMoneyDigits {
 		return nil, false
 	}
 	return amount, true
 }
 
 func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID, sourceID string, value payslipExtraction, model string, transactionAt time.Time, period string, autoConfirm, arithmeticOK bool) error {
+	err := p.persistPayslipOnce(ctx, documentID, householdID, sourceID, value, model, transactionAt, period, autoConfirm, arithmeticOK, false)
+	if errors.Is(err, reviewdomain.ErrPayslipReviewInvalid) {
+		return p.persistPayslipOnce(ctx, documentID, householdID, sourceID, value, model, transactionAt, period, autoConfirm, arithmeticOK, true)
+	}
+	return err
+}
+
+func (p *Processor) persistPayslipOnce(ctx context.Context, documentID, householdID, sourceID string, value payslipExtraction, model string, transactionAt time.Time, period string, autoConfirm, arithmeticOK, conflicting bool) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -224,7 +264,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if value.PayDate == nil {
 		reviewType = "MISSING_PAY_DATE"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model,validated=true WHERE NOT document_extraction.validated`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
 	var proposalID string
@@ -234,7 +274,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		}
 		return err
 	}
-	if !hasPrimary || value.PayDate == nil || !autoConfirm {
+	if !hasPrimary || value.PayDate == nil || !autoConfirm || conflicting {
 		decision, ok := reviewdec.Preset(reviewType, "proposal", proposalID)
 		if !ok {
 			return fmt.Errorf("no review decision preset for %s", reviewType)
@@ -251,6 +291,9 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		}
 		decision.Provenance["arithmeticOK"] = arithmeticOK
 		decision.Provenance["hasPrimarySalary"] = hasPrimary
+		if conflicting {
+			decision.Provenance["conflictingSalaryEvent"] = true
+		}
 		decision.Provenance["extractionBelowAutoConfirmFloor"] = value.Confidence < autoConfirmMinConfidence
 		decision = reviewdec.PayslipPolicy(decision, reviewType, hasPrimary)
 		encoded, err := decision.JSON()
@@ -299,12 +342,26 @@ func (p *Processor) projectDocumentReview(ctx context.Context, tx pgx.Tx, househ
 	if reviewItemID == "" {
 		return nil
 	}
+	var sourceType string
 	var chatID, messageID int64
-	_ = tx.QueryRow(ctx, `SELECT COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0),COALESCE(s.telegram_message_id,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type='TELEGRAM_IMAGE'`, sourceID).Scan(&chatID, &messageID)
-	if chatID == 0 {
+	err := tx.QueryRow(ctx, `SELECT s.source_type,COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0),COALESCE(s.telegram_message_id,0) FROM source_event s LEFT JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.household_id=$2`, sourceID, householdID).Scan(&sourceType, &chatID, &messageID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
-	return workerTelegram.ProjectReviewItem(ctx, tx, householdID, reviewItemID, messageID, "", chatID)
+	if err != nil {
+		return err
+	}
+	switch sourceType {
+	case "TELEGRAM_IMAGE":
+		if chatID == 0 {
+			return nil
+		}
+		return workerTelegram.ProjectReviewItem(ctx, tx, householdID, reviewItemID, messageID, "", chatID)
+	case "WEB_IMAGE":
+		return workerTelegram.ProjectReviewItem(ctx, tx, householdID, reviewItemID, 0, "", 0)
+	default:
+		return nil
+	}
 }
 
 func payslipSchema() map[string]any {

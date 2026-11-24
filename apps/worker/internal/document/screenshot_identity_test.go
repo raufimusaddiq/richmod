@@ -33,7 +33,7 @@ func TestScreenshotIdentityValidation(t *testing.T) {
 			}
 			value := screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{row}}
 			_, err := validateScreenshot(value, time.Now(), nil, "")
-			if (err == nil) != test.valid || (len(screenshotValidationIssues(value, "")) == 0) != test.valid {
+			if (err == nil) != test.valid || (len(screenshotValidationIssues(value, "", time.Now())) == 0) != test.valid {
 				t.Fatalf("canonical validators disagree: %v", err)
 			}
 		})

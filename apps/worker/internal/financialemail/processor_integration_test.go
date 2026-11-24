@@ -797,3 +797,98 @@ func TestCashMovementSerializesOnLedgerEventLock(t *testing.T) {
 		t.Fatal("cash movement must wait for the ledger event lock before planning a transfer")
 	}
 }
+
+func TestFinancialEmailMalformedObservedDateRoutesToReviewInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	_, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
+	raw := `{"observations":[{"kind":"WEALTH_VALUE","movement_type":null,"amount_idr":null,"occurred_at":null,"funding_account_hint":null,"provider_account_hint":null,"provider_reference":null,"account_hint":"Investasi","value_idr":"5000000","observed_date":"kemarin","confidence":0.9}]}`
+	if err := NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatalf("a malformed observed_date must not fail the job: %v", err)
+	}
+	var status string
+	var wealthObservations, reviews int
+	if err := pool.QueryRow(ctx, `SELECT o.status,(SELECT count(*) FROM wealth_observation w WHERE w.financial_email_observation_id=o.id),(SELECT count(*) FROM review_item r WHERE r.financial_email_observation_id=o.id AND r.status IN ('OPEN','PENDING_SEND')) FROM financial_email_observation o WHERE o.source_event_id=$1`, source).Scan(&status, &wealthObservations, &reviews); err != nil {
+		t.Fatal(err)
+	}
+	if status != "REVIEW" || wealthObservations != 0 || reviews != 1 {
+		t.Fatalf("status=%s wealthObservations=%d reviews=%d", status, wealthObservations, reviews)
+	}
+}
+
+func TestFinancialEmailConflictReviewAdvertisesOnlyExecutableActions(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
+	var financialSource string
+	if err := pool.QueryRow(ctx, `SELECT financial_source_id::text FROM financial_email_event WHERE source_event_id=$1`, source).Scan(&financialSource); err != nil {
+		t.Fatal(err)
+	}
+	contribution := func(movement string) string {
+		return `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"` + movement + `","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"","provider_reference":"actions-ref","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	}
+	if err := NewProcessor(pool, &integrationGateway{raw: contribution("CONTRIBUTION")}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	conflict := seedFinancialEmailFor(t, ctx, pool, h, financialSource)
+	if err := NewProcessor(pool, &integrationGateway{raw: contribution("ASSET_PURCHASE")}).Process(ctx, Payload{SourceEventID: conflict}); err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	if err := pool.QueryRow(ctx, `SELECT ARRAY(SELECT jsonb_array_elements_text(decision->'allowedActions')) FROM review_item WHERE review_type='CONFLICTING_EVIDENCE' AND financial_email_observation_id IN (SELECT id FROM financial_email_observation WHERE source_event_id=$1)`, conflict).Scan(&actions); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0] != "IGNORE" {
+		t.Fatalf("allowed actions = %v, want only the executable IGNORE", actions)
+	}
+}
+
+func TestFinancialEmailWithdrawalNeedsNoWealthBinding(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, _, _, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
+	if _, err := pool.Exec(ctx, `UPDATE financial_email_source SET default_wealth_account_id=NULL WHERE id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)`, source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE wealth_account SET active=false WHERE household_id=$1`, household); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"WITHDRAWAL","amount_idr":"1500000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"Unknown Fund","provider_reference":"no-wealth","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err := NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var purpose, observed string
+	if err := pool.QueryRow(ctx, `SELECT t.purpose,o.status FROM financial_email_observation o JOIN transaction t ON t.id=o.transaction_id WHERE o.source_event_id=$1`, source).Scan(&purpose, &observed); err != nil {
+		t.Fatalf("a withdrawal without a wealth account must still record the transfer: %v", err)
+	}
+	if purpose != "INTERNAL_TRANSFER" || observed != "APPLIED" {
+		t.Fatalf("purpose=%s observation=%s", purpose, observed)
+	}
+}

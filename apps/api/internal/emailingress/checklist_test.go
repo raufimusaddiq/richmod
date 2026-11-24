@@ -137,7 +137,7 @@ func TestActivateRequiresSenderAndChecklistTracksSteps(t *testing.T) {
 		t.Fatalf("activate with inactive listener = %v", err)
 	}
 
-	confirmation := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <checklist-confirm-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 123456789")
+	confirmation := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <checklist-confirm-" + household + "@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 123456789")
 	if err := service.Deliver(ctx, signedInput(confirmation, address.Address, "forwarder@test.invalid", "checklist/confirm-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestRotateSupersedesForwardingVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	confirmation := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-old123\">Confirm</a> Confirmation code: 111222333")
+	confirmation := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-" + household + "@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-old123\">Confirm</a> Confirmation code: 111222333")
 	if err := service.Deliver(ctx, signedInput(confirmation, oldAddress.Address, "forwarder@test.invalid", "rotate/confirm-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestRotateSupersedesForwardingVerification(t *testing.T) {
 		t.Fatalf("an action from a disabled address must stay hidden: %+v %v", action, err)
 	}
 
-	fresh := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-new-" + household + "@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-new456\">Confirm</a> Confirmation code: 444555666")
+	fresh := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rotate-confirm-new-" + household + "@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-new456\">Confirm</a> Confirmation code: 444555666")
 	if err := service.Deliver(ctx, signedInput(fresh, newAddress.Address, "forwarder@test.invalid", "rotate/fresh-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}

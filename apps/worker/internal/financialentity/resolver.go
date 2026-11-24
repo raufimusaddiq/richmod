@@ -22,7 +22,39 @@ type Resolution struct {
 	Status Status
 }
 
-var lowInformation = map[string]bool{"account": true, "autodebit": true, "bank": true, "payment": true, "rekening": true, "transfer": true}
+var lowInformation = map[string]bool{
+	"account": true,
+	"autodebit": true,
+	"bank": true,
+	"payment": true,
+	"rekening": true,
+	"transfer": true,
+	"tabungan": true,
+	"dana": true,
+	"dompet": true,
+	"reksadana": true,
+	"saham": true,
+	"emas": true,
+	"investasi": true,
+	"deposito": true,
+	"digital": true,
+	"gaji": true,
+	"utama": true,
+	"bersama": true,
+	"wallet": true,
+	"savings": true,
+	"saving": true,
+	"fund": true,
+	"gold": true,
+	"crypto": true,
+	"loan": true,
+	"pinjaman": true,
+	"kartu": true,
+	"kredit": true,
+	"debit": true,
+	"virtual": true,
+	"ewallet": true,
+}
 
 func Normalize(value string) string {
 	var b strings.Builder

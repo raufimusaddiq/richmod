@@ -259,7 +259,9 @@ header depends on the trusted receiver prepending its own result to every
 message; re-check that with real raw messages whenever the trusted authserv-id
 list changes.
 
-A missing trusted-authserv configuration does not block `PROVISIONED` transport/control-message handling, but `ACTIVE` financial delivery fails closed and must not create financial state.
+A missing trusted-authserv configuration still lets a `PROVISIONED` delivery be recorded as `PROVISIONED_RECEIVED`, but a forwarding control action (Gmail confirmation link or code) is created only when the same trusted `Authentication-Results` evidence passes, and `ACTIVE` financial delivery fails closed and must not create financial state.
+
+`X-Richmod-Object-Key` is not part of the HMAC canonical string, so it is validated strictly instead: at most 256 characters of `A-Z a-z 0-9 . _ - /`, no `..`, no `//`, no leading separator. The MIME parser rejects a message with more than one `From` header, nests multipart at most 8 deep with at most 64 parts, drops `<style>`, `<script>` and comment content before extracting visible text, and bounds the stored subject, date, Message-ID, authentication headers and body.
 
 ## Address lifecycle
 

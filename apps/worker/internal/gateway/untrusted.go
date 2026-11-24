@@ -14,6 +14,7 @@ const (
 
 var (
 	htmlTagPattern      = regexp.MustCompile(`(?s)<[^>]*>`)
+	htmlBlockPattern    = regexp.MustCompile(`(?is)<!--.*?(?:-->|\z)|<style\b[^>]*>.*?(?:</style\s*>|\z)|<script\b[^>]*>.*?(?:</script\s*>|\z)`)
 	untrustedTagPattern = regexp.MustCompile(`(?i)<(\s*/?\s*(?:untrusted_|evidence\b))`)
 	customTagPatterns   sync.Map
 )
@@ -40,7 +41,7 @@ func NormalizeEmailBody(raw string, maxBytes int) string {
 	if maxBytes <= 0 {
 		maxBytes = DefaultEmailBodyMaxBytes
 	}
-	visible := html.UnescapeString(htmlTagPattern.ReplaceAllString(raw, " "))
+	visible := html.UnescapeString(htmlTagPattern.ReplaceAllString(htmlBlockPattern.ReplaceAllString(raw, " "), " "))
 	visible = strings.Join(strings.Fields(visible), " ")
 	if len(visible) <= maxBytes {
 		return visible

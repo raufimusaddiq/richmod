@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,7 +49,7 @@ func TestProvisionedConfirmationCreatesOnlyIntegrationAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <control-confirmation@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 123456789")
+	raw := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <control-confirmation@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail-settings.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 123456789")
 	inputA := signedInput(raw, addressA.Address, "forwarder@test.invalid", "control/"+householdA+".eml", "secret")
 	if err := service.Deliver(ctx, inputA); err != nil {
 		t.Fatal(err)
@@ -82,6 +83,22 @@ func TestProvisionedConfirmationCreatesOnlyIntegrationAction(t *testing.T) {
 		if actions != want || sources != 0 || events != 0 || jobs != 0 || reviews != 0 || proposals != 0 {
 			t.Fatalf("household %s actions=%d sources=%d events=%d jobs=%d reviews=%d proposals=%d", household, actions, sources, events, jobs, reviews, proposals)
 		}
+	}
+	householdC, userC := create("Control C ")
+	addressC, err := service.Provision(ctx, householdC, userC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthenticated := []byte(strings.Replace(string(raw), "Authentication-Results: mx.test; dkim=pass; dmarc=pass\r\n", "", 1))
+	if err := service.Deliver(ctx, signedInput(unauthenticated, addressC.Address, "forwarder@test.invalid", "control/unauth-"+householdC+".eml", "secret")); err != nil {
+		t.Fatal(err)
+	}
+	var unauthenticatedActions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM integration_action WHERE household_id=$1`, householdC).Scan(&unauthenticatedActions); err != nil {
+		t.Fatal(err)
+	}
+	if unauthenticatedActions != 0 {
+		t.Fatalf("an unauthenticated provisioned email created a forwarding action: %d", unauthenticatedActions)
 	}
 	unknown := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: Other Gmail message\r\nContent-Type: text/plain\r\n\r\nNo setup")
 	if err := service.Deliver(ctx, signedInput(unknown, addressA.Address, "forwarder@test.invalid", "control/unknown-"+householdA+".eml", "secret")); err != nil {
@@ -147,7 +164,7 @@ func TestForwardingVerificationIsExposedAndAutoResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	control := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <resolve-confirmation@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 987654321")
+	control := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <resolve-confirmation@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 987654321")
 	for _, address := range []Address{addressA, addressB} {
 		if err := service.Deliver(ctx, signedInput(control, address.Address, "forwarder@test.invalid", "resolve/control-"+address.LocalPart+".eml", "secret")); err != nil {
 			t.Fatal(err)
@@ -249,7 +266,7 @@ func TestRejectedDeliveriesDoNotResolveForwardingVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	control := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rejected-confirmation@test.invalid>\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 555666777")
+	control := []byte("From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: (Gmail Forwarding Confirmation - Receive Mail from owner@example.com\r\nMessage-ID: <rejected-confirmation@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/html\r\n\r\n<a href=\"https://mail.google.com/mail/vf-abc123\">Confirm</a> Confirmation code: 555666777")
 	if err := service.Deliver(ctx, signedInput(control, address.Address, "forwarder@test.invalid", "rejected/control-"+household+".eml", "secret")); err != nil {
 		t.Fatal(err)
 	}

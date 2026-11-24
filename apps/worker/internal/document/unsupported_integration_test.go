@@ -33,7 +33,7 @@ func TestAuditF11UnsupportedFinancialEvidenceDoesNotPromiseReview(t *testing.T) 
 	if err := f.pool.QueryRow(ctx, `SELECT d.status,s.processing_status,(SELECT count(*) FROM review_item WHERE household_id=d.household_id) FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, f.documentID).Scan(&document, &source, &reviews); err != nil {
 		t.Fatal(err)
 	}
-	if document != "CLASSIFIED" || source != "PROCESSED" || reviews != 0 {
+	if document != "EXTRACTED" || source != "PROCESSED" || reviews != 0 {
 		t.Fatalf("document=%s source=%s reviews=%d; unsupported evidence must be retained without unactionable review", document, source, reviews)
 	}
 }

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -98,8 +100,37 @@ func validObservedDate(v *string) bool {
 	if v == nil || strings.TrimSpace(*v) == "" {
 		return true
 	}
-	_, err := time.Parse("2006-01-02", *v)
+	_, err := time.Parse("2006-01-02", strings.TrimSpace(*v))
 	return err == nil
+}
+
+const (
+	maxObservations       = 10
+	maxHintRunes          = 160
+	maxReferenceRunes     = 128
+	maxTimestampRunes     = 40
+	maxMovementTypeRunes  = 32
+	maxObservedDateRunes  = 32
+	maxExtractedAmountLen = 64
+)
+
+func withinRunes(v *string, limit int) bool {
+	return v == nil || utf8.RuneCountInString(strings.TrimSpace(*v)) <= limit
+}
+
+func validateOutput(out output) error {
+	if len(out.Observations) > maxObservations {
+		return fmt.Errorf("financial email extraction returned %d observations, above the limit of %d", len(out.Observations), maxObservations)
+	}
+	for index, v := range out.Observations {
+		if math.IsNaN(v.Confidence) || math.IsInf(v.Confidence, 0) || v.Confidence < 0 || v.Confidence > 1 {
+			return fmt.Errorf("financial email observation %d has confidence outside 0..1", index)
+		}
+		if utf8.RuneCountInString(v.Kind) > maxHintRunes || !withinRunes(v.MovementType, maxMovementTypeRunes) || !withinRunes(v.AmountIDR, maxExtractedAmountLen) || !withinRunes(v.ValueIDR, maxExtractedAmountLen) || !withinRunes(v.OccurredAt, maxTimestampRunes) || !withinRunes(v.ObservedDate, maxObservedDateRunes) || !withinRunes(v.FundingAccountHint, maxHintRunes) || !withinRunes(v.ProviderAccountHint, maxHintRunes) || !withinRunes(v.AccountHint, maxHintRunes) || !withinRunes(v.ProviderReference, maxReferenceRunes) {
+			return fmt.Errorf("financial email observation %d has a field above its length limit", index)
+		}
+	}
+	return nil
 }
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, financialSource, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
@@ -136,6 +167,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		out, err = gateway.DecodeToolArguments[output](call, "emit_financial_email_observations")
 		if err != nil {
+			return err
+		}
+		if err = validateOutput(out); err != nil {
 			return err
 		}
 		model = meta.Model
@@ -217,7 +251,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		_, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED' WHERE id=$1`, id)
 		return err
 	case "WEALTH_VALUE":
-		if !nonNegativeWholeMoney(v.ValueIDR) {
+		if !nonNegativeWholeMoney(v.ValueIDR) || !validObservedDate(v.ObservedDate) {
 			return p.review(ctx, tx, household, source, id)
 		}
 		hint := value(v.AccountHint)
@@ -229,10 +263,10 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 			return p.wealthReview(ctx, tx, household, id, hint, v)
 		}
 		var date *time.Time
-		if v.ObservedDate != nil && strings.TrimSpace(*v.ObservedDate) != "" {
-			d, e := time.Parse("2006-01-02", *v.ObservedDate)
+		if observed := value(v.ObservedDate); observed != "" {
+			d, e := time.Parse("2006-01-02", observed)
 			if e != nil {
-				return fmt.Errorf("financial email wealth observation invalid observed_date %q", *v.ObservedDate)
+				return p.review(ctx, tx, household, source, id)
 			}
 			date = &d
 		}
@@ -348,12 +382,14 @@ type cashPlan struct {
 
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, observationID, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference), account: selectedAccount, wealth: selectedWealth}
-	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || (v.FundingAccountHint == nil && selectedAccount == "") {
+	fundingHint := value(v.FundingAccountHint)
+	withdrawal := value(v.MovementType) == "WITHDRAWAL"
+	if !positiveWholeMoney(v.AmountIDR) || value(v.OccurredAt) == "" || (fundingHint == "" && selectedAccount == "") {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
 	var err error
-	if plan.at, err = time.Parse(time.RFC3339, *v.OccurredAt); err != nil {
+	if plan.at, err = time.Parse(time.RFC3339, value(v.OccurredAt)); err != nil {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
@@ -368,8 +404,8 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
 			return plan, nil
 		}
-		if v.FundingAccountHint != nil {
-			resolved, resolveErr := financialentity.ResolveAccount(ctx, tx, household, *v.FundingAccountHint)
+		if fundingHint != "" {
+			resolved, resolveErr := financialentity.ResolveAccount(ctx, tx, household, fundingHint)
 			if resolveErr != nil {
 				return plan, resolveErr
 			}
@@ -381,14 +417,14 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 					}
 				}
 				if !userResolved {
-					plan.review, plan.accountConflictHint = "FINANCIAL_EMAIL_RESOLUTION", *v.FundingAccountHint
+					plan.review, plan.accountConflictHint = "FINANCIAL_EMAIL_RESOLUTION", fundingHint
 					plan.missingEntities = []string{"funding_account"}
 					return plan, nil
 				}
 			}
 		}
 	} else {
-		plan.account, err = financialentity.Account(ctx, tx, household, *v.FundingAccountHint)
+		plan.account, err = financialentity.Account(ctx, tx, household, fundingHint)
 		if err != nil {
 			return plan, err
 		}
@@ -398,7 +434,10 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	if err != nil {
 		return plan, err
 	}
-	if defaultWealthConfigured && configured == "" {
+	if withdrawal {
+		hint, configured, plan.wealth = "", "", ""
+	}
+	if !withdrawal && defaultWealthConfigured && configured == "" {
 		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
 		plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
 		return plan, nil
@@ -423,14 +462,16 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		}
 		plan.wealth = resolved.ID
 	}
-	if plan.account == "" || plan.wealth == "" {
+	if plan.account == "" || (!withdrawal && plan.wealth == "") {
 		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
 		plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
 		return plan, nil
 	}
 	var role string
-	if err = tx.QueryRow(ctx, `SELECT usage_role FROM wealth_account WHERE id=$1 AND household_id=$2`, plan.wealth, household).Scan(&role); err != nil {
-		return plan, err
+	if !withdrawal {
+		if err = tx.QueryRow(ctx, `SELECT usage_role FROM wealth_account WHERE id=$1 AND household_id=$2`, plan.wealth, household).Scan(&role); err != nil {
+			return plan, err
+		}
 	}
 	switch value(v.MovementType) {
 	case "CONTRIBUTION":
@@ -443,7 +484,6 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		plan.purpose = "ASSET_PURCHASE"
 	case "WITHDRAWAL":
 		plan.purpose = "INTERNAL_TRANSFER"
-		plan.wealth = ""
 	}
 	if plan.purpose == "" {
 		plan.review = "TRANSFER_CLASSIFICATION"
@@ -548,7 +588,17 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
 		return err
 	}
-	return p.insertReviewDecision(ctx, tx, household, observation, "CONFLICTING_EVIDENCE")
+	decision, ok := reviewdec.Preset("CONFLICTING_EVIDENCE", "financial_email_observation", observation)
+	if !ok {
+		return fmt.Errorf("no review decision preset for CONFLICTING_EVIDENCE")
+	}
+	decision.AllowedActions = []string{"IGNORE"}
+	decision.InteractionMode = reviewdec.ModeSingleField
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	return p.projectObservationReview(ctx, tx, household, observation, "CONFLICTING_EVIDENCE", string(encoded))
 }
 
 func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string, missingEntities []string, conflictHint string) error {
@@ -670,6 +720,9 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 	if err != nil {
 		return err
 	}
+	if err = validateOutput(out); err != nil {
+		return err
+	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -708,9 +761,13 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 				return resolveErr
 			}
 			item["wealthAccountId"], item["valueIdr"] = emptyNil(wealth), value(v.ValueIDR)
-			item["resolution"] = "WEALTH_OBSERVATION_REVIEW"
-			if !nonNegativeWholeMoney(v.ValueIDR) || !validObservedDate(v.ObservedDate) {
+			switch {
+			case !nonNegativeWholeMoney(v.ValueIDR) || !validObservedDate(v.ObservedDate):
 				item["resolution"] = "TRANSFER_CLASSIFICATION"
+			case wealth == "":
+				item["resolution"] = "WEALTH_OBSERVATION_REVIEW"
+			default:
+				item["resolution"] = "ACCEPT_WEALTH_OBSERVATION"
 			}
 		default:
 			item["resolution"] = "NO_CANONICAL_MUTATION"

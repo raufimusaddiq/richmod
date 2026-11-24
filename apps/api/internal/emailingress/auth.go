@@ -33,6 +33,9 @@ func parseSignedHeaders(recipient, envelopeFrom, timestamp, hash, signature, mes
 	if !recipientPattern.MatchString(recipient) {
 		return SignedRequest{}, fmt.Errorf("invalid recipient")
 	}
+	if !validObjectKey(strings.TrimSpace(objectKey)) {
+		return SignedRequest{}, fmt.Errorf("invalid object key")
+	}
 	if !strings.HasSuffix(recipient, "@"+strings.ToLower(strings.TrimSpace(domain))) {
 		return SignedRequest{}, fmt.Errorf("recipient domain rejected")
 	}
@@ -54,6 +57,14 @@ func parseSignedHeaders(recipient, envelopeFrom, timestamp, hash, signature, mes
 	var contentHash [32]byte
 	copy(contentHash[:], decodedHash)
 	return SignedRequest{Timestamp: ts, Recipient: recipient, EnvelopeFrom: envelopeFrom, ContentHash: contentHash, Signature: decodedSig, MessageID: strings.TrimSpace(messageID), ObjectKey: strings.TrimSpace(objectKey)}, nil
+}
+
+const maxObjectKeyLength = 256
+
+var objectKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+
+func validObjectKey(key string) bool {
+	return len(key) <= maxObjectKeyLength && objectKeyPattern.MatchString(key) && !strings.Contains(key, "..") && !strings.Contains(key, "//") && !strings.HasSuffix(key, "/")
 }
 
 func (s SignedRequest) verify(body []byte, secret string, now time.Time) error {

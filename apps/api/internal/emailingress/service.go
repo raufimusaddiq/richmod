@@ -352,7 +352,7 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		return err
 	}
 	if existingDeliveryID != "" {
-		if address.Status == StatusProvisioned {
+		if address.Status == StatusProvisioned && authTrusted(in.Email, s.trustedAuthservs) {
 			if action, recognized := detectControlAction(in.Email, in.Signed.ContentHash); recognized {
 				if err := s.persistControlAction(ctx, tx, address.HouseholdID, existingDeliveryID, action); err != nil {
 					return err
@@ -422,7 +422,7 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 	if err != nil {
 		return err
 	}
-	if address.Status == StatusProvisioned {
+	if address.Status == StatusProvisioned && authTrusted(in.Email, s.trustedAuthservs) {
 		if action, recognized := detectControlAction(in.Email, in.Signed.ContentHash); recognized {
 			if err := s.persistControlAction(ctx, tx, address.HouseholdID, deliveryID, action); err != nil {
 				return err
@@ -447,7 +447,11 @@ func (s *Service) persistFinancialActive(ctx context.Context, tx pgx.Tx, address
 	}
 	var eventID string
 	if err := tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,raw_payload_ref,payload_hash,processing_status,parser_name,parser_version) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,$4,'RECEIVED','cloudflare-financial-email','1') ON CONFLICT DO NOTHING RETURNING id`, address.HouseholdID, externalID, "r2://richmod-email-raw/"+in.Signed.ObjectKey, in.Signed.ContentHash[:]).Scan(&eventID); errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		if _, err := s.persistFinancialDelivery(ctx, tx, address, sourceID, in, "DUPLICATE", "DUPLICATE_PAYLOAD", ""); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE email_ingress_address SET last_received_at=now() WHERE id=$1`, address.ID)
+		return err
 	} else if err != nil {
 		return err
 	}
@@ -466,7 +470,7 @@ func (s *Service) persistFinancialActive(ctx context.Context, tx pgx.Tx, address
 	if _, err := tx.Exec(ctx, `INSERT INTO financial_email_event(source_event_id,financial_source_id,observed_sender,message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, eventID, sourceID, in.Email.Sender, messageID, in.Email.Subject, in.Email.Date, in.Email.AuthenticationResults+"\n"+in.Email.ARCAuthenticationResults, visibleHTML(body)); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,financial_source_id,provider,object_key,content_sha256,raw_size,envelope_from,observed_sender,internet_message_id,subject,email_date,authentication_results,arc_authentication_results,status,received_at) VALUES($1,$2,$3,'CLOUDFLARE_EMAIL',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'INGESTED',now()) ON CONFLICT DO NOTHING`, address.ID, address.HouseholdID, sourceID, in.Signed.ObjectKey, in.Signed.ContentHash[:], len(in.Raw), in.Signed.EnvelopeFrom, in.Email.Sender, in.Email.MessageID, in.Email.Subject, in.Email.Date, in.Email.AuthenticationResults, in.Email.ARCAuthenticationResults); err != nil {
+	if _, err := s.persistFinancialDelivery(ctx, tx, address, sourceID, in, "INGESTED", "", eventID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',$2::uuid))`, eventID, sourceID); err != nil {
@@ -550,6 +554,15 @@ func (s *Service) persistActive(ctx context.Context, tx pgx.Tx, address Address,
 func (s *Service) persistDelivery(ctx context.Context, tx pgx.Tx, address Address, listenerID string, in deliveryInput, status, reason, sourceID string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,listener_id,source_event_id,provider,object_key,content_sha256,raw_size,envelope_from,observed_sender,internet_message_id,subject,email_date,authentication_results,arc_authentication_results,status,reason_code,received_at) VALUES($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,'CLOUDFLARE_EMAIL',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),now()) ON CONFLICT DO NOTHING RETURNING id`, address.ID, address.HouseholdID, listenerID, sourceID, in.Signed.ObjectKey, in.Signed.ContentHash[:], len(in.Raw), in.Signed.EnvelopeFrom, in.Email.Sender, in.Email.MessageID, in.Email.Subject, in.Email.Date, in.Email.AuthenticationResults, in.Email.ARCAuthenticationResults, status, reason).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `SELECT id FROM email_ingress_delivery WHERE address_id=$1 AND content_sha256=$2`, address.ID, in.Signed.ContentHash[:]).Scan(&id)
+	}
+	return id, err
+}
+
+func (s *Service) persistFinancialDelivery(ctx context.Context, tx pgx.Tx, address Address, financialSourceID string, in deliveryInput, status, reason, sourceEventID string) (string, error) {
+	var id string
+	err := tx.QueryRow(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,financial_source_id,source_event_id,provider,object_key,content_sha256,raw_size,envelope_from,observed_sender,internet_message_id,subject,email_date,authentication_results,arc_authentication_results,status,reason_code,received_at) VALUES($1,$2,$3,NULLIF($4,'')::uuid,'CLOUDFLARE_EMAIL',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),now()) ON CONFLICT DO NOTHING RETURNING id`, address.ID, address.HouseholdID, financialSourceID, sourceEventID, in.Signed.ObjectKey, in.Signed.ContentHash[:], len(in.Raw), in.Signed.EnvelopeFrom, in.Email.Sender, in.Email.MessageID, in.Email.Subject, in.Email.Date, in.Email.AuthenticationResults, in.Email.ARCAuthenticationResults, status, reason).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT id FROM email_ingress_delivery WHERE address_id=$1 AND content_sha256=$2`, address.ID, in.Signed.ContentHash[:]).Scan(&id)
 	}

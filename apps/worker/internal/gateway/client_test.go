@@ -255,11 +255,22 @@ func TestWrapUntrustedAndNormalizeEmailBody(t *testing.T) {
 		t.Fatalf("evidence tags were not defanged: %q", wrapped)
 	}
 	normalized := NormalizeEmailBody("<html><body><p>Rp&nbsp;50.000</p><script>x</script></body></html>", 64)
-	if normalized != "Rp 50.000 x" {
+	if normalized != "Rp 50.000" {
 		t.Fatalf("normalized=%q", normalized)
 	}
 	capped := NormalizeEmailBody(strings.Repeat("a", 200), 32)
 	if len(capped) != 32 {
 		t.Fatalf("capped len=%d, want 32", len(capped))
+	}
+}
+
+func TestNormalizeEmailBodyDropsStyleAndScriptBeforeTruncating(t *testing.T) {
+	css := "<style>" + strings.Repeat(".rule{color:red}", 4000) + "</style>"
+	body := "<html><head>" + css + "</head><body><script>var x=1;</script><p>Amount IDR 100</p><!-- hidden --></body></html>"
+	if got := NormalizeEmailBody(body, 64); got != "Amount IDR 100" {
+		t.Fatalf("visible body = %q", got)
+	}
+	if got := NormalizeEmailBody("<p>before</p><style>never closed", 64); got != "before" {
+		t.Fatalf("unterminated style leaked: %q", got)
 	}
 }

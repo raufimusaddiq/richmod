@@ -129,8 +129,8 @@ func validateReceiptIssues(value receiptExtraction, receivedAt time.Time) (recei
 	}, nil
 }
 
-func payslipValidationIssues(value payslipExtraction) validationIssues {
-	_, _, _, err := validatePayslip(value)
+func payslipValidationIssues(value payslipExtraction, receivedAt time.Time) validationIssues {
+	_, _, _, err := validatePayslip(value, receivedAt)
 	if err == nil {
 		return nil
 	}
@@ -138,8 +138,11 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 	if value.Currency != "IDR" {
 		issues = append(issues, ValidationIssue{Field: "currency", Code: "INVALID_CURRENCY"})
 	}
-	if value.Confidence < 0 || value.Confidence > 1 {
+	if !(value.Confidence >= 0 && value.Confidence <= 1) {
 		issues = append(issues, ValidationIssue{Field: "confidence", Code: "INVALID_CONFIDENCE"})
+	}
+	if !validPayslipEmployer(value.Employer) {
+		issues = append(issues, ValidationIssue{Field: "employer", Code: "INVALID_TEXT"})
 	}
 	if _, ok := wholeMoney(value.NetPay, true); !ok {
 		issues = append(issues, ValidationIssue{Field: "net_pay", Code: "INVALID_AMOUNT"})
@@ -149,8 +152,13 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 			issues = append(issues, ValidationIssue{Field: "gross_pay", Code: "INVALID_AMOUNT"})
 		}
 	}
-	if _, periodErr := parsePayslipPeriod(value.Period); periodErr != nil {
+	period, periodErr := parsePayslipPeriod(value.Period, receivedAt)
+	if periodErr != nil {
 		issues = append(issues, ValidationIssue{Field: "period", Code: "INVALID_PERIOD"})
+	} else if value.PayDate != nil {
+		if _, ok := parsePayslipPayDate(*value.PayDate, period); !ok {
+			issues = append(issues, ValidationIssue{Field: "pay_date", Code: "INVALID_PAY_DATE"})
+		}
 	}
 	for i, line := range value.Allowances {
 		if _, ok := wholeMoney(line.Amount, false); !ok {
@@ -173,7 +181,7 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 	return issues
 }
 
-func screenshotValidationIssues(value screenshotExtraction, documentType string) validationIssues {
+func screenshotValidationIssues(value screenshotExtraction, documentType string, receivedAt time.Time) validationIssues {
 	issues := validationIssues{}
 	if value.Confidence < 0 || value.Confidence > 1 {
 		issues = append(issues, ValidationIssue{Field: "confidence", Code: "INVALID_CONFIDENCE"})
@@ -209,10 +217,18 @@ func screenshotValidationIssues(value screenshotExtraction, documentType string)
 			if len([]rune(strings.TrimSpace(row.Merchant))) > 160 || len([]rune(strings.TrimSpace(row.Description))) > 500 {
 				issues = append(issues, ValidationIssue{Field: prefix, Code: "TEXT_TOO_LONG"})
 			}
+			if row.TransactionAt != nil {
+				parsedTime, err := time.Parse(time.RFC3339, *row.TransactionAt)
+				if err != nil {
+					issues = append(issues, ValidationIssue{Field: prefix + ".transaction_at", Code: "INVALID_FORMAT"})
+				} else if at := parsedTime.In(jakarta()); at.Before(receivedAt.AddDate(-2, 0, 0)) || at.After(receivedAt.Add(24*time.Hour)) {
+					issues = append(issues, ValidationIssue{Field: prefix + ".transaction_at", Code: "IMPLAUSIBLE_TIME"})
+				}
+			}
 		}
 	}
 	if len(issues) == 0 {
-		if _, err := validateScreenshot(value, time.Now(), nil, documentType); err != nil {
+		if _, err := validateScreenshot(value, receivedAt, nil, documentType); err != nil {
 			return validationIssues{{Field: "transactions", Code: "UNMAPPED_VALIDATION_FAILURE"}}
 		}
 	}

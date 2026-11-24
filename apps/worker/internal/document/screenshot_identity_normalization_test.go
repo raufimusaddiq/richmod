@@ -27,7 +27,7 @@ func incidentRow(at string) screenshotRow {
 func TestIncidentIdentifiersNormalizeToValidRow(t *testing.T) {
 	at := time.Now().In(jakarta()).Add(-time.Hour).Format(time.RFC3339)
 	value := screenshotExtraction{Confidence: .99, Transactions: []screenshotRow{incidentRow(at)}}
-	if issues := screenshotValidationIssues(value, "EWALLET_SCREENSHOT"); !issues.has("transactions[0].transaction_identifiers", "INVALID_TRANSACTION_IDENTITY") {
+	if issues := screenshotValidationIssues(value, "EWALLET_SCREENSHOT", time.Now()); !issues.has("transactions[0].transaction_identifiers", "INVALID_TRANSACTION_IDENTITY") {
 		t.Fatalf("the incident shape must fail before normalization: %s", issues.String())
 	}
 	before := value.Transactions[0]
@@ -35,7 +35,7 @@ func TestIncidentIdentifiersNormalizeToValidRow(t *testing.T) {
 	if len(changes) != 1 || changes[0].Row != 0 || len(changes[0].DuplicateKindsDropped) != 1 || changes[0].DuplicateKindsDropped[0] != "REFERENCE_NUMBER" || changes[0].OverCapDropped != 0 {
 		t.Fatalf("normalization not recorded: %+v", changes)
 	}
-	if issues := screenshotValidationIssues(value, "EWALLET_SCREENSHOT"); len(issues) != 0 {
+	if issues := screenshotValidationIssues(value, "EWALLET_SCREENSHOT", time.Now()); len(issues) != 0 {
 		t.Fatalf("normalized incident still invalid: %s", issues.String())
 	}
 	rows, err := validateScreenshot(value, time.Now(), nil, "EWALLET_SCREENSHOT")
@@ -99,7 +99,7 @@ func TestIdentityIssueNamesTheBrokenRule(t *testing.T) {
 		"syntax":    {screenshotRow{Direction: "OUT", Currency: "IDR", TransactionIdentifiers: []screenshotIdentifier{{"ORDER_ID", "a b"}}}, "identifier value must be"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			issues := screenshotValidationIssues(screenshotExtraction{Confidence: .9, Transactions: []screenshotRow{test.row}}, "")
+			issues := screenshotValidationIssues(screenshotExtraction{Confidence: .9, Transactions: []screenshotRow{test.row}}, "", time.Now())
 			if len(issues) != 1 || issues[0].Code != "INVALID_TRANSACTION_IDENTITY" || !strings.Contains(issues[0].Detail, test.want) {
 				t.Fatalf("issue must keep the code and name the rule %q: %+v", test.want, issues)
 			}
@@ -123,7 +123,7 @@ func (c *screenshotRepairCapture) NativeToolCall(_ context.Context, _ string, pr
 func TestScreenshotRepairPromptNamesTheRuleAndStaysFieldRestricted(t *testing.T) {
 	at := time.Now().In(jakarta()).Format(time.RFC3339)
 	value := screenshotExtraction{Confidence: .99, Transactions: []screenshotRow{incidentRow(at)}}
-	issues := screenshotValidationIssues(value, "EWALLET_SCREENSHOT")
+	issues := screenshotValidationIssues(value, "EWALLET_SCREENSHOT", time.Now())
 	capture := &screenshotRepairCapture{}
 	_, _, err := repairExtracted(context.Background(), capture, "source", "EWALLET_SCREENSHOT", []map[string]any{{"type": "input_text", "text": "x"}}, &value, &issues, func(screenshotExtraction) error { return nil })
 	if err != nil {
@@ -188,7 +188,7 @@ func TestUnpaidInvoiceOnlyIsNarrow(t *testing.T) {
 		{"screenshot with no rows", "EWALLET_SCREENSHOT", screenshotExtraction{Confidence: .9}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := unpaidInvoiceOnly(test.value, test.documentType); got != test.want {
+			if got := unpaidInvoiceOnly(test.value, test.documentType, time.Now()); got != test.want {
 				t.Fatalf("unpaidInvoiceOnly = %v, want %v", got, test.want)
 			}
 		})
