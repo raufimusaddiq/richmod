@@ -21,7 +21,7 @@ export function elapsedDaily(items = [], daysElapsed) {
 }
 
 export function mapDailySpending(items = []) {
-  return items.map(item => ({ ...item, label: item.period?.slice(8) || "", expenseValue: Number(item.expense || 0) }));
+  return items.map(item => ({ ...item, expenseValue: Number(item.expense || 0) }));
 }
 
 export function netWorthHistoryRows(items = []) {
@@ -31,11 +31,11 @@ export function netWorthHistoryRows(items = []) {
   });
   const spanning = new Set(rows.map(row => row.key.slice(0, 4))).size > 1;
   const seen = new Set();
-  return rows.map(row => {
+  return rows.map((row, slot) => {
     const day = row.at.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", ...(spanning ? { year: "numeric" } : {}) });
     const label = seen.has(row.key) ? "" : day;
     seen.add(row.key);
-    return { label, day, value: row.value, raw: row.raw };
+    return { slot, label, day, value: row.value, raw: row.raw };
   });
 }
 

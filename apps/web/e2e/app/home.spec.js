@@ -5,10 +5,10 @@ const overview = (overrides = {}) => ({ periodKind: "CURRENT_CYCLE", income: "12
 const daily = () => Array.from({ length: 6 }, (_, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, expense: String(100000 + index * 50000), refund: "0", grossExpense: String(100000 + index * 50000), income: "0" }));
 const snapshot = { id: "wealth-9", netWorthIdr: "48250000", assetTotalIdr: "50000000", liabilityTotalIdr: "1750000", observedAt: "2026-09-09T15:00:00+07:00", items: [{ wealthAccountId: "wa-1", name: "Tabungan", side: "ASSET", valueIdr: "50000000" }, { wealthAccountId: "wa-3", name: "Kartu", side: "LIABILITY", valueIdr: "1750000" }] };
 
-function homeApi(api, { latest = snapshot, ledger = [transaction("tx-1"), transaction("tx-2", "Grab")] } = {}) {
+function homeApi(api, { latest = snapshot, ledger = [transaction("tx-1"), transaction("tx-2", "Grab")], days = daily() } = {}) {
   api.use(({ path }) => {
     if (path === "/api/v1/analytics/overview") return overview();
-    if (path === "/api/v1/analytics/cycle/daily") return { daily: daily(), daysElapsed: 6 };
+    if (path === "/api/v1/analytics/cycle/daily") return { daily: days, daysElapsed: days.length };
     if (path === "/api/v1/analytics/categories") return [{ id: "c1", name: "Belanja rumah", amount: "2100000" }];
     if (path === "/api/v1/analytics/cycle") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30" };
     if (path === "/api/v1/transactions") return ledger;
@@ -24,6 +24,14 @@ test("a failed section is named and the rest of Beranda stays", async ({ page, a
   await expect(page.getByRole("alert").filter({ hasText: "Belum termuat: kekayaan. Bagian lain tetap ditampilkan." })).toBeVisible();
   await expect(page.locator(".home-hero-amount"), "the figures still render").toBeVisible();
   await expect(page.locator(".transaction-row")).toHaveCount(2);
+});
+
+test("a cycle that repeats a day of month shows the hovered date in the daily tooltip", { tag: "@desktop-only" }, async ({ page, api }) => {
+  const days = ["2026-10-23", "2026-10-24", "2026-11-22", "2026-11-23"].map((period, index) => ({ period, expense: String(100000 * (index + 1)), refund: "0", grossExpense: String(100000 * (index + 1)), income: "0" }));
+  homeApi(api, { days });
+  await page.goto("/", { waitUntil: "networkidle" });
+  await page.locator(".daily-spend .recharts-bar-rectangle").last().hover();
+  await expect(page.locator(".daily-spend .chart-tooltip")).toContainText("23 Nov 2026");
 });
 
 test("the dashboard asks for the current cycle and offers no photo upload of its own", { tag: "@desktop-only" }, async ({ page, api }) => {
