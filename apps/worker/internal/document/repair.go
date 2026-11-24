@@ -41,7 +41,7 @@ func repairableFieldNames(documentType string) []string {
 	case "PAYSLIP":
 		return []string{"period", "employer", "gross_pay", "allowances", "deductions", "other_components", "net_pay", "currency", "pay_date", "confidence"}
 	case "BANK_TRANSACTION_SCREENSHOT", "TRANSFER_PROOF", "EWALLET_SCREENSHOT", "BILL_OR_INVOICE", "TRANSACTION_HISTORY_SCREENSHOT":
-		return []string{"account_hint", "transactions", "payment_status", "due_date", "confidence"}
+		return []string{"account_hint", "transactions", "due_date", "confidence"}
 	default:
 		return nil
 	}
