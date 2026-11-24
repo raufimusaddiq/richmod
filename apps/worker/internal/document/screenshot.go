@@ -49,20 +49,33 @@ type screenshotExtraction struct {
 }
 
 type validatedScreenshotRow struct {
-	Value            screenshotRow
-	Type             string
-	TransactionAt    time.Time
-	DateKnown        bool
-	CategoryID       *string
-	CategoryDecided  bool
-	CategoryConflict bool
-	Candidates       []matchCandidate
-	PriorMatchIDs    []string
-	Matched          *matchCandidate
+	Value              screenshotRow
+	Type               string
+	TransactionAt      time.Time
+	DateKnown          bool
+	CategoryID         *string
+	CategoryDecided    bool
+	CategoryConflict   bool
+	CategoryFromMemory bool
+	MerchantID         *string
+	Candidates         []matchCandidate
+	PriorMatchIDs      []string
+	Matched            *matchCandidate
 }
 
 func (row validatedScreenshotRow) autoConfirmable() bool {
-	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown
+	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown && row.confidentEnough()
+}
+
+func (row validatedScreenshotRow) confidentEnough() bool {
+	return row.Value.Confidence >= autoConfirmMinConfidence && (row.CategoryFromMemory || row.Value.CategoryConfidence >= autoConfirmMinConfidence)
+}
+
+func (row validatedScreenshotRow) classificationConfidence() float64 {
+	if row.CategoryFromMemory {
+		return 1
+	}
+	return row.Value.CategoryConfidence
 }
 
 func (p *Processor) screenshotCaption(ctx context.Context, sourceID string) (string, error) {
@@ -186,6 +199,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			rows[index].CategoryConflict = true
 		}
 		rows[index].CategoryID, rows[index].CategoryDecided = &match.CategoryID, true
+		rows[index].CategoryFromMemory, rows[index].MerchantID = true, &match.MerchantID
 	}
 	usedMatches := make(map[string]bool)
 	for index := range rows {
@@ -238,7 +252,7 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 		return nil, fmt.Errorf("invoice payment status is not confirmed")
 	}
 	categoryIDs := make(map[string]string, len(categories))
-	for _, category := range categories {
+	for _, category := range uniqueCategorySlugs(categories) {
 		categoryIDs[category.Slug] = category.ID
 	}
 	result := make([]validatedScreenshotRow, 0, len(value.Transactions))
@@ -412,20 +426,16 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		}
 		needsReview = true
 		pending++
-		var merchantID *string
-		if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
-			var id string
-			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
-				return err
-			}
-			merchantID = &id
+		merchantID, err := canonicalMerchantID(ctx, tx, householdID, row.Value.Merchant, row.MerchantID)
+		if err != nil {
+			return err
 		}
 		var proposalID string
 		if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),$10,'NEEDS_REVIEW',jsonb_build_object('document_id',$11::uuid,'row_index',$12::integer,'direction',$13::text,'date_known',$14::boolean) || $15::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
 			return err
 		}
 		var transactionID string
-		if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence) VALUES($1,$2,'NEEDS_REVIEW',$3,'IDR',$4,$5,$6,NULLIF($7,''),$8,$9) RETURNING id`, householdID, row.Type, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.CategoryConfidence).Scan(&transactionID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence) VALUES($1,$2,'NEEDS_REVIEW',$3,'IDR',$4,$5,$6,NULLIF($7,''),$8,$9) RETURNING id`, householdID, row.Type, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.classificationConfidence()).Scan(&transactionID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil {

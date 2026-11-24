@@ -7,8 +7,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -651,7 +653,6 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return source
 }
 
-
 func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")
@@ -754,5 +755,45 @@ func TestFinancialEmailTerminalFailureFinalizesSourceAndPreview(t *testing.T) {
 	}
 	if status != "FAILED" || preview != "FAILED" || actions != 1 {
 		t.Fatalf("source=%s preview=%s actions=%d, want FAILED/FAILED/1", status, preview, actions)
+	}
+}
+
+func TestCashMovementSerializesOnLedgerEventLock(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, testsupport.UniqueStamp(), "ACTIVE")
+	at, amount, movement := "2026-09-09T10:00:00+07:00", "4100000", "CONTRIBUTION"
+	v := observation{Kind: "CASH_MOVEMENT", MovementType: &movement, AmountIDR: &amount, OccurredAt: &at, Confidence: .99}
+	var observationID string
+	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status,resolved_account_id,resolved_wealth_account_id) VALUES($1,$2,0,'CASH_MOVEMENT','{}','PENDING',$3,$4) RETURNING id`, household, source, account, wealth).Scan(&observationID); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Rollback(ctx)
+	if err := reviewdomain.LockLedgerEvent(ctx, holder, household, amount); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocked.Rollback(ctx)
+	waitCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+	defer cancel()
+	processor := &Processor{pool: pool}
+	if err := processor.cash(waitCtx, blocked, household, source, "", observationID, wealth, true, v); err == nil {
+		t.Fatal("cash movement must wait for the ledger event lock before planning a transfer")
 	}
 }

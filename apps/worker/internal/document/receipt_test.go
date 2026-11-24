@@ -1,6 +1,7 @@
 package document
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -93,5 +94,54 @@ func TestReceiptPromptInjectionRemainsMerchantData(t *testing.T) {
 	}
 	if value.Currency != "IDR" || value.Total != "1000" {
 		t.Fatal("merchant text changed deterministic financial fields")
+	}
+}
+
+func TestCollidingCategorySlugsAreNeverOfferedOrResolved(t *testing.T) {
+	categories := []categoryOption{{ID: "a", Slug: "food"}, {ID: "b", Slug: "food"}, {ID: "c", Slug: "transport"}}
+	unique := uniqueCategorySlugs(categories)
+	if len(unique) != 1 || unique[0].Slug != "transport" {
+		t.Fatalf("colliding slugs must be dropped: %+v", unique)
+	}
+	if got := resolveCategorySlug(categories, ptr("food")); got != nil {
+		t.Fatalf("a slug shared by two categories must not resolve, got %v", *got)
+	}
+	if got := resolveCategorySlug(categories, ptr("transport")); got == nil || *got != "c" {
+		t.Fatalf("a unique slug must resolve to its category, got %v", got)
+	}
+	rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("1000"), Currency: "IDR", CategorySlug: ptr("food"), CategoryConfidence: .95, Confidence: .95}}}, time.Now().In(jakarta()), categories, "")
+	if err != nil || len(rows) != 1 || rows[0].CategoryDecided || rows[0].CategoryID != nil {
+		t.Fatalf("screenshot must not decide a colliding slug: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestReceiptAutoConfirmNeedsConfidenceFloor(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		confidence float64
+		category   float64
+		memory     bool
+		want       bool
+	}{
+		{"both at floor", .85, .85, false, true},
+		{"low extraction", .84, .99, false, false},
+		{"low model category", .99, .84, false, false},
+		{"memory ignores model category", .99, 0, true, true},
+		{"memory still needs extraction", .5, 0, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := receiptExtraction{Confidence: test.confidence, CategoryConfidence: test.category}
+			if got := receiptAutoConfirmTrusted(value, test.memory); got != test.want {
+				t.Fatalf("trusted=%v want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestCanonicalMerchantIDReusesMerchantMemoryMatch(t *testing.T) {
+	known := "merchant-from-alias"
+	got, err := canonicalMerchantID(context.Background(), nil, "household", "Raw Alias Name", &known)
+	if err != nil || got == nil || *got != known {
+		t.Fatalf("alias match must reuse the canonical merchant: %v %v", got, err)
 	}
 }

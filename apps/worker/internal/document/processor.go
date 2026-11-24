@@ -50,7 +50,7 @@ type Payload struct {
 }
 
 func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
-	rows, err := p.pool.Query(ctx, `SELECT DISTINCT a.storage_ref FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.status IN ('EXTRACTED','NEEDS_REVIEW') AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type IN ('PROCESS_DOCUMENT','PROCESS_PAYSLIP','PROCESS_RECEIPT','PROCESS_TRANSACTION_SCREENSHOT') AND j.status IN ('PENDING','RUNNING') AND j.payload_json->>'document_id'=d.id::text)`)
+	rows, err := p.pool.Query(ctx, `SELECT DISTINCT a.storage_ref FROM document d JOIN attachment a ON a.id=d.attachment_id OR a.id IN (SELECT dp.attachment_id FROM document_page dp WHERE dp.document_id=d.id) WHERE d.status IN ('EXTRACTED','NEEDS_REVIEW') AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type IN ('PROCESS_DOCUMENT','PROCESS_PAYSLIP','PROCESS_RECEIPT','PROCESS_TRANSACTION_SCREENSHOT') AND j.status IN ('PENDING','RUNNING') AND j.payload_json->>'document_id'=d.id::text)`)
 	if err != nil {
 		return err
 	}
