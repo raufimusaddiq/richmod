@@ -32,21 +32,18 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid ingress authentication"}`, http.StatusUnauthorized)
 		return
 	}
+	if err = signed.verifySignature(h.secret, h.service.now()); err != nil {
+		http.Error(w, `{"error":"ingress authentication rejected"}`, ingressStatus(err))
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRawMIMEBytes)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, `{"error":"invalid email body"}`, http.StatusBadRequest)
 		return
 	}
-	if err = signed.verify(raw, h.secret, h.service.now()); err != nil {
-		status := http.StatusUnauthorized
-		if strings.Contains(err.Error(), "content sha") {
-			status = http.StatusBadRequest
-		}
-		if strings.Contains(err.Error(), "not configured") {
-			status = http.StatusServiceUnavailable
-		}
-		http.Error(w, `{"error":"ingress authentication rejected"}`, status)
+	if err = signed.verifyContent(raw); err != nil {
+		http.Error(w, `{"error":"ingress authentication rejected"}`, ingressStatus(err))
 		return
 	}
 	parsed, err := parseMIME(raw)
@@ -179,6 +176,17 @@ func writeActivateError(w http.ResponseWriter, err error) bool {
 		return false
 	}
 	return true
+}
+
+func ingressStatus(err error) int {
+	switch {
+	case strings.Contains(err.Error(), "content sha"):
+		return http.StatusBadRequest
+	case strings.Contains(err.Error(), "not configured"):
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusUnauthorized
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
