@@ -505,6 +505,11 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 }
 
 func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, defaultWealthConfigured bool, v observation) error {
+	if positiveWholeMoney(v.AmountIDR) {
+		if err := reviewdomain.LockLedgerEvent(ctx, tx, household, strings.TrimSpace(*v.AmountIDR)); err != nil {
+			return err
+		}
+	}
 	var selectedAccount, selectedWealth string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, id).Scan(&selectedAccount, &selectedWealth); err != nil {
 		return err

@@ -88,3 +88,23 @@ func TestSanitizeEvidenceTextCapsAndStripsControl(t *testing.T) {
 		t.Fatalf("sanitize = %q (len %d)", got[:min(20, len(got))], len([]rune(got)))
 	}
 }
+
+func TestPayslipAutoConfirmNeedsDateAndConfidenceFloor(t *testing.T) {
+	date := "2026-08-25"
+	for _, test := range []struct {
+		name       string
+		payDate    *string
+		confidence float64
+		want       bool
+	}{
+		{"dated and confident", &date, .85, true},
+		{"low confidence parks in review", &date, .84, false},
+		{"missing pay date", nil, .99, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := payslipAutoConfirmable(payslipExtraction{PayDate: test.payDate, Confidence: test.confidence}); got != test.want {
+				t.Fatalf("autoConfirm=%v want %v", got, test.want)
+			}
+		})
+	}
+}

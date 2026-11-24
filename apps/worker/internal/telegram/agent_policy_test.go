@@ -188,3 +188,35 @@ func TestFinanceRequestsAreNotBoundAsCardDetailAnswers(t *testing.T) {
 		t.Fatal("a plain merchant name must still bind to an UNKNOWN_MERCHANT card")
 	}
 }
+
+func TestResolveReviewActionMustBeAllowedForBoundReviewType(t *testing.T) {
+	call := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"COMPLETE_BANK_FACTS","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":"1000","transaction_at":"2026-01-02T03:04:05+07:00","allocations":[]}`)}
+	if _, err := validateAgentToolCall(call, "UNKNOWN_MERCHANT", "TRANSACTION"); err == nil {
+		t.Fatal("COMPLETE_BANK_FACTS must be rejected for a review type that does not allow it")
+	}
+	if _, err := validateAgentToolCall(call, "UNKNOWN_BANK_TEMPLATE", "TRANSACTION"); err != nil {
+		t.Fatalf("COMPLETE_BANK_FACTS must pass for a bank-facts review: %v", err)
+	}
+	if _, err := validateAgentToolCall(call, "", ""); err != nil {
+		t.Fatalf("unbound validation keeps the global action set: %v", err)
+	}
+}
+
+func TestResolveReviewActionValidationFollowsReviewMode(t *testing.T) {
+	arguments := func(action string) gateway.ToolCall {
+		return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"` + action + `","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[]}`)}
+	}
+	for _, tc := range []struct{ action, reviewType, mode string }{
+		{"SET_WEALTH_ACCOUNT", "WEALTH_OBSERVATION_CONFIRMATION", "WEALTH_OBSERVATION"},
+		{"RECORD_ASSET_PURCHASE", "WEALTH_OBSERVATION_CONFIRMATION", "WEALTH_OBSERVATION"},
+		{"MERGE_EXISTING", "TRANSFER_CLASSIFICATION", "TRANSFER_RECONCILIATION"},
+		{"CONFIRM_NEW_TRANSFER", "CONFLICTING_EVIDENCE", "TRANSFER_RECONCILIATION"},
+	} {
+		if _, err := validateAgentToolCall(arguments(tc.action), tc.reviewType, tc.mode); err != nil {
+			t.Fatalf("%s must pass for mode %s: %v", tc.action, tc.mode, err)
+		}
+	}
+	if _, err := validateAgentToolCall(arguments("SET_WEALTH_ACCOUNT"), "UNKNOWN_MERCHANT", "TRANSACTION"); err == nil {
+		t.Fatal("a wealth action must be rejected for a transaction review")
+	}
+}

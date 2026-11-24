@@ -111,7 +111,7 @@ var kinds = []Kind{
 		Choices:  transactionDateChoices,
 		WhyID:    "Tanggal transaksi tidak tertulis di bukti.",
 		Telegram: true,
-		Agent:    []string{"SET_TRANSACTION_DATE", "IGNORE"},
+		Agent:    []string{"CONFIRM", "SET_TRANSACTION_DATE", "IGNORE"},
 	},
 	{
 		Reason: "TRANSACTION_FACTS_MISSING", Class: ClassEvidenceGap,

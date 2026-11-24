@@ -45,6 +45,7 @@
     "IGNORE"
   ],
   "MISSING_TRANSACTION_DATE": [
+    "CONFIRM",
     "SET_TRANSACTION_DATE",
     "IGNORE"
   ],

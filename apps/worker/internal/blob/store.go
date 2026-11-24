@@ -124,6 +124,9 @@ func (s *Store) Read(ctx context.Context, ref string) ([]byte, error) {
 	return raw, nil
 }
 func (s *Store) EvictLocal(ref string) error {
+	if s.client == nil {
+		return nil
+	}
 	path, err := s.localPath(ref)
 	if err != nil {
 		return err

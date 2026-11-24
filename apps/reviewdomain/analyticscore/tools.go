@@ -210,7 +210,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 
 const untrustedLedgerTag = "untrusted_ledger_text"
 
-var untrustedTagPattern = regexp.MustCompile(`(?i)<(s*/?s*(?:untrusted_|evidence))`)
+var untrustedTagPattern = regexp.MustCompile(`(?i)<(\s*/?\s*(?:untrusted_|evidence\b))`)
 
 func untrustedLedger(value string) string {
 	return "<" + untrustedLedgerTag + ">" + untrustedTagPattern.ReplaceAllString(value, "&lt;$1") + "</" + untrustedLedgerTag + ">"

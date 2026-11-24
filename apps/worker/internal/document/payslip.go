@@ -125,8 +125,12 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, err)
 	}
-	autoConfirm := result.PayDate != nil
+	autoConfirm := payslipAutoConfirmable(result)
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, period.Format("2006-01"), autoConfirm, arithmeticOK)
+}
+
+func payslipAutoConfirmable(value payslipExtraction) bool {
+	return value.PayDate != nil && value.Confidence >= autoConfirmMinConfidence
 }
 
 func validatePayslip(value payslipExtraction) (time.Time, time.Time, bool, error) {
@@ -230,7 +234,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		}
 		return err
 	}
-	if !hasPrimary || value.PayDate == nil {
+	if !hasPrimary || value.PayDate == nil || !autoConfirm {
 		decision, ok := reviewdec.Preset(reviewType, "proposal", proposalID)
 		if !ok {
 			return fmt.Errorf("no review decision preset for %s", reviewType)
@@ -247,6 +251,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		}
 		decision.Provenance["arithmeticOK"] = arithmeticOK
 		decision.Provenance["hasPrimarySalary"] = hasPrimary
+		decision.Provenance["extractionBelowAutoConfirmFloor"] = value.Confidence < autoConfirmMinConfidence
 		decision = reviewdec.PayslipPolicy(decision, reviewType, hasPrimary)
 		encoded, err := decision.JSON()
 		if err != nil {
@@ -277,9 +282,6 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return err
 		}
 		return tx.Commit(ctx)
-	}
-	if !autoConfirm {
-		return fmt.Errorf("payslip needs material review")
 	}
 	if _, err := reviewdomain.FinalizePayslip(ctx, tx, reviewdomain.PayslipFinalization{HouseholdID: householdID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, Choice: "HOUSEHOLD_POLICY", Auto: true}); err != nil {
 		return err

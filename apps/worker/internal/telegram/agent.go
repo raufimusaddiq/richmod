@@ -501,7 +501,7 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		if !ok {
 			return agentCallPlan{}, fmt.Errorf("unknown agent tool %q", call.Name)
 		}
-		args, err := validateAgentToolCall(call)
+		args, err := validateAgentToolCall(call, state.ReviewType, state.ReviewMode)
 		if err != nil {
 			if argumentErr == nil {
 				argumentErr = &agentArgumentsError{Call: call, Err: err}
