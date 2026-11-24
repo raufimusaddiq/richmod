@@ -67,7 +67,7 @@ func TestScreenshotF02IdentitylessPaymentsStayDistinct(t *testing.T) {
 			if len(row.Candidates) != 1 || row.Candidates[0].ID != first || row.Candidates[0].Score >= .90 {
 				t.Fatalf("identityless event can auto-link: %v", row.Candidates)
 			}
-			f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+			f.persist(t, []validatedScreenshotRow{row})
 			var confirmed, pending, merged, reviews int
 			if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'),(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW'),(SELECT count(*) FROM transaction_proposal WHERE source_event_id=$2 AND proposal_status='MERGED'),(SELECT count(*) FROM review_item WHERE household_id=$1 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND'))`, f.householdID, f.sourceID).Scan(&confirmed, &pending, &merged, &reviews); err != nil {
 				t.Fatal(err)
@@ -96,7 +96,7 @@ func TestScreenshotIdentityDifferentCloseEvents(t *testing.T) {
 	if len(row.Candidates) != 0 {
 		t.Fatalf("conflicting identifiers must not be duplicate candidates: %v", row.Candidates)
 	}
-	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	f.persist(t, []validatedScreenshotRow{row})
 	var count int
 	var ids []byte
 	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'`, f.householdID).Scan(&count); err != nil {
@@ -157,7 +157,7 @@ func TestScreenshotIdentityRepeatAndCanonicalBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	row.Candidates, row.Matched = matches, &matches[0]
-	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	f.persist(t, []validatedScreenshotRow{row})
 	var transactions, linked int
 	if err := f.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1),(SELECT count(*) FROM transaction_proposal WHERE household_id=$1 AND proposal_status='MERGED' AND metadata_json->'transaction_identifiers' IS NOT NULL)`, f.householdID).Scan(&transactions, &linked); err != nil {
 		t.Fatal(err)

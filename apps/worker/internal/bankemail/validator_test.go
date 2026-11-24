@@ -58,3 +58,15 @@ func TestValidateEmitBankTransactionEnumsAreCaseSensitive(t *testing.T) {
 		t.Fatal("non-canonical enum should fail closed")
 	}
 }
+
+func TestValidateEmitBankTransactionCategorySlug(t *testing.T) {
+	valid := `{"kind":"TRANSACTION","direction":"OUTGOING","channel":"QR","amount_idr":"40700","transaction_at":"2026-08-28T10:00:00+07:00","merchant":"Kopi Tuku","counterparty":null,"reference":null,"description":null,"category_slug":"makanan-minuman","missing_fields":[],"confidence":0.9}`
+	got, err := ValidateEmitBankTransaction(gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(valid)})
+	if err != nil || got.CategorySlug == nil || *got.CategorySlug != "makanan-minuman" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	blank := `{"kind":"TRANSACTION","direction":"OUTGOING","channel":"QR","amount_idr":"40700","transaction_at":"2026-08-28T10:00:00+07:00","merchant":"Kopi Tuku","counterparty":null,"reference":null,"description":null,"category_slug":"   ","missing_fields":[],"confidence":0.9}`
+	if _, err := ValidateEmitBankTransaction(gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(blank)}); err == nil {
+		t.Fatal("blank category_slug should fail closed")
+	}
+}

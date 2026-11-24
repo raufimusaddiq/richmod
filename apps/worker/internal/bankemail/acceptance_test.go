@@ -1,17 +1,9 @@
 package bankemail
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
@@ -31,49 +23,67 @@ func TestBankEmailB1LearnedMerchantCreatesNoReviewWork(t *testing.T) {
 	}
 }
 
-func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
-	t.Parallel()
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+func TestBankEmailB2ExtractedCategoryConfirmsWithoutReview(t *testing.T) {
+	extraction := outgoingCard("54000", "Warung Baru")
+	slug := "makanan-minuman"
+	extraction.CategorySlug = &slug
+	extraction.Confidence = ExtractedCategoryMinConfidence
+	categories := []CategoryOption{{ID: "cat-food", Slug: "makanan-minuman", Name: "Makanan & Minuman"}}
 
-	var householdID string
-	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("B2 %d", testsupport.UniqueStamp())).Scan(&householdID); err != nil {
-		t.Fatal(err)
-	}
-	var foodID string
-	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman') RETURNING id", householdID).Scan(&foodID); err != nil {
-		t.Fatal(err)
-	}
-
-	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Warung Baru"), nil)
+	result := EvaluateBankEmail(spendingListener(), extraction, nil)
 	if result.Status != "NEEDS_REVIEW" || result.ReviewType != "AMBIGUOUS_CATEGORY" {
 		t.Fatalf("an unknown merchant starts as a category review: %+v", result)
 	}
 
-	verifier := &stubVerifier{answers: map[string]judgment.Answer{
-		"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}})),
-	}}
-	processor := &Processor{pool: pool, verifier: verifier}
-	decided, err := processor.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != foodID {
-		t.Fatalf("a decisive category must confirm with no review: %+v", decided)
+	decided := applyExtractedCategory(extraction, categories, result)
+	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != "cat-food" {
+		t.Fatalf("an extracted active household category at threshold must confirm with no review: %+v", decided)
 	}
 
-	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
-	kept, err := undecided.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
-	if err == nil {
-		t.Fatalf("a provider failure must propagate as a retryable machine error, got kept=%+v", kept)
+	lowConfidence := extraction
+	lowConfidence.Confidence = ExtractedCategoryMinConfidence - 0.01
+	held := applyExtractedCategory(lowConfidence, categories, result)
+	if held.Status != "NEEDS_REVIEW" || held.AutoConfirm || held.ReviewType != "AMBIGUOUS_CATEGORY" {
+		t.Fatalf("low confidence extracted category must stay in review: %+v", held)
+	}
+
+	colliding := []CategoryOption{
+		{ID: "cat-root", Slug: "makanan-minuman", Name: "Makanan & Minuman"},
+		{ID: "cat-child", Slug: "makanan-minuman", Name: "Harian > Makanan & Minuman"},
+		{ID: "cat-unique", Slug: "transportasi", Name: "Transportasi"},
+	}
+	ambiguous := applyExtractedCategory(extraction, colliding, result)
+	if ambiguous.Status != "NEEDS_REVIEW" || ambiguous.AutoConfirm || ambiguous.ReviewType != "AMBIGUOUS_CATEGORY" {
+		t.Fatalf("duplicate category slug must never auto-confirm: %+v", ambiguous)
+	}
+	tool := EmitBankTransactionTool(colliding...)
+	props := tool.Parameters["properties"].(map[string]any)
+	catEnum := props["category_slug"].(map[string]any)["enum"].([]any)
+	if len(catEnum) != 2 || catEnum[0] != "transportasi" || catEnum[1] != nil {
+		t.Fatalf("duplicate slug must be excluded from schema enum: %v", catEnum)
+	}
+
+	unknownSlug := "not-a-household-category"
+	extraction.CategorySlug = &unknownSlug
+	kept := applyExtractedCategory(extraction, categories, result)
+	if kept.Status != "NEEDS_REVIEW" || kept.AutoConfirm || kept.ReviewType != "AMBIGUOUS_CATEGORY" {
+		t.Fatalf("an unknown extracted category slug must stay in review: %+v", kept)
+	}
+}
+
+func TestBankEmailMerchantMemoryWinsOverExtractedCategory(t *testing.T) {
+	extraction := outgoingCard("54000", "Toko Sumber Rejeki")
+	slug := "lainnya"
+	extraction.CategorySlug = &slug
+	categories := []CategoryOption{
+		{ID: "cat-food", Slug: "makanan-minuman", Name: "Makanan & Minuman"},
+		{ID: "cat-other", Slug: "lainnya", Name: "Lainnya"},
+	}
+
+	result := EvaluateBankEmail(spendingListener(), extraction, nil, MerchantMemory{MerchantID: "m-1", CategoryID: "cat-food", AutoApply: true})
+	final := applyExtractedCategory(extraction, categories, result)
+	if final.CategoryID != "cat-food" || !final.AutoConfirm {
+		t.Fatalf("merchant memory must win over extracted category: %+v", final)
 	}
 }
 
@@ -107,15 +117,16 @@ func TestBankEmailB4MissingMerchantDoesNotBecomeUnknownPurpose(t *testing.T) {
 }
 
 func TestBankEmailMerchantlessExpenseCollectsMerchantBeforeCategory(t *testing.T) {
+	categories := []CategoryOption{{ID: "cat-food", Slug: "makanan-minuman", Name: "Makanan & Minuman"}}
+	slug := "makanan-minuman"
 	for _, channel := range []string{"DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "ATM", "BANK_FEE", "OTHER"} {
 		t.Run(channel, func(t *testing.T) {
 			direction, description := "OUTGOING", "Pembayaran makan siang di kantin"
-			extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction, Description: &description}
+			extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction, Description: &description, CategorySlug: &slug, Confidence: ExtractedCategoryMinConfidence}
 			result := EvaluateBankEmail(spendingListener(), extraction, nil)
-			verifier := &stubVerifier{err: errors.New("must not call category inference")}
-			kept, err := (&Processor{verifier: verifier}).applyCategoryDecision(context.Background(), "source", "household", extraction, result)
-			if err != nil || kept.Status != "NEEDS_REVIEW" || kept.ReviewType != "UNKNOWN_MERCHANT" || kept.AutoConfirm || verifier.calls != 0 {
-				t.Fatalf("merchant must precede category: result=%+v calls=%d err=%v", kept, verifier.calls, err)
+			kept := applyExtractedCategory(extraction, categories, result)
+			if kept.Status != "NEEDS_REVIEW" || kept.ReviewType != "UNKNOWN_MERCHANT" || kept.AutoConfirm {
+				t.Fatalf("merchant must precede category: result=%+v", kept)
 			}
 			decision := transactionReviewDecision("household", "source", extraction, kept, "transaction")
 			if len(decision.MissingFacts) != 2 || decision.MissingFacts[0] != "merchant" || decision.MissingFacts[1] != "category" {
@@ -147,18 +158,6 @@ func TestBankEmailB4MerchantValueIsNullable(t *testing.T) {
 	}
 	if !nullable {
 		t.Fatalf("merchant must be nullable so it is never fabricated: %v", types)
-	}
-}
-
-func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
-	failing := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
-	if _, verified, err := failing.verifyEvidence(context.Background(), "source", Extraction{}, TrustedEmail{}); err == nil || verified {
-		t.Fatalf("provider failure must surface as an error, verified=%v err=%v", verified, err)
-	}
-
-	unconfigured := NewProcessor(nil, nil)
-	if _, verified, err := unconfigured.verifyEvidence(nil, "source", Extraction{}, TrustedEmail{}); err == nil || verified {
-		t.Fatalf("a nil verifier must be a machine failure, verified=%v err=%v", verified, err)
 	}
 }
 

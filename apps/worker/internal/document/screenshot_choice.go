@@ -9,99 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-type jeverifier interface {
-	Evaluate(context.Context, string, judgment.Request) (judgment.Result, error)
-}
+const ScreenshotRowCategoryPolicyVersion = "2026-11-screenshot-generative1"
 
-const ScreenshotRowCategoryPolicyVersion = "2026-10-screenshot-category3"
-
-var rowCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
-
-type rowChoiceProvenance struct {
-	Model         string
-	PolicyVersion string
-	Questions     int
-	Decided       int
-	QuestionKeys  []string
-}
-
-func rowQuestionKey(index int) string { return fmt.Sprintf("row_%03d", index) }
-
-func rowIndexFromKey(key string) (int, bool) {
-	var index int
-	if _, err := fmt.Sscanf(key, "row_%d", &index); err != nil {
-		return 0, false
-	}
-	return index, true
-}
-
-func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID, householdID string, rows []validatedScreenshotRow, categories []categoryOption) (map[int]string, rowChoiceProvenance, error) {
-	provenance := rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}
-	if p.verifier == nil || len(categories) < 2 {
-		return nil, provenance, nil
-	}
-	bySlug := make(map[string]string, len(categories))
-	for _, category := range categories {
-		bySlug[category.Slug] = category.ID
-	}
-	slugs, criteria := categoryQuestionCriteria(categories)
-	state := map[string]any{}
-	questions := map[string]judgment.Question{}
-	for index, row := range rows {
-		if row.Matched != nil || row.Type != "EXPENSE" || (row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict) {
-			continue
-		}
-		key := rowQuestionKey(index)
-		rowState := map[string]any{
-			"merchant":       "<untrusted_row_merchant>" + strings.TrimSpace(row.Value.Merchant) + "</untrusted_row_merchant>",
-			"description":    "<untrusted_row_description>" + strings.TrimSpace(row.Value.Description) + "</untrusted_row_description>",
-			"amount_idr":     row.Value.Amount,
-			"transaction_at": row.Value.TransactionAt,
-		}
-		if row.DateKnown {
-			rowState["local_time"] = categoryctx.LocalTime(row.TransactionAt)
-		}
-		if p.pool != nil {
-			history, err := categoryctx.History(ctx, p.pool, householdID, row.Value.Merchant, slugs)
-			if err != nil {
-				return nil, provenance, err
-			}
-			if history != nil {
-				rowState[categoryctx.StateKey] = history
-			}
-		}
-		state[key] = rowState
-		provenance.QuestionKeys = append(provenance.QuestionKeys, key)
-		questions[key] = judgment.Question{Type: "choice", Instructions: "Which single household category best describes this expense row of a transaction screenshot? Answer with the closest supplied category slug, or OTHER_OR_UNCLEAR when no category is safe.", Criteria: criteria}
-	}
-	if len(questions) == 0 {
-		return nil, provenance, nil
-	}
-	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ScreenshotRowCategoryPolicyVersion, []string{})
-	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-screenshot-category", judgment.Request{State: state, Questions: questions})
-	if err != nil {
-		return nil, provenance, err
-	}
-	provenance.Model, provenance.Questions = result.Model, len(questions)
-	decided := map[int]string{}
-	for key, answer := range result.Answers {
-		index, ok := rowIndexFromKey(key)
-		if !ok || !judgment.AcceptChoice(answer, criteria, rowCategoryPolicy) {
-			continue
-		}
-		if id, found := bySlug[answer.Choice]; found {
-			decided[index] = id
-		}
-	}
-	provenance.Decided = len(decided)
-	return decided, provenance, nil
-}
-
-func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID, documentID, proposalKey string, index int, row validatedScreenshotRow, provenance rowChoiceProvenance) error {
+func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID, documentID, proposalKey string, index int, row validatedScreenshotRow) error {
 	var merchantID *string
 	if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
 		var id string
@@ -111,7 +23,7 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 		merchantID = &id
 	}
 	var proposalID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,'EXPENSE',$4,'IDR',$5,NULLIF($6,''),$7,NULLIF($8,''),$9,'ACCEPTED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'direction',$12::text,'date_known',$13::boolean,'auto_confirm',true,'category_policy_version',$14::text) || $15::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, provenance.PolicyVersion, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,'EXPENSE',$4,'IDR',$5,NULLIF($6,''),$7,NULLIF($8,''),$9,'ACCEPTED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'direction',$12::text,'date_known',$13::boolean,'auto_confirm',true,'category_policy_version',$14::text) || $15::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, ScreenshotRowCategoryPolicyVersion, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
 		return err
 	}
 	var transactionID string
@@ -124,11 +36,11 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_SCREENSHOT_ROW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text,'category_policy_version',$6::text))`, householdID, transactionID, documentID, index, row.Value.Direction, provenance.PolicyVersion)
+	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_SCREENSHOT_ROW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text,'category_policy_version',$6::text))`, householdID, transactionID, documentID, index, row.Value.Direction, ScreenshotRowCategoryPolicyVersion)
 	return err
 }
 
-func screenshotRowDecision(household, sourceEventID, transactionID, reviewType string, index int, row validatedScreenshotRow, jevAsked bool) reviewdec.Decision {
+func screenshotRowDecision(household, sourceEventID, transactionID, reviewType string, index int, row validatedScreenshotRow) reviewdec.Decision {
 	known := map[string]any{"direction": row.Value.Direction}
 	if row.Value.Amount != nil {
 		known["amount_idr"] = *row.Value.Amount
@@ -159,9 +71,6 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		DecisionSource:  reviewdec.SourceGenerativeExtraction,
 		PolicyVersion:   ScreenshotRowCategoryPolicyVersion,
 		InteractionMode: reviewdec.ModeBoundedChoice,
-	}
-	if jevAsked {
-		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
 	}
 	if shared, ok := reviewdec.Preset(reviewType, "transaction", transactionID); ok {
 		decision.DecisionClass = shared.DecisionClass
@@ -194,7 +103,7 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	default:
 		if row.CategoryConflict {
 			decision.DecisionClass, decision.InteractionMode = reviewdec.ClassEvidenceConflict, reviewdec.ModeConflictResolution
-			decision.WhyNotAuto = "the image and the bounded plane named different categories"
+			decision.WhyNotAuto = "the image and household merchant memory named different categories"
 		}
 		decision.MissingFacts = screenshotMissingFacts(categoryKnown, row.DateKnown)
 		if row.CategoryConflict && row.DateKnown {

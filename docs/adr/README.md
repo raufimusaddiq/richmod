@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-120**, in the heading form `## ADR-120: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-121**, in the heading form `## ADR-121: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -14,7 +14,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-002](#adr-002-javascript-nextjs-frontend) | JavaScript Next.js frontend | Accepted, framework replaced by ADR-115 |
 | [ADR-003](#adr-003-postgresql-backed-job-queue) | PostgreSQL-backed job queue | Accepted |
 | [ADR-004](#adr-004-evidence-first-canonical-ledger) | Evidence-first canonical ledger | Accepted |
-| [ADR-005](#adr-005-cloud-ai-gateway-boundary) | Cloud AI Gateway boundary | Accepted, amended by ADR-030 and ADR-038 |
+| [ADR-005](#adr-005-cloud-ai-gateway-boundary) | Cloud AI Gateway boundary | Accepted, amended by ADR-030, ADR-038 and ADR-120 |
 | [ADR-006](#adr-006-bank-jago-spending_only-policy) | Bank Jago SPENDING_ONLY policy | Accepted |
 | [ADR-007](#adr-007-deterministic-jago-parser-with-llm-fallback) | Deterministic Jago parser with LLM fallback | Superseded by ADR-025 |
 | [ADR-008](#adr-008-telegram-human-in-the-loop-review) | Telegram human-in-the-loop review | Superseded by ADR-031 |
@@ -48,22 +48,22 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-035](#adr-035-one-active-household-per-user) | One active household per user | Accepted, amended by ADR-059 and ADR-114 |
 | [ADR-036](#adr-036-wealth-savings-and-cycle-reconciliation) | Wealth, Savings, and Cycle Reconciliation | Accepted, amended 2026-11-15 |
 | [ADR-037](#adr-037-bounded-intelligent-document-interpretation) | Bounded intelligent document interpretation | Partially superseded by ADR-051 (2026-10-03) |
-| [ADR-038](#adr-038-system-one-semantic-decision-plane) | System One semantic decision plane | Accepted for implementation, amended by ADR-045, ADR-052 and ADR-053 |
+| [ADR-038](#adr-038-system-one-semantic-decision-plane) | System One semantic decision plane | Superseded by ADR-120 (2026-11-24) |
 | [ADR-039](#adr-039-canonical-reviewdecision-contract) | Canonical ReviewDecision contract | Accepted for implementation |
-| [ADR-040](#adr-040-bank-email-zero-touch-classification) | Bank email zero-touch classification | Accepted for implementation, amended by ADR-045 and several times since |
-| [ADR-041](#adr-041-receipt-auto-confirm-for-clear-new-receipts) | Receipt auto-confirm for clear new receipts | Accepted for implementation, amended by ADR-045 and ADR-048 |
-| [ADR-042](#adr-042-per-row-screenshot-auto-confirm-with-one-bounded-ruling-per-image) | Per-row screenshot auto-confirm with one bounded ruling per image | Accepted for implementation, amended by ADR-045 and later |
+| [ADR-040](#adr-040-bank-email-zero-touch-classification) | Bank email zero-touch classification | Accepted, amended by ADR-045 and ADR-120 |
+| [ADR-041](#adr-041-receipt-auto-confirm-for-clear-new-receipts) | Receipt auto-confirm for clear new receipts | Accepted, amended by ADR-045, ADR-048 and ADR-120 |
+| [ADR-042](#adr-042-per-row-screenshot-auto-confirm-with-one-bounded-ruling-per-image) | Per-row screenshot auto-confirm with one bounded ruling per image | Accepted, amended by ADR-045 and ADR-120 |
 | [ADR-043](#adr-043-partial-financial-email-entity-resolution) | Partial financial-email entity resolution | Accepted for implementation |
 | [ADR-044](#adr-044-proposal-first-review-inbox) | Proposal-first Review Inbox | Accepted for implementation, amended by ADR-046 |
-| [ADR-045](#adr-045-single-intelligence-pass-routing-with-residual-bounded-rescue) | Single-intelligence-pass routing with residual bounded rescue | Accepted architecture amendment |
+| [ADR-045](#adr-045-single-intelligence-pass-routing-with-residual-bounded-rescue) | Single-intelligence-pass routing with residual bounded rescue | Superseded by ADR-120 (2026-11-24) |
 | [ADR-046](#adr-046-universal-review-interaction-projections) | Universal review interaction projections | Accepted architecture direction, amended repeatedly through 2026-11-06 |
 | [ADR-047](#adr-047-semantic-fact-ownership-and-accepted-fact-boundaries) | Semantic Fact Ownership and Accepted-Fact Boundaries | Accepted, amended 2026-09-28 |
 | [ADR-048](#adr-048-validation-consequences-residual-fidelity-and-domain-continuity) | Validation Consequences, Residual Fidelity, and Domain Continuity | Accepted, amended 2026-09-28 and 2026-10-02 |
 | [ADR-049](#adr-049-failed-sources-surface-as-dismissable-actions) | Failed Sources Surface as Dismissable Actions | Accepted, amended 2026-11 |
 | [ADR-050](#adr-050-conversational-evidence-understanding-ceu) | Conversational Evidence Understanding (CEU) | Accepted |
 | [ADR-051](#adr-051-release-retirement-of-unused-capabilities) | Release retirement of unused capabilities | Accepted, supersedes ADR-014 and part of ADR-037 |
-| [ADR-052](#adr-052-telegram-runs-without-the-judgment-plane) | Telegram runs without the judgment plane | Accepted, amends ADR-038 and ADR-045 for Telegram; amended 2026-10-12 and 2026-11-05 |
-| [ADR-053](#adr-053-category-judgments-receive-household-context) | Category judgments receive household context | Accepted, amends ADR-038 |
+| [ADR-052](#adr-052-telegram-runs-without-the-judgment-plane) | Telegram runs without the judgment plane | Accepted, extended to all pipelines by ADR-120 |
+| [ADR-053](#adr-053-category-judgments-receive-household-context) | Category judgments receive household context | Superseded by ADR-120 (2026-11-24) |
 | [ADR-054](#adr-054-review-kind-registry-is-the-single-owner-of-review-semantics) | Review kind registry is the single owner of review semantics | Accepted; phases 1-3 done, amended 2026-11-05/06 |
 | [ADR-055](#adr-055-rejected-tool-arguments-get-one-bounded-repair-round) | Rejected tool arguments get one bounded repair round | Accepted, refines ADR-024 and ADR-033; amended 2026-11-05 |
 | [ADR-056](#adr-056-serve-the-static-frontend-from-the-go-api) | Serve the static frontend from the Go API | Accepted, amends the deployment model of ADR-002 and ADR-019; export format replaced by ADR-115 |
@@ -130,6 +130,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-117](#adr-117-one-dom-observer-mechanism-for-sliding-tab-indicators-panel-re-entry-and-first-load-stagger) | One DOM-observer mechanism for sliding tab indicators, panel re-entry and first-load stagger | Accepted |
 | [ADR-118](#adr-118-go-tests-assert-behaviour-isolate-by-household-and-run-in-parallel-source-text-checks-only-for-architecture-rules) | Go tests assert behaviour, isolate by household and run in parallel; source-text checks only for architecture rules | Accepted |
 | [ADR-119](#adr-119-web-browser-tests-run-on-the-playwright-test-runner-and-assert-rendered-behavior) | Web browser tests run on the Playwright test runner and assert rendered behavior | Accepted |
+| [ADR-120](#adr-120-retire-system-one-jev-and-harden-the-generative-ai-pipeline) | Retire System One (Jev) and harden the generative AI pipeline | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1219,3 +1220,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** about 32 of 41 unit-test files read source text, so they broke on harmless refactors (a renamed prop, a moved class) and kept passing when the behavior they named was broken. The smokes each spawned their own server on a fixed port, looped viewports serially, and duplicated mocks and cleanup; two of them were not in CI and had silently rotted (`test:motion` waited for a button the wealth page no longer renders, `test:visual` hovered a chart that is now behind a closed disclosure).
 
 **Consequence:** CI runs `bun test tests/` in one job and `playwright test --shard=i/N` in a matrix of browser jobs (each installs and builds once in the Playwright container, runs four workers, `retries: 1`); a failing leg uploads its blob report and a report job merges them into one HTML report with traces, and the aggregate `web` job fails if the unit or any browser leg does. `N` is the length of the `shard` matrix in `ci.yml`. `--shard` slices the project list in order, so `shardOrder` in `playwright.config.mjs` interleaves cheap and expensive projects to keep the slices near equal in time; re-measure and reorder when a project grows. The `visual` project stays in the shards (about 8% of the tests). Specs in `e2e/app` run on `desktop` and `mobile`; a test whose behavior does not depend on the viewport carries `{ tag: "@desktop-only" }` and is filtered out of `mobile`, and an untagged test runs on both, so a new test defaults to the wider coverage. `bun run test:e2e` runs everything in one process locally. A new screen gets rendered assertions in `e2e/app` rather than a source regex. Baselines are Linux-only: `playwright test` on Windows or macOS skips the `visual` project unless `PLAYWRIGHT_VISUAL=1`. The Playwright image tag in `ci.yml`, `scripts/visual-docker.sh` and the `@playwright/test` version in `package.json` must move together.
+
+## ADR-120: Retire System One (Jev) and harden the generative AI pipeline
+*Accepted · 2026-11-24*
+
+**Decision:** System One (Jev) and `/v1/systemone` are retired from Richmod, superseding ADR-038, ADR-045 and ADR-053 and amending ADR-005, ADR-040, ADR-041, ADR-042 and ADR-052. `apps/worker/internal/judgment` and `apps/worker/internal/categoryctx` are deleted, `JUDGMENT_MODEL`/`JUDGMENT_MODE`/`JUDGMENT_TIMEOUT_MS` are removed from worker startup, `compose.yaml` and `.env.example`, and `/api/v1/operations/status` drops the retired `judgment` aggregate and Jev-only `semanticReDecision*` probes. Bank email extraction (`emit_bank_transaction`) now receives active household categories and may select an optional `category_slug` validated strictly in Go; household merchant memory still wins first, `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` still gates auto-confirm, and absent/unknown slugs park in `AMBIGUOUS_CATEGORY` review. Receipts, transaction screenshots and financial-provider emails keep deterministic Go validation, merchant memory, exact-window reconciliation and human Review Inbox fallbacks without a secondary Jev pass. In the same change, the generative gateway pipeline is hardened: `decodeResponsesSSE` normalizes `\r\n` before splitting SSE blocks, `telegram.runAgentLoop` accumulates `ReadHistory` across phases for `chat_completions`, `gateway.WrapUntrusted` and `gateway.NormalizeEmailBody` defang embedded delimiter tags and cap/strip HTML email bodies in both `bankemail` and `financialemail`, and `document.repairExtracted` passes `DisableStrict: true` so dynamic partial-field repair schemas are not rejected under OpenAI strict tool validation.
+
+**Reason:** Telegram already ran without Jev (ADR-052), `financialemail` had been calling Jev without the source email body, maintaining a second inference protocol added operational coupling and startup failure modes for marginal residual category rescue that the single generative extraction pass plus Perlu dicek's history-ranked one-tap answers already cover, and the generative gateway had concrete protocol and sanitization bugs.
+
+**Consequence:** Every AI call now flows through `/v1/responses` or `/v1/chat/completions` on LiteRouter; no migration is run and historical `judgment_decision`, `judgment_turn_telemetry` and `bank_email_evidence_verification` tables remain read-only history (as in ADR-051). Existing kill switches (`RICHMOD_AUTOCONFIRM_*`) continue to gate per-source auto-confirmation.

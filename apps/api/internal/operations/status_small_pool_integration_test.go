@@ -53,12 +53,6 @@ func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),'{"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW"]}'::jsonb)`, householdID, sourceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO judgment_turn_telemetry(household_id,lane,decision_tasks,policy_version,native_tool_calls_avoided) VALUES($1,'JEV_ONLY','{}','v1',1)`, householdID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO llm_call(household_id,task,protocol,model,status,duration_ms,call_kind) VALUES($1,'TRANSACTION_SEMANTICS','systemone','jev','SUCCEEDED',10,'JUDGMENT')`, householdID); err != nil {
-		t.Fatal(err)
-	}
 
 	handler := NewHandler(pool)
 	handler.probeTimeout, handler.statusTimeout = time.Minute, time.Minute
@@ -81,9 +75,6 @@ func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 		Jobs     struct {
 			Pending int `json:"pending"`
 		} `json:"jobs"`
-		Judgment struct {
-			Turns map[string]int `json:"turns"`
-		} `json:"judgment"`
 		Product struct {
 			SourceEvents    int `json:"sourceEvents"`
 			CanonicalEvents int `json:"canonicalEvents"`
@@ -92,7 +83,7 @@ func TestStatusReturnsRealDataWithSmallPool(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Jobs.Pending != 1 || body.Judgment.Turns["JEV_ONLY"] != 1 || body.Product.SourceEvents != 1 || body.Product.CanonicalEvents != 1 {
+	if body.Jobs.Pending != 1 || body.Product.SourceEvents != 1 || body.Product.CanonicalEvents != 1 {
 		t.Fatalf("small pool zeroed real data (degraded=%v): %+v", body.Degraded, body)
 	}
 }

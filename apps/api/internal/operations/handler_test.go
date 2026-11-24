@@ -99,7 +99,7 @@ func TestStatusDegradesWithinBudgetWhenDependencyIsSlow(t *testing.T) {
 	if body.Status != "degraded" {
 		t.Fatalf("status = %q, want degraded", body.Status)
 	}
-	if len(body.DegradedSections) != 4 {
-		t.Fatalf("degradedSections = %v, want all four sections named", body.DegradedSections)
+	if len(body.DegradedSections) != 3 {
+		t.Fatalf("degradedSections = %v, want all three sections named", body.DegradedSections)
 	}
 }

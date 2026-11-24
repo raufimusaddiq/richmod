@@ -197,7 +197,7 @@ func TestScreenshotLedgerRecheckNeedsNoSecondConnection(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	row := validatedScreenshotRow{Value: screenshotRow{Amount: ptr("12500"), Merchant: "Warung", Confidence: .4}, Type: "EXPENSE", TransactionAt: receiptTime(), DateKnown: true}
-	if err := (&Processor{pool: pool, rowAutoConfirmOff: true}).persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rowChoiceProvenance{}, []validatedScreenshotRow{row}); err != nil {
+	if err := (&Processor{pool: pool, rowAutoConfirmOff: true}).persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", []validatedScreenshotRow{row}); err != nil {
 		t.Fatalf("single-connection screenshot write: %v", err)
 	}
 }

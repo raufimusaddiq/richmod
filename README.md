@@ -31,11 +31,8 @@ flowchart LR
     T[Telegram] --> G
     D[Documents] --> G
 
-    G --> J{Bounded semantic decision?}
-    J -->|yes| S[Jev via LiteRouter /v1/systemone]
-    J -->|needs extraction or reasoning| M[Generative model via LiteRouter]
-
-    S --> P[Go validation + policy]
+    G -->|needs extraction, vision or reasoning| M[Generative model via LiteRouter]
+    G -->|deterministic| P[Go validation + policy]
     M --> P
 
     P -->|clear| L[(PostgreSQL ledger)]
@@ -45,7 +42,7 @@ flowchart LR
     L --> A[Analytics + household views]
 ```
 
-Go owns exact facts, arithmetic, authorization, target binding, reconciliation and all financial state. Jev handles bounded semantic judgments where the answer comes from a known set. Generative models are used only for open-ended extraction, vision, reasoning and prose. No model reads or writes the database.
+Go owns exact facts, arithmetic, authorization, target binding, reconciliation and all financial state. Generative models via LiteRouter are used only for extraction, vision, reasoning and prose, and every model output passes deterministic Go validation before touching state. No model reads or writes the database.
 
 Email arrives through Cloudflare Email Routing; see the [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md).
 

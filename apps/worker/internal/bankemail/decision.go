@@ -1,42 +1,20 @@
 package bankemail
 
-import "github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+import (
+	"time"
 
-func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
-	if len(v.ClaimOutcomes) == 0 {
-		return "", false, false
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+)
+
+func timeValue(value *time.Time) string {
+	if value == nil {
+		return ""
 	}
-	switch {
-	case v.ClaimOutcomes["amount_supported"] == "NO":
-		return "amount_idr", true, true
-	case v.ClaimOutcomes["direction_supported"] == "NO":
-		return "direction", true, true
-	case v.ClaimOutcomes["transaction_observed"] == "NO":
-		return "transaction_observed", true, true
-	case v.ClaimOutcomes["amount_supported"] != "YES" || v.ClaimOutcomes["direction_supported"] != "YES" || v.ClaimOutcomes["transaction_observed"] != "YES":
-		for _, fact := range []struct{ key, name string }{{"amount_supported", "amount_idr"}, {"direction_supported", "direction"}, {"transaction_observed", "transaction_observed"}} {
-			if v.ClaimOutcomes[fact.key] != "YES" {
-				return fact.name, false, true
-			}
-		}
-	case v.ClaimOutcomes["semantic_grounded"] != "YES":
-		return "transaction_semantics", false, true
-	}
-	return "", false, false
+	return value.UTC().Format(time.RFC3339)
 }
 
-func (v EvidenceVerification) needsBankFactsReview() bool {
-	fact, conflict, _ := v.materialResidual()
-	return fact != "direction" || conflict || v.ClaimOutcomes["transaction_observed"] != "YES"
-}
-
-func reviewPolicyVersion(reviewType string) string {
-	switch reviewType {
-	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE", "UNKNOWN_MERCHANT":
-		return ToolSchemaVersion
-	default:
-		return BankEmailVerificationPolicyVersion
-	}
+func reviewPolicyVersion(_ string) string {
+	return ToolSchemaVersion
 }
 
 func transactionReviewDecision(household, sourceEventID string, extraction Extraction, result PolicyResult, transactionID string) reviewdec.Decision {
@@ -74,10 +52,10 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "AMBIGUOUS_CATEGORY":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"category"}
-		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
+		decision.DecisionSource = reviewdec.SourceGenerativeExtraction
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		decision.InteractionMode = reviewdec.ModeSingleField
-		decision.WhyNotAuto = "the bounded category decision did not reach a confident, well-separated choice"
+		decision.WhyNotAuto = "extraction did not resolve an active household category"
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"merchant", "category"}

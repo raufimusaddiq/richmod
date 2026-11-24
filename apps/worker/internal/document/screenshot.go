@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -88,7 +87,7 @@ func screenshotEvidenceCaption(raw string) string {
 func screenshotExtractionText(instruction string, categoryJSON []byte, caption string) string {
 	text := instruction + " Allowed category slugs: " + string(categoryJSON)
 	if caption != "" {
-		text += " Caption (untrusted evidence): <evidence>" + caption + "</evidence>."
+		text += " Caption (untrusted evidence): " + gateway.WrapUntrusted("evidence", caption) + "."
 	}
 	return text
 }
@@ -101,7 +100,6 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		return fmt.Errorf("load screenshot document: %w", err)
 	}
 	ctx = gateway.WithSourceEvent(ctx, sourceID)
-	ctx = judgment.WithSourceEvent(ctx, sourceID)
 	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	if status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
@@ -220,26 +218,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			usedMatches[match.ID] = true
 		}
 	}
-	decided, provenance, err := p.resolveScreenshotResidualCategories(ctx, sourceID, householdID, rows, categories)
-	if err != nil {
-		return err
-	}
-	for index, categoryID := range decided {
-		if rows[index].CategoryID != nil && *rows[index].CategoryID != categoryID {
-			rows[index].CategoryConflict = true
-			continue
-		}
-		id := categoryID
-		rows[index].CategoryID, rows[index].CategoryDecided = &id, true
-	}
-	return p.persistScreenshot(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, provenance, rows)
-}
-
-func (p *Processor) resolveScreenshotResidualCategories(ctx context.Context, sourceID, householdID string, rows []validatedScreenshotRow, categories []categoryOption) (map[int]string, rowChoiceProvenance, error) {
-	if p.rowAutoConfirmOff {
-		return nil, rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}, nil
-	}
-	return p.resolveRowCategories(ctx, sourceID, householdID, rows, categories)
+	return p.persistScreenshot(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, rows)
 }
 
 func screenshotType(value string) bool {
@@ -323,7 +302,7 @@ func sameScreenshotCandidates(decided, now []matchCandidate) bool {
 	return reviewdomain.SameLedgerCandidates(scores, current)
 }
 
-func (p *Processor) persistScreenshot(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, provenance rowChoiceProvenance, rows []validatedScreenshotRow) error {
+func (p *Processor) persistScreenshot(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, rows []validatedScreenshotRow) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -371,7 +350,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	needsReview := false
-	recorded, jevRecorded, linked, pending := 0, 0, 0, 0
+	recorded, linked, pending := 0, 0, 0
 	for index, row := range rows {
 		if row.Matched == nil {
 			for _, prior := range priorMatches {
@@ -388,7 +367,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,NULL,'IDR',$5,NULLIF($6,''),$7,NULLIF($8,''),$9,'NEEDS_REVIEW',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'direction',$12::text,'date_known',$13::boolean) || $14::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
 				return err
 			}
-			decision := screenshotRowDecision(householdID, sourceID, proposalID, "MISSING_AMOUNT", index, row, slices.Contains(provenance.QuestionKeys, rowQuestionKey(index)))
+			decision := screenshotRowDecision(householdID, sourceID, proposalID, "MISSING_AMOUNT", index, row)
 			encoded, err := decision.JSON()
 			if err != nil {
 				return err
@@ -425,13 +404,10 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			continue
 		}
 		if !p.rowAutoConfirmOff && row.autoConfirmable() {
-			if err := confirmScreenshotRow(ctx, tx, householdID, sourceID, documentID, proposalKey, index, row, provenance); err != nil {
+			if err := confirmScreenshotRow(ctx, tx, householdID, sourceID, documentID, proposalKey, index, row); err != nil {
 				return err
 			}
 			recorded++
-			if slices.Contains(provenance.QuestionKeys, rowQuestionKey(index)) {
-				jevRecorded++
-			}
 			continue
 		}
 		needsReview = true
@@ -467,7 +443,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if row.Type == "INCOME" {
 			reviewType = "TRANSFER_CLASSIFICATION"
 		}
-		decision := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row, slices.Contains(provenance.QuestionKeys, rowQuestionKey(index)))
+		decision := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row)
 		if hasChat {
 			message := workerTelegram.ReviewQuestion(*row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
@@ -495,23 +471,13 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model,validated=true WHERE NOT document_extraction.validated`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
-	if provenance.Questions > 0 {
-		summary, _ := json.Marshal(map[string]any{"questioned_rows": provenance.Questions, "decided_rows": provenance.Decided, "jev_confirmed_rows": jevRecorded})
-		outcome := "REVIEW"
-		if jevRecorded > 0 {
-			outcome = "AUTO_CONFIRM"
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'SCREENSHOT_ROW_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,$7)`, householdID, sourceID, provenance.Model, provenance.PolicyVersion, provenance.QuestionKeys, string(summary), outcome); err != nil {
-			return err
-		}
-	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean,'auto_confirmed_rows',$7::integer,'linked_rows',$8::integer,'review_rows',$9::integer,'category_policy_version',$10::text))`, householdID, sourceID, documentID, documentType, len(rows), needsReview, recorded, linked, pending, provenance.PolicyVersion); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean,'auto_confirmed_rows',$7::integer,'linked_rows',$8::integer,'review_rows',$9::integer,'category_policy_version',$10::text))`, householdID, sourceID, documentID, documentType, len(rows), needsReview, recorded, linked, pending, ScreenshotRowCategoryPolicyVersion); err != nil {
 		return err
 	}
 	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {

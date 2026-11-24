@@ -20,7 +20,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerInsight "github.com/raufimusaddiq/richmod/apps/worker/internal/insight"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment/systemone"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/push"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/residual"
@@ -78,9 +77,6 @@ func run(logger *slog.Logger) error {
 			logger.Warn("intelligence phase write failed", "task", phase.Purpose, "error", err)
 		}
 	}
-	recordIntelligencePhase := func(callCtx context.Context, metric systemone.Metric) {
-		recordPhase(callCtx, gateway.CallMetric{Capability: "JEV", Purpose: metric.Purpose, PolicyVersion: metric.PolicyVersion, Dimensions: metric.Dimensions, AnsweredDimensions: metric.AnsweredDimensions, AcceptedDimensions: metric.AcceptedDimensions, SourceEventID: metric.SourceEventID, Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs})
-	}
 	recordLLMCall := func(callCtx context.Context, metric gateway.CallMetric) {
 		metricCtx, metricCancel := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)
 		defer metricCancel()
@@ -95,7 +91,7 @@ func run(logger *slog.Logger) error {
 			logger.Warn("LLM metric write failed", "task", metric.Task, "error", err)
 			return
 		}
-		if metric.CallKind != "JUDGMENT" && metric.CallKind != "DECISION" {
+		if metric.CallKind != "DECISION" {
 			if metric.Capability == "" {
 				metric.Capability = "GENERATIVE"
 			}
@@ -113,15 +109,6 @@ func run(logger *slog.Logger) error {
 			logger.Warn("telegram command menu not registered", "error", err)
 		}
 	}()
-	judgmentMode := strings.ToLower(strings.TrimSpace(os.Getenv("JUDGMENT_MODE")))
-	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
-	var judgmentEngine systemone.InstrumentedEngine
-	if judgmentMode != "disabled-dev" {
-		if err := requireJudgmentModel(judgmentMode, judgmentModel); err != nil {
-			return err
-		}
-		judgmentEngine = systemone.InstrumentedEngine{Engine: systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)), Record: recordIntelligencePhase}
-	}
 	processor.SetPostGenerativeAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_TELEGRAM"))
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))
@@ -132,9 +119,6 @@ func run(logger *slog.Logger) error {
 	documentProcessor.SetLogger(logger)
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
-	if judgmentEngine.Record != nil {
-		documentProcessor.SetVerifier(judgmentEngine)
-	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
 	residualProcessor := residual.New(pool)
@@ -145,18 +129,12 @@ func run(logger *slog.Logger) error {
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
 	bankProcessor.SetCategoryAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_BANK_CATEGORY"))
-	if judgmentEngine.Record != nil {
-		bankProcessor.SetVerifier(judgmentEngine)
-	}
 	financialModel := os.Getenv("LLM_MODEL_FINANCIAL_EMAIL")
 	if financialModel == "" {
 		financialModel = bankModel
 	}
 	financialLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), financialModel).WithRecorder("FINANCIAL_EMAIL_EXTRACTION", recordLLMCall)
 	financialProcessor := financialemail.NewProcessor(pool, financialLLM)
-	if judgmentEngine.Record != nil {
-		financialProcessor.SetVerifier(judgmentEngine)
-	}
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
 	hostname, _ := os.Hostname()
@@ -255,13 +233,6 @@ func phaseOutcome(status string) string {
 	return "FAILED"
 }
 
-func requireJudgmentModel(mode, model string) error {
-	if mode == "disabled-dev" || strings.TrimSpace(model) != "" {
-		return nil
-	}
-	return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
-}
-
 func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, limit int) {
 	_, err := pool.Exec(ctx, residualCatchUpSQL, limit)
 	if err != nil && ctx.Err() == nil {
@@ -294,18 +265,6 @@ func envEnabled(name string) bool {
 	default:
 		return true
 	}
-}
-
-func envDuration(name string, fallback, maximum time.Duration) time.Duration {
-	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
-	if err != nil || value <= 0 {
-		return fallback
-	}
-	duration := time.Duration(value) * time.Millisecond
-	if duration > maximum {
-		return maximum
-	}
-	return duration
 }
 
 func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int64, error) {

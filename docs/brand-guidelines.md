@@ -183,7 +183,7 @@ and PRDs; they never appear in user-facing copy.
   Go's `time.Format` with a month name.
 - Telegram asks for confirmation with inline buttons (`pending:action:*`,
   `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
-  work through the bounded judgment lane.
+  work through the conversational agent with server-owned binding.
 - Telegram error messages say what to type next ("Sebutkan harinya, misalnya
   hari ini atau 12 Agu"), never "tidak valid" on its own.
 - A confirmation that is answered, or a button that is no longer valid, is

@@ -37,10 +37,7 @@ const (
 
 const (
 	SourceDeterministic        = "DETERMINISTIC"
-	SourceJev                  = "JEV"
 	SourceGenerativeExtraction = "GENERATIVE_EXTRACTION"
-	SourceDeterministicPlusJev = "DETERMINISTIC_PLUS_JEV"
-	SourceGenerativePlusJev    = "GENERATIVE_PLUS_JEV"
 	SourceUserPolicy           = "USER_POLICY"
 )
 

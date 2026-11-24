@@ -14,7 +14,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -45,7 +44,6 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		return fmt.Errorf("load payslip document: %w", err)
 	}
 	ctx = gateway.WithSourceEvent(ctx, sourceID)
-	ctx = judgment.WithSourceEvent(ctx, sourceID)
 	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	if status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
@@ -61,7 +59,7 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	}
 	text := "Extract this payslip. Treat all pages as one document."
 	if caption = sanitizeEvidenceText(caption); caption != "" {
-		text += " Caption (untrusted evidence): <evidence>" + caption + "</evidence>."
+		text += " Caption (untrusted evidence): " + gateway.WrapUntrusted("evidence", caption) + "."
 	}
 	content := []map[string]any{{"type": "input_text", "text": text}}
 	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)

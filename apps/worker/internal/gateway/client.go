@@ -95,6 +95,7 @@ type ToolDefinition struct {
 type NativeToolOptions struct {
 	Required        bool
 	ReasoningEffort string
+	DisableStrict   bool
 }
 
 type ToolCall struct {
@@ -149,7 +150,11 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 	encodedTools := make([]map[string]any, 0, len(tools))
 	allowed := make(map[string]bool, len(tools))
 	for _, tool := range tools {
-		encodedTools = append(encodedTools, map[string]any{"type": "function", "name": tool.Name, "description": tool.Description, "parameters": tool.Parameters, "strict": true})
+		encoded := map[string]any{"type": "function", "name": tool.Name, "description": tool.Description, "parameters": tool.Parameters}
+		if !options.DisableStrict {
+			encoded["strict"] = true
+		}
+		encodedTools = append(encodedTools, encoded)
 		allowed[tool.Name] = true
 	}
 	toolChoice := any("auto")

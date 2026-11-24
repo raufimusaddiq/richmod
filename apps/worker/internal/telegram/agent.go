@@ -307,6 +307,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			PreviousResponseID: state.PreviousResponseID,
 			PreviousToolCalls:  state.PreviousToolCalls,
 			ToolOutputs:        state.PendingToolOutputs,
+			ReadHistory:        append([]gateway.AgentReadPhase(nil), state.ReadHistory...),
 			RequiredTool:       state.RequiredTool,
 		}
 		if finalPhase {
@@ -324,6 +325,15 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")
 			}
 			return fmt.Errorf("%w: %w", errModelPhase, err)
+		}
+		if len(state.PendingToolOutputs) > 0 {
+			state.ReadHistory = append(state.ReadHistory, gateway.AgentReadPhase{
+				ToolCalls:   state.PreviousToolCalls,
+				ToolOutputs: state.PendingToolOutputs,
+			})
+			if limit := defaultAgentLimits.MaxModelPhases - 1; limit > 0 && len(state.ReadHistory) > limit {
+				state.ReadHistory = append([]gateway.AgentReadPhase(nil), state.ReadHistory[len(state.ReadHistory)-limit:]...)
+			}
 		}
 		state.PreviousResponseID = ""
 		state.PreviousToolCalls = nil

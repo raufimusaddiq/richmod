@@ -61,7 +61,7 @@ func TestScreenshotFallbackRecipients(t *testing.T) {
 			}
 			slices.Sort(wantCards)
 			row := screenshotDataRow("EXPENSE", "54000", "Warung")
-			f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+			f.persist(t, []validatedScreenshotRow{row})
 			var reviews, requests int
 			if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, f.householdID).Scan(&reviews); err != nil {
 				t.Fatal(err)

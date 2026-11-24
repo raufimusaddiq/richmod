@@ -6,7 +6,6 @@ type PolicyResult struct {
 	Type, Status, ReviewType, Description string
 	CategoryID                            string
 	AutoConfirm                           bool
-	CategoryProvenance                    *categoryProvenance
 }
 
 type MerchantMemory struct {

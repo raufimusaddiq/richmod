@@ -1,10 +1,6 @@
 package bankemail
 
-import (
-	"testing"
-
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-)
+import "testing"
 
 func TestCategoryAutoConfirmKillSwitchParksRememberedMerchant(t *testing.T) {
 	channel, direction, merchant := "DEBIT_CARD", "OUTGOING", "Toko Contoh"
@@ -46,12 +42,8 @@ func TestCategoryAutoConfirmKillSwitchLeavesReviewsAlone(t *testing.T) {
 	}
 }
 
-func TestCategoryAutoConfirmKillSwitchGatesTheBoundedPath(t *testing.T) {
-	processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": {
-		Distribution:  map[string]float64{"food-and-drink": 0.9, "groceries": 0.1, "OTHER_OR_UNCLEAR": 0},
-		Confidence:    0.9,
-		HasConfidence: true,
-	}}}}
+func TestCategoryAutoConfirmKillSwitchGatesExtractedCategory(t *testing.T) {
+	processor := &Processor{}
 	processor.SetCategoryAutoConfirm(false)
 	if !processor.categoryAutoConfirmOff {
 		t.Fatal("the switch must be off")
@@ -66,18 +58,5 @@ func TestCategoryAutoConfirmKillSwitchGatesTheBoundedPath(t *testing.T) {
 func TestCategoryAutoConfirmDefaultsOn(t *testing.T) {
 	if (&Processor{}).categoryAutoConfirmOff {
 		t.Fatal("a zero-value Processor must keep auto-confirm on")
-	}
-}
-
-func TestUnverifiedPolicyCannotAutoConfirm(t *testing.T) {
-	policy := PolicyResult{Status: "CONFIRMED", AutoConfirm: true, ReviewType: "UNKNOWN_MERCHANT"}
-	got := applyVerificationGate(policy, false)
-	if got.AutoConfirm || got.Status != "NEEDS_REVIEW" || got.ReviewType != "UNKNOWN_MERCHANT" {
-		t.Fatalf("unverified policy must remain review with its actual residual: %+v", got)
-	}
-	for typ, want := range map[string]string{"TRANSFER": "TRANSFER_CLASSIFICATION", "EXPENSE": "AMBIGUOUS_CATEGORY"} {
-		if got := applyVerificationGate(PolicyResult{Type: typ, Status: "CONFIRMED", AutoConfirm: true}, false); got.ReviewType != want {
-			t.Errorf("unverified %s auto-confirm review=%q, want %q", typ, got.ReviewType, want)
-		}
 	}
 }
