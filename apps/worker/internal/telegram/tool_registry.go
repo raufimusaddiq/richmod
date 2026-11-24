@@ -13,7 +13,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, _ string) []gateway.ToolDefinition {
+func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
 	localTime := map[string]any{"type": []string{"string", "null"}, "description": "Exact local HH:MM (24-hour), or PAGI, SIANG, SORE, MALAM when the user named a time of day. Null when no time was stated."}
@@ -44,7 +44,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_action", Description: "Confirm the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_action", Description: "Cancel the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
 	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewdec.AgentActions(reviewType)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_id": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_id", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionEnum(reviewType, reviewMode)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_hint": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_hint", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
 	}
 	if hasSalaryChoice {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
@@ -56,6 +56,13 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	return tools
+}
+
+func reviewActionEnum(reviewType, reviewMode string) []string {
+	if reviewMode == "WEALTH_OBSERVATION" || reviewMode == "TRANSFER_RECONCILIATION" {
+		return reviewdec.AgentActions(reviewMode)
+	}
+	return reviewdec.AgentActions(reviewType)
 }
 
 func categorySchema() map[string]any {
@@ -261,9 +268,9 @@ type resolveReviewArgs struct {
 	AmountIDR     *string `json:"amount_idr"`
 	TransactionAt *string `json:"transaction_at"`
 	Allocations   []struct {
-		WealthAccountID string  `json:"wealth_account_id"`
-		AmountIDR       string  `json:"amount_idr"`
-		Note            *string `json:"note"`
+		WealthAccountHint string  `json:"wealth_account_hint"`
+		AmountIDR         string  `json:"amount_idr"`
+		Note              *string `json:"note"`
 	} `json:"allocations"`
 }
 type salaryChoiceArgs struct {
@@ -339,7 +346,7 @@ func validateTypedArgs(value any) error {
 		}
 	case *transferArgs:
 		n, ok := new(big.Int).SetString(v.Amount, 10)
-		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
+		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "" && v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
 		}
 		if err := validateDateFields(v.DateReference, v.ExplicitDate, v.LocalTime); err != nil {

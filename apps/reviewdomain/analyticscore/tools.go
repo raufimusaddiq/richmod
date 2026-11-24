@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -193,7 +194,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 	case "get_supporting_transactions":
 		items := []map[string]any{}
 		for i, t := range category.Transactions {
-			items = append(items, map[string]any{"ref": *args.CategoryRef + ".transaction." + strconv.Itoa(i+1), "transaction_at": t.At, "type": t.Type, "amount": t.Amount, "merchant": t.Merchant})
+			items = append(items, map[string]any{"ref": *args.CategoryRef + ".transaction." + strconv.Itoa(i+1), "transaction_at": t.At, "type": t.Type, "amount": t.Amount, "merchant": untrustedLedger(t.Merchant)})
 		}
 		result["transactions"] = items
 	case "get_savings_reconciliation":
@@ -207,8 +208,16 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 	return result, nil
 }
 
+const untrustedLedgerTag = "untrusted_ledger_text"
+
+var untrustedTagPattern = regexp.MustCompile(`(?i)<(s*/?s*(?:untrusted_|evidence))`)
+
+func untrustedLedger(value string) string {
+	return "<" + untrustedLedgerTag + ">" + untrustedTagPattern.ReplaceAllString(value, "&lt;$1") + "</" + untrustedLedgerTag + ">"
+}
+
 func modelChange(c reviewChange, ref string) map[string]any {
-	return map[string]any{"ref": ref, "name": c.Name, "current": c.Amount, "count": c.Count, "previous": c.Previous, "delta_vs_previous": c.Delta, "relative_delta_vs_previous": c.Relative,
+	return map[string]any{"ref": ref, "name": untrustedLedger(c.Name), "current": c.Amount, "count": c.Count, "previous": c.Previous, "delta_vs_previous": c.Delta, "relative_delta_vs_previous": c.Relative,
 		"previous_full_cycle": c.PreviousFull, "delta_vs_previous_full_cycle": c.DeltaFull, "relative_delta_vs_previous_full_cycle": c.RelativeFull,
 		"median3": c.Median, "delta_vs_median3": c.DeltaMedian, "relative_delta_vs_median3": c.RelativeMedian, "contribution_to_expense_change": c.Contribution, "share_of_expense": c.Share}
 }
@@ -216,7 +225,7 @@ func modelChange(c reviewChange, ref string) map[string]any {
 func modelValues(values []reviewValue, prefix string) []map[string]any {
 	out := []map[string]any{}
 	for i, v := range values {
-		out = append(out, map[string]any{"ref": prefix + "." + strconv.Itoa(i+1), "name": v.Name, "amount": v.Amount, "count": v.Count})
+		out = append(out, map[string]any{"ref": prefix + "." + strconv.Itoa(i+1), "name": untrustedLedger(v.Name), "amount": v.Amount, "count": v.Count})
 	}
 	return out
 }

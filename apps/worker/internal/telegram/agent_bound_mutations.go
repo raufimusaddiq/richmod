@@ -111,6 +111,14 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		}
 		return p.agentResolveSalaryChoice(ctx, state, call, map[string]any{"choice": choice})
 	case "IGNORE":
+		var decision []byte
+		if err = p.pool.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND r.household_id=$2`, review.reviewID, state.HouseholdID).Scan(&decision); err != nil {
+			return result, true, err
+		}
+		if !reviewdomain.IgnoreAllowed(review.reviewType, decision) {
+			result.Status = "IGNORE_NOT_ALLOWED"
+			return result, true, nil
+		}
 		return p.agentRejectTransactionReview(ctx, state, call, *review)
 	case "OWN_ACCOUNT_TRANSFER":
 		return p.agentResolveTransferClassification(ctx, state, call, *review, "OWN_ACCOUNT", "", "")

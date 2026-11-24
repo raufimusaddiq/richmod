@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -154,5 +155,36 @@ func TestAgentFinalStatusPreservationContract(t *testing.T) {
 		if status != "IGNORED" && status != "NEEDS_REVIEW" {
 			t.Fatalf("unexpected preservation fixture %q", status)
 		}
+	}
+}
+
+func TestMerchantDecisionReplyAsksTheQuestionAndRefusalsAreNotSideEffects(t *testing.T) {
+	asked, ok := agentMutationReply(agentToolResult{Status: "AWAITING_MERCHANT_DECISION", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}})
+	if !ok || asked != merchantLearningQuestion {
+		t.Fatalf("merchant decision must ask whether to remember, got %q ok=%v", asked, ok)
+	}
+	if isNonMutatingRefusal(agentToolResult{Status: "AWAITING_MERCHANT_DECISION", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}}) {
+		t.Fatal("a confirmed review must count as a side effect")
+	}
+	for _, status := range []string{"TRANSFER_PURPOSE_REQUIRED", "ALLOCATION_TOTAL_MISMATCH", "INCOMPATIBLE_WEALTH_ACCOUNT", "MISSING_ASSET_PURCHASE_FACTS", "TOO_MANY_CANDIDATES", "WEALTH_ACCOUNT_AMBIGUOUS"} {
+		result := agentToolResult{Status: status}
+		if !isNonMutatingRefusal(result) {
+			t.Fatalf("%s must not count as a side effect", status)
+		}
+		if reply, _ := agentMutationReply(result); reply == genericMutationReply {
+			t.Fatalf("%s fell back to the generic completed-action reply", status)
+		}
+	}
+}
+
+func TestFinanceRequestsAreNotBoundAsCardDetailAnswers(t *testing.T) {
+	now := time.Now()
+	for _, text := range []string{"pengeluaran bulan ini", "cek saldo", "catat kopi", "bandingkan siklus"} {
+		if isDetailAnswer(text, now) {
+			t.Fatalf("%q is a finance request, not a merchant answer", text)
+		}
+	}
+	if !isDetailAnswer("Warung Bu Siti", now) {
+		t.Fatal("a plain merchant name must still bind to an UNKNOWN_MERCHANT card")
 	}
 }

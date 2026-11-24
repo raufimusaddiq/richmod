@@ -187,13 +187,30 @@ func isDetailAnswer(text string, now time.Time) bool {
 			return false
 		}
 	}
-	if isYesNoAnswer(value) || isHelpCommand(value) || strings.HasPrefix(value, "/") {
+	if isYesNoAnswer(value) || isHelpCommand(value) || strings.HasPrefix(value, "/") || mentionsFinanceRequest(value) {
 		return false
 	}
 	if _, ok := parseDateAnswer(value, now); ok {
 		return false
 	}
 	return true
+}
+
+var financeRequestWords = map[string]bool{
+	"pengeluaran": true, "pemasukan": true, "pendapatan": true, "cek": true, "saldo": true, "laporan": true, "catat": true,
+	"bandingkan": true, "banding": true, "berapa": true, "total": true, "ringkasan": true, "rekap": true, "tampilkan": true,
+	"lihat": true, "tabungan": true, "kekayaan": true, "cashflow": true, "spending": true, "expense": true, "income": true,
+	"balance": true, "report": true, "compare": true, "show": true, "bantuan": true, "ubah": true, "koreksi": true,
+	"hapus": true, "batalkan": true, "cari": true, "cariin": true, "transaksi": true, "gaji": true, "siklus": true, "kategori": true,
+}
+
+func mentionsFinanceRequest(value string) bool {
+	for _, word := range strings.Fields(value) {
+		if financeRequestWords[word] {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeAnswer(text string) string {
@@ -485,6 +502,7 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if err != nil {
 		return true, err
 	}
+	applied = result.Mutation != nil
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return true, err
@@ -502,6 +520,5 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if err := tx.Commit(ctx); err != nil {
 		return true, err
 	}
-	applied = true
 	return true, nil
 }

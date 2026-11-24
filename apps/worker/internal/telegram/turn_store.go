@@ -28,9 +28,10 @@ const (
 	olderUserChars         = 200
 	olderAssistantChars    = 300
 	conversationCharBudget = 6000
+	verbatimTurnChars      = 2000
 )
 
-var agentBookkeepingTools = []string{"agent_transaction_refs", gatewayDeferredTool}
+var agentBookkeepingTools = []string{"agent_transaction_refs", "agent_evidence_refs", gatewayDeferredTool}
 
 func (p *Processor) persistTurn(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, role, text, tool string, public map[string]any) error {
 	if p.pool == nil {
@@ -96,7 +97,13 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 	for i, turn := range newestFirst {
 		chronological[len(newestFirst)-1-i] = turn
 	}
-	return compactConversation(chronological), nil
+	compacted := compactConversation(chronological)
+	for index := range compacted {
+		if compacted[index].Role == "USER" {
+			compacted[index].Text = untrustedUser(compacted[index].Text)
+		}
+	}
+	return compacted, nil
 }
 
 var expiredAnalyticsRef = regexp.MustCompile(`^category\.[0-9]+(\.[a-z_]+\.[0-9]+)*$`)
@@ -149,6 +156,9 @@ func compactConversation(turns []PublicTurn) []PublicTurn {
 		older = append(older, PublicTurn{Role: turn.Role, Text: clipRunes(turn.Text, limit), At: turn.At, Failure: turn.Failure, Compacted: true})
 	}
 	verbatim := append([]PublicTurn(nil), turns[cut:]...)
+	for index := range verbatim {
+		verbatim[index].Text = clipRunes(verbatim[index].Text, verbatimTurnChars)
+	}
 	newestExchange := 0
 	for index := len(verbatim) - 1; index >= 0; index-- {
 		if verbatim[index].Role == "USER" {

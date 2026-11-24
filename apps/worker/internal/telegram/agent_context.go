@@ -145,15 +145,15 @@ func (p *Processor) loadAgentPendingAction(ctx context.Context, householdID stri
 	if err != nil {
 		return nil, fmt.Errorf("load agent pending action: %w", err)
 	}
-	out := map[string]any{"kind": "TRANSACTION_CORRECTION", "label": label, "amount_idr": amount}
+	out := map[string]any{"kind": "TRANSACTION_CORRECTION", "label": untrustedField(label), "amount_idr": amount}
 	if proposedAt != nil {
 		out["proposed_transaction_at"] = proposedAt.In(jakartaLocation()).Format(time.RFC3339)
 	}
 	if categoryName != nil && strings.TrimSpace(*categoryName) != "" {
-		out["proposed_category"] = *categoryName
+		out["proposed_category"] = untrustedField(*categoryName)
 	}
 	if description != nil && strings.TrimSpace(*description) != "" {
-		out["proposed_description"] = *description
+		out["proposed_description"] = untrustedField(*description)
 	}
 	return out, nil
 }
@@ -177,9 +177,9 @@ func (p *Processor) loadAgentPendingBatch(ctx context.Context, householdID strin
 			"item_ref":       fmt.Sprintf("batch_%d", index+1),
 			"type":           item.Type,
 			"amount_idr":     item.Amount,
-			"merchant":       item.Merchant,
+			"merchant":       untrustedField(item.Merchant),
 			"category_slug":  item.CategorySlug,
-			"description":    item.Description,
+			"description":    untrustedField(item.Description),
 			"transaction_at": item.TransactionAt.In(jakartaLocation()).Format(time.RFC3339),
 		})
 	}

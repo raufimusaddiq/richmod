@@ -2,6 +2,8 @@ package telegram
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,7 +70,7 @@ func (p *Processor) loadEvidenceContexts(ctx context.Context, householdID, sourc
 	}
 	var transactionRefs []agentPublicRef
 	if len(transactionIDs) > 0 {
-		transactionRefs, err = p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, evidenceLinkedTxPhase, transactionIDs)
+		transactionRefs, err = p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, evidenceLinkedTxPrefix(documents, transactionIDs), transactionIDs)
 		if err != nil {
 			return nil, fmt.Errorf("issue evidence transaction references: %w", err)
 		}
@@ -86,6 +88,19 @@ func (p *Processor) loadEvidenceContexts(ctx context.Context, householdID, sourc
 		out[index] = facts[index].public(refs[index], txRef, candidateRefs)
 	}
 	return out, nil
+}
+
+func evidenceLinkedTxPrefix(documents []canonicalDocumentID, transactionIDs []string) string {
+	hash := sha256.New()
+	for _, document := range documents {
+		hash.Write([]byte(document))
+		hash.Write([]byte{0})
+	}
+	for _, id := range transactionIDs {
+		hash.Write([]byte(id))
+		hash.Write([]byte{0})
+	}
+	return fmt.Sprintf("p9r%d", binary.BigEndian.Uint32(hash.Sum(nil)[:4])%999_999_999+1)
 }
 
 func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, document canonicalDocumentID) (evidenceFacts, error) {

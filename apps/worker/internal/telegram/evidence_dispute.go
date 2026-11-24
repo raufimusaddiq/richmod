@@ -119,7 +119,7 @@ func (p *Processor) agentDisputeEvidenceLink(ctx context.Context, state *agentSt
 			return result, false, err
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-evidence-dispute',parser_version='1' WHERE id=$1::uuid`, state.SourceEventID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent-evidence-dispute',parser_version='1' WHERE id=$1::uuid`, state.SourceEventID); err != nil {
 		return result, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {

@@ -45,7 +45,7 @@
     "IGNORE"
   ],
   "MISSING_TRANSACTION_DATE": [
-    "CONFIRM",
+    "SET_TRANSACTION_DATE",
     "IGNORE"
   ],
   "NOT_A_KIND": [
@@ -73,6 +73,7 @@
   ],
   "TRANSACTION_FACTS_MISSING": [
     "CONFIRM",
+    "SET_TRANSACTION_DATE",
     "IGNORE"
   ],
   "TRANSFER_CLASSIFICATION": [

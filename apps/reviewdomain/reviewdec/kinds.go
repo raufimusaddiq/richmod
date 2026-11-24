@@ -45,6 +45,7 @@ var kinds = []Kind{
 		Telegram:        true,
 		TelegramActions: []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"},
 		Inbox:           []string{"SET_WEALTH_ACCOUNT", "IGNORE"},
+		Agent:           []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"},
 	},
 	{
 		Reason: "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", Class: ClassEvidenceGap,
@@ -110,6 +111,7 @@ var kinds = []Kind{
 		Choices:  transactionDateChoices,
 		WhyID:    "Tanggal transaksi tidak tertulis di bukti.",
 		Telegram: true,
+		Agent:    []string{"SET_TRANSACTION_DATE", "IGNORE"},
 	},
 	{
 		Reason: "TRANSACTION_FACTS_MISSING", Class: ClassEvidenceGap,
@@ -120,6 +122,7 @@ var kinds = []Kind{
 		Choices:  transactionDateChoices,
 		WhyID:    "Bukti tidak menunjukkan kategori dan tanggal transaksi.",
 		Telegram: true,
+		Agent:    []string{"CONFIRM", "SET_TRANSACTION_DATE", "IGNORE"},
 	},
 	{
 		Reason: "TRANSFER_CLASSIFICATION", Class: ClassEvidenceGap,

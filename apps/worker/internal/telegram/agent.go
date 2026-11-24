@@ -99,7 +99,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if err != nil {
 		return err
 	}
-	if !explicitReply && merchantBinding != nil && !isYesNoAnswer(text) {
+	if !explicitReply && merchantBinding != nil && (!isYesNoAnswer(text) || contextState.HasPendingAction || contextState.HasPendingBatch) {
 		merchantBinding, merchantCount = nil, 0
 	}
 	var reviewBinding *agentReviewBinding
@@ -219,7 +219,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		turnContext["evidence_ambiguous"] = true
 	}
 	if merchantBinding != nil {
-		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}
+		turnContext["merchant_learning"] = map[string]any{"merchant": untrustedField(merchantBinding.Merchant), "category": untrustedField(merchantBinding.Category)}
 	}
 	state := &agentState{
 		SourceEventID:          sourceEventID,
@@ -415,7 +415,9 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			if err != nil {
 				return fmt.Errorf("conversational side effect %s: %w", call.Call.Name, err)
 			}
-			state.SideEffects++
+			if !isNonMutatingRefusal(result) {
+				state.SideEffects++
+			}
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
 			if len(state.FreshEvidenceDocuments) > 0 {
@@ -607,8 +609,12 @@ func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversa
 	if state.ModelPhases >= defaultAgentLimits.MaxModelPhases {
 		return p.finishAgentText(ctx, state, agentMutationFallback(result))
 	}
+	instruction := "Write the final user-facing response for this completed finance action. Use only the authoritative result below. Do not add financial facts and do not request another action."
+	if isNonMutatingRefusal(result) {
+		instruction = "Nothing was recorded or changed: Go refused this finance action. Tell the user briefly that nothing was saved and what detail is missing or wrong, using only the authoritative result below. Do not claim the action was completed and do not request another action."
+	}
 	content := map[string]any{
-		"instruction":                 "Write the final user-facing response for this completed finance action. Use only the authoritative result below. Do not add financial facts and do not request another action.",
+		"instruction":                 instruction,
 		"current_user_text":           state.TurnContext["current_user_text"],
 		"authoritative_action_result": result,
 	}
@@ -661,7 +667,9 @@ func (p *Processor) finishAgentReply(ctx context.Context, state *agentState, mes
 	if err := finalizeAgentSource(ctx, tx, state.HouseholdID, state.SourceEventID, "telegram-conversational-agent"); err != nil {
 		return err
 	}
-	if markup := agentPendingMarkup(state.History); markup != nil {
+	if reviewID := pendingMerchantLearningReviewID(state.History); reviewID != "" {
+		err = enqueueMerchantLearningQuestion(ctx, tx, reviewID, state.Update, message, merchantLearningMarkup())
+	} else if markup := agentPendingMarkup(state.History); markup != nil {
 		err = enqueueReplyMarkup(ctx, tx, state.Update, message, markup)
 	} else {
 		err = enqueueReply(ctx, tx, state.Update, message)

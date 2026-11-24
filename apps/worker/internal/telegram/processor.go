@@ -321,6 +321,9 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 		if outcome.Voided {
 			message = "Transaksi itu sudah dibatalkan, jadi perubahannya tidak disimpan."
 		}
+		if outcome.Blocked != "" {
+			message, _ = agentMutationReply(agentToolResult{Status: outcome.Blocked})
+		}
 	} else if _, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID); err != nil {
 		return true, err
 	}
