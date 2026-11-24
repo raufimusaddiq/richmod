@@ -153,7 +153,9 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 		case cardAnswerCategory:
 			value, ok = parseCategoryAnswer(text, categories)
 		case cardAnswerDate:
-			value, ok = parseDateAnswer(text, now)
+			if parsed, valid := parseDateValue(text, now, 0); valid {
+				value, ok = parsed.Format("2006-01-02"), true
+			}
 		case cardAnswerAmount:
 			value, ok = parseBankFactsAnswer(text)
 		case cardAnswerDetail:
@@ -190,7 +192,7 @@ func isDetailAnswer(text string, now time.Time) bool {
 	if isYesNoAnswer(value) || isHelpCommand(value) || strings.HasPrefix(value, "/") || mentionsFinanceRequest(value) {
 		return false
 	}
-	if _, ok := parseDateAnswer(value, now); ok {
+	if _, ok := parseDateValue(value, now, 0); ok {
 		return false
 	}
 	return true
@@ -255,78 +257,6 @@ func parseCategoryAnswer(text string, categories map[string]string) (string, boo
 		}
 	}
 	return found, found != ""
-}
-
-var (
-	dateISO        = regexp.MustCompile(`^(\d{4})-(\d{1,2})-(\d{1,2})$`)
-	dateNumeric    = regexp.MustCompile(`^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2}|\d{4}))?$`)
-	dateWithMonth  = regexp.MustCompile(`^(\d{1,2}) ([a-z]+)(?: (\d{4}))?$`)
-	indonesianDays = map[string]int{"hari ini": 0, "hariini": 0, "kemarin": -1, "kemaren": -1}
-	monthNames     = map[string]time.Month{
-		"jan": 1, "januari": 1, "january": 1, "feb": 2, "februari": 2, "february": 2, "mar": 3, "maret": 3, "march": 3,
-		"apr": 4, "april": 4, "mei": 5, "may": 5, "jun": 6, "juni": 6, "june": 6, "jul": 7, "juli": 7, "july": 7,
-		"agu": 8, "agt": 8, "ags": 8, "agustus": 8, "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
-		"okt": 10, "oktober": 10, "oct": 10, "october": 10, "nov": 11, "november": 11, "nop": 11, "des": 12, "desember": 12, "dec": 12, "december": 12,
-	}
-)
-
-func parseDateAnswer(text string, now time.Time) (string, bool) {
-	value := stripAnswerFiller(strings.ReplaceAll(text, "tgl.", "tgl"))
-	local := now.In(jakartaLocation())
-	if offset, ok := indonesianDays[value]; ok {
-		return local.AddDate(0, 0, offset).Format("2006-01-02"), true
-	}
-	var year, day int
-	var month time.Month
-	switch {
-	case dateISO.MatchString(value):
-		m := dateISO.FindStringSubmatch(value)
-		_, _ = fmt.Sscan(m[1], &year)
-		var mm int
-		_, _ = fmt.Sscan(m[2], &mm)
-		month = time.Month(mm)
-		_, _ = fmt.Sscan(m[3], &day)
-	case dateNumeric.MatchString(value):
-		m := dateNumeric.FindStringSubmatch(value)
-		_, _ = fmt.Sscan(m[1], &day)
-		var mm int
-		_, _ = fmt.Sscan(m[2], &mm)
-		month = time.Month(mm)
-		if m[3] != "" {
-			_, _ = fmt.Sscan(m[3], &year)
-			if year < 100 {
-				year += 2000
-			}
-		}
-	case dateWithMonth.MatchString(value):
-		m := dateWithMonth.FindStringSubmatch(value)
-		_, _ = fmt.Sscan(m[1], &day)
-		known, ok := monthNames[m[2]]
-		if !ok {
-			return "", false
-		}
-		month = known
-		if m[3] != "" {
-			_, _ = fmt.Sscan(m[3], &year)
-		}
-	default:
-		return "", false
-	}
-	explicitYear := year != 0
-	if !explicitYear {
-		year = local.Year()
-	}
-	if month < 1 || month > 12 || day < 1 || day > 31 {
-		return "", false
-	}
-	date := time.Date(year, month, day, 0, 0, 0, 0, jakartaLocation())
-	if date.Day() != day || date.Month() != month {
-		return "", false
-	}
-	if !explicitYear && date.After(local) {
-		date = date.AddDate(-1, 0, 0)
-	}
-	return date.Format("2006-01-02"), true
 }
 
 var bankFactsTimeWords = map[string]bool{

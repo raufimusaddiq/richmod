@@ -247,5 +247,5 @@ func (p *Processor) executeAgentSpecializedSideEffectStrict(ctx context.Context,
 			}
 		}
 	}
-	return p.executeAgentSpecializedSideEffectBound(ctx, state, call, args)
+	return p.executeAgentSpecializedSideEffect(ctx, state, call, args)
 }

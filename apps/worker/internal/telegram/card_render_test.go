@@ -132,15 +132,22 @@ func TestParseReplyDate(t *testing.T) {
 		"20 Jan":            "2026-01-20",
 		"25 Des":            "2025-12-25",
 	} {
-		got, ok := parseReplyDate(input, now)
+		got, ok := parseDateValue(input, now, 31)
 		if !ok || got.Format("2006-01-02") != want {
-			t.Errorf("parseReplyDate(%q) = %s,%v want %s", input, got.Format("2006-01-02"), ok, want)
+			t.Errorf("parseDateValue(%q) = %s,%v want %s", input, got.Format("2006-01-02"), ok, want)
 		}
 	}
 	for _, input := range []string{"", "31/02", "gajian tanggal 25", "besok mungkin", "25 Foo", "13/13", "kemarin sore jam 5", "1.250.000"} {
-		if got, ok := parseReplyDate(input, now); ok {
-			t.Errorf("parseReplyDate(%q) accepted %s", input, got.Format("2006-01-02"))
+		if got, ok := parseDateValue(input, now, 31); ok {
+			t.Errorf("parseDateValue(%q) accepted %s", input, got.Format("2006-01-02"))
 		}
+	}
+}
+
+func TestCardDateAnswerRejectsNormalizedLeapDay(t *testing.T) {
+	now := time.Date(2028, 2, 10, 9, 0, 0, 0, jakartaLocation())
+	if got, ok := parseDateValue("29/2", now, 0); ok {
+		t.Fatalf("29/2 on 2028-02-10 returned %s; want no date", got.Format("2006-01-02"))
 	}
 }
 
