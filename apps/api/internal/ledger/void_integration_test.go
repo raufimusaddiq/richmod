@@ -179,6 +179,56 @@ func TestVoidWebManualTransaction(t *testing.T) {
 	})
 }
 
+func TestVoidEndSalaryClosesItsCycleResidual(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var hh, usr, source, salarySource, startEvent, endEvent, endTx, caseID, review string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Void end salary') RETURNING id`).Scan(&hh))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'End voider','unused') RETURNING id`, fmt.Sprintf("void-end-%d@example.test", testsupport.UniqueStamp())).Scan(&usr))
+	p := auth.Principal{UserID: usr, HouseholdID: hh, HasHousehold: true}
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, hh, fmt.Sprint(testsupport.UniqueStamp())).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Test','test',true) RETURNING id`, hh, usr).Scan(&salarySource))
+	for _, row := range []struct {
+		date string
+		out  *string
+		tx   *string
+	}{{"2026-01-01", &startEvent, new(string)}, {"2026-02-01", &endEvent, &endTx}} {
+		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,purpose,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1000000,$2::date,'GENERAL',now()) RETURNING id`, hh, row.date).Scan(row.tx))
+		must(pool.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$3::date,1000000,$4,'CONFIRMED',$5) RETURNING id`, salarySource, hh, row.date, *row.tx, source).Scan(row.out))
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-01-01','2026-02-01',1000000,0,0,1000000) RETURNING id`, hh, startEvent, endEvent).Scan(&caseID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','OPEN','{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","knownFacts":{"residual_idr":"1000000"},"allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"]}'::jsonb) RETURNING id`, hh, caseID).Scan(&review))
+
+	h := NewHandler(pool)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/transactions/"+endTx+"/void", nil)
+	r.SetPathValue("id", endTx)
+	w := httptest.NewRecorder()
+	h.VoidTransaction(w, r.WithContext(auth.ContextWithPrincipal(r.Context(), p)))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("void salary=%d %s", w.Code, w.Body)
+	}
+	var state, action, auditedReason string
+	must(pool.QueryRow(ctx, `SELECT ri.status,COALESCE(ri.resolution_action,''),COALESCE((SELECT a.after_json->>'reason' FROM audit_log a WHERE a.entity_id=ri.id AND a.action='RESOLVE_REVIEW' ORDER BY a.created_at DESC LIMIT 1),'') FROM review_item ri WHERE ri.id=$1`, review).Scan(&state, &action, &auditedReason))
+	if state != "RESOLVED" || action != "NO_LONGER_APPLICABLE" || auditedReason != "SALARY_VOIDED" {
+		t.Fatalf("cycle ending at the voided salary: status=%s action=%s reason=%s", state, action, auditedReason)
+	}
+}
+
 func TestVoidReopensWaitingCycleWithVoidedReason(t *testing.T) {
 	t.Parallel()
 	url := os.Getenv("TEST_DATABASE_URL")

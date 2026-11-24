@@ -1258,3 +1258,14 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** the repair pass could "fix" the very facts that made an invoice or payslip unsafe, so validated output no longer reflected the printed document; a dateless receipt skipped duplicate detection entirely.
 
 **Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane.
+
+## ADR-124: Voiding a salary detaches its cycle, and unmerging retains evidence
+
+*Accepted — 2026-11-25*
+
+**Decision:** Applying a cycle residual checks that the review-item resolution update affected exactly one row and otherwise returns `ErrCycleCaseNotFound`, so a second concurrent resolution (web and Telegram) rolls back instead of inserting another allocation. Voiding a transaction whose `salary_event` is the start or end of an open `cycle_residual_case` closes that case's review item as `NO_LONGER_APPLICABLE` (`resolution_values.reason = 'SALARY_VOIDED'`, audited `RESOLVE_REVIEW`) inside the void transaction; already-resolved cases are history and are untouched. Reversing a reconciliation merge no longer deletes the copied `transaction_evidence` rows: it sets `metadata_json.link_status='REVERSED'`, and a later merge reactivates the same copy and repoints `reconciliation_merge_evidence`. Wealth cycle recaps derive anchors from `DISTINCT pay_date` like `analyticscore`, and web candidate scoring calls `reviewdomain.LedgerMatchScore`/`CompatibleMerchant` instead of keeping a second copy.
+
+**Reason:** an audit found a residual could be allocated twice when two channels answered at once, a case ending at a voided salary stayed allocatable because the refresh window excluded that pay date, and unmerging silently deleted evidence the merge had copied (cascading the merge-evidence mapping) even though evidence is never hard-deleted.
+
+**Consequence:** no migration; `transaction_evidence` gains one more `link_status` value (`REVERSED`) that active readers already exclude through the `ACTIVE` filter; a duplicate resolution surfaces as "not found/already resolved" to both web and Telegram callers; a wealth recap can no longer show a zero-length duplicate salary cycle.
+

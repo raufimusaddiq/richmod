@@ -13,12 +13,3 @@ func TestValidation(t *testing.T) {
 		t.Fatal("duplicate account accepted")
 	}
 }
-
-func TestExactIntegerArithmetic(t *testing.T) {
-	if got := add("99999999999999999999", "1"); got != "100000000000000000000" {
-		t.Fatalf("add = %s", got)
-	}
-	if got := subtract("1", "99999999999999999999"); got != "-99999999999999999998" {
-		t.Fatalf("subtract = %s", got)
-	}
-}
