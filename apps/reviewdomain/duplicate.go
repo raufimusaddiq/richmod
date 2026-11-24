@@ -99,14 +99,14 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	}
 	for _, value := range evidence {
 		var copiedID string
-		err := tx.QueryRow(ctx, "INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,$3,$4,$5) ON CONFLICT(transaction_id,source_event_id) DO NOTHING RETURNING id", cmd.TargetTransactionID, value.sourceEventID, value.evidenceType, value.confidence, value.metadata).Scan(&copiedID)
+		err := tx.QueryRow(ctx, "INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,$3,$4,$5) ON CONFLICT(transaction_id,source_event_id) DO UPDATE SET metadata_json=excluded.metadata_json WHERE COALESCE(transaction_evidence.metadata_json->>'link_status','ACTIVE')='REVERSED' RETURNING id", cmd.TargetTransactionID, value.sourceEventID, value.evidenceType, value.confidence, value.metadata).Scan(&copiedID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
 		if err != nil {
 			return result, err
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO reconciliation_merge_evidence(merge_id,original_evidence_id,copied_evidence_id) VALUES($1,$2,$3)", result.MergeID, value.originalID, copiedID); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO reconciliation_merge_evidence(merge_id,original_evidence_id,copied_evidence_id) VALUES($1,$2,$3) ON CONFLICT(copied_evidence_id) DO UPDATE SET merge_id=excluded.merge_id,original_evidence_id=excluded.original_evidence_id", result.MergeID, value.originalID, copiedID); err != nil {
 			return result, err
 		}
 	}

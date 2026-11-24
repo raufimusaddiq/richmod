@@ -148,11 +148,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 			return
 		}
-		value.Candidates, err = h.candidates(r.Context(), household, value)
-		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to generate reconciliation candidates"})
-			return
-		}
 		stored := proposalFacts(value.Decision)
 		value.Reason = stored.ReasonCode
 		value.ReviewType = stored.ReasonCode
@@ -171,6 +166,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
+	for index := range items {
+		items[index].Candidates, err = h.candidates(r.Context(), household, items[index])
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to generate reconciliation candidates"})
+			return
+		}
+	}
 	if len(items) > reviewPageSize {
 		items = items[:reviewPageSize]
 		last := items[len(items)-1]
@@ -295,35 +297,12 @@ func (h *Handler) candidates(ctx context.Context, household string, source item)
 			return nil, err
 		}
 		hours := math.Abs(value.TransactionAt.Sub(source.TransactionAt).Hours())
-		accountMatch := source.AccountID != nil && accountID != nil && *source.AccountID == *accountID
-		value.Score = reconciliationScore(hours, sameText(merchant, firstText(source.MerchantName, source.Counterparty)), accountMatch, source.CategoryID != nil && categoryID != nil && *source.CategoryID == *categoryID)
+		value.Score = reviewdomain.LedgerMatchScore(hours, reviewdomain.CompatibleMerchant(merchant, firstText(source.MerchantName, source.Counterparty)))
 		if carried || value.Score >= 0.70 {
 			result = append(result, value)
 		}
 	}
 	return result, rows.Err()
-}
-
-func reconciliationScore(hours float64, merchantMatch, accountHint, categoryMatch bool) float64 {
-	score := 0.45
-	switch {
-	case hours <= 1:
-		score += 0.20
-	case hours <= 24:
-		score += 0.15
-	default:
-		score += 0.05
-	}
-	if merchantMatch {
-		score += 0.20
-	}
-	if accountHint {
-		score += 0.10
-	}
-	if categoryMatch {
-		score += 0.05
-	}
-	return math.Round(score*100) / 100
 }
 
 type confirmInput struct {
@@ -697,7 +676,7 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "active merge not found"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `DELETE FROM transaction_evidence WHERE id IN (SELECT copied_evidence_id FROM reconciliation_merge_evidence WHERE merge_id=$1)`, mergeID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction_evidence SET metadata_json=metadata_json||jsonb_build_object('link_status','REVERSED') WHERE id IN (SELECT copied_evidence_id FROM reconciliation_merge_evidence WHERE merge_id=$1)`, mergeID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}
@@ -767,10 +746,6 @@ func clean(value *string, limit int) string {
 		runes = runes[:limit]
 	}
 	return string(runes)
-}
-
-func sameText(left, right string) bool {
-	return left != "" && strings.EqualFold(strings.Join(strings.Fields(left), " "), strings.Join(strings.Fields(right), " "))
 }
 
 func firstText(values ...*string) string {

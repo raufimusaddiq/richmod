@@ -343,6 +343,10 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 		return
 	}
 	if target == "VOIDED" && before == "CONFIRMED" {
+		if err = reviewdomain.CloseCyclesForVoidedSalary(r.Context(), tx, household, id, p.UserID); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+			return
+		}
 		if err = reviewdomain.RefreshOpenCycleResidualsFor(r.Context(), tx, household, occurredAt, p.UserID, reviewdomain.CycleReopenTransactionVoided); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
 			return

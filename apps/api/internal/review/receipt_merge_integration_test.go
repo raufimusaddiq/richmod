@@ -78,4 +78,48 @@ func TestReceiptDuplicateCandidateMergesThroughReviewAction(t *testing.T) {
 	if sourceStatus != "VOIDED" || targetStatus != "CONFIRMED" || reviewStatus != "RESOLVED" || resolutionAction != "MERGE_REVIEW" || eventStatus != "PROCESSED" || evidenceCount != 1 {
 		t.Fatalf("receipt merge did not preserve one canonical transaction and finalize evidence: source=%s target=%s review=%s action=%s event=%s evidence=%d", sourceStatus, targetStatus, reviewStatus, resolutionAction, eventStatus, evidenceCount)
 	}
+
+	var mergeID string
+	if err := pool.QueryRow(ctx, `SELECT id::text FROM reconciliation_merge WHERE source_transaction_id=$1 AND status='ACTIVE'`, receiptID).Scan(&mergeID); err != nil {
+		t.Fatal(err)
+	}
+	reverse := func(r *http.Request) *httptest.ResponseRecorder {
+		r.SetPathValue("id", mergeID)
+		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
+		w := httptest.NewRecorder()
+		NewHandler(pool).Unmerge(w, r)
+		return w
+	}
+	if reversed := reverse(httptest.NewRequest(http.MethodPost, "/api/v1/reconciliation-merges/"+mergeID+"/reverse", nil)); reversed.Code != http.StatusNoContent {
+		t.Fatalf("reverse merge status=%d body=%s", reversed.Code, reversed.Body.String())
+	}
+	linkStatus := func() string {
+		t.Helper()
+		var status string
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(metadata_json->>'link_status','ACTIVE') FROM transaction_evidence WHERE transaction_id=$1 AND source_event_id=$2`, targetID, sourceID).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		return status
+	}
+	if got := linkStatus(); got != "REVERSED" {
+		t.Fatalf("reversed merge link status=%s, want REVERSED", got)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1 AND source_event_id=$2`, targetID, sourceID).Scan(&evidenceCount); err != nil || evidenceCount != 1 {
+		t.Fatalf("reversed merge evidence rows=%d err=%v, want 1", evidenceCount, err)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+receiptID+"/merge", bytes.NewBufferString(fmt.Sprintf(`{"targetTransactionId":%q}`, targetID)))
+	request.SetPathValue("id", receiptID)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}))
+	response = httptest.NewRecorder()
+	NewHandler(pool).Merge(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("re-merge status=%d body=%s", response.Code, response.Body.String())
+	}
+	if got := linkStatus(); got != "ACTIVE" {
+		t.Fatalf("re-merged link status=%s, want ACTIVE", got)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1 AND source_event_id=$2`, targetID, sourceID).Scan(&evidenceCount); err != nil || evidenceCount != 1 {
+		t.Fatalf("re-merged evidence rows=%d err=%v, want 1", evidenceCount, err)
+	}
 }

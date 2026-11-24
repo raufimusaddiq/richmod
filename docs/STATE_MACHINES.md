@@ -139,9 +139,14 @@ added: `CONFIRMED` → `VOIDED` was already legal. There is no direct "confirm t
   `voided_at`, `confirmed_at=NULL`, and an `audit_log` row `VOIDED` with the before/after
   status. Nothing is deleted; evidence, source events and proposals stay linked.
 - **Side effects, all in that transaction:** `salary_event` follows through
-  `transaction_salary_event_status`; voiding a `CONFIRMED` transaction also re-runs
-  `RefreshOpenCycleResiduals` for its cycle, so an open residual review shows the new
-  basis (or closes as `NO_LONGER_APPLICABLE` when nothing is left to allocate).
+  `transaction_salary_event_status`; voiding a salary detaches every open
+  (`OPEN`/`PENDING_SEND`) residual case whose start or end salary event is that
+  transaction: its review item resolves `NO_LONGER_APPLICABLE` with reason
+  `SALARY_VOIDED` and an audited `RESOLVE_REVIEW` row, because the case bounds no
+  longer describe a real cycle; already-resolved cases stay history. Voiding a
+  `CONFIRMED` transaction also re-runs `RefreshOpenCycleResiduals` for its cycle,
+  so an open residual review shows the new basis (or closes as
+  `NO_LONGER_APPLICABLE` when nothing is left to allocate).
   Every totals query (overview, daily, category/member/cycle analytics, wealth recap,
   savings destinations, cycle basis) counts `status='CONFIRMED'` only, so a voided row
   leaves them. Voiding does not touch a residual that was already resolved/allocated.
