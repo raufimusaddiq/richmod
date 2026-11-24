@@ -61,6 +61,10 @@ func payslipRecordedNotice(employer, netPay string) string {
 	return "Slip gaji" + noticeSubject(employer) + " tercatat, gaji bersih" + noticeAmount(netPay) + "." + noticeFooter
 }
 
+func unsupportedDocumentNotice() string {
+	return "Dokumen keuangan ini sudah disimpan sebagai bukti, tetapi belum bisa dicatat otomatis sebagai transaksi."
+}
+
 func noticeSubject(value string) string {
 	value = strings.TrimSpace(noticeSpaces.ReplaceAllString(value, " "))
 	if value == "" {

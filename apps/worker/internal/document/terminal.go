@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,7 +30,7 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 		AND processing_status IN ('RECEIVED','PROCESSING','PROCESSED')
 		AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id=$1)
 		AND NOT EXISTS (SELECT 1 FROM transaction_proposal tp WHERE tp.source_event_id=$1)
-		AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id=$1 OR ri.document_id=$3)
+		AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE (ri.source_event_id=$1 OR ri.document_id=$3) AND ri.status IN ('OPEN','PENDING_SEND'))
 		AND NOT EXISTS (SELECT 1 FROM document d WHERE d.source_event_id=$1 AND d.id<>$3 AND d.status IN ('EXTRACTED','NEEDS_REVIEW'))
 		RETURNING source_type`, sourceID, householdID, documentID).Scan(&sourceType)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -38,19 +39,29 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED' WHERE household_id=$1 AND id IN (SELECT source_event_id FROM document_page WHERE document_id=$2 AND source_event_id<>$3)
+		AND processing_status IN ('RECEIVED','PROCESSING','PROCESSED')
+		AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id=source_event.id)
+		AND NOT EXISTS (SELECT 1 FROM transaction_proposal tp WHERE tp.source_event_id=source_event.id)
+		AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id=source_event.id AND ri.status IN ('OPEN','PENDING_SEND'))`, householdID, documentID, sourceID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DOCUMENT_EXTRACTION_FAILED','source_event',$2,jsonb_build_object('document_id',$3::uuid))`, householdID, sourceID, documentID); err != nil {
 		return err
 	}
-	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
+	if err := reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
 		HouseholdID: householdID, SourceEventID: sourceID, SourceType: sourceType, Reason: "ERROR",
-	})
+	}); err != nil {
+		return err
+	}
+	return reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID)
 }
 
-func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
+func unpaidInvoiceOnly(value screenshotExtraction, documentType string, receivedAt time.Time) bool {
 	if documentType != "BILL_OR_INVOICE" || value.PaymentStatus == "PAID" {
 		return false
 	}
-	for _, issue := range screenshotValidationIssues(value, documentType) {
+	for _, issue := range screenshotValidationIssues(value, documentType, receivedAt) {
 		switch {
 		case issue.Field == "payment_status" && issue.Code == "PAYMENT_NOT_CONFIRMED":
 		case issue.Field == "transactions" && issue.Code == "INVALID_ROW_COUNT" && len(value.Transactions) == 0:
@@ -61,8 +72,8 @@ func unpaidInvoiceOnly(value screenshotExtraction, documentType string) bool {
 	return true
 }
 
-func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, cause error) error {
-	if unpaidInvoiceOnly(value, documentType) {
+func (p *Processor) failScreenshotExtraction(ctx context.Context, documentID, householdID, sourceID, documentType string, receivedAt time.Time, value screenshotExtraction, model string, cause error) error {
+	if unpaidInvoiceOnly(value, documentType, receivedAt) {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "TRANSACTION_SCREENSHOT", value, value.Confidence, model, cause)
 	}
 	return p.persistScreenshotExtractionFailure(ctx, documentID, householdID, sourceID, value, model, cause)

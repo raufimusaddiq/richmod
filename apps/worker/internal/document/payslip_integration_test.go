@@ -49,7 +49,7 @@ func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
 			}
 			date := "2026-09-25"
 			slip := payslipExtraction{Period: "2026-09", Employer: "Employer", NetPay: "16000000", Currency: "IDR", PayDate: &date, Confidence: .21}
-			at, parsedPeriod, arithmetic, err := validatePayslip(slip)
+			at, parsedPeriod, arithmetic, err := validatePayslip(slip, payslipTestReceived)
 			if err != nil || arithmetic {
 				t.Fatalf("valid but arithmetic-unproved slip: %v %t", err, arithmetic)
 			}
@@ -141,5 +141,54 @@ func TestPayslipInvalidMachineOutputDoesNotAskHousehold(t *testing.T) {
 	}
 	if documentStatus != "FAILED" || sourceStatus != "FAILED" || reviews != 0 || invalid != 1 || llm.calls != 2 {
 		t.Fatalf("machine failure document=%s source=%s reviews=%d evidence=%d modelCalls=%d", documentStatus, sourceStatus, reviews, invalid, llm.calls)
+	}
+}
+
+func TestPayslipConflictingSalaryEventRoutesToReviewInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	f := seedScreenshotFixture(t, "Payslip conflicting duplicate")
+	ctx := context.Background()
+	var user string
+	if err := f.pool.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE household_id=$1`, f.householdID).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Existing','existing',true)`, f.householdID, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='PAYSLIP' WHERE id=$1`, f.documentID); err != nil {
+		t.Fatal(err)
+	}
+	date := "2026-09-25"
+	first := payslipExtraction{Period: "2026-09", Employer: "Employer", NetPay: "16000000", Currency: "IDR", PayDate: &date, Confidence: .9}
+	at, period, arithmetic, err := validatePayslip(first, payslipTestReceived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processor := &Processor{pool: f.pool}
+	if err := processor.persistPayslip(ctx, f.documentID, f.householdID, f.sourceID, first, "test-model", at, period.Format("2006-01"), true, arithmetic); err != nil {
+		t.Fatal(err)
+	}
+	var secondSource, secondAttachment, secondDocument string
+	if err := f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, f.householdID, "payslip-conflict-"+f.sourceID, []byte("payslip-conflict-"+f.sourceID)).Scan(&secondSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/jpeg',3,1,1,$3) RETURNING id`, f.householdID, []byte("payslip-conflict-hash-"+f.sourceID), "test/payslip-conflict-"+f.sourceID+".jpg").Scan(&secondAttachment); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status,document_type) VALUES($1,$2,$3,'RECEIVED','PAYSLIP') RETURNING id`, f.householdID, secondSource, secondAttachment).Scan(&secondDocument); err != nil {
+		t.Fatal(err)
+	}
+	conflicting := first
+	conflicting.NetPay = "17000000"
+	if err := processor.persistPayslip(ctx, secondDocument, f.householdID, secondSource, conflicting, "test-model", at, period.Format("2006-01"), true, arithmetic); err != nil {
+		t.Fatalf("a conflicting duplicate must reach the Review Inbox, not fail the job: %v", err)
+	}
+	var reviews, incomes int
+	var documentStatus string
+	if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item WHERE document_id=$1 AND status IN ('OPEN','PENDING_SEND')),(SELECT count(*) FROM transaction WHERE household_id=$2 AND type='INCOME' AND status='CONFIRMED'),(SELECT status FROM document WHERE id=$1)`, secondDocument, f.householdID).Scan(&reviews, &incomes, &documentStatus); err != nil {
+		t.Fatal(err)
+	}
+	if reviews != 1 || incomes != 1 || documentStatus != "NEEDS_REVIEW" {
+		t.Fatalf("reviews=%d incomes=%d document=%s", reviews, incomes, documentStatus)
 	}
 }

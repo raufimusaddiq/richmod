@@ -57,8 +57,8 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		known["prior_match_transaction_ids"] = row.PriorMatchIDs
 	}
 	categoryKnown := row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict
-	if categoryKnown {
-		known["category"] = row.Value.CategorySlug
+	if categoryKnown && row.CategorySlug != "" {
+		known["category"] = row.CategorySlug
 	}
 	decision := reviewdec.Decision{
 		Version:         reviewdec.Version,
@@ -67,6 +67,7 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		ReasonCode:      reviewType,
 		KnownFacts:      known,
 		Provenance:      map[string]any{"pipeline": "transaction-screenshot", "document_row": index},
+		Conflicting:     screenshotCategoryConflict(row),
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
 		DecisionSource:  reviewdec.SourceGenerativeExtraction,
 		PolicyVersion:   ScreenshotRowCategoryPolicyVersion,
@@ -122,6 +123,16 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		}
 	}
 	return decision
+}
+
+func screenshotCategoryConflict(row validatedScreenshotRow) map[string][]reviewdec.EvidenceValue {
+	if !row.CategoryConflict || row.CategorySlug == "" || row.ConflictSlug == "" {
+		return nil
+	}
+	return map[string][]reviewdec.EvidenceValue{"category": {
+		{Value: row.CategorySlug, Evidence: "household merchant memory"},
+		{Value: row.ConflictSlug, Evidence: "image extraction"},
+	}}
 }
 
 func screenshotMissingFacts(categoryKnown, dateKnown bool) []string {

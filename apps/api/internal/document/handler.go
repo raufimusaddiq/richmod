@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
@@ -88,21 +89,27 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		combined.Write(normalized)
 		pages = append(pages, normalizedPage{normalized, mediaType, width, height, extension, ref})
 	}
-	removeNew := true
+	keep := map[string]bool{}
 	defer func() {
-		if removeNew {
-			for _, pg := range pages {
+		for _, pg := range pages {
+			if !keep[pg.storageRef] {
 				_ = h.storage.Delete(context.Background(), pg.storageRef)
 			}
 		}
 	}()
 	digest := sha256.Sum256(combined.Sum(nil))
-	documentID, err := h.persistPages(r.Context(), p, household, digest[:], pages)
+	documentID, stored, err := h.persistPages(r.Context(), p, household, digest[:], pages)
+	if errors.Is(err, errDuplicatePage) || isUniqueViolation(err) {
+		writeJSON(w, 409, map[string]string{"error": "halaman duplikat dalam unggahan ini"})
+		return
+	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to register document"})
 		return
 	}
-	removeNew = false
+	for _, ref := range stored {
+		keep[ref] = true
+	}
 	writeJSON(w, 201, map[string]any{"id": documentID, "status": "RECEIVED", "pageCount": len(pages)})
 }
 
@@ -152,48 +159,70 @@ func uploadParts(r *http.Request) ([]uploadPartData, error) {
 	return result, nil
 }
 
-func (h *Handler) persistPages(ctx context.Context, p auth.Principal, household string, digest []byte, pages []normalizedPage) (string, error) {
+var errDuplicatePage = errors.New("document upload contains the same page twice")
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func (h *Handler) persistPages(ctx context.Context, p auth.Principal, household string, digest []byte, pages []normalizedPage) (string, []string, error) {
+	seen := make(map[string]bool, len(pages))
+	for _, pg := range pages {
+		key := string(sha256Bytes(pg.normalized))
+		if seen[key] {
+			return "", nil, errDuplicatePage
+		}
+		seen[key] = true
+	}
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer tx.Rollback(ctx)
 	var sourceID string
 	if err := tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,received_at,payload_hash,processing_status) VALUES($1,'WEB_IMAGE',now(),$2,'RECEIVED') RETURNING id`, household, digest).Scan(&sourceID); err != nil {
-		return "", err
+		return "", nil, err
 	}
+	stored := make([]string, 0, len(pages))
 	var primaryAttachment, documentID string
 	for i, pg := range pages {
 		metadata, _ := json.Marshal(map[string]any{"media_type": pg.mediaType, "byte_size": len(pg.normalized), "width": pg.width, "height": pg.height, "page_index": i})
 		if i == 0 {
 			if _, err := tx.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(metadata)); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
-		var attachmentID string
-		if err := tx.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(household_id,content_hash) DO UPDATE SET content_hash=excluded.content_hash RETURNING id`, household, sha256Bytes(pg.normalized), pg.mediaType, len(pg.normalized), pg.width, pg.height, pg.storageRef).Scan(&attachmentID); err != nil {
-			return "", err
+		var attachmentID, actualRef string
+		if err := tx.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(household_id,content_hash) DO UPDATE SET content_hash=excluded.content_hash RETURNING id,storage_ref`, household, sha256Bytes(pg.normalized), pg.mediaType, len(pg.normalized), pg.width, pg.height, pg.storageRef).Scan(&attachmentID, &actualRef); err != nil {
+			return "", nil, err
+		}
+		if actualRef == pg.storageRef {
+			stored = append(stored, actualRef)
 		}
 		if i == 0 {
 			primaryAttachment = attachmentID
 			if err := tx.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status) VALUES($1,$2,$3,'RECEIVED') RETURNING id`, household, sourceID, attachmentID).Scan(&documentID); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,$4)`, documentID, sourceID, attachmentID, i); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	if primaryAttachment == "" || documentID == "" {
-		return "", fmt.Errorf("document has no pages")
+		return "", nil, fmt.Errorf("document has no pages")
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'UPLOAD_DOCUMENT','source_event',$3,jsonb_build_object('document_id',$4::uuid,'page_count',$5::integer))`, household, p.UserID, sourceID, documentID, len(pages)); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return documentID, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return "", nil, err
+	}
+	return documentID, stored, nil
 }
 
 func sha256Bytes(value []byte) []byte { sum := sha256.Sum256(value); return sum[:] }
@@ -340,6 +369,9 @@ func (h *Handler) Reprocess(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, valid := documentIDParam(w, r); !valid {
+		return
+	}
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
@@ -404,6 +436,9 @@ func (h *Handler) Extraction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, valid := documentIDParam(w, r); !valid {
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `SELECT e.stage,e.schema_version,e.output_json,e.confidence::text,e.validated,e.created_at FROM document_extraction e JOIN document d ON d.id=e.document_id WHERE d.id=$1 AND d.household_id=$2 ORDER BY e.created_at`, r.PathValue("id"), household)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to load extraction"})
@@ -436,6 +471,9 @@ func (h *Handler) Pages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, valid := documentIDParam(w, r); !valid {
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `SELECT dp.page_index,a.media_type,a.byte_size,a.width,a.height FROM document_page dp JOIN document d ON d.id=dp.document_id JOIN attachment a ON a.id=dp.attachment_id WHERE d.id=$1 AND d.household_id=$2 ORDER BY dp.page_index`, r.PathValue("id"), household)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list document pages"})
@@ -459,6 +497,9 @@ func (h *Handler) Pages(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PageContent(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principalHousehold(w, r)
 	if !ok {
+		return
+	}
+	if _, valid := documentIDParam(w, r); !valid {
 		return
 	}
 	index, err := strconv.Atoi(r.PathValue("index"))
@@ -501,6 +542,9 @@ func (h *Handler) Thumbnail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, valid := documentIDParam(w, r); !valid {
+		return
+	}
 	var ref, media string
 	if err := h.pool.QueryRow(r.Context(), `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id AND a.household_id=d.household_id WHERE d.id=$1 AND d.household_id=$2`, r.PathValue("id"), household).Scan(&ref, &media); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "document not found"})
@@ -538,6 +582,15 @@ func serveImage(w http.ResponseWriter, r *http.Request, raw []byte, media string
 	}
 	w.Header().Set("Content-Type", media)
 	_, _ = w.Write(raw)
+}
+
+func documentIDParam(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id := r.PathValue("id")
+	if _, err := uuid.Parse(id); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid document id"})
+		return "", false
+	}
+	return id, true
 }
 
 func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {

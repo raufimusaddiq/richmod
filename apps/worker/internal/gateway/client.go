@@ -77,6 +77,10 @@ func WithSourceEvent(ctx context.Context, sourceEventID string) context.Context 
 	return withSourceEvent(ctx, sourceEventID)
 }
 
+func sourceEventSet(ctx context.Context) bool {
+	return ctx.Value(sourceEventContextKey{}) != nil
+}
+
 func sourceEventFrom(ctx context.Context) string {
 	sourceEventID, _ := ctx.Value(sourceEventContextKey{}).(string)
 	return sourceEventID
@@ -106,7 +110,7 @@ type ToolCall struct {
 }
 
 func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
-	if sourceEventFrom(ctx) == "" {
+	if !sourceEventSet(ctx) {
 		ctx = withSourceEvent(ctx, requestID)
 	}
 	started := time.Now()

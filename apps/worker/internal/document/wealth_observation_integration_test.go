@@ -87,7 +87,7 @@ func TestWealthObservationAppliesWithoutReviewWhenAccountResolves(t *testing.T) 
 	if err = pool.QueryRow(ctx, `SELECT status FROM document WHERE id=$1`, documentID).Scan(&documentStatus); err != nil {
 		t.Fatal(err)
 	}
-	if observationStatus != "ACCEPTED" || resolvedAccount != wealthAccountID || reviews != 0 || documentStatus != "CLASSIFIED" {
+	if observationStatus != "ACCEPTED" || resolvedAccount != wealthAccountID || reviews != 0 || documentStatus != "EXTRACTED" {
 		t.Fatalf("status=%s account=%s/%s reviews=%d document=%s", observationStatus, resolvedAccount, wealthAccountID, reviews, documentStatus)
 	}
 }

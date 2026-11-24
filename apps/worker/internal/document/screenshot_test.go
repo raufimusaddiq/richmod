@@ -1,6 +1,7 @@
 package document
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,10 +87,29 @@ func TestMissingScreenshotAmountIsRepresentable(t *testing.T) {
 	if len(rows) != 1 || rows[0].Value.Amount != nil {
 		t.Fatalf("a missing amount must stay absent, not become a sentinel: %+v", rows)
 	}
-	if issues := screenshotValidationIssues(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &date, Merchant: "Warung", Confidence: .95}}}, ""); len(issues) != 0 {
+	if issues := screenshotValidationIssues(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &date, Merchant: "Warung", Confidence: .95}}}, "", time.Now()); len(issues) != 0 {
 		t.Fatalf("a null amount is a valid representation: %v", issues)
 	}
 	if _, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("0"), Currency: "IDR", Confidence: .95}}}, time.Now().In(jakarta()), nil, ""); err == nil {
 		t.Fatal("a zero amount is not a positive canonical amount")
+	}
+}
+
+func TestScreenshotValidationFlagsRowTimeEvenWithOtherIssues(t *testing.T) {
+	received := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
+	for name, at := range map[string]string{"malformed": "yesterday", "implausible": "2031-01-01T10:00:00+07:00"} {
+		value := screenshotExtraction{Confidence: .9, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &at, Confidence: .9}}}
+		issues := screenshotValidationIssues(value, "", received)
+		if !issues.has("account_hint", "TEXT_TOO_LONG") || !(issues.has("transactions[0].transaction_at", "INVALID_FORMAT") || issues.has("transactions[0].transaction_at", "IMPLAUSIBLE_TIME")) {
+			t.Fatalf("%s: issues = %s", name, issues.String())
+		}
+		if repairableTopLevelField("BANK_TRANSACTION_SCREENSHOT", "transactions[0].transaction_at") != "transactions" {
+			t.Fatal("row time issues must be repairable")
+		}
+	}
+	plausible := "2026-08-30T10:00:00+07:00"
+	value := screenshotExtraction{Confidence: .9, Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &plausible, Confidence: .9}}}
+	if issues := screenshotValidationIssues(value, "", received); len(issues) != 0 {
+		t.Fatalf("issues = %s", issues.String())
 	}
 }

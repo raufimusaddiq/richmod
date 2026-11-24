@@ -9,6 +9,12 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
+const (
+	maxFinancialEmailPreviewRequestBytes = 512 << 10
+	maxFinancialEmailPreviewSubjectBytes = 1024
+	maxFinancialSourceRequestBytes       = 64 << 10
+)
+
 func (h *Handler) TestFinancialEmailSource(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !p.HasHousehold || !owner(p) {
@@ -19,7 +25,8 @@ func (h *Handler) TestFinancialEmailSource(w http.ResponseWriter, r *http.Reques
 		Subject string `json:"subject"`
 		Body    string `json:"body"`
 	}
-	if json.NewDecoder(r.Body).Decode(&in) != nil || strings.TrimSpace(in.Body) == "" || len(in.Body) > 200000 {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFinancialEmailPreviewRequestBytes)
+	if json.NewDecoder(r.Body).Decode(&in) != nil || strings.TrimSpace(in.Body) == "" || len(in.Body) > 200000 || len(in.Subject) > maxFinancialEmailPreviewSubjectBytes {
 		jsonError(w, 400, "sample email body is required")
 		return
 	}
@@ -98,6 +105,7 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 			DefaultWealthAccountID      *string  `json:"defaultWealthAccountId"`
 			Status                      string   `json:"status"`
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxFinancialSourceRequestBytes)
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			jsonError(w, 400, "invalid financial source request")
 			return
@@ -157,6 +165,7 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 		DefaultWealthAccountID json.RawMessage `json:"defaultWealthAccountId"`
 		Status                 *string         `json:"status"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFinancialSourceRequestBytes)
 	if json.NewDecoder(r.Body).Decode(&in) != nil {
 		jsonError(w, 400, "invalid financial source change")
 		return

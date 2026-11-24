@@ -79,3 +79,97 @@ func TestImageProcessorCreatesGenericDocumentIdempotently(t *testing.T) {
 		t.Fatalf("status=%s documents=%d jobs=%d audits=%d", status, documents, jobs, audits)
 	}
 }
+
+func TestImageProcessorSequencesAlbumPagesByMessageAndCapsThem(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	var householdID, userID string
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Worker album %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Album Worker','unused') RETURNING id`, fmt.Sprintf("worker-album-%d@example.test", stamp)).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	telegramUserID := stamp%7_000_000_000 + 17
+	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, telegramUserID, householdID, userID); err != nil {
+		t.Fatal(err)
+	}
+	raw := testPNG(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("file_id") != "" {
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"file_path":"documents/image.png","file_size":%d}}`, len(raw))))
+			return
+		}
+		_, _ = w.Write(raw)
+	}))
+	defer server.Close()
+	bot := NewBot("test-token")
+	bot.base = server.URL
+	bot.http = server.Client()
+	storage, err := blob.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	processor := NewImageProcessorWithStorage(pool, bot, storage)
+	group := fmt.Sprintf("album-%d", stamp)
+	process := func(messageID int64) string {
+		var sourceID string
+		if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_media_group_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED',$4,$5) RETURNING id`, householdID, fmt.Sprintf("telegram:album:%d:%d", stamp, messageID), []byte(fmt.Sprintf("album-%d-%d", stamp, messageID)), messageID, group).Scan(&sourceID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,'{}')`, sourceID); err != nil {
+			t.Fatal(err)
+		}
+		payload := ImagePayload{SourceEventID: sourceID, FileID: "file-id", FileName: "image.png", MIMEType: "image/png", TelegramUserID: telegramUserID, UserID: userID, MediaGroupID: group, MessageID: messageID}
+		if err := processor.Process(ctx, payload); err != nil {
+			t.Fatal(err)
+		}
+		return sourceID
+	}
+	arrival := []int64{9000, 5000, 7000}
+	bySource := map[string]int64{}
+	for _, messageID := range arrival {
+		bySource[process(messageID)] = messageID
+	}
+	rows, err := pool.Query(ctx, `SELECT dp.page_index,s.telegram_message_id FROM document_page dp JOIN source_event s ON s.id=dp.source_event_id WHERE s.telegram_media_group_id=$1 ORDER BY dp.page_index`, group)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var indexes, messages []int64
+	for rows.Next() {
+		var index, message int64
+		if err := rows.Scan(&index, &message); err != nil {
+			t.Fatal(err)
+		}
+		indexes, messages = append(indexes, index), append(messages, message)
+	}
+	rows.Close()
+	if fmt.Sprint(indexes) != "[0 1 2]" || fmt.Sprint(messages) != "[5000 7000 9000]" {
+		t.Fatalf("page indexes=%v messages=%v", indexes, messages)
+	}
+	var overflow string
+	for extra := int64(1); extra <= int64(MaxAlbumPages); extra++ {
+		overflow = process(10_000 + extra)
+	}
+	var pages int
+	var status string
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM document_page dp JOIN source_event s ON s.id=dp.source_event_id WHERE s.telegram_media_group_id=$1),processing_status FROM source_event WHERE id=$2`, group, overflow).Scan(&pages, &status); err != nil {
+		t.Fatal(err)
+	}
+	if pages != MaxAlbumPages || status != "IGNORED" {
+		t.Fatalf("pages=%d overflow source status=%s", pages, status)
+	}
+}

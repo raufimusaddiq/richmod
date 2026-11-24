@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -96,6 +97,9 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if status == "CLASSIFIED" || status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
 	}
+	if err := p.enforceDocumentLimits(ctx, documentID); err != nil {
+		return err
+	}
 	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
 	if err != nil {
 		return fmt.Errorf("load document pages: %w", err)
@@ -142,8 +146,11 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		return fmt.Errorf("invalid document classification")
 	}
 	documentStatus, sourceStatus := "CLASSIFIED", "PROCESSED"
-	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" {
+	switch result.DocumentType {
+	case "NON_FINANCIAL_OR_UNSUPPORTED":
 		documentStatus, sourceStatus = "CLASSIFIED", "IGNORED"
+	case "OTHER_FINANCIAL_DOCUMENT":
+		documentStatus = "EXTRACTED"
 	}
 	output, _ := json.Marshal(result)
 	var observation *wealthObservation
@@ -168,7 +175,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction (document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES ($1,'CLASSIFICATION','1',$2::jsonb,$3,$4,$5) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(output), result.Confidence, metadata.Model, true); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction (document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES ($1,'CLASSIFICATION','1',$2::jsonb,$3,$4,$5) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model,validated=true WHERE NOT document_extraction.validated`, documentID, string(output), result.Confidence, metadata.Model, true); err != nil {
 		return err
 	}
 	if observation != nil {
@@ -180,13 +187,18 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1`, sourceID, sourceStatus); err != nil {
 		return err
 	}
+	if result.DocumentType == "OTHER_FINANCIAL_DOCUMENT" {
+		if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, unsupportedDocumentNotice()); err != nil {
+			return err
+		}
+	}
 	if observation != nil {
 		resolvedWealthID, err := resolveWealthObservationAccount(ctx, tx, householdID, *observation)
 		if err != nil {
 			return err
 		}
 		observationOutput, _ := json.Marshal(*observation)
-		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model,validated=true WHERE NOT document_extraction.validated`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
 			return err
 		}
 		var observationID string
@@ -194,11 +206,19 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if resolvedWealthID != "" {
 			observationStatus = "ACCEPTED"
 		}
-		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date,status) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10,$11) ON CONFLICT(document_id) DO UPDATE SET updated_at=now(),status=EXCLUDED.status RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate, observationStatus).Scan(&observationID); err != nil {
-			return err
+		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date,status) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10,$11) ON CONFLICT(document_id) DO UPDATE SET updated_at=now(),status=EXCLUDED.status,resolved_wealth_account_id=EXCLUDED.resolved_wealth_account_id,institution=EXCLUDED.institution,account_hint=EXCLUDED.account_hint,observed_value_idr=EXCLUDED.observed_value_idr,quantity=EXCLUDED.quantity,unit=EXCLUDED.unit,unit_price_idr=EXCLUDED.unit_price_idr,observed_date=EXCLUDED.observed_date WHERE wealth_observation.status='PENDING' RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate, observationStatus).Scan(&observationID); err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `SELECT id,status FROM wealth_observation WHERE document_id=$1`, documentID).Scan(&observationID, &observationStatus); err != nil {
+				return err
+			}
+			if observationStatus != "PENDING" {
+				observationStatus = "ACCEPTED"
+			}
 		}
 		if observationStatus == "ACCEPTED" {
-			if _, err := tx.Exec(ctx, `UPDATE document SET status='CLASSIFIED' WHERE id=$1`, documentID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED' WHERE id=$1`, documentID); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil {
@@ -327,7 +347,15 @@ func (p *Processor) extractWealthObservation(ctx context.Context, documentID str
 		return wealthObservation{}, metadata, err
 	}
 	value, err := gateway.DecodeToolArguments[wealthObservation](call, "extract_wealth_observation")
-	if err != nil || value.Institution == "" || value.AccountHint == "" || value.Confidence < 0 || value.Confidence > 1 {
+	if err != nil {
+		return wealthObservation{}, metadata, fmt.Errorf("invalid wealth observation")
+	}
+	value.Institution, value.AccountHint = strings.TrimSpace(value.Institution), strings.TrimSpace(value.AccountHint)
+	if value.Unit != nil {
+		trimmedUnit := strings.TrimSpace(*value.Unit)
+		value.Unit = &trimmedUnit
+	}
+	if value.Institution == "" || value.AccountHint == "" || utf8.RuneCountInString(value.Institution) > 160 || utf8.RuneCountInString(value.AccountHint) > 160 || (value.Unit != nil && utf8.RuneCountInString(*value.Unit) > 40) || !(value.Confidence >= 0 && value.Confidence <= 1) {
 		return wealthObservation{}, metadata, fmt.Errorf("invalid wealth observation")
 	}
 	if _, ok := wholeMoney(value.ObservedValueIDR, true); !ok {
@@ -370,13 +398,16 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE household_id=$3 AND (id=$1 OR id IN (SELECT source_event_id FROM document_page WHERE document_id=$2)) AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID, documentID, householdID); err != nil {
 		return err
 	}
 	if tag.RowsAffected() > 0 {
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DOCUMENT_CLASSIFICATION_FAILED','source_event',$2,jsonb_build_object('document_id',$3::uuid,'error',$4::text))`, householdID, sourceID, documentID, truncate(cause)); err != nil {
 			return err
 		}
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

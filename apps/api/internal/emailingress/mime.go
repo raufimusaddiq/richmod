@@ -27,27 +27,52 @@ type ParsedEmail struct {
 	TextBody                     string
 }
 
+const (
+	maxMIMEDepth          = 8
+	maxMIMEParts          = 64
+	maxSubjectBytes       = 1024
+	maxDateBytes          = 128
+	maxMessageIDBytes     = 998
+	maxAuthResultsBytes   = 16 << 10
+	maxStoredBodyBytes    = 512 << 10
+	maxAuthResultsHeaders = 16
+)
+
+func boundText(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
+	}
+	return strings.ToValidUTF8(value[:maxBytes], "")
+}
+
 func parseMIME(raw []byte) (ParsedEmail, error) {
 	message, err := mail.ReadMessage(bytes.NewReader(raw))
 	if err != nil {
 		return ParsedEmail{}, fmt.Errorf("parse MIME: %w", err)
+	}
+	if len(message.Header["From"]) != 1 {
+		return ParsedEmail{}, fmt.Errorf("email must have exactly one From header")
 	}
 	sender, err := parseAddress(message.Header.Get("From"))
 	if err != nil {
 		return ParsedEmail{}, err
 	}
 	parsed := ParsedEmail{
-		Sender: sender, Subject: decodeHeader(message.Header.Get("Subject")), Date: message.Header.Get("Date"),
-		MessageID:                    strings.TrimSpace(message.Header.Get("Message-ID")),
-		AuthenticationResults:        joinHeader(message.Header, "Authentication-Results"),
-		ARCAuthenticationResults:     joinHeader(message.Header, "ARC-Authentication-Results"),
+		Sender: sender, Subject: boundText(decodeHeader(message.Header.Get("Subject")), maxSubjectBytes), Date: boundText(message.Header.Get("Date"), maxDateBytes),
+		MessageID:                    boundText(strings.TrimSpace(message.Header.Get("Message-ID")), maxMessageIDBytes),
+		AuthenticationResults:        boundText(joinHeader(message.Header, "Authentication-Results"), maxAuthResultsBytes),
+		ARCAuthenticationResults:     boundText(joinHeader(message.Header, "ARC-Authentication-Results"), maxAuthResultsBytes),
 		AuthenticationResultsHeaders: message.Header[textproto.CanonicalMIMEHeaderKey("Authentication-Results")],
+	}
+	if len(parsed.AuthenticationResultsHeaders) > maxAuthResultsHeaders {
+		parsed.AuthenticationResultsHeaders = parsed.AuthenticationResultsHeaders[:maxAuthResultsHeaders]
 	}
 	contentType := message.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "text/plain"
 	}
-	htmlBody, textBody, err := parsePart(contentType, message.Header.Get("Content-Transfer-Encoding"), message.Body)
+	budget := maxMIMEParts
+	htmlBody, textBody, err := parsePart(contentType, message.Header.Get("Content-Transfer-Encoding"), message.Body, 0, &budget)
 	if err != nil {
 		return ParsedEmail{}, err
 	}
@@ -70,12 +95,15 @@ func joinHeader(header mail.Header, name string) string {
 	return strings.Join(header[textproto.CanonicalMIMEHeaderKey(name)], "\n")
 }
 
-func parsePart(contentType, transfer string, body io.Reader) (string, string, error) {
+func parsePart(contentType, transfer string, body io.Reader, depth int, budget *int) (string, string, error) {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid content type")
 	}
 	if strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
+		if depth >= maxMIMEDepth {
+			return "", "", fmt.Errorf("multipart email nested too deeply")
+		}
 		boundary := params["boundary"]
 		if boundary == "" {
 			return "", "", fmt.Errorf("multipart email missing boundary")
@@ -90,7 +118,11 @@ func parsePart(contentType, transfer string, body io.Reader) (string, string, er
 			if nextErr != nil {
 				return "", "", fmt.Errorf("read multipart email")
 			}
-			htmlValue, textValue, partErr := parsePart(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part)
+			if *budget--; *budget < 0 {
+				_ = part.Close()
+				return "", "", fmt.Errorf("multipart email has too many parts")
+			}
+			htmlValue, textValue, partErr := parsePart(part.Header.Get("Content-Type"), part.Header.Get("Content-Transfer-Encoding"), part, depth+1, budget)
 			_ = part.Close()
 			if partErr != nil {
 				continue
@@ -128,6 +160,17 @@ func decodeTransfer(body io.Reader, transfer string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(reader, 2<<20))
 }
 
+func hiddenElement(node *html.Node) bool {
+	if node.Type != html.ElementNode {
+		return false
+	}
+	switch node.Data {
+	case "style", "script", "template", "noscript", "head":
+		return true
+	}
+	return false
+}
+
 func visibleHTML(value string) string {
 	document, err := html.Parse(strings.NewReader(value))
 	if err != nil {
@@ -136,6 +179,9 @@ func visibleHTML(value string) string {
 	var out strings.Builder
 	var walk func(*html.Node)
 	walk = func(node *html.Node) {
+		if hiddenElement(node) || out.Len() > maxStoredBodyBytes*2 {
+			return
+		}
 		if node.Type == html.TextNode {
 			out.WriteString(node.Data)
 			out.WriteByte(' ')
@@ -145,5 +191,5 @@ func visibleHTML(value string) string {
 		}
 	}
 	walk(document)
-	return strings.Join(strings.Fields(out.String()), " ")
+	return boundText(strings.Join(strings.Fields(out.String()), " "), maxStoredBodyBytes)
 }

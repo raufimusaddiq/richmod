@@ -172,8 +172,8 @@ func TestUndecodableImageDoesNotFailTheDocumentJob(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT status FROM document WHERE id=$1`, documentID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status != "CLASSIFIED" {
-		t.Fatalf("document status = %s, want CLASSIFIED", status)
+	if status != "EXTRACTED" {
+		t.Fatalf("document status = %s, want EXTRACTED", status)
 	}
 }
 

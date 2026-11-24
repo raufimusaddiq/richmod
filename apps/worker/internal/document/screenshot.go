@@ -54,6 +54,8 @@ type validatedScreenshotRow struct {
 	TransactionAt    time.Time
 	DateKnown        bool
 	CategoryID       *string
+	CategorySlug     string
+	ConflictSlug     string
 	CategoryDecided  bool
 	CategoryConflict bool
 	Candidates       []matchCandidate
@@ -145,20 +147,23 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			return err
 		}
 	}
-	issues := screenshotValidationIssues(result, documentType)
+	issues := screenshotValidationIssues(result, documentType, receivedAt)
 	if len(issues) > 0 {
-		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, documentType, content, &result, &issues, func(value screenshotExtraction) error {
+		patched, repairMeta, repairErr := repairExtracted(ctx, p.gateway, sourceID, documentType, content, &result, &issues, func(value screenshotExtraction) error {
 			normalizeScreenshotIdentifiers(&value)
 			if _, err := validateScreenshot(value, receivedAt, categories, documentType); err != nil {
 				return err
 			}
 			return nil
 		})
+		if repairErr != nil {
+			return repairErr
+		}
 		if repairMeta.Model != "" {
 			metadata.Model = repairMeta.Model
 		}
 		if issues.has("", repairFailedCode) {
-			return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
+			return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, receivedAt, result, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
 		}
 		result = patched
 		if normalized := normalizeScreenshotIdentifiers(&result); len(normalized) > 0 {
@@ -169,7 +174,11 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	}
 	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
-		return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, err)
+		return p.failScreenshotExtraction(ctx, documentID, householdID, sourceID, documentType, receivedAt, result, metadata.Model, err)
+	}
+	slugByID := make(map[string]string, len(categories))
+	for _, category := range categories {
+		slugByID[category.ID] = category.Slug
 	}
 	for index := range rows {
 		if rows[index].Type != "EXPENSE" {
@@ -184,8 +193,10 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		}
 		if rows[index].CategoryID != nil && *rows[index].CategoryID != match.CategoryID {
 			rows[index].CategoryConflict = true
+			rows[index].ConflictSlug = rows[index].CategorySlug
 		}
 		rows[index].CategoryID, rows[index].CategoryDecided = &match.CategoryID, true
+		rows[index].CategorySlug = slugByID[match.CategoryID]
 	}
 	usedMatches := make(map[string]bool)
 	for index := range rows {
@@ -274,15 +285,17 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 			transactionType = "INCOME"
 		}
 		var categoryID *string
+		categorySlug := ""
 		categoryDecided := false
 		if row.Direction == "OUT" && row.CategorySlug != nil {
 			if id, ok := categoryIDs[*row.CategorySlug]; ok {
 				value := id
 				categoryID = &value
+				categorySlug = *row.CategorySlug
 				categoryDecided = true
 			}
 		}
-		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, CategoryDecided: categoryDecided})
+		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, CategorySlug: categorySlug, CategoryDecided: categoryDecided})
 	}
 	return result, nil
 }
