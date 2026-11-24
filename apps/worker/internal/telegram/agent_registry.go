@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/big"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
@@ -131,7 +132,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	return tools
 }
 
-func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
+func validateAgentToolCall(call gateway.ToolCall, reviewType string) (map[string]any, error) {
 	switch call.Name {
 	case "get_transaction_details":
 		args, err := decodeAgentArgsRaw[transactionDetailsArgs](call)
@@ -179,7 +180,7 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !containsAgentReviewAction(args.Action) {
+		if !containsAgentReviewAction(args.Action, reviewType) {
 			return nil, fmt.Errorf("invalid review action")
 		}
 		for _, allocation := range args.Allocations {
@@ -233,13 +234,12 @@ type agentResolveReviewArgs struct {
 	Allocations   []agentResidualAllocationInput `json:"allocations"`
 }
 
-func containsAgentReviewAction(action string) bool {
-	for _, allowed := range reviewdec.AllAgentActions() {
-		if action == allowed {
-			return true
-		}
+func containsAgentReviewAction(action, reviewType string) bool {
+	allowed := reviewdec.AllAgentActions()
+	if reviewType != "" {
+		allowed = reviewdec.AgentActions(reviewType)
 	}
-	return false
+	return slices.Contains(allowed, action)
 }
 
 func decodeAgentArgsRaw[T any](call gateway.ToolCall) (T, error) {

@@ -16,6 +16,7 @@ type EvidenceDisputeCommand struct {
 	HouseholdID, ActorUserID, DocumentID, SourceEventID string
 	TransactionID, ReviewItemID, RequestID              string
 	CategoryID                                          string
+	CategoryConfidence                                  *float64
 }
 
 type EvidenceDisputeResult struct {
@@ -87,6 +88,9 @@ func StageEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCom
 			return result, err
 		}
 		category, confidence = &cmd.CategoryID, s.confidence
+		if cmd.CategoryConfidence != nil {
+			confidence = cmd.CategoryConfidence
+		}
 	}
 	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,counterparty_name,description,created_by_user_id,source_confidence,classification_confidence)
 		VALUES($1,$2,'NEEDS_REVIEW',$3::numeric,$4,$5,$6,NULLIF($7,''),NULLIF($8,''),$9,$10,$11) RETURNING id::text`, cmd.HouseholdID, s.kind, s.amount, s.currency, s.at, category, s.merchant, s.description, cmd.ActorUserID, s.confidence, confidence).Scan(&result.TransactionID)

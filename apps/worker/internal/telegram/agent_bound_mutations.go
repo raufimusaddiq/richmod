@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -143,6 +145,10 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 			return result, true, nil
 		}
 	case "COMPLETE_BANK_FACTS":
+		if !slices.Contains(reviewdec.AgentActions(review.reviewType), "COMPLETE_BANK_FACTS") {
+			result.Status = "UNSUPPORTED_REVIEW_ACTION"
+			return result, true, nil
+		}
 		amount, ok := new(big.Int).SetString(amountIDR, 10)
 		if strings.TrimSpace(amountIDR) == "" || !ok || amount.Sign() <= 0 || amount.String() != amountIDR || !validReviewTimestamp(transactionAt) {
 			result.Status = "MISSING_BANK_FACTS"
@@ -150,8 +156,13 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 			return result, true, nil
 		}
 		parsed, _ := time.Parse(time.RFC3339, transactionAt)
-		if _, err := p.pool.Exec(ctx, `UPDATE transaction SET amount=$2,transaction_at=$3,updated_at=now() WHERE id=$1 AND household_id=$4 AND status='NEEDS_REVIEW'`, review.transactionID, amountIDR, parsed, state.HouseholdID); err != nil {
+		applied, err := p.agentApplyBankFactsToTransaction(ctx, state, review.transactionID, amountIDR, parsed)
+		if err != nil {
 			return result, true, err
+		}
+		if !applied {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
 		}
 	case "MERGE_EXISTING":
 		candidateRef, _ := args["candidate_ref"].(string)
@@ -185,6 +196,31 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		}
 	}
 	return p.agentConfirmTransactionReview(ctx, state, call, *review, categoryID, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
+}
+
+func (p *Processor) agentApplyBankFactsToTransaction(ctx context.Context, state *agentState, transactionID, amountIDR string, at time.Time) (bool, error) {
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE transaction SET amount=$2,transaction_at=$3,updated_at=now() WHERE id=$1 AND household_id=$4 AND status='NEEDS_REVIEW'`, transactionID, amountIDR, at, state.HouseholdID)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() != 1 {
+		return false, nil
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET amount=$2,transaction_at=$3,updated_at=now() WHERE household_id=$4 AND id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')`, transactionID, amountIDR, at, state.HouseholdID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'COMPLETE_BANK_FACTS','transaction',$2,jsonb_build_object('amount_idr',$3::text,'transaction_at',$4::timestamptz,'agent_sprint',1) FROM telegram_identity ti WHERE ti.telegram_user_id=$5 AND ti.household_id=$1 AND ti.active`, state.HouseholdID, transactionID, amountIDR, at, state.Update.Message.From.ID); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (p *Processor) agentResolveBoundTransferReconciliation(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, binding *agentReviewBinding) (agentToolResult, bool, error) {
