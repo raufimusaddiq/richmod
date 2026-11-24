@@ -99,6 +99,23 @@ func TestModelAmountMustAppearInUserText(t *testing.T) {
 	}
 }
 
+func TestAmountFromPreviousUserTurnCounts(t *testing.T) {
+	processor := &Processor{}
+	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Kopi Kenangan", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 23, 15, 0, 0, 0, jakartaLocation())}
+	state := newRecordState("kemarin")
+	state.TurnContext = map[string]any{"recent_turns": []PublicTurn{
+		{Role: "USER", Text: untrustedUser("kopi kenangan 25rb")},
+		{Role: "ASSISTANT", Text: "Tanggalnya kapan?"},
+	}}
+	decision, err := processor.semanticDecisionForRecord(context.Background(), state, value, []string{"dining"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.AmountSupported || !decision.decisionAllowed() {
+		t.Fatalf("an amount stated in the previous user turn must be supported, got %+v", decision)
+	}
+}
+
 func TestModelDateAfterTodayStaysInReview(t *testing.T) {
 	processor := &Processor{}
 	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Sepatu", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 25, 12, 0, 0, 0, jakartaLocation())}
