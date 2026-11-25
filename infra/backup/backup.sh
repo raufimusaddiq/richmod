@@ -58,5 +58,5 @@ if [ -d /var/lib/finance/attachments ]; then
     set -- "$@" /var/lib/finance/attachments
 fi
 restic backup --host "$backup_host" --tag family-finance --tag daily "$@"
-restic forget --tag family-finance --group-by tags --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
 restic check --read-data-subset=5%
+restic forget --tag family-finance --group-by tags --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
