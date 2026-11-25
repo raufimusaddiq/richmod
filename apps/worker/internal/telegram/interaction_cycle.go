@@ -195,7 +195,11 @@ func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, householdID s
 	for _, allocation := range split.Allocations {
 		amount, _ := new(big.Int).SetString(allocation.Amount, 10)
 		if amount != nil {
-			lines = append(lines, "• "+clean(names[allocation.AccountID], 60)+": "+rupiah(amount))
+			name := names[allocation.AccountID]
+			if name == "" {
+				name = "Akun"
+			}
+			lines = append(lines, "• "+clean(name, 60)+": "+rupiah(amount))
 		}
 	}
 	base.Facts = strings.Join(lines, "\n")
@@ -344,23 +348,48 @@ func parseSplitAmount(text string) (*big.Int, bool) {
 	if len(fields) > 1 && (fields[0] == "rp" || fields[0] == "rp.") {
 		fields = fields[1:]
 	}
-	var value string
-	var ok bool
-	switch len(fields) {
-	case 1:
-		value, ok = parseAmountToken(fields[0], "")
-	case 2:
-		unit, known := amountUnits[fields[1]]
-		if !known {
+	if len(fields) == 0 || len(fields) > 2 {
+		return nil, false
+	}
+	match := amountToken.FindStringSubmatch(fields[0])
+	if match == nil {
+		return nil, false
+	}
+	digits, unit := match[1], amountUnits[match[2]]
+	if len(fields) == 2 {
+		external, known := amountUnits[fields[1]]
+		if !known || unit != "" {
 			return nil, false
 		}
-		value, ok = parseAmountToken(fields[0], unit)
+		unit = external
 	}
+	multiplier := int64(1)
+	switch unit {
+	case "":
+		if strings.ContainsAny(digits, ".,") && !amountThousands.MatchString(digits) {
+			return nil, false
+		}
+		digits = strings.NewReplacer(".", "", ",", "").Replace(digits)
+	case "rb":
+		multiplier = 1_000
+	case "jt":
+		multiplier = 1_000_000
+	}
+	if unit != "" {
+		if strings.Count(digits, ".")+strings.Count(digits, ",") > 1 {
+			return nil, false
+		}
+		digits = strings.Replace(digits, ",", ".", 1)
+	}
+	number, ok := new(big.Rat).SetString(digits)
 	if !ok {
 		return nil, false
 	}
-	amount, parsed := new(big.Int).SetString(value, 10)
-	return amount, parsed && amount.Sign() > 0
+	number.Mul(number, big.NewRat(multiplier, 1))
+	if !number.IsInt() || number.Sign() <= 0 {
+		return nil, false
+	}
+	return new(big.Int).Set(number.Num()), true
 }
 
 func (p *Processor) chooseCycleAccount(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, accountID string) (stepOutcome, error) {

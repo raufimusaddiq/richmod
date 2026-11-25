@@ -45,26 +45,27 @@ func (g *scriptedPicker) AgentTurn(context.Context, string, gateway.AgentRequest
 }
 
 type contractHarness struct {
-	t            *testing.T
-	ctx          context.Context
-	f            agentIntegrationFixture
-	p            *Processor
-	picker       *scriptedPicker
-	kind         string
-	txType       string
-	reconcile    bool
-	mergeSource  string
-	chatB        int64
-	reviewID     string
-	txID         string
-	itemID       string
-	imageID      string
-	caseID       string
-	primary      bool
-	otherPrimary bool
-	checked      map[string]bool
-	markups      map[int64][]string
-	texts        map[int64]string
+	t             *testing.T
+	ctx           context.Context
+	f             agentIntegrationFixture
+	p             *Processor
+	picker        *scriptedPicker
+	kind          string
+	txType        string
+	reconcile     bool
+	mergeSource   string
+	chatB         int64
+	reviewID      string
+	txID          string
+	itemID        string
+	imageID       string
+	caseID        string
+	primary       bool
+	otherPrimary  bool
+	largeLeftover bool
+	checked       map[string]bool
+	markups       map[int64][]string
+	texts         map[int64]string
 }
 
 type contractOption func(*contractHarness)
@@ -1216,6 +1217,10 @@ const (
 	payslipDoneSalaryPrefix = "✅ Gaji tercatat · Rp8.500.000. Siklus baru mulai "
 )
 
+func withLargeLeftover() contractOption {
+	return func(h *contractHarness) { h.largeLeftover = true }
+}
+
 func withOtherPrimaryEmployer() contractOption {
 	return func(h *contractHarness) { h.otherPrimary = true }
 }
@@ -1280,9 +1285,13 @@ func (h *contractHarness) openCycle() {
 		mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$3::date,1,$4,'CONFIRMED',$5) RETURNING id`, salarySource, h.f.householdID, period, paid, source).Scan(&event))
 		return event
 	}
+	income := cycleResidualFixture
+	if h.largeLeftover {
+		income = "150000000"
+	}
 	start, end = salary("2026-08-25"), salary("2026-09-25")
-	h.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1200000,'2026-09-01T12:00:00+07:00',now())`, h.f.householdID)
-	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-08-25','2026-09-25',1200000,0,0,1200000) RETURNING id`, h.f.householdID, start, end).Scan(&caseID))
+	h.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'INCOME','CONFIRMED',$2::numeric,'2026-09-01T12:00:00+07:00',now())`, h.f.householdID, income)
+	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-08-25','2026-09-25',$4::numeric,0,0,$4::numeric) RETURNING id`, h.f.householdID, start, end, income).Scan(&caseID))
 	h.caseID = caseID
 	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','PENDING_SEND',$3::jsonb) RETURNING id`, h.f.householdID, caseID, cycleDecision).Scan(&h.itemID))
 	h.project(h.itemID)
@@ -1765,6 +1774,16 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 			h.wantButtons("Tabungan Contoh", "Bagi ke beberapa akun", "Biarkan saja")
 			h.wantAllocations()
 			h.wantItemActive()
+		}},
+		{"a split can take more than a hundred million from a large leftover", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh"), withLargeLeftover()}, func(h *contractHarness) {
+			h.tapLabel("Bagi ke beberapa akun")
+			h.tapLabel("Tabungan Contoh")
+			h.reply("120jt")
+			h.wantCard("✅ Rp120.000.000 dialokasikan.", "Sisa Rp30.000.000 belum dibagi.")
+			h.tapLabel("Reksa Contoh")
+			h.reply("30.000.000")
+			h.wantCard("✅ Sisa Rp150.000.000 dialokasikan ke 2 akun")
+			h.wantAllocations("Reksa Contoh 30000000", "Tabungan Contoh 120000000")
 		}},
 		{"Batal mid-split clears it and returns to the first step", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
 			before, _, _ := h.current()
