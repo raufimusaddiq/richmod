@@ -19,8 +19,7 @@ const ratioText = (count, of, rate) => (of > 0 ? `${ofCount(count, of)} (${perce
 
 const UNAVAILABLE = "Belum dapat dimuat";
 
-function measures(w, missing, degraded) {
-  const unmeasured = (key) => missing.includes(key);
+function measures(w, degraded) {
   const lost = (...names) => names.some((name) => degraded.includes(name));
   const answersTotal = w.answers + w.unusableAnswers;
   const row = (label, target, sections, value, ok) => ({
@@ -29,8 +28,7 @@ function measures(w, missing, degraded) {
     value: lost(...sections) ? UNAVAILABLE : value,
     ok: lost(...sections) ? null : ok,
   });
-  const replyRow = (label, key, count) =>
-    row(label, "0", ["events", "repairs"], unmeasured(key) ? "Belum bisa diukur" : number(count), unmeasured(key) ? null : count === 0);
+  const replyRow = (label, count) => row(label, "0", ["events"], number(count), count === 0);
   return [
     row(
       "Review selesai di Telegram, dari yang dikirim sebagai kartu",
@@ -54,8 +52,8 @@ function measures(w, missing, degraded) {
       answersTotal > 0 ? w.unusableAnswerRate < 0.02 : null,
     ),
     row("Pesan yang sama dikirim lagi dalam 3 menit", "0 sampai 1", ["events"], number(w.repeatedInput), w.repeatedInput <= 1),
-    replyRow("Balasan bot rusak atau kosong", "broken_or_empty_replies", w.brokenReplies),
-    replyRow("Balasan bot yang menjelaskan cara kerja Telegram", "telegram_mechanics_replies", w.mechanicsReplies),
+    replyRow("Balasan bot rusak atau kosong", w.brokenReplies),
+    replyRow("Balasan bot yang menjelaskan cara kerja Telegram", w.mechanicsReplies),
     row(
       "Waktu tengah dari kartu terkirim sampai selesai, untuk review yang selesai di Telegram",
       "Sekitar 1 menit atau kurang",
@@ -108,8 +106,8 @@ export default function InteractionWeekly() {
 
 function Summary({ data }) {
   const degraded = data.degradedSections || [];
-  const current = measures(data.current, data.notYetMeasurable, degraded);
-  const previous = measures(data.previous, data.notYetMeasurable, degraded);
+  const current = measures(data.current, degraded);
+  const previous = measures(data.previous, degraded);
   const rows = data.current.types;
   return (
     <>
@@ -127,13 +125,9 @@ function Summary({ data }) {
           </tr>
         ))}
       </Table>
-      {data.notYetMeasurable.length > 0 && (
+      {data.notYetMeasurable.includes("answers_via_assistant") && (
         <p className="notice" role="note">
-          Belum bisa diukur: {[
-            data.notYetMeasurable.some((k) => k.endsWith("_replies")) && "kualitas balasan bot (belum ada balasan yang tercatat diperbaiki)",
-            data.notYetMeasurable.includes("answers_via_assistant") && "jawaban lewat asisten",
-          ].filter(Boolean).join(", ")}
-          . Angka 0 pada ukuran ini bukan tanda berhasil.
+          Belum bisa diukur: jawaban lewat asisten. Angka 0 pada ukuran ini bukan tanda berhasil.
         </p>
       )}
       <div className="section-title"><h3>Cara jawaban masuk</h3></div>

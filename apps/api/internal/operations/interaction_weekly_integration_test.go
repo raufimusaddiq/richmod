@@ -140,7 +140,7 @@ func TestInteractionWeeklyMeasuresAndWindows(t *testing.T) {
 	if prev.UnusableRate == nil || *prev.UnusableRate != 0 {
 		t.Fatalf("previous unusable rate = %v", prev.UnusableRate)
 	}
-	wantMissing := map[string]bool{"broken_or_empty_replies": true, "telegram_mechanics_replies": true, "answers_via_assistant": true}
+	wantMissing := map[string]bool{"answers_via_assistant": true}
 	if len(summary.NotYetMeasurable) != len(wantMissing) {
 		t.Fatalf("notYetMeasurable = %v", summary.NotYetMeasurable)
 	}
@@ -230,7 +230,38 @@ func TestInteractionWeeklyReportsSlowSectionsInsteadOfFailing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summary.DegradedSections) != 4 {
+	if len(summary.DegradedSections) != 3 {
 		t.Fatalf("degraded = %v, want every section", summary.DegradedSections)
+	}
+}
+
+func TestInteractionWeeklyCountsReplyRepairsByReason(t *testing.T) {
+	t.Parallel()
+	pool := integrationPool(t)
+	f := newWeeklyFixture(t, pool)
+	other := newWeeklyFixture(t, pool)
+	f.event("REPLY_REPAIRED", "", "EMPTY", day)
+	f.event("REPLY_REPAIRED", "", "BROKEN_TEXT", day)
+	f.event("REPLY_REPAIRED", "", "INTERNAL_CODE", day)
+	f.event("REPLY_REPAIRED", "", "TELEGRAM_MECHANICS", day)
+	f.event("REPLY_REPAIRED", "", "TELEGRAM_MECHANICS", 2*day)
+	f.event("REPLY_REPAIRED", "", "INTERNAL_CODE", 10*day)
+	f.event("REPLY_REPAIRED", "", "TELEGRAM_MECHANICS", 10*day)
+	f.event("REPLY_REPAIRED", "", "EMPTY", 30*day)
+	other.event("REPLY_REPAIRED", "", "EMPTY", day)
+	summary, err := aggregateHandler(pool).loadInteractionWeekly(context.Background(), f.household, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Current.BrokenReplies != 3 || summary.Current.MechanicsReplies != 2 {
+		t.Fatalf("current = %d broken, %d mechanics", summary.Current.BrokenReplies, summary.Current.MechanicsReplies)
+	}
+	if summary.Previous.BrokenReplies != 1 || summary.Previous.MechanicsReplies != 1 {
+		t.Fatalf("previous = %d broken, %d mechanics", summary.Previous.BrokenReplies, summary.Previous.MechanicsReplies)
+	}
+	for _, key := range summary.NotYetMeasurable {
+		if key != "answers_via_assistant" {
+			t.Fatalf("reply quality must be measurable, got %q", key)
+		}
 	}
 }

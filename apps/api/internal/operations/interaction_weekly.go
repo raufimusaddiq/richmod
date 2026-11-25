@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"net/http"
-	"slices"
 	"sort"
 	"time"
 
@@ -135,7 +134,6 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 	}
 	summary := interactionWeekly{WindowDays: interactionWindowDays, Timezone: householdZone, NotYetMeasurable: []string{}}
 	windows := map[string]*interactionWindow{"current": &current, "previous": &previous}
-	var repairedEver bool
 
 	timeout := h.probeTimeout
 	if timeout == 0 {
@@ -216,7 +214,7 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 					window.RepeatedInput += count
 				case "REPLY_REPAIRED":
 					switch decision {
-					case "EMPTY", "BROKEN_TEXT":
+					case "EMPTY", "BROKEN_TEXT", "INTERNAL_CODE":
 						window.BrokenReplies += count
 					case "TELEGRAM_MECHANICS":
 						window.MechanicsReplies += count
@@ -225,19 +223,11 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 			}
 			return rows.Err()
 		}),
-		section("repairs", func(ctx context.Context) error {
-			return h.pool.QueryRow(ctx, `
-				SELECT EXISTS (SELECT 1 FROM product_telemetry_event
-				  WHERE household_id=$1 AND event_type='INTERACTION' AND action='REPLY_REPAIRED')`, householdID).Scan(&repairedEver)
-		}),
 	)
 	current.finalize()
 	previous.finalize()
 	summary.Current, summary.Previous = current, previous
 	summary.DegradedSections = degraded
-	if !repairedEver || slices.Contains(degraded, "repairs") {
-		summary.NotYetMeasurable = append(summary.NotYetMeasurable, "broken_or_empty_replies", "telegram_mechanics_replies")
-	}
 	summary.NotYetMeasurable = append(summary.NotYetMeasurable, "answers_via_assistant")
 	return summary, nil
 }
