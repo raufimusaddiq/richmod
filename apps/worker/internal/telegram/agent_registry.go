@@ -68,7 +68,7 @@ func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	base := NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
 	tools := make([]gateway.ToolDefinition, 0, len(base)+4)
-	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == "CYCLE_RESIDUAL_ALLOCATION")
+	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == cycleReviewType)
 	for _, tool := range base {
 		if tool.Name == "ask_clarification" || tool.Name == "finance_help" || tool.Name == "finance_out_of_scope" {
 			continue
@@ -85,34 +85,6 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	tools = append(tools,
 		gateway.ToolDefinition{Name: "get_transaction_details", Description: "Return model-safe authoritative details for one opaque transaction reference from recent results. Never use or request a database UUID.", Parameters: objectSchema(map[string]any{"target_ref": map[string]any{"type": "string"}}, []string{"target_ref"})},
 	)
-
-	if cycleResidual {
-		allocation := objectSchema(map[string]any{
-			"wealth_account_hint": map[string]any{"type": "string", "description": "Human-readable Wealth Account name/institution hint. Never use a database UUID."},
-			"amount_idr":          amountSchema(false),
-			"note":                nullString,
-		}, []string{"wealth_account_hint", "amount_idr", "note"})
-		tools = append(tools, gateway.ToolDefinition{
-			Name:        "resolve_review",
-			Description: "Resolve the server-bound salary-cycle residual review. Wealth allocations use human-readable account hints; Go resolves them uniquely and keeps canonical IDs private.",
-			Parameters: objectSchema(map[string]any{
-				"action":              map[string]any{"type": "string", "enum": []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}},
-				"candidate_ref":       nullString,
-				"source_account_hint": nullString,
-				"wealth_account_hint": nullString,
-				"category_slug":       nullString,
-				"merchant":            nullString,
-				"description":         nullString,
-				"pay_date":            nullString,
-				"amount_idr":          nullString,
-				"transaction_at":      nullString,
-				"allocations": map[string]any{
-					"type":  "array",
-					"items": allocation,
-				},
-			}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"}),
-		})
-	}
 
 	if hasPendingBatch {
 		tools = append(tools, gateway.ToolDefinition{

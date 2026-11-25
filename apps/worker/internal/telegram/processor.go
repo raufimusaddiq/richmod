@@ -238,14 +238,6 @@ func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, househo
 	if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
 		return true, p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
-		if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-			return true, err
-		}
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
-	}
 	if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
 		if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return true, err

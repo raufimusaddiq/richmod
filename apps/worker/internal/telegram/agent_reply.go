@@ -362,14 +362,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 			return "Observasi kekayaan sudah direklasifikasi sebagai pembelian aset.", true
 		case "WEALTH_OBSERVATION_IGNORED":
 			return "Observasi kekayaan sudah diabaikan.", true
-		case "CYCLE_RESIDUAL_RESOLVED":
-			return "Rekonsiliasi sisa siklus gaji sudah diselesaikan.", true
-		case "CYCLE_RESIDUAL_REFRESHED":
-			return "Nilai sisa siklus gaji berubah. Tinjau nilai terbaru sebelum menyelesaikannya.", true
-		case "CYCLE_RESIDUAL_CLOSED":
-			return "Rekonsiliasi sisa siklus gaji ditutup karena tidak lagi berlaku.", true
-		case "ADD_MISSING_TRANSACTION_IN_TELEGRAM":
-			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu tinjauan). Setelah tersimpan, sisa siklus gaji dihitung ulang; tinjauan tetap terbuka jika masih perlu tindakan.", true
 		}
 	}
 

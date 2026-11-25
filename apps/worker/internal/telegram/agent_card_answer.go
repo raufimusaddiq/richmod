@@ -57,8 +57,6 @@ func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 
 func proposalExpectedAnswer(card agentReviewBinding) cardAnswerKind {
 	switch {
-	case card.ConversationState == "AWAITING_DATE" && (card.ReviewType == "PAYSLIP_CONFIRMATION" || card.ReviewType == "MISSING_PAY_DATE"):
-		return cardAnswerDate
 	case card.ReviewType == "MISSING_AMOUNT" && card.ConversationState == "AWAITING_CONFIRMATION":
 		return cardAnswerConfirm
 	case card.ReviewType == "MISSING_AMOUNT" && card.ConversationState == "AWAITING_DETAIL":
@@ -137,11 +135,12 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('PENDING_SEND','OPEN')
 			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
 			UNION ALL
-			SELECT 'CYCLE_RESIDUAL',crc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
+			SELECT 'CYCLE_RESIDUAL',crc.id::text,r.id::text,'',r.review_type,COALESCE(c.state,''),'',COALESCE(rr.telegram_message_id,0)::bigint,
 			       crc.basis_residual_idr::text,'Sisa siklus gaji',r.created_at,r.expires_at,r.review_item_id::text
 			FROM review_request r
 			JOIN review_item ri ON ri.id=r.review_item_id
 			JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id
+			LEFT JOIN review_conversation c ON c.review_request_id=r.id
 			JOIN review_request_recipient rr ON rr.review_request_id=r.id
 			WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN'
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
@@ -208,7 +207,7 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 		case cardAnswerCategory:
 			value, ok = parseCategoryAnswer(text, categories)
 		case cardAnswerAccount:
-			if choice, exact := exactAccountMatch(text, accounts[card.ConversationState]); exact {
+			if choice, exact := exactAccountMatch(text, accounts[accountListKey(card)]); exact {
 				value, ok = normalizeAnswer(choice.Name), true
 			}
 		case cardAnswerDate:

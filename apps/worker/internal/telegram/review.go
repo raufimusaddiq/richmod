@@ -134,8 +134,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return false, nil
 	}
 	var amountItemID, amountProposalID, amountSourceID, amountUserID, amountRequestID, amountState, stagedAmount, amountType string
-	var proposalReviewID, proposalID, sourceID, documentID, userID, requestID string
-	var amountBound, payslipBound bool
+	var amountBound bool
 	bindTx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return true, err
@@ -157,17 +156,6 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			}
 			if err == nil {
 				amountItemID, amountUserID, amountRequestID, amountBound = item.ItemID, item.UserID, item.RequestID, true
-			}
-		case "PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE":
-			err = bindTx.QueryRow(ctx, `SELECT ri.proposal_id::text,COALESCE(ri.source_event_id,p.source_event_id)::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text
-				FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
-				WHERE r.id=$1 AND r.household_id=$2 AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') AND c.state='AWAITING_DATE'`, item.RequestID, householdID).Scan(&proposalID, &sourceID, &documentID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				_ = bindTx.Rollback(ctx)
-				return true, err
-			}
-			if err == nil {
-				proposalReviewID, userID, requestID, payslipBound = item.ItemID, item.UserID, item.RequestID, true
 			}
 		}
 	}
@@ -238,49 +226,6 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		}
 		return true, tx.Commit(ctx)
 	}
-	if payslipBound {
-		var payDate string
-		if parsed, ok := parseDateValue(update.Message.Text, p.turnTime(update), 31); ok {
-			payDate = parsed.Format("2006-01-02")
-		} else {
-			extracted, extractErr := p.extractReview(ctx, sourceEventID, update.Message.Text, p.turnTime(update), nil)
-			if extractErr != nil {
-				return true, extractErr
-			}
-			payDate = strings.TrimSpace(extracted.PayDate)
-		}
-		if payDate == "" || !validReviewDate(payDate) {
-			return true, p.continueProposalDateReview(ctx, sourceEventID, householdID, proposalReviewID, update)
-		}
-		parsed, parseErr := time.ParseInLocation("2006-01-02", payDate, jakartaLocation())
-		if parseErr != nil || parsed.Format("2006-01-02") != payDate {
-			return true, p.continueProposalDateReview(ctx, sourceEventID, householdID, proposalReviewID, update)
-		}
-		tx, beginErr := p.pool.Begin(ctx)
-		if beginErr != nil {
-			return true, beginErr
-		}
-		defer tx.Rollback(ctx)
-		var choice string
-		_ = tx.QueryRow(ctx, `SELECT decision->'knownFacts'->>'salary_classification' FROM review_item WHERE id=$1`, proposalReviewID).Scan(&choice)
-		result, resolveErr := reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: proposalReviewID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: "SET_PAY_DATE", Choice: choice, PayDate: &parsed})
-		if resolveErr != nil {
-			if errors.Is(resolveErr, reviewdomain.ErrPayslipReviewInvalid) {
-				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-			}
-			return true, resolveErr
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','transaction_at')) ON CONFLICT DO NOTHING`, result.TransactionID, sourceEventID, requestID); err != nil {
-			return true, err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-			return true, err
-		}
-		if err = enqueueReply(ctx, tx, update, "✅ Slip gaji sudah dikonfirmasi dan tanggal pembayarannya dicatat."); err != nil {
-			return true, err
-		}
-		return true, tx.Commit(ctx)
-	}
 	return false, nil
 }
 
@@ -288,43 +233,9 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	if data == "review:remember" || data == "review:once" {
 		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
 	}
-	if cardActionCallback(data) {
-		return true, p.processCardActionCallback(ctx, sourceEventID, householdID, update, data)
-	}
 	duplicateMerge := strings.HasPrefix(data, "review:dup:merge:")
 	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:ignore" && data != "review:quality:confirm" {
 		return false, nil
-	}
-	if data == "review:ignore" {
-		tx, err := p.pool.Begin(ctx)
-		if err != nil {
-			return true, err
-		}
-		defer tx.Rollback(ctx)
-		var itemID, proposalID, sourceID, documentID, userID string
-		err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.proposal_id::text,p.source_event_id::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text,ti.user_id::text
-			FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
-			JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
-			WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') FOR UPDATE OF ri,p`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &proposalID, &sourceID, &documentID, &userID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			if err = tx.Rollback(ctx); err != nil {
-				return true, err
-			}
-		} else {
-			if err != nil {
-				return true, err
-			}
-			if _, err = reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: "IGNORE"}); err != nil {
-				return true, err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-				return true, err
-			}
-			if err = enqueueReply(ctx, tx, update, "Slip gaji diabaikan."); err != nil {
-				return true, err
-			}
-			return true, tx.Commit(ctx)
-		}
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -659,23 +570,6 @@ func rejectReviewTx(ctx context.Context, tx pgx.Tx, householdID, userID, sourceE
 
 func TelegramCompletableReviewType(reviewType string) bool {
 	return reviewdec.TelegramProjectable(reviewType)
-}
-
-func salaryPolicyMarkup(actions []string) *InlineKeyboardMarkup {
-	var buttons []InlineKeyboardButton
-	if contains(actions, "PRIMARY_SALARY") {
-		buttons = append(buttons, InlineKeyboardButton{Text: "Gaji utama", CallbackData: "review:salary:primary"})
-	}
-	if contains(actions, "HOUSEHOLD_POLICY") {
-		buttons = append(buttons, InlineKeyboardButton{Text: "Catat sebagai gaji", CallbackData: "review:salary:household"})
-	}
-	if contains(actions, "ORDINARY_INCOME") {
-		buttons = append(buttons, InlineKeyboardButton{Text: "Pemasukan biasa", CallbackData: "review:salary:ordinary"})
-	}
-	if contains(actions, "IGNORE") {
-		buttons = append(buttons, InlineKeyboardButton{Text: "Abaikan", CallbackData: "review:ignore"})
-	}
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{buttons}}
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {

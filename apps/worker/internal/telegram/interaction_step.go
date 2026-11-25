@@ -30,6 +30,12 @@ const (
 	factInvest   factKind = "invest"
 	factRefresh  factKind = "refresh"
 	factIncome   factKind = "income"
+
+	factSalary      factKind = "salary"
+	factDate        factKind = "date"
+	factCycle       factKind = "cycle"
+	factSplitAcct   factKind = "splitaccount"
+	factSplitAmount factKind = "splitamount"
 )
 
 const transferReviewType = "TRANSFER_CLASSIFICATION"
@@ -57,6 +63,20 @@ const (
 	callbackInvestPg   = "review:investpage:"
 	callbackMerge      = "review:xfer:merge:"
 	callbackNewXfer    = "review:xfer:new"
+
+	callbackSalaryHousehold = "review:salary:household"
+	callbackSalaryPrimary   = "review:salary:primary"
+	callbackSalaryOrdinary  = "review:salary:ordinary"
+	callbackDateToday       = "review:date:today"
+	callbackDateYesterday   = "review:date:yesterday"
+	callbackDateOther       = "review:date:other"
+	callbackLeave           = "review:leave"
+	callbackCycleMissing    = "review:cycmissing"
+	callbackCycleSplit      = "review:cycsplit"
+	callbackCycleAll        = "review:cycall"
+	callbackCancel          = "review:cancel"
+	callbackCycle           = "review:cyc:"
+	callbackCyclePg         = "review:cycpage:"
 )
 
 type Step struct {
@@ -107,8 +127,12 @@ func (s Step) AnswerKind() cardAnswerKind {
 		return cardAnswerCategory
 	case factRemember:
 		return cardAnswerConfirm
-	case factAsset, factInvest:
+	case factAsset, factInvest, factCycle, factSplitAcct:
 		return cardAnswerAccount
+	case factDate:
+		return cardAnswerDate
+	case factSplitAmount:
+		return cardAnswerAmount
 	}
 	return cardAnswerNone
 }
@@ -131,7 +155,7 @@ func engineReviewType(reviewType string) bool {
 }
 
 func engineOwnedType(reviewType string) bool {
-	return engineReviewType(reviewType) || transferReview(reviewType)
+	return engineReviewType(reviewType) || transferReview(reviewType) || payslipReviewType(reviewType) || reviewType == cycleReviewType
 }
 
 func transferReview(reviewType string) bool {
@@ -156,6 +180,12 @@ func engineOwnsTransfer(decision reviewdec.Decision, subject reviewSubject) bool
 }
 
 func engineOwnsDecision(decision reviewdec.Decision, reviewType string, subject reviewSubject) bool {
+	if payslipReviewType(reviewType) {
+		return engineOwnsPayslip(decision)
+	}
+	if reviewType == cycleReviewType {
+		return true
+	}
 	if transferReview(reviewType) {
 		return engineOwnsTransfer(decision, subject)
 	}
@@ -184,6 +214,12 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 		return Step{}, false
 	}
 	step := Step{Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
+	if payslipReviewType(reviewType) {
+		return derivePayslipStep(step, decision, reviewType), true
+	}
+	if reviewType == cycleReviewType {
+		return deriveCycleStep(step, subject), true
+	}
 	if transferReview(reviewType) {
 		return deriveTransferStep(step, decision, subject), true
 	}
@@ -206,6 +242,9 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 }
 
 func stepForBinding(card agentReviewBinding) (Step, bool) {
+	if step, ok := subjectStepForBinding(card); ok {
+		return step, true
+	}
 	if card.Kind != "TRANSACTION" || !engineOwnedType(card.ReviewType) {
 		return Step{}, false
 	}
@@ -285,7 +324,11 @@ func (s Step) executable(actions []string) Step {
 	if s.Kind == stepDone || s.Fact == factRemember {
 		return s
 	}
-	kept := keepExecutableButtons(&InlineKeyboardMarkup{InlineKeyboard: s.Rows}, actions)
+	rows := s.Rows
+	if cycleFact(s.Fact) {
+		rows = cycleExecutableRows(rows, actions)
+	}
+	kept := keepExecutableButtons(&InlineKeyboardMarkup{InlineKeyboard: rows}, actions)
 	s.Rows = nil
 	if kept != nil {
 		s.Rows = kept.InlineKeyboard
@@ -306,4 +349,18 @@ func stepMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, dec
 		return nil, err
 	}
 	return step.executable(cardActions(decision, reviewType)).Markup(), nil
+}
+
+func loadedStepCard(ctx context.Context, tx pgx.Tx, reviewID, reviewType, facts string, decision reviewdec.Decision, subject reviewSubject, card reviewCard) (reviewCard, error) {
+	if card.Mode != "step" {
+		return card, nil
+	}
+	step, ok := deriveStep(decision, reviewType, facts, subject)
+	if !ok {
+		return card, nil
+	}
+	if err := step.loadRows(ctx, tx, reviewID, 0); err != nil {
+		return card, err
+	}
+	return stepRenderCard(step.executable(cardActions(decision, reviewType))), nil
 }

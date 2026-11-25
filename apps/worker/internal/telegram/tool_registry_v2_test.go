@@ -34,11 +34,10 @@ func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
 }
 
 func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
-	if got := reviewdec.AgentActions("PAYSLIP_CONFIRMATION"); len(got) != 3 {
-		t.Fatalf("payslip actions=%v", got)
-	}
-	if got := reviewdec.AgentActions("MISSING_PAY_DATE"); len(got) != 2 {
-		t.Fatalf("pay-date actions=%v", got)
+	for _, kind := range []string{"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE"} {
+		if got := reviewdec.AgentActions(kind); strings.Join(got, ",") != "IGNORE" {
+			t.Fatalf("%s actions=%v", kind, got)
+		}
 	}
 	if got := reviewdec.AgentActions("UNKNOWN_BANK_TEMPLATE"); strings.Join(got, ",") != "COMPLETE_BANK_FACTS,IGNORE" {
 		t.Fatalf("bank actions=%v", got)
@@ -107,16 +106,4 @@ func TestRecordTransferContractCarriesNoPurpose(t *testing.T) {
 		return
 	}
 	t.Fatal("record_transfer missing")
-}
-
-func TestNativeResidualAllocationUsesSnakeCaseFields(t *testing.T) {
-	call := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"ALLOCATE_RETAINED_BALANCE","category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[{"wealth_account_hint":"Tabungan","amount_idr":"1000000","note":null}]}`)}
-	value, err := ValidateNativeToolCall(call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, _ := json.Marshal(value)
-	if !strings.Contains(string(encoded), `"wealth_account_hint":"Tabungan"`) || !strings.Contains(string(encoded), `"amount_idr":"1000000"`) {
-		t.Fatalf("decoded=%#v", value)
-	}
 }

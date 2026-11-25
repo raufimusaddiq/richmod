@@ -33,7 +33,6 @@ var kinds = []Kind{
 		WhyID:    "Alokasi sisa saldo adalah keputusan keluarga, jadi tidak ditebak.",
 		Telegram: true,
 		Inbox:    []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"},
-		Agent:    []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"},
 	},
 	{
 		Reason: "WEALTH_OBSERVATION_CONFIRMATION", Class: ClassEvidenceGap,
@@ -89,7 +88,7 @@ var kinds = []Kind{
 		WhyID:    "Gaji pertama dari sumber ini perlu dipilih jenisnya.",
 		Telegram: true,
 		Inbox:    []string{"PRIMARY_SALARY", "HOUSEHOLD_POLICY", "ORDINARY_INCOME", "IGNORE"},
-		Agent:    []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "MISSING_PAY_DATE", Class: ClassEvidenceGap,
@@ -100,7 +99,7 @@ var kinds = []Kind{
 		WhyID:    "Tanggal pembayaran tidak tertulis di bukti.",
 		Telegram: true,
 		Inbox:    []string{"SET_PAY_DATE", "IGNORE"},
-		Agent:    []string{"SET_PAY_DATE", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "MISSING_TRANSACTION_DATE", Class: ClassEvidenceGap,

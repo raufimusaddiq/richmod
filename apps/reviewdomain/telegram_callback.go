@@ -16,7 +16,9 @@ var telegramCallbackExact = map[string]struct{}{
 	"review:category": {}, "review:ignore": {}, "review:reprocess": {},
 	"review:quality:confirm": {}, "review:salary:primary": {}, "review:salary:household": {}, "review:salary:ordinary": {},
 	"review:dup:new": {}, "review:dispute:confirm": {}, "review:dispute:reject": {},
-	"review:leave": {}, "review:xfer:new": {}, "review:back": {}, "interaction:answer": {}, "interaction:new": {},
+	"review:leave": {}, "review:xfer:new": {}, "review:back": {}, "review:cancel": {},
+	"review:date:today": {}, "review:date:yesterday": {}, "review:date:other": {},
+	"review:cycsplit": {}, "review:cycmissing": {}, "review:cycall": {}, "interaction:answer": {}, "interaction:new": {},
 	"pending:action:yes": {}, "pending:action:no": {}, "pending:batch:yes": {}, "pending:batch:no": {},
 }
 
@@ -28,7 +30,7 @@ var telegramCallbackTokenPrefixes = []string{
 
 var telegramCallbackNumberPrefixes = []string{
 	"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
-	"review:dup:merge:", "review:xfer:merge:",
+	"review:dup:merge:", "review:xfer:merge:", "review:cyc:", "review:cycpage:",
 }
 
 func ValidTelegramCallback(data string) bool {
