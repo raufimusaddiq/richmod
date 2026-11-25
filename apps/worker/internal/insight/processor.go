@@ -16,6 +16,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/plainlabel"
 )
 
 const promptVersion = "cycle-analyst-v6"
@@ -206,7 +207,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 			}
 			seen[call.Name] = true
 			reads = append(reads, toolRead{call.Name, call.Arguments, facts})
-			outputs = append(outputs, gateway.AgentToolOutput{CallID: call.CallID, Output: facts})
+			outputs = append(outputs, gateway.AgentToolOutput{CallID: call.CallID, Output: plainlabel.Facts(facts)})
 		}
 		if len(request.ToolOutputs) > 0 {
 			request.ReadHistory = append(request.ReadHistory, gateway.AgentReadPhase{ToolCalls: request.PreviousToolCalls, ToolOutputs: request.ToolOutputs})

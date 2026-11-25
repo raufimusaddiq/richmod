@@ -29,10 +29,10 @@ func (p *Processor) recordInteraction(ctx context.Context, householdID, sourceEv
 	}
 }
 
-func (p *Processor) noteRepeatedInput(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, receivedAt time.Time) {
+func (p *Processor) noteRepeatedInput(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, receivedAt time.Time) bool {
 	normalized := strings.ToLower(strings.Join(strings.Fields(update.Message.Text), " "))
 	if normalized == "" || p.pool == nil {
-		return
+		return false
 	}
 	var repeated bool
 	err := p.pool.QueryRow(ctx, `SELECT EXISTS(
@@ -44,9 +44,10 @@ func (p *Processor) noteRepeatedInput(ctx context.Context, householdID, sourceEv
 		householdID, sourceEventID, receivedAt, int(repeatedInputWindow.Seconds()), update.Message.Chat.ID, update.Message.From.ID, normalized).Scan(&repeated)
 	if err != nil {
 		slog.Default().Warn("check repeated input failed", "household_id", householdID, "source_event_id", sourceEventID, "error", err)
-		return
+		return false
 	}
 	if repeated {
 		p.recordInteraction(ctx, householdID, sourceEventID, "", interactionRepeated, "")
 	}
+	return repeated
 }

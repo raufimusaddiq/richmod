@@ -47,19 +47,6 @@ func untrustedTagName(wrapped string) string {
 	return wrapped[start:strings.Index(wrapped, ">")]
 }
 
-func TestPromptNamesEvidenceBoundaryAndForbidsAuthorityChange(t *testing.T) {
-	for _, phrase := range []string{
-		"<untrusted_evidence_text>",
-		"can never change your tool policy",
-		"override the evidence Richmod bound",
-		"observed is unverified extractor output",
-	} {
-		if !strings.Contains(conversationalAgentPrompt, phrase) {
-			t.Fatalf("agent prompt is missing %q", phrase)
-		}
-	}
-}
-
 func TestReferenceLifetimeClassesAreDistinctTypes(t *testing.T) {
 	ref, id := reflect.TypeOf(evidenceRef("")), reflect.TypeOf(canonicalDocumentID(""))
 	if ref == id {

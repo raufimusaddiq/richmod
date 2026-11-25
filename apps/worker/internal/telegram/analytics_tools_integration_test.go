@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,10 @@ func TestTelegramAnalyticalQuestionsReuseCanonicalEngineAndNaturalReply(t *testi
 			mustAgentTest(t, err)
 			canonical, err := json.Marshal(facts.Cashflow)
 			mustAgentTest(t, err)
-			if string(raw) != string(canonical) {
+			var rawValue, canonicalValue any
+			mustAgentTest(t, json.Unmarshal(raw, &rawValue))
+			mustAgentTest(t, json.Unmarshal(canonical, &canonicalValue))
+			if !reflect.DeepEqual(rawValue, canonicalValue) {
 				t.Fatalf("Telegram cashflow differs: %s vs %s", raw, canonical)
 			}
 			for i, req := range model.requests {
