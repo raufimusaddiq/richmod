@@ -75,6 +75,9 @@ func TestMutationOutcomeCopyChoosesByResult(t *testing.T) {
 	if got, _ := mutationOutcomeCopy(agentToolResult{Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "SOMETHING_STAGED"}}); got != outcomeAwaitingMessage {
 		t.Fatalf("a staged change must never read as saved, got %q", got)
 	}
+	if got, _ := mutationOutcomeCopy(agentToolResult{Status: "FAILED", Mutation: map[string]any{"action": "SOMETHING"}}); got != outcomeFailedMessage {
+		t.Fatalf("a failed result must never read as saved, got %q", got)
+	}
 	if got, ok := mutationOutcomeCopy(agentToolResult{Status: "IGNORED"}); !ok || got != outcomeIgnoredMessage {
 		t.Fatalf("ignored outcome = %q %v", got, ok)
 	}

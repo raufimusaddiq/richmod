@@ -261,7 +261,7 @@ func plainOpenCards(cards []map[string]any) []map[string]any {
 			switch key {
 			case "review_type", "review_mode", "binding", "awaiting_field":
 			default:
-				plain[key] = value
+				plain[key] = plainlabel.Value(value)
 			}
 		}
 		if kind, _ := card["review_type"].(string); kind != "" {

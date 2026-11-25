@@ -24,12 +24,12 @@ func mutationOutcomeCopy(result agentToolResult) (string, bool) {
 	switch {
 	case isAwaitingStatus(status):
 		return outcomeAwaitingMessage, true
-	case result.Mutation != nil:
-		return outcomeSavedMessage, true
-	case status == "IGNORED" || status == "SKIPPED":
-		return outcomeIgnoredMessage, true
 	case status == "FAILED" || status == "ERROR":
 		return outcomeFailedMessage, true
+	case status == "IGNORED" || status == "SKIPPED":
+		return outcomeIgnoredMessage, true
+	case result.Mutation != nil:
+		return outcomeSavedMessage, true
 	case len(result.Facts) == 0 && len(result.Review) == 0:
 		return outcomeUnchangedMessage, true
 	}
