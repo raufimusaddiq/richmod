@@ -67,6 +67,7 @@ type contractHarness struct {
 	unlinked      bool
 	knownAmount   bool
 	missingFacts  []string
+	categorized   bool
 	checked       map[string]bool
 	markups       map[int64][]string
 	texts         map[int64]string
@@ -205,7 +206,7 @@ func (h *contractHarness) openReview() {
 		mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Toko Contoh') RETURNING id`, h.f.householdID).Scan(&merchant))
 	}
 	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,created_by_user_id) VALUES($1,$4,'NEEDS_REVIEW',25000,'IDR',now(),NULLIF($2,'')::uuid,$3) RETURNING id`, h.f.householdID, merchant, h.f.userID, h.txType).Scan(&h.txID))
-	if h.kind == "MISSING_TRANSACTION_DATE" {
+	if h.kind == "MISSING_TRANSACTION_DATE" || h.categorized {
 		h.exec(`UPDATE transaction SET category_id=(SELECT id FROM category WHERE household_id=$1 AND slug='makan') WHERE id=$2`, h.f.householdID, h.txID)
 	}
 	if h.mergeSource != "" {

@@ -27,6 +27,10 @@ func withKnownBankAmount() contractOption {
 	return func(h *contractHarness) { h.knownAmount = true }
 }
 
+func withCategory() contractOption {
+	return func(h *contractHarness) { h.categorized = true }
+}
+
 func withMissingFacts(facts ...string) contractOption {
 	return func(h *contractHarness) { h.missingFacts = facts }
 }
@@ -253,7 +257,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.wantItem("RESOLVED")
 			h.wantBankQueued(0, "")
 		}},
-		{"answering on one phone closes the other member's copy", bankKind, []contractOption{withSecondMember()}, func(h *contractHarness) {
+		{"answering on one phone closes the other member's copy and a later tap on it queues nothing twice", bankKind, []contractOption{withSecondMember()}, func(h *contractHarness) {
 			messageB, textB, _ := h.card(h.chatB)
 			if messageB == 0 {
 				t.Fatal("the second member never received the card")
@@ -456,6 +460,13 @@ func TestInteractionEngineFactsContract(t *testing.T) {
 			h.wantCard("Rp25.000")
 			h.wantTransaction("CONFIRMED", "", "Belanja")
 		}},
+		{"a purpose on a transaction that already has a category finishes the card", purposeKind, []contractOption{withCategory()}, func(h *contractHarness) {
+			h.reply("bayar listrik")
+			h.wantCard("✅ Tersimpan: Makan · Rp25.000")
+			h.wantNoButtons()
+			h.wantTransaction("CONFIRMED", "", "Makan")
+			h.wantItem("RESOLVED")
+		}},
 		{"the purpose typed as a plain message to the single waiting card", purposeKind, nil, func(h *contractHarness) {
 			h.plain("bayar listrik")
 			h.wantCard("Masuk kategori apa?")
@@ -486,12 +497,5 @@ func TestInteractionEngineFactsContract(t *testing.T) {
 			h.wantItem("RESOLVED")
 		}},
 	}
-	for _, row := range rows {
-		if strings.TrimSpace(row.name) == "" {
-			t.Fatal("unnamed row")
-		}
-	}
 	runContractRows(t, rows)
 }
-
-var _ = fmt.Sprint
