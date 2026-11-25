@@ -219,7 +219,8 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
 	if askRemember {
 		if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)
-			AND NOT EXISTS(SELECT 1 FROM transaction h WHERE h.household_id=$1 AND h.merchant_id=$2 AND h.id<>$4 AND h.status='CONFIRMED' AND h.category_id IS NOT NULL AND h.category_id<>$3)`, householdID, *merchantID, categoryID, transactionID).Scan(&askRemember); err != nil {
+			AND NOT EXISTS(SELECT 1 FROM transaction h WHERE h.household_id=$1 AND h.merchant_id=$2 AND h.id<>$4 AND h.status='CONFIRMED' AND h.category_id IS NOT NULL AND h.category_id<>$3
+				AND (h.auto_confirmed_at IS NULL OR EXISTS(SELECT 1 FROM product_telemetry_event e WHERE e.household_id=$1 AND e.transaction_id=h.id AND e.event_type='AUTO_CONFIRM_CORRECTION' AND 'category'=ANY(e.changed_fields))))`, householdID, *merchantID, categoryID, transactionID).Scan(&askRemember); err != nil {
 			return err
 		}
 	}
