@@ -394,6 +394,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 			h.tapLabel("Sama, gabungkan")
 			h.staleTapOn(h.chatB, messageB, textB, data)
 			h.wantJobs(`SELECT count(*) FROM reconciliation_merge WHERE household_id=$1 AND source_transaction_id=$2`, 1, h.f.householdID, h.txID)
+			h.wantJobs(`SELECT count(*) FROM audit_log WHERE household_id=$1 AND action='STALE_REVIEW_ACTION'`, 1, h.f.householdID)
 		}},
 		{"two members answering at once merge once", dupKind, []contractOption{one, withSecondMember()}, func(h *contractHarness) {
 			h.answerTogether("Sama, gabungkan")

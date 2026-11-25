@@ -438,6 +438,9 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 	}
 	reply := message
 	if update.CallbackQuery != nil && message == staleActionMessage {
+		if err := recordStaleReviewAction(ctx, tx, sourceEventID, update); err != nil {
+			return err
+		}
 		reply = staleReviewReplyForSource(ctx, tx, sourceEventID, update, message)
 	}
 	if err := enqueueReply(ctx, tx, update, reply); err != nil {
@@ -449,6 +452,11 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func recordStaleReviewAction(ctx context.Context, tx pgx.Tx, sourceEventID string, update telegramUpdate) error {
+	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT s.household_id,'TELEGRAM',ti.user_id,'STALE_REVIEW_ACTION','source_event',s.id,jsonb_build_object('telegram_message_id',$2::bigint) FROM source_event s JOIN telegram_identity ti ON ti.household_id=s.household_id AND ti.telegram_user_id=$3 AND ti.active WHERE s.id=$1`, sourceEventID, update.CallbackQuery.Message.MessageID, update.CallbackQuery.From.ID)
+	return err
 }
 
 func enqueueReply(ctx context.Context, tx pgx.Tx, update telegramUpdate, message string) error {
