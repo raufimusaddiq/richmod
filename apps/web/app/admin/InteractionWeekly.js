@@ -9,6 +9,7 @@ const sourceLabels = [
   ["PLAIN", "Pesan biasa"],
   ["LABEL_TEXT", "Label tombol diketik"],
   ["VIA_ASSISTANT", "Lewat asisten"],
+  ["UNKNOWN", "Cara tidak tercatat"],
 ];
 
 const typeLabel = (type) => reviewTypeCopy[type]?.[0] || "Jenis lain";
@@ -16,52 +17,52 @@ const typeLabel = (type) => reviewTypeCopy[type]?.[0] || "Jenis lain";
 const ofCount = (count, of) => `${number(count)} dari ${number(of)}`;
 const ratioText = (count, of, rate) => (of > 0 ? `${ofCount(count, of)} (${percent(rate)})` : "Belum ada data");
 
-function measures(w, missing) {
+const UNAVAILABLE = "Belum dapat dimuat";
+
+function measures(w, missing, degraded) {
   const unmeasured = (key) => missing.includes(key);
+  const lost = (...names) => names.some((name) => degraded.includes(name));
   const answersTotal = w.answers + w.unusableAnswers;
+  const row = (label, target, sections, value, ok) => ({
+    label,
+    target,
+    value: lost(...sections) ? UNAVAILABLE : value,
+    ok: lost(...sections) ? null : ok,
+  });
+  const replyRow = (label, key, count) =>
+    row(label, "0", ["events", "repairs"], unmeasured(key) ? "Belum bisa diukur" : number(count), unmeasured(key) ? null : count === 0);
   return [
-    {
-      label: "Review selesai di Telegram, dari yang dikirim sebagai kartu",
-      target: "90% atau lebih",
-      value: ratioText(w.finishedTelegram, w.cardsSent, w.finishedTelegramRate),
-      ok: w.cardsSent > 0 ? w.finishedTelegramRate >= 0.9 : null,
-    },
-    {
-      label: "Jenis review yang sebagian besar (di atas 70%) selesai di Telegram",
-      target: "Semua jenis",
-      value: w.typesSent > 0 ? ofCount(w.typesMostlyTelegram, w.typesSent) : "Belum ada data",
-      ok: w.typesSent > 0 ? w.typesMostlyTelegram === w.typesSent : null,
-    },
-    {
-      label: "Jawaban yang tidak bisa dipakai bot",
-      target: "Di bawah 2%",
-      value: ratioText(w.unusableAnswers, answersTotal, w.unusableAnswerRate),
-      ok: answersTotal > 0 ? w.unusableAnswerRate < 0.02 : null,
-    },
-    {
-      label: "Pesan yang sama dikirim lagi dalam 3 menit",
-      target: "0 sampai 1",
-      value: number(w.repeatedInput),
-      ok: w.repeatedInput <= 1,
-    },
-    {
-      label: "Balasan bot rusak atau kosong",
-      target: "0",
-      value: unmeasured("broken_or_empty_replies") ? "Belum bisa diukur" : number(w.brokenReplies),
-      ok: unmeasured("broken_or_empty_replies") ? null : w.brokenReplies === 0,
-    },
-    {
-      label: "Balasan bot yang menjelaskan cara kerja Telegram",
-      target: "0",
-      value: unmeasured("telegram_mechanics_replies") ? "Belum bisa diukur" : number(w.mechanicsReplies),
-      ok: unmeasured("telegram_mechanics_replies") ? null : w.mechanicsReplies === 0,
-    },
-    {
-      label: "Waktu tengah dari kartu terkirim sampai selesai, untuk review yang selesai di Telegram",
-      target: "Sekitar 1 menit atau kurang",
-      value: w.medianFinishMs == null ? "Belum ada data" : duration(w.medianFinishMs),
-      ok: w.medianFinishMs == null ? null : w.medianFinishMs <= 60000,
-    },
+    row(
+      "Review selesai di Telegram, dari yang dikirim sebagai kartu",
+      "90% atau lebih",
+      ["cards"],
+      ratioText(w.finishedTelegram, w.cardsSent, w.finishedTelegramRate),
+      w.cardsSent > 0 ? w.finishedTelegramRate >= 0.9 : null,
+    ),
+    row(
+      "Jenis review yang sebagian besar (di atas 70%) selesai di Telegram",
+      "Semua jenis",
+      ["cards"],
+      w.typesSent > 0 ? ofCount(w.typesMostlyTelegram, w.typesSent) : "Belum ada data",
+      w.typesSent > 0 ? w.typesMostlyTelegram === w.typesSent : null,
+    ),
+    row(
+      "Jawaban yang tidak bisa dipakai bot",
+      "Di bawah 2%",
+      ["events"],
+      ratioText(w.unusableAnswers, answersTotal, w.unusableAnswerRate),
+      answersTotal > 0 ? w.unusableAnswerRate < 0.02 : null,
+    ),
+    row("Pesan yang sama dikirim lagi dalam 3 menit", "0 sampai 1", ["events"], number(w.repeatedInput), w.repeatedInput <= 1),
+    replyRow("Balasan bot rusak atau kosong", "broken_or_empty_replies", w.brokenReplies),
+    replyRow("Balasan bot yang menjelaskan cara kerja Telegram", "telegram_mechanics_replies", w.mechanicsReplies),
+    row(
+      "Waktu tengah dari kartu terkirim sampai selesai, untuk review yang selesai di Telegram",
+      "Sekitar 1 menit atau kurang",
+      ["median"],
+      w.medianFinishMs == null ? "Belum ada data" : duration(w.medianFinishMs),
+      w.medianFinishMs == null ? null : w.medianFinishMs <= 60000,
+    ),
   ];
 }
 
@@ -106,8 +107,9 @@ export default function InteractionWeekly() {
 }
 
 function Summary({ data }) {
-  const current = measures(data.current, data.notYetMeasurable);
-  const previous = measures(data.previous, data.notYetMeasurable);
+  const degraded = data.degradedSections || [];
+  const current = measures(data.current, data.notYetMeasurable, degraded);
+  const previous = measures(data.previous, data.notYetMeasurable, degraded);
   const rows = data.current.types;
   return (
     <>
@@ -137,18 +139,24 @@ function Summary({ data }) {
       <div className="section-title"><h3>Cara jawaban masuk</h3></div>
       <Table headers={["Cara", "7 hari terakhir", "7 hari sebelumnya"]}>
         {sourceLabels.map(([key, label]) => {
-          const unmeasured = key === "VIA_ASSISTANT" && data.notYetMeasurable.includes("answers_via_assistant");
+          const cell = (window) => {
+            if (degraded.includes("events")) return UNAVAILABLE;
+            if (key === "VIA_ASSISTANT" && data.notYetMeasurable.includes("answers_via_assistant")) return "Belum bisa diukur";
+            return number(window.answerSources[key]);
+          };
           return (
             <tr key={key}>
               <td>{label}</td>
-              <td>{unmeasured ? "Belum bisa diukur" : number(data.current.answerSources[key])}</td>
-              <td>{unmeasured ? "Belum bisa diukur" : number(data.previous.answerSources[key])}</td>
+              <td>{cell(data.current)}</td>
+              <td>{cell(data.previous)}</td>
             </tr>
           );
         })}
       </Table>
       <div className="section-title"><h3>Per jenis review (7 hari terakhir)</h3></div>
-      {rows.length ? (
+      {degraded.includes("cards") ? (
+        <Empty>{UNAVAILABLE}.</Empty>
+      ) : rows.length ? (
         <Table headers={["Jenis review", "Terkirim", "Selesai di Telegram", "Selesai di web", "Masih terbuka", "Lainnya"]}>
           {rows.map((row) => (
             <tr key={row.reviewType}>

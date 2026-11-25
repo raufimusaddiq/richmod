@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -18,7 +19,7 @@ const (
 	householdZone           = "Asia/Jakarta"
 )
 
-var answerSourceKeys = []string{"TAP", "REPLY", "THREAD_REPLY", "PLAIN", "LABEL_TEXT", "VIA_ASSISTANT"}
+var answerSourceKeys = []string{"TAP", "REPLY", "THREAD_REPLY", "PLAIN", "LABEL_TEXT", "VIA_ASSISTANT", "UNKNOWN"}
 
 type interactionTypeRow struct {
 	ReviewType       string `json:"reviewType"`
@@ -52,6 +53,7 @@ type interactionWindow struct {
 type interactionWeekly struct {
 	WindowDays       int               `json:"windowDays"`
 	Timezone         string            `json:"timezone"`
+	DegradedSections []string          `json:"degradedSections"`
 	Current          interactionWindow `json:"current"`
 	Previous         interactionWindow `json:"previous"`
 	NotYetMeasurable []string          `json:"notYetMeasurable"`
@@ -135,12 +137,15 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 	windows := map[string]*interactionWindow{"current": &current, "previous": &previous}
 	var repairedEver bool
 
-	probes := *h
-	if probes.probeTimeout == 0 {
-		probes.probeTimeout = interactionProbeTimeout
+	timeout := h.probeTimeout
+	if timeout == 0 {
+		timeout = interactionProbeTimeout
 	}
-	err = probes.runProbes(ctx,
-		func(ctx context.Context) error {
+	section := func(name string, fn func(context.Context) error) namedGroup {
+		return namedGroup{name, func(ctx context.Context) error { return h.probeWithin(ctx, timeout, fn) }}
+	}
+	degraded := runGroups(ctx,
+		section("cards", func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, interactionCardsCTE+`
 				SELECT win, review_type, count(*), count(*) FILTER (WHERE finished_telegram),
 				  count(*) FILTER (WHERE finished_web), count(*) FILTER (WHERE still_open)
@@ -158,8 +163,8 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 				windows[win].Types = append(windows[win].Types, row)
 			}
 			return rows.Err()
-		},
-		func(ctx context.Context) error {
+		}),
+		section("median", func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, interactionCardsCTE+`
 				SELECT win, (percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (resolved_at - sent_at))*1000))::bigint
 				FROM outcomes WHERE finished_telegram AND resolved_at >= sent_at GROUP BY win`, householdID, current.Start, previous.Start, current.End)
@@ -176,8 +181,8 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 				windows[win].MedianFinishMs = &median
 			}
 			return rows.Err()
-		},
-		func(ctx context.Context) error {
+		}),
+		section("events", func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, `
 				SELECT CASE WHEN occurred_at >= $2 THEN 'current' ELSE 'previous' END,
 				  action, COALESCE(source_type,''), COALESCE(decision_source,''), count(*)
@@ -199,6 +204,9 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 				switch action {
 				case "ANSWERED":
 					window.Answers += count
+					if source == "" {
+						source = "UNKNOWN"
+					}
 					if _, known := window.AnswerSources[source]; known {
 						window.AnswerSources[source] += count
 					}
@@ -216,20 +224,18 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 				}
 			}
 			return rows.Err()
-		},
-		func(ctx context.Context) error {
+		}),
+		section("repairs", func(ctx context.Context) error {
 			return h.pool.QueryRow(ctx, `
 				SELECT EXISTS (SELECT 1 FROM product_telemetry_event
 				  WHERE household_id=$1 AND event_type='INTERACTION' AND action='REPLY_REPAIRED')`, householdID).Scan(&repairedEver)
-		},
+		}),
 	)
-	if err != nil {
-		return interactionWeekly{}, err
-	}
 	current.finalize()
 	previous.finalize()
 	summary.Current, summary.Previous = current, previous
-	if !repairedEver {
+	summary.DegradedSections = degraded
+	if !repairedEver || slices.Contains(degraded, "repairs") {
 		summary.NotYetMeasurable = append(summary.NotYetMeasurable, "broken_or_empty_replies", "telegram_mechanics_replies")
 	}
 	summary.NotYetMeasurable = append(summary.NotYetMeasurable, "answers_via_assistant")

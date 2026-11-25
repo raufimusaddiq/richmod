@@ -111,15 +111,19 @@ func (h *Handler) runProbes(ctx context.Context, probes ...func(context.Context)
 }
 
 func (h *Handler) probe(ctx context.Context, fn func(context.Context) error) error {
+	timeout := h.probeTimeout
+	if timeout == 0 {
+		timeout = probeTimeout
+	}
+	return h.probeWithin(ctx, timeout, fn)
+}
+
+func (h *Handler) probeWithin(ctx context.Context, timeout time.Duration, fn func(context.Context) error) error {
 	select {
 	case h.probeSlots <- struct{}{}:
 		defer func() { <-h.probeSlots }()
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-	timeout := h.probeTimeout
-	if timeout == 0 {
-		timeout = probeTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

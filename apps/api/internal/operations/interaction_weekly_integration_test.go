@@ -158,11 +158,15 @@ func TestInteractionWeeklyMeasuresAndWindows(t *testing.T) {
 		t.Fatalf("other household saw %+v", empty.Current)
 	}
 	quiet := newWeeklyFixture(t, pool)
+	quiet.event("ANSWERED", "", "", day)
 	none, err := handler.loadInteractionWeekly(ctx, quiet.household, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if none.Current.FinishedRate != nil || none.Current.UnusableRate != nil || none.Current.MedianFinishMs != nil {
+	if none.Current.Answers != 1 || none.Current.AnswerSources["UNKNOWN"] != 1 || len(none.DegradedSections) != 0 {
+		t.Fatalf("an answer without a recorded source must land in the unknown bucket: %+v", none.Current)
+	}
+	if none.Current.FinishedRate != nil || none.Current.MedianFinishMs != nil {
 		t.Fatalf("empty household returned rates: %+v", none.Current)
 	}
 }
@@ -216,5 +220,17 @@ func TestInteractionWeeklyEndpointIsOwnerOnly(t *testing.T) {
 		if response.Code != tc.want {
 			t.Fatalf("%s: status = %d, want %d", name, response.Code, tc.want)
 		}
+	}
+}
+
+func TestInteractionWeeklyReportsSlowSectionsInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	handler := &Handler{pool: slowQueryer{delay: time.Second}, probeSlots: make(chan struct{}, 8), probeTimeout: 20 * time.Millisecond}
+	summary, err := handler.loadInteractionWeekly(context.Background(), "household", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.DegradedSections) != 4 {
+		t.Fatalf("degraded = %v, want every section", summary.DegradedSections)
 	}
 }
