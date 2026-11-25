@@ -72,7 +72,7 @@ const rangeText = (w) => {
   return `${fmt.format(new Date(w.start))} – ${fmt.format(new Date(new Date(w.end).getTime() - 1))}`;
 };
 
-const validShape = (value) => (value?.current && value?.previous && Array.isArray(value.notYetMeasurable) ? value : null);
+const validShape = (value) => (value?.current && value?.previous && Array.isArray(value.notYetMeasurable) && Array.isArray(value.current.types) ? value : null);
 
 export default function InteractionWeekly() {
   const [state, setState] = useState({ loading: true, data: null, status: 0 });
@@ -149,7 +149,7 @@ function Summary({ data }) {
       </Table>
       <div className="section-title"><h3>Per jenis review (7 hari terakhir)</h3></div>
       {rows.length ? (
-        <Table headers={["Jenis review", "Terkirim", "Selesai di Telegram", "Selesai di web", "Masih terbuka"]}>
+        <Table headers={["Jenis review", "Terkirim", "Selesai di Telegram", "Selesai di web", "Masih terbuka", "Lainnya"]}>
           {rows.map((row) => (
             <tr key={row.reviewType}>
               <td>{typeLabel(row.reviewType)}</td>
@@ -157,6 +157,7 @@ function Summary({ data }) {
               <td>{number(row.finishedTelegram)}</td>
               <td>{number(row.finishedWeb)}</td>
               <td>{number(row.stillOpen)}</td>
+              <td>{number(row.sent - row.finishedTelegram - row.finishedWeb - row.stillOpen)}</td>
             </tr>
           ))}
         </Table>

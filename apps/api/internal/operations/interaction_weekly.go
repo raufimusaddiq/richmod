@@ -12,6 +12,7 @@ import (
 const (
 	interactionWindowDays   = 7
 	interactionBudget       = time.Second
+	interactionProbeTimeout = 800 * time.Millisecond
 	mostlyTelegramNumerator = 7
 	mostlyTelegramDenom     = 10
 	householdZone           = "Asia/Jakarta"
@@ -134,7 +135,11 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 	windows := map[string]*interactionWindow{"current": &current, "previous": &previous}
 	var repairedEver bool
 
-	err = h.runProbes(ctx,
+	probes := *h
+	if probes.probeTimeout == 0 {
+		probes.probeTimeout = interactionProbeTimeout
+	}
+	err = probes.runProbes(ctx,
 		func(ctx context.Context) error {
 			rows, err := h.pool.Query(ctx, interactionCardsCTE+`
 				SELECT win, review_type, count(*), count(*) FILTER (WHERE finished_telegram),

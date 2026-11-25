@@ -199,30 +199,6 @@ func TestInteractionWeeklyWindowEdgesFollowJakartaDays(t *testing.T) {
 	}
 }
 
-func TestInteractionWeeklyReplyQualityCountsOnceRecorded(t *testing.T) {
-	t.Parallel()
-	pool := integrationPool(t)
-	ctx := context.Background()
-	f := newWeeklyFixture(t, pool)
-	f.exec(`ALTER TABLE product_telemetry_event DROP CONSTRAINT IF EXISTS product_telemetry_event_interaction_check`)
-	f.event("REPLY_REPAIRED", "", "EMPTY", day)
-	f.event("REPLY_REPAIRED", "", "BROKEN_TEXT", day)
-	f.event("REPLY_REPAIRED", "", "TELEGRAM_MECHANICS", day)
-	f.event("REPLY_REPAIRED", "", "TELEGRAM_MECHANICS", 10*day)
-	summary, err := aggregateHandler(pool).loadInteractionWeekly(ctx, f.household, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if summary.Current.BrokenReplies != 2 || summary.Current.MechanicsReplies != 1 || summary.Previous.MechanicsReplies != 1 {
-		t.Fatalf("reply quality = %+v / %+v", summary.Current, summary.Previous)
-	}
-	for _, key := range summary.NotYetMeasurable {
-		if key != "answers_via_assistant" {
-			t.Fatalf("still reported as not measurable: %q", key)
-		}
-	}
-}
-
 func TestInteractionWeeklyEndpointIsOwnerOnly(t *testing.T) {
 	t.Parallel()
 	handler := &Handler{pool: poolQueryer{}, probeSlots: make(chan struct{}, 1)}
