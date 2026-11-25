@@ -34,6 +34,8 @@ func describeReviewOutcome(itemStatus, action, resolver, category, transactionSt
 		return ""
 	case itemStatus == "CANCELLED" || itemStatus == "EXPIRED":
 		phrase = "ditutup"
+	case strings.Contains(action, "MERGE"):
+		phrase = "digabung dengan catatan yang sudah ada"
 	case strings.Contains(action, "IGNORE") || strings.Contains(action, "REJECT") || transactionStatus == "IGNORED" || transactionStatus == "VOIDED":
 		phrase = "diabaikan"
 	case action == "NO_LONGER_APPLICABLE" || action == "LEGACY_TRANSACTION_RESOLVED" || action == "RECONCILED_TERMINAL_TRANSACTION" || action == "EMAIL_RECEIVED_AT_FALLBACK":
@@ -86,7 +88,7 @@ func answeredReviewReply(ctx context.Context, db authorizationQuerier, household
 	return "", nil
 }
 
-const supersededReviewReply = "Tinjauan ini masih terbuka di pesan yang lebih baru. Balas pesan terbaru untuk melanjutkan."
+const supersededReviewReply = "Tinjauan ini masih terbuka di pesan yang lebih baru. Lanjutkan di pesan itu."
 
 func staleReviewReply(ctx context.Context, db authorizationQuerier, householdID string, update telegramUpdate, fallback string) string {
 	messageID := int64(0)

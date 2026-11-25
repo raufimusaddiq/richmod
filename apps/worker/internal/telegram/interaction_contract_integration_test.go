@@ -69,6 +69,7 @@ type contractHarness struct {
 	knownTime     bool
 	missingFacts  []string
 	categorized   bool
+	ev            evidenceSetup
 	checked       map[string]bool
 	markups       map[int64][]string
 	texts         map[int64]string
@@ -183,6 +184,9 @@ func (h *contractHarness) openReconciliation() {
 
 func (h *contractHarness) openReview() {
 	h.t.Helper()
+	if h.openEvidenceReview() {
+		return
+	}
 	switch {
 	case h.kind == "PAYSLIP_CONFIRMATION" || h.kind == "MISSING_PAY_DATE":
 		h.itemID, h.imageID = h.seedPayslip(fmt.Sprint(h.chatB))
@@ -662,9 +666,10 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantTransaction("NEEDS_REVIEW", "Toko Contoh", "")
 			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, 1, h.reviewID)
 		}},
-		{"a stale navigation tap on an engine card is left to the legacy handler", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+		{"a tap from an old detail menu shows the current step again", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.tap("review:edit")
-			h.wantCard("Pilih detail yang ingin diubah:")
+			h.wantCard("Pilihan itu tidak berlaku untuk kartu ini.", "Masuk kategori apa?")
+			h.wantButtons("Makan", "Abaikan")
 		}},
 		{"a plain yes on the remember step answers the card", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.tapLabel("Makan")

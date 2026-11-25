@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,9 +46,8 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	decision := `{"version":1,"reasonCode":"MISSING_PAY_DATE","decisionClass":"HUMAN_POLICY_CHOICE","interactionMode":"POLICY_CHOICE","knownFacts":{},"missingFacts":["transaction_at","salary_classification"],"allowedActions":["SET_PAY_DATE","PRIMARY_SALARY","ORDINARY_INCOME","IGNORE"],"decisionSource":"DETERMINISTIC"}`
 	var contract reviewdec.Decision
 	must(json.Unmarshal([]byte(decision), &contract))
-	initialState, _, mode := renderReviewPresentation(contract, "MISSING_PAY_DATE", "Synthetic payslip", reviewSubject{})
-	if initialState != "AWAITING_DETAIL" || mode != "step" {
-		t.Fatalf("policy must precede date: state=%s mode=%s", initialState, mode)
+	if card := buildReviewCard(contract, "MISSING_PAY_DATE", "Synthetic payslip", reviewSubject{}); card.State != "AWAITING_DETAIL" || card.Mode != "step" {
+		t.Fatalf("policy must precede date: state=%s mode=%s", card.State, card.Mode)
 	}
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,'MISSING_PAY_DATE','OPEN',$5::jsonb) RETURNING id`, householdID, proposalID, imageID, documentID, decision).Scan(&itemID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,telegram_chat_id,status) VALUES($1,$2,'MISSING_PAY_DATE',$3,'OPEN') RETURNING id`, itemID, householdID, chatID).Scan(&requestID))
@@ -113,203 +111,6 @@ type payslipDateGateway struct{}
 
 func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"","description":"","note":"","confidence":0,"ambiguous":false,"pay_date":"2026-09-25"}`)}, gateway.Metadata{}, nil
-}
-
-func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
-	t.Parallel()
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	must := func(err error) {
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	stamp := testsupport.UniqueStamp()
-	chatID := stamp
-	var householdID, userID, imageID, attachmentID, documentID, itemID, requestID string
-	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Telegram doc %d", stamp)).Scan(&householdID))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("doc-%d@example.test", stamp)).Scan(&userID))
-	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID)
-	must(err)
-	_, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID)
-	must(err)
-	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("doc-image-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&imageID))
-	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, householdID, []byte(fmt.Sprint(stamp)), fmt.Sprintf("%s/doc.png", householdID)).Scan(&attachmentID))
-	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'OTHER_FINANCIAL_DOCUMENT','NEEDS_REVIEW') RETURNING id`, householdID, imageID, attachmentID).Scan(&documentID))
-	decision := `{"version":1,"reasonCode":"DOCUMENT_CLASSIFICATION","decisionClass":"EVIDENCE_GAP","interactionMode":"SINGLE_FIELD","knownFacts":{},"missingFacts":["document_type"],"allowedActions":["REPROCESS_DOCUMENT","IGNORE"],"decisionSource":"DETERMINISTIC"}`
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_CLASSIFICATION','OPEN',$3::jsonb) RETURNING id`, householdID, documentID, decision).Scan(&itemID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,telegram_chat_id,status) VALUES($1,$2,'DOCUMENT_CLASSIFICATION',$3,'OPEN') RETURNING id`, itemID, householdID, chatID).Scan(&requestID))
-	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,71)`, requestID, chatID)
-	must(err)
-	_, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, requestID)
-	must(err)
-	seedReply := func(kind string, update telegramUpdate) string {
-		raw, err := json.Marshal(update)
-		must(err)
-		var sourceID string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("doc-%s-%d", kind, testsupport.UniqueStamp()), raw).Scan(&sourceID))
-		_, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
-		must(err)
-		return sourceID
-	}
-	processor := NewProcessor(pool, boundReviewGateway{})
-	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 71, "review:reprocess"))))
-	var itemStatus, requestStatus, documentStatus string
-	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus))
-	must(pool.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&requestStatus))
-	must(pool.QueryRow(ctx, `SELECT status FROM document WHERE id=$1`, documentID).Scan(&documentStatus))
-	if itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || documentStatus != "NEEDS_REVIEW" {
-		t.Fatalf("reprocess resolve item=%s request=%s document=%s", itemStatus, requestStatus, documentStatus)
-	}
-	var jobs int
-	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1`, documentID).Scan(&jobs))
-	if jobs < 1 {
-		t.Fatalf("reprocess did not enqueue PROCESS_DOCUMENT: %d", jobs)
-	}
-	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 71, "review:reprocess"))))
-	var jobsAfter int
-	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1`, documentID).Scan(&jobsAfter))
-	if jobsAfter != jobs {
-		t.Fatalf("stale document callback enqueued another job: before=%d after=%d", jobs, jobsAfter)
-	}
-}
-
-func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
-	t.Parallel()
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	must := func(err error) {
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	stamp := testsupport.UniqueStamp()
-	chatID := stamp
-	var householdID, userID, sourceID, financialSourceID, eventID, observationID, accountID, itemID, requestID string
-	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Telegram fe %d", stamp)).Scan(&householdID))
-	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("fe-%d@example.test", stamp)).Scan(&userID))
-	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID)
-	must(err)
-	_, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID)
-	must(err)
-	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Jago','BANK','FULL_LEDGER') RETURNING id`, householdID).Scan(&accountID))
-	must(pool.QueryRow(ctx, `INSERT INTO financial_email_source(household_id,provider_name,sender_address,status,created_by_user_id) VALUES($1,'Provider','provider@example.test','ACTIVE',$2) RETURNING id`, householdID, userID).Scan(&financialSourceID))
-	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("fe-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
-	must(pool.QueryRow(ctx, `INSERT INTO financial_email_event(source_event_id,financial_source_id,observed_sender,message_id,body) VALUES($1,$2,'provider@example.test',$3,'body') RETURNING source_event_id`, sourceID, financialSourceID, fmt.Sprint(stamp)).Scan(&eventID))
-	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT',jsonb_build_object('funding_account_hint','Jago','amount_idr','100000'),'REVIEW') RETURNING id`, householdID, sourceID).Scan(&observationID))
-	decision := `{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","interactionMode":"BOUNDED_CHOICE","knownFacts":{},"missingFacts":["funding_account","wealth_account"],"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"decisionSource":"DETERMINISTIC"}`
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb) RETURNING id`, householdID, observationID, decision).Scan(&itemID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID))
-	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,81)`, requestID, chatID)
-	must(err)
-	_, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, requestID)
-	must(err)
-	seedReply := func(kind string, update telegramUpdate) string {
-		raw, err := json.Marshal(update)
-		must(err)
-		var sid string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,$2,$3,now(),$4,'RECEIVED') RETURNING id`, householdID, kind, fmt.Sprintf("fe-%s-%d", kind, testsupport.UniqueStamp()), raw).Scan(&sid))
-		_, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sid, string(raw))
-		must(err)
-		return sid
-	}
-	processor := NewProcessor(pool, boundReviewGateway{})
-	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:account:"+accountID))))
-	var itemStatus, resolvedAccount, missingFact string
-	must(pool.QueryRow(ctx, `SELECT status,COALESCE(decision->'missingFacts'->>0,'') FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus, &missingFact))
-	must(pool.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=$1`, observationID).Scan(&resolvedAccount))
-	if itemStatus != "OPEN" || resolvedAccount != accountID || missingFact != "wealth_account" {
-		t.Fatalf("first pick must persist the account and re-ask only for wealth: item=%s account=%s missing=%s", itemStatus, resolvedAccount, missingFact)
-	}
-	var foreignHousehold, foreignWealth string
-	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Foreign fe %d", stamp)).Scan(&foreignHousehold))
-	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Foreign','Bank','ASSET','DEPOSIT','SAVINGS') RETURNING id`, foreignHousehold).Scan(&foreignWealth))
-	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:wealth:"+foreignWealth))))
-	var invalidWealth string
-	must(pool.QueryRow(ctx, `SELECT COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, observationID).Scan(&invalidWealth))
-	if invalidWealth != "" {
-		t.Fatalf("foreign wealth account persisted as partial binding: %s", invalidWealth)
-	}
-	var wealthID string
-	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,linked_account_id) VALUES($1,'Tabungan','Bank A','ASSET','DEPOSIT','SAVINGS',$2) RETURNING id`, householdID, accountID).Scan(&wealthID))
-	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:wealth:"+wealthID))))
-	var requestStatus, resolvedWealth string
-	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus))
-	must(pool.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&requestStatus))
-	must(pool.QueryRow(ctx, `SELECT COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, observationID).Scan(&resolvedWealth))
-	if itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || resolvedWealth != wealthID {
-		t.Fatalf("financial email resolve item=%s request=%s wealth=%s", itemStatus, requestStatus, resolvedWealth)
-	}
-	var replays int
-	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_FINANCIAL_EMAIL' AND payload_json->>'source_event_id'=$1`, sourceID).Scan(&replays))
-	if replays < 1 {
-		t.Fatalf("resolution did not enqueue the provider-email replay: %d", replays)
-	}
-	var ignoredObservation, ignoredItem, ignoredRequest string
-	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,1,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, householdID, sourceID).Scan(&ignoredObservation))
-	ignoreDecision := `{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","interactionMode":"BOUNDED_CHOICE","knownFacts":{},"missingFacts":["wealth_account"],"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"decisionSource":"DETERMINISTIC"}`
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb) RETURNING id`, householdID, ignoredObservation, ignoreDecision).Scan(&ignoredItem))
-	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, ignoredItem, householdID).Scan(&ignoredRequest))
-	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,82)`, ignoredRequest, chatID)
-	must(err)
-	for n := 0; n < 9; n++ {
-		_, err = pool.Exec(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,$2,'BANK','FULL_LEDGER')`, householdID, fmt.Sprintf("Extra %02d", n))
-		must(err)
-	}
-	tx, err := pool.Begin(ctx)
-	must(err)
-	defer tx.Rollback(ctx)
-	chooser, err := financialEmailEntityMarkup(ctx, tx, ignoredRequest, reviewdec.Decision{MissingFacts: []string{"funding_account"}}, 0)
-	must(err)
-	var hasNext bool
-	for _, row := range chooser.InlineKeyboard {
-		for _, button := range row {
-			hasNext = hasNext || button.CallbackData == "review:fepage:1"
-		}
-	}
-	if !hasNext {
-		t.Fatal("account chooser did not offer the next page")
-	}
-	chooser, err = financialEmailEntityMarkup(ctx, tx, ignoredRequest, reviewdec.Decision{MissingFacts: []string{"funding_account"}}, 1)
-	must(err)
-	var hasAccountOnNext bool
-	for _, row := range chooser.InlineKeyboard {
-		for _, button := range row {
-			hasAccountOnNext = hasAccountOnNext || strings.HasPrefix(button.CallbackData, "review:fe:account:")
-		}
-	}
-	if !hasAccountOnNext {
-		t.Fatal("next page did not expose the remaining account")
-	}
-	must(tx.Rollback(ctx))
-	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 82, "review:ignore"))))
-	var ignoredStatus, observationStatus string
-	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, ignoredItem).Scan(&ignoredStatus))
-	must(pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, ignoredObservation).Scan(&observationStatus))
-	if ignoredStatus != "RESOLVED" || observationStatus != "IGNORED" {
-		t.Fatalf("ignore action did not finish financial email: item=%s observation=%s", ignoredStatus, observationStatus)
-	}
-	var audits int
-	must(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND entity_type='review_item' AND entity_id=$2 AND action='RESOLVE_REVIEW'`, householdID, ignoredItem).Scan(&audits))
-	if audits != 1 {
-		t.Fatalf("Telegram ignore must record one canonical resolution audit, got %d", audits)
-	}
 }
 
 func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {

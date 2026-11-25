@@ -90,15 +90,11 @@ func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, req
 	if err != nil {
 		return err
 	}
-	card := buildReviewCard(decision, reason, summary, subject)
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, request, card.State); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, request, buildReviewCard(decision, reason, summary, subject).State); err != nil {
 		return err
 	}
-	markup, err := reviewCardMarkup(ctx, tx, request, reason, decision, card, subject)
+	card, markup, err := renderStepCard(ctx, tx, request, reason, summary, decision, subject)
 	if err != nil {
-		return err
-	}
-	if card, err = loadedStepCard(ctx, tx, request, reason, summary, decision, subject, card); err != nil {
 		return err
 	}
 	if markup == nil {
@@ -107,54 +103,17 @@ func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, req
 	return enqueueReviewUpdateWithMarkup(ctx, tx, request, update, card.Text(), markup)
 }
 
-const (
-	unknownReviewPrompt = "🟡 Perlu detail transaksi"
-	appReviewHint       = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
-)
-
-func renderReviewPresentation(decision reviewdec.Decision, reviewType, context string, subject reviewSubject) (state, reviewMessage, markupMode string) {
-	card := buildReviewCard(decision, reviewType, context, subject)
-	return card.State, card.Text(), card.Mode
-}
+const appReviewHint = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
 
 func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) reviewCard {
+	return stepRenderCard(stepOrFallback(decision, reviewType, facts, subject))
+}
+
+func stepOrFallback(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) Step {
 	if step, ok := deriveStep(decision, reviewType, facts, subject); ok {
-		return stepRenderCard(step)
+		return step
 	}
-	card := reviewCard{State: "AWAITING_DETAIL", Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
-	switch {
-	case decision.ReasonCode == "RECEIPT_MISMATCH" && decision.Consequence == reviewdec.QualitySignal && len(decision.MissingFacts) == 0:
-		card.Mode, card.Title = "receipt_quality", "🧾 Rincian struk berbeda dari total yang tercetak"
-		card.Instruction = "Cek totalnya dulu. Pilih Terima total untuk mencatat total yang tercetak."
-	case decision.ReasonCode == "FINANCIAL_EMAIL_FACTS":
-		card.Mode, card.Title = "financial_email_facts", "🟡 Bukti email belum pasti"
-		card.Instruction = "Bukti email ini belum didukung. Pilih Abaikan atau buka Kotak Tinjauan untuk memeriksanya."
-	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
-		card.Mode, card.Title = "document", "🟡 Dokumen belum terbaca jelas"
-		if decision.ReasonCode == "DOCUMENT_CLASSIFICATION" {
-			card.Title = "🟡 Jenis dokumen belum dikenali"
-		}
-		card.Instruction = "Pilih Proses ulang untuk membaca dokumen ini lagi."
-	case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
-		card.Mode, card.Title = "financial_email", promptTitle(decision)
-		card.Instruction = "Pilih rekening untuk bukti email ini."
-	case isCategoryOnly(decision):
-		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "category", "🟡 Kategori belum pasti"
-		card.Instruction = "Pilih kategori di bawah, atau balas pesan ini (Reply) dengan tujuan pengeluaran."
-	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
-		card.Mode, card.Title = "duplicate", promptTitle(decision)
-		card.Instruction = replyInstruction(decision)
-	case contains(decision.MissingFacts, "wealth_snapshot_confirmation"):
-		card.Mode, card.Title = "reply", "🟡 Akun kekayaan belum pasti"
-		card.Instruction = "Balas pesan ini (Reply) dengan nama akun kekayaan yang benar."
-	case requiresBoundReply(decision):
-		card.Mode, card.Title = "reply", promptTitle(decision)
-		card.Instruction = replyInstruction(decision)
-	default:
-		card.Mode, card.Title = "reply", unknownReviewPrompt
-		card.Instruction = appReviewHint
-	}
-	return card
+	return fallbackStep(decision, reviewType, facts)
 }
 
 func merchantAssetOption(decision reviewdec.Decision, reviewType string) bool {
@@ -166,62 +125,6 @@ func cardActions(decision reviewdec.Decision, reviewType string) []string {
 		return decision.AllowedActions
 	}
 	return reviewdec.TelegramActions(reviewType)
-}
-
-type reviewMarkupBuilder func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject, actions []string) (*InlineKeyboardMarkup, error)
-
-var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
-	"step": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, _ reviewCard, subject reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		return stepMarkup(ctx, tx, reviewID, reviewType, decision, subject)
-	},
-	"category": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0), nil
-	},
-	"reply": func(_ context.Context, _ pgx.Tx, _, reviewType string, decision reviewdec.Decision, card reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
-	},
-	"duplicate": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, decision reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		if decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true {
-			return evidenceDisputeMarkup(), nil
-		}
-		return projectDuplicateChoices(ctx, tx, reviewID)
-	},
-	"document": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
-		return documentReviewMarkup(), nil
-	},
-	"financial_email": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, decision reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		return financialEmailEntityMarkup(ctx, tx, reviewID, decision, 0)
-	},
-	"receipt_quality": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Terima total", CallbackData: "review:quality:confirm"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
-	},
-	"financial_email_facts": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
-	},
-}
-
-func reviewMarkupModeHandled(mode string) bool {
-	_, ok := reviewMarkupBuilders[mode]
-	return ok
-}
-
-func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject) (*InlineKeyboardMarkup, error) {
-	actions := cardActions(decision, reviewType)
-	ignore := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
-	var markup *InlineKeyboardMarkup
-	var err error
-	if builder, ok := reviewMarkupBuilders[card.Mode]; ok {
-		markup, err = builder(ctx, tx, reviewID, reviewType, decision, card, subject, actions)
-	} else {
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, ignore[0]}}}
-	}
-	if err != nil {
-		return nil, err
-	}
-	if markup == nil {
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{ignore}}
-	}
-	return keepExecutableButtons(markup, actions), nil
 }
 
 func keepExecutableButtons(markup *InlineKeyboardMarkup, actions []string) *InlineKeyboardMarkup {
@@ -300,9 +203,9 @@ func transferReconciliationSet(ctx context.Context, tx pgx.Tx, reviewID string) 
 }
 
 func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID string) (string, error) {
-	var transactionID, residualCase, wealthObservation, proposalID, sourceID string
-	err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),COALESCE(cycle_residual_case_id::text,''),COALESCE(wealth_observation_id::text,''),COALESCE(proposal_id::text,''),COALESCE(source_event_id::text,'')
-		FROM review_item WHERE id=$1 AND household_id=$2`, itemID, householdID).Scan(&transactionID, &residualCase, &wealthObservation, &proposalID, &sourceID)
+	var transactionID, residualCase, wealthObservation, proposalID, sourceID, documentID, observationID string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),COALESCE(cycle_residual_case_id::text,''),COALESCE(wealth_observation_id::text,''),COALESCE(proposal_id::text,''),COALESCE(source_event_id::text,''),COALESCE(document_id::text,''),COALESCE(financial_email_observation_id::text,'')
+		FROM review_item WHERE id=$1 AND household_id=$2`, itemID, householdID).Scan(&transactionID, &residualCase, &wealthObservation, &proposalID, &sourceID, &documentID, &observationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -340,6 +243,10 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		}
 		lines = append(lines, "Tanggal: "+reviewdomain.FormatIndonesianDate(at.In(jakartaLocation())))
 		return strings.Join(lines, "\n"), nil
+	case observationID != "":
+		return financialEmailSummary(ctx, tx, householdID, observationID)
+	case documentID != "":
+		return documentSummary(ctx, tx, householdID, documentID)
 	case sourceID != "":
 		var amount, description string
 		var at time.Time
@@ -369,55 +276,6 @@ func isCategoryOnly(decision reviewdec.Decision) bool {
 	}
 	return decision.DecisionClass == reviewdec.ClassEvidenceGap &&
 		(contains(decision.AllowedActions, "CONFIRM_REVIEW") || contains(decision.AllowedActions, "SET_CATEGORY"))
-}
-
-func requiresBoundReply(decision reviewdec.Decision) bool {
-	if len(decision.MissingFacts) == 0 {
-		return false
-	}
-	for _, fact := range decision.MissingFacts {
-		if fact == "category" {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func promptTitle(decision reviewdec.Decision) string {
-	for _, fact := range decision.MissingFacts {
-		switch fact {
-		case "transaction_at":
-			return "🟡 Tanggal transaksi belum ada"
-		case "transaction_semantics":
-			return "🟡 Perlu detail transaksi"
-		case "duplicate_relationship":
-			return "🟡 Transaksi ini mungkin duplikat"
-		case "funding_account", "wealth_account":
-			return "🟡 Rekening bukti email belum pasti"
-		case "correction_details":
-			return "🟡 Transaksi perlu dikoreksi"
-		}
-	}
-	return unknownReviewPrompt
-}
-
-func replyInstruction(decision reviewdec.Decision) string {
-	if contains(decision.MissingFacts, "duplicate_relationship") {
-		return "Pilih catatan yang ingin digabung, atau pilih Catat sebagai baru di bawah."
-	}
-	if contains(decision.MissingFacts, "correction_details") {
-		return "Balas pesan ini (Reply) dengan koreksi untuk transaksi ini."
-	}
-	return appReviewHint
-}
-
-func categoryPageText(ctx context.Context, tx pgx.Tx, householdID, reviewID string, page int) string {
-	instruction := "Pilih kategori pengeluaran di bawah."
-	if page > 0 {
-		instruction = fmt.Sprintf("Pilih kategori pengeluaran di bawah (halaman %d).", page+1)
-	}
-	return reviewFollowUpText(ctx, tx, reviewID, "🟡 Kategori belum pasti", instruction)
 }
 
 func reviewFollowUpText(ctx context.Context, tx pgx.Tx, reviewID, title, instruction string) string {

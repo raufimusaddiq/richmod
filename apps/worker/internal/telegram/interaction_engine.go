@@ -32,6 +32,11 @@ type engineInput struct {
 
 type engineReview struct {
 	ReadOnly      bool
+	HouseholdID   string
+	DocumentID    string
+	ObservationID string
+	WealthID      string
+	ObsStatus     string
 	RequestID     string
 	ItemID        string
 	TransactionID string
@@ -70,9 +75,15 @@ func (e engineReview) live() bool {
 	case e.ReviewType == cycleReviewType:
 		return e.CycleCaseID != ""
 	case e.ReviewType == bankReviewType:
-		return e.Subject.Bank != nil && !e.Subject.Bank.Queued
+		return e.Subject.Bank == nil || !e.Subject.Bank.Queued
 	case e.ReviewType == missingAmountReviewType:
 		return e.ProposalState == "NEEDS_REVIEW"
+	case documentReviewType(e.ReviewType):
+		return e.DocumentID != ""
+	case e.ReviewType == "WEALTH_OBSERVATION_CONFIRMATION":
+		return e.WealthID != "" && e.ObsStatus == "PENDING"
+	case e.TransactionID == "" && e.ObservationID != "":
+		return e.ObsStatus == "REVIEW"
 	}
 	return e.TxStatus == "NEEDS_REVIEW" || (e.TransactionID == "" && e.Subject.Reconciliation)
 }
@@ -90,16 +101,20 @@ func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequest
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),r.status,ri.status,
 			COALESCE(t.status,''),COALESCE(t.type,''),COALESCE(t.merchant_id::text,''),COALESCE(ri.decision,'{}'::jsonb),ti.user_id::text,r.expires_at>now(),
-			COALESCE(tp.id::text,''),COALESCE(tp.proposal_status,''),COALESCE(ri.cycle_residual_case_id::text,'')
+			COALESCE(tp.id::text,''),COALESCE(tp.proposal_status,''),COALESCE(ri.cycle_residual_case_id::text,''),
+			COALESCE(ri.document_id::text,''),COALESCE(ri.financial_email_observation_id::text,''),COALESCE(ri.wealth_observation_id::text,''),
+			COALESCE(fo.status,wo.status,''),r.household_id::text
 		FROM review_request r
 		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
 		JOIN telegram_identity ti ON ti.telegram_user_id=$3 AND ti.household_id=r.household_id AND ti.active
 		LEFT JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
 		LEFT JOIN transaction_proposal tp ON tp.id=ri.proposal_id AND tp.household_id=r.household_id
+		LEFT JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id AND fo.household_id=r.household_id
+		LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id AND wo.household_id=r.household_id
 		LEFT JOIN review_conversation c ON c.review_request_id=r.id
 		WHERE r.id=$1 AND r.household_id=$2
 		`+lockClause, reviewRequestID, householdID, telegramUserID).
-		Scan(&e.RequestID, &e.ItemID, &e.TransactionID, &e.ReviewType, &e.State, &e.RequestStatus, &e.ItemStatus, &e.TxStatus, &e.TxType, &e.MerchantID, &raw, &e.UserID, &e.Unexpired, &e.ProposalID, &e.ProposalState, &e.CycleCaseID)
+		Scan(&e.RequestID, &e.ItemID, &e.TransactionID, &e.ReviewType, &e.State, &e.RequestStatus, &e.ItemStatus, &e.TxStatus, &e.TxType, &e.MerchantID, &raw, &e.UserID, &e.Unexpired, &e.ProposalID, &e.ProposalState, &e.CycleCaseID, &e.DocumentID, &e.ObservationID, &e.WealthID, &e.ObsStatus, &e.HouseholdID)
 	if err != nil {
 		return e, err
 	}
@@ -129,12 +144,16 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 	}
 	step, ok := deriveStep(e.Decision, e.ReviewType, facts, e.Subject)
 	if !ok {
-		return Step{}, false, nil
+		step = fallbackStep(e.Decision, e.ReviewType, facts)
 	}
+	sit := e.situation()
 	switch e.State {
 	case "AWAITING_DETAIL":
 		if step.Fact == factIncome {
 			step = incomeChoiceStep(step)
+		}
+		if step.Fact == factWealthConfirm {
+			step = wealthPickStep(step)
 		}
 	case "AWAITING_ASSET_WEALTH":
 		step = accountStepFrom(step, factAsset, step.Fact != factAsset && step.Fact != factInvest)
@@ -143,7 +162,12 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 			step = accountStepFrom(step, factInvest, step.Fact != factAsset && step.Fact != factInvest)
 		}
 	case "AWAITING_CATEGORY":
-		if transferReview(e.ReviewType) {
+		switch {
+		case sit == sitDispute:
+			step = disputeCategoryStep(step)
+		case sit == sitQuality || sit == sitCorrection:
+			step = categoryStepFrom(step, true)
+		case transferReview(e.ReviewType) && sit == sitNone:
 			step = categoryStepFrom(step, step.Fact == factTransfer)
 		}
 	case "AWAITING_CYCLE_ACCOUNT", "AWAITING_CYCLE_AMOUNT":
@@ -153,12 +177,13 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 			}
 		}
 	}
-	switch e.ReviewType {
-	case bankReviewType:
+	switch {
+	case step.Fallback:
+	case e.ReviewType == bankReviewType:
 		if step, err = p.bankStep(ctx, tx, e, step); err != nil {
 			return Step{}, false, err
 		}
-	case missingAmountReviewType:
+	case e.ReviewType == missingAmountReviewType:
 		if step, err = p.proposalAmountStep(ctx, tx, e, step); err != nil {
 			return Step{}, false, err
 		}
@@ -171,7 +196,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 }
 
 func engineNavigation(data string) bool {
-	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg, callbackCyclePg, callbackBankPg} {
+	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg, callbackCyclePg, callbackBankPg, callbackDupPg, callbackEmailPg, callbackWealthPg} {
 		if strings.HasPrefix(data, prefix) {
 			return true
 		}
@@ -223,7 +248,7 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name=$2,parser_version='1' WHERE id=$1`, sourceEventID, engineParser); err != nil {
 		return false, err
 	}
-	if outcome.Declined && in.Tap == "" && in.CategorySlug == "" && (!in.Targeted || strings.Contains(in.Text, "?")) {
+	if outcome.Declined && in.Tap == "" && ((step.Defer && (step.Fallback || !isYesNoAnswer(in.Text))) || (in.CategorySlug == "" && (!in.Targeted || strings.Contains(in.Text, "?")))) {
 		return false, nil
 	}
 	if !outcome.Silent {
@@ -255,12 +280,18 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 	if in.Tap != "" && in.CategorySlug == "" {
 		return p.applyTap(ctx, tx, householdID, sourceEventID, review, step, in.Tap)
 	}
+	if evidenceFact(step.Fact) {
+		return p.applyEvidenceText(ctx, tx, householdID, review, step, in.Text, in.Targeted)
+	}
 	switch step.Fact {
 	case factMerchant:
 		return p.applyMerchant(ctx, tx, householdID, sourceEventID, review, step, in.Text)
 	case factCategory:
 		if picked == "" {
 			return reask(step, unusableAnswerAck), nil
+		}
+		if review.situation() == sitDispute {
+			return p.resolveDispute(ctx, tx, householdID, review, step, true, picked)
 		}
 		return p.applyCategory(ctx, tx, householdID, sourceEventID, review, step, picked)
 	case factAsset, factInvest:
@@ -292,7 +323,21 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 	return reask(step, unusableAnswerAck), nil
 }
 
+func legacyDetailNavigation(data string) bool {
+	switch data {
+	case "review:edit", "review:merchant", "review:description", "review:category":
+		return true
+	}
+	return false
+}
+
 func (p *Processor) applyTap(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, data string) (stepOutcome, error) {
+	if legacyDetailNavigation(data) {
+		return reask(step, choiceStaleAck), nil
+	}
+	if sit := review.situation(); sit != sitNone && (evidenceFact(step.Fact) || sit == sitDispute) {
+		return p.applyEvidenceTap(ctx, tx, householdID, sourceEventID, review, step, data, sit)
+	}
 	switch {
 	case payslipReviewType(review.ReviewType):
 		return p.applySalaryTap(ctx, tx, householdID, sourceEventID, review, step, data)
@@ -346,7 +391,10 @@ func (p *Processor) categoryPage(ctx context.Context, tx pgx.Tx, review engineRe
 
 func (p *Processor) applyIgnore(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step) (stepOutcome, error) {
 	if review.TransactionID == "" {
-		return p.applyIgnoreReconciliation(ctx, tx, householdID, review, step)
+		if review.Subject.Reconciliation {
+			return p.applyIgnoreReconciliation(ctx, tx, householdID, review, step)
+		}
+		return p.applyIgnoreEvidence(ctx, tx, review, step)
 	}
 	outcome, err := confirmedCardOutcome(ctx, tx, householdID, review.TransactionID)
 	if err != nil {
@@ -493,7 +541,7 @@ func (p *Processor) applyCategory(ctx context.Context, tx pgx.Tx, householdID, s
 	}
 	askRemember, err := finishConfirmedReview(ctx, sp, confirmedReview{
 		HouseholdID: householdID, UserID: review.UserID, ReviewID: review.RequestID, TransactionID: review.TransactionID,
-		CategoryID: categoryID, SourceEventID: sourceEventID, MerchantID: confirmed.MerchantID, Confidence: 1, OfferLearning: !transferReview(review.ReviewType),
+		CategoryID: categoryID, SourceEventID: sourceEventID, MerchantID: confirmed.MerchantID, Confidence: 1, OfferLearning: !transferReview(review.ReviewType) && review.situation() == sitNone,
 	})
 	if err != nil {
 		_ = sp.Rollback(ctx)

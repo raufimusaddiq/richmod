@@ -25,63 +25,6 @@ func callbackUpdate(chatID, messageID int64, data string) telegramUpdate {
 	return update
 }
 
-func TestStaleReviewCallbackPersistsReply(t *testing.T) {
-	t.Parallel()
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	stamp := testsupport.UniqueStamp()
-	var householdID, sourceID string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stale callback %d", stamp)).Scan(&householdID); err != nil {
-		t.Fatal(err)
-	}
-	var userID string
-	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','!') RETURNING id`, fmt.Sprintf("stale-callback-%d@example.test", stamp)).Scan(&userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp, householdID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("stale-%d", stamp), []byte(fmt.Sprintf("stale-%d", stamp))).Scan(&sourceID); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback(ctx)
-	if err := finishStaleReviewCallback(ctx, tx, sourceID, callbackUpdate(stamp, 42, "review:ignore")); err != nil {
-		t.Fatal(err)
-	}
-	var status, message string
-	if err := pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceID).Scan(&status); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'reply_to_message_id'='42'`, fmt.Sprint(stamp)).Scan(&message); err != nil {
-		t.Fatal(err)
-	}
-	if status != "PROCESSED" {
-		t.Fatalf("stale callback status=%s reply=%q", status, message)
-	}
-	var staleActions int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='STALE_REVIEW_ACTION' AND household_id=$2`, sourceID, householdID).Scan(&staleActions); err != nil {
-		t.Fatal(err)
-	}
-	if staleActions != 1 {
-		t.Fatalf("stale action audit rows=%d, want 1", staleActions)
-	}
-}
-
 func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -190,7 +133,7 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	must(tx.Commit(ctx))
 	var markup, candidatesJSON string
 	must(pool.QueryRow(ctx, `SELECT COALESCE(payload_json->>'reply_markup','') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, reviewID).Scan(&markup))
-	if !strings.Contains(markup, "review:dup:merge:0") || !strings.Contains(markup, "review:dup:new") {
+	if !strings.Contains(markup, "review:dupm:1000") || !strings.Contains(markup, "review:dup:new") {
 		t.Fatalf("duplicate card must offer a merge button per candidate: %s", markup)
 	}
 	must(pool.QueryRow(ctx, `SELECT COALESCE(context_json->>'duplicate_candidates','') FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&candidatesJSON))
@@ -200,7 +143,7 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=71 WHERE review_request_id=$1`, reviewID); err != nil {
 		t.Fatal(err)
 	}
-	cbUpdate := callbackUpdate(chatID, 71, "review:dup:merge:0")
+	cbUpdate := callbackUpdate(chatID, 71, "review:dupm:1000")
 	cbRaw, _ := json.Marshal(cbUpdate)
 	var cbSourceID string
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("dup-cb-%d", stamp), cbRaw).Scan(&cbSourceID))

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 const ScreenshotRowCategoryPolicyVersion = "2026-11-screenshot-generative1"
@@ -159,6 +160,9 @@ func screenshotSummary(found, recorded, linked, pending int) string {
 }
 
 func enqueueScreenshotSummary(ctx context.Context, tx pgx.Tx, chatID int64, documentID, summary string) error {
+	if continued, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, summary); err != nil || continued {
+		return err
+	}
 	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text,'bind_document_id',$3::text))`, chatID, summary, documentID)
 	return err
 }

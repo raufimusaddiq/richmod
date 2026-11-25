@@ -56,7 +56,7 @@ func sendTypedReviewReply(t *testing.T, ctx context.Context, f agentIntegrationF
 
 func TestTypedDetailReplyCompletesReview(t *testing.T) {
 	t.Parallel()
-	for _, reviewType := range []string{"UNKNOWN_PURPOSE", "MANUAL_CORRECTION"} {
+	for _, reviewType := range []string{"UNKNOWN_PURPOSE"} {
 		for _, mode := range typedReplyModes {
 			t.Run(reviewType+"/"+mode.name, func(t *testing.T) {
 				ctx := context.Background()

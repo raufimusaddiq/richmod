@@ -493,7 +493,7 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 	question, _ := f.lastEdit(95)
 	edits := f.count(`SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95`, f.chat)
 	f.tap(95, "review:cat:"+category, question)
-	f.tap(95, "review:edit", question)
+	f.tap(95, "review:expense", question)
 	if again := f.count(`SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95`, f.chat); again != edits {
 		t.Fatalf("a duplicate tap queued %d edits that would erase the remember question", again-edits)
 	}

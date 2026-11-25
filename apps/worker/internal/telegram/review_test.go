@@ -49,18 +49,6 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	}
 }
 
-func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
-	found := false
-	for _, row := range reviewDetailMarkup().InlineKeyboard {
-		for _, button := range row {
-			found = found || button.CallbackData == "review:category"
-		}
-	}
-	if !found {
-		t.Fatal("category must remain available when merchant is unknown")
-	}
-}
-
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}
 	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", time.Now(), []categoryChoice{

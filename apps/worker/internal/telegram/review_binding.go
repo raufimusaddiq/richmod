@@ -231,19 +231,21 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	if err != nil {
 		return err
 	}
-	card := buildReviewCard(decision, reviewType, message, subject)
-	state := card.State
-	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, buildReviewCard(decision, reviewType, message, subject).State); err != nil {
 		return err
 	}
-	markup, err := reviewCardMarkup(ctx, tx, reviewID, reviewType, decision, card, subject)
+	card, markup, err := renderStepCard(ctx, tx, reviewID, reviewType, message, decision, subject)
 	if err != nil {
 		return err
 	}
-	if card, err = loadedStepCard(ctx, tx, reviewID, reviewType, message, decision, subject, card); err != nil {
+	reviewMessage := card.Text()
+	var householdID string
+	if err := tx.QueryRow(ctx, `SELECT household_id::text FROM review_request WHERE id=$1`, reviewID).Scan(&householdID); err != nil {
 		return err
 	}
-	reviewMessage := card.Text()
+	if continued, err := continueReprocessedCard(ctx, tx, householdID, reviewID, itemID, reviewMessage, markup); err != nil || continued {
+		return err
+	}
 	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
 		FROM telegram_identity ti
 		JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active

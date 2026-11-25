@@ -140,7 +140,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	if update.CallbackQuery != nil {
 		defer func() {
 			if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
-				err = p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")
+				err = p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, disputeButtonsOnlyMessage)
 			}
 		}()
 		update.Message.MessageID = update.CallbackQuery.Message.MessageID
@@ -160,7 +160,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 		if tapped, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, ""); err != nil {
 			return err
 		} else if tapped.Kind == interactionCardStep {
-			if !navigationCallback(update.CallbackQuery.Data) {
+			if !navigationCallback(update.CallbackQuery.Data) && !legacyDetailNavigation(update.CallbackQuery.Data) {
 				p.recordInteraction(ctx, householdID, sourceEventID, tapped.Card.ReviewItemID, interactionAnswered, sourceTap)
 			}
 			if handled, err := p.runStepEngine(ctx, householdID, sourceEventID, update, tapped.Card, engineInput{Tap: update.CallbackQuery.Data, Targeted: true}); handled || err != nil {
@@ -171,12 +171,12 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 			return err
 		}
 	}
+	if sourceType == "TELEGRAM_CALLBACK" {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+	}
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesan kosong diabaikan.")
-	}
-	if sourceType == "TELEGRAM_CALLBACK" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 	}
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
@@ -187,53 +187,23 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (handledResult bool, err error) {
 	defer func() {
 		if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
-			handledResult, err = true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")
+			handledResult, err = true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, disputeButtonsOnlyMessage)
 		}
 	}()
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:dispute:") {
-		if handled, err := p.processEvidenceDisputeCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled || err != nil {
-			return true, err
-		}
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
-	}
-	if data := update.CallbackQuery.Data; data == callbackInteractionAnswer || data == callbackInteractionNew {
+	data := update.CallbackQuery.Data
+	if data == callbackInteractionAnswer || data == callbackInteractionNew {
 		return true, p.processInteractionChoiceCallback(ctx, sourceEventID, householdID, update, data)
 	}
-	if handled, err := p.processCardChoiceCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+	if handled, err := p.processCardChoiceCallback(ctx, sourceEventID, householdID, update, data); handled {
 		return true, err
 	}
-	if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+	if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, data); handled {
 		return true, err
 	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
-		return true, p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-	}
-	if update.CallbackQuery.Data == "review:reprocess" || update.CallbackQuery.Data == "review:ignore" {
-		if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-			return true, err
-		}
-		if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-			return true, err
-		}
-		if handled, err := p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update); handled {
-			return true, err
-		}
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:fe:") || strings.HasPrefix(update.CallbackQuery.Data, "review:fepage:") {
-		if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-			return true, err
-		}
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
-		return true, p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
-		if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-			return true, err
-		}
-	}
-	return false, nil
+	return p.processMerchantLearningTap(ctx, sourceEventID, householdID, update, data)
 }
+
+const disputeButtonsOnlyMessage = "Koreksi screenshot hanya bisa diselesaikan lewat tombol di kartunya."
 
 func strPtr(value string) *string { return &value }
 

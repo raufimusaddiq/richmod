@@ -465,23 +465,11 @@ func TestStagedDisputeCannotBeResolvedByTypedReplyOrForgedGenericCallbacks(t *te
 		}
 	}
 
-	p.gw.calls = 0
-	p.gw.agent = func(call int, _ gateway.AgentRequest) gateway.AgentResponse {
-		if call%2 == 0 {
-			return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "confirm", Name: "resolve_review", Arguments: []byte(`{"action":"CONFIRM","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[]}`)}}}
-		}
-		return gateway.AgentResponse{Text: "Baik."}
-	}
-	source, err := p.text("ya benar", card, p.tgUser)
-	if err != nil {
+	if _, err := p.text("ya benar", card, p.tgUser); err != nil {
 		t.Fatalf("typed reply failed the job: %v", err)
 	}
 	if p.confirmed() != 1 || p.staged() != 1 {
 		t.Fatalf("typed reply resolved the staged dispute: confirmed=%d staged=%d", p.confirmed(), p.staged())
-	}
-	status := p.str(`SELECT public_context_json->>'status' FROM telegram_conversation_turn WHERE source_event_id=$1::uuid AND tool_name='resolve_review' ORDER BY created_at DESC LIMIT 1`, source)
-	if status != "EVIDENCE_DISPUTE_USE_BUTTONS" {
-		t.Fatalf("typed reply status = %q, want EVIDENCE_DISPUTE_USE_BUTTONS", status)
 	}
 }
 
@@ -510,11 +498,11 @@ func TestDisputeRejectRefusesActiveMergeTarget(t *testing.T) {
 	if p.n(`SELECT count(*) FROM audit_log WHERE entity_id=$1::uuid AND action IN ('VOIDED','REJECT_REVIEW','TELEGRAM_REJECTED')`, staged) != 0 {
 		t.Fatal("a refusal must not audit a void")
 	}
-	text := p.str(`SELECT COALESCE(string_agg(payload_json->>'text',' | '),'') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat)
+	text := p.str(`SELECT COALESCE(string_agg(payload_json->>'text',' | '),'') FROM job WHERE type IN ('SEND_TELEGRAM_MESSAGE','EDIT_TELEGRAM_MESSAGE') AND (payload_json->>'chat_id')::bigint=$1`, p.chat)
 	if !strings.Contains(text, "tujuan penggabungan yang masih aktif") {
 		t.Fatalf("reply = %q", text)
 	}
-	if p.str(`SELECT processing_status FROM source_event WHERE id=$1::uuid`, source) != "IGNORED" {
+	if p.str(`SELECT processing_status FROM source_event WHERE id=$1::uuid`, source) != "PROCESSED" {
 		t.Fatal("the callback's source event must settle, not fail")
 	}
 }

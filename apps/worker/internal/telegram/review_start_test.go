@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -54,22 +53,25 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 		{
 			name: "duplicate conflict offers duplicate intents", reviewType: "POSSIBLE_DUPLICATE",
 			decision:  reviewdec.Decision{MissingFacts: []string{"duplicate_relationship"}, AllowedActions: []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
-			wantState: "AWAITING_DETAIL", context: "candidate exists", wantMode: "duplicate",
+			subject:   reviewSubject{TransactionType: "EXPENSE"},
+			wantState: "AWAITING_DETAIL", context: "candidate exists", wantMode: "step",
 		},
 		{
 			name: "receipt mismatch asks only to accept the printed total", reviewType: "RECEIPT_MISMATCH",
 			decision:  reviewdec.Decision{ReasonCode: "RECEIPT_MISMATCH", Consequence: reviewdec.QualitySignal, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}},
-			wantState: "AWAITING_DETAIL", wantMode: "receipt_quality",
+			subject:   reviewSubject{TransactionType: "EXPENSE"},
+			wantState: "AWAITING_DETAIL", wantMode: "step",
 		},
 		{
-			name: "no decision fails closed to a detail prompt", reviewType: "SOMETHING_NEW",
+			name: "no decision fails closed to the app prompt", reviewType: "SOMETHING_NEW",
 			decision:  reviewdec.Decision{},
-			wantState: "AWAITING_DETAIL", context: "keep context", wantMode: "reply",
+			wantState: "AWAITING_DETAIL", context: "keep context", wantMode: "step",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state, message, mode := renderReviewPresentation(tt.decision, tt.reviewType, tt.context, tt.subject)
+			card := buildReviewCard(tt.decision, tt.reviewType, tt.context, tt.subject)
+			state, message, mode := card.State, card.Text(), card.Mode
 			t.Logf("state=%s mode=%s\n%s", state, mode, message)
 			if state != tt.wantState || mode != tt.wantMode {
 				t.Fatalf("state=%q message=%q mode=%q", state, message, mode)
@@ -100,11 +102,7 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 
 func TestRequiredFieldReplyMarkupOnlyOffersIgnore(t *testing.T) {
 	decision, _ := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "t")
-	card := buildReviewCard(decision, "MISSING_TRANSACTION_DATE", "", reviewSubject{})
-	markup, err := reviewCardMarkup(context.Background(), nil, "", "MISSING_TRANSACTION_DATE", decision, card, reviewSubject{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	markup := stepOrFallback(decision, "MISSING_TRANSACTION_DATE", "", reviewSubject{}).executable(cardActions(decision, "MISSING_TRANSACTION_DATE")).Markup()
 	if markup == nil || len(markup.InlineKeyboard) != 1 || len(markup.InlineKeyboard[0]) != 1 || markup.InlineKeyboard[0][0].CallbackData != "review:ignore" {
 		t.Fatalf("markup=%#v", markup)
 	}

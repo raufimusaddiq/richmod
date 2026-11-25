@@ -68,7 +68,7 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 			must(err)
 			var parsed reviewdec.Decision
 			must(json.Unmarshal([]byte(decision), &parsed))
-			markup, err := stepMarkup(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", parsed, reviewSubject{TransactionType: "INCOME"})
+			_, markup, err := renderStepCard(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", "", parsed, reviewSubject{TransactionType: "INCOME"})
 			must(err)
 			must(tx.Rollback(ctx))
 			encoded, _ := json.Marshal(markup)

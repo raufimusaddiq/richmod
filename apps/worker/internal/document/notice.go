@@ -8,9 +8,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
-const noticeFooter = " Balas pesan ini kalau ada yang perlu dibetulkan."
+const noticeFooter = " Kalau ada yang keliru, tulis koreksinya."
 
 var (
 	digitsOnly   = regexp.MustCompile(`^[0-9]+$`)
@@ -18,6 +19,9 @@ var (
 )
 
 func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, documentID, text string) error {
+	if continued, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "✅ "+strings.TrimSuffix(text, noticeFooter)); err != nil || continued {
+		return err
+	}
 	var chatID, messageID *int64
 	err := tx.QueryRow(ctx, `SELECT telegram_chat_id,telegram_message_id FROM source_event WHERE id=$1 AND source_type='TELEGRAM_IMAGE'`, sourceEventID).Scan(&chatID, &messageID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && chatID == nil) {

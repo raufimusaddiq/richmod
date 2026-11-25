@@ -43,7 +43,7 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 		t.Fatalf("bank actions=%v", got)
 	}
 	for _, kind := range []string{"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION"} {
-		if got := reviewdec.AgentActions(kind); strings.Join(got, ",") != "REPROCESS_DOCUMENT,IGNORE" {
+		if got := reviewdec.AgentActions(kind); strings.Join(got, ",") != "IGNORE" {
 			t.Fatalf("%s actions=%v", kind, got)
 		}
 	}

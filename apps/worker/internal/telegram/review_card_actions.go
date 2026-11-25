@@ -6,66 +6,11 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
-
-type boundCardItem struct {
-	RequestID, ItemID, UserID, ReviewType string
-	Decision                              []byte
-}
-
-func bindOpenCardItem(ctx context.Context, tx pgx.Tx, householdID string, update telegramUpdate, messageID int64) (boundCardItem, error) {
-	var item boundCardItem
-	err := tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,ti.user_id::text,ri.review_type,COALESCE(ri.decision,'{}'::jsonb)
-		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id
-		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active
-		JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND')
-		FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, messageID, update.Message.From.ID).
-		Scan(&item.RequestID, &item.ItemID, &item.UserID, &item.ReviewType, &item.Decision)
-	return item, err
-}
 
 func markCallbackProcessed(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
 	_, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID)
 	return err
-}
-
-func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	item, err := bindOpenCardItem(ctx, tx, householdID, update, update.Message.MessageID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
-		return err
-	}
-	err = reviewdomain.IgnoreReview(ctx, tx, reviewdomain.IgnoreCommand{HouseholdID: householdID, ActorUserID: item.UserID, ReviewItemID: item.ItemID, ActorType: "TELEGRAM"})
-	switch {
-	case errors.Is(err, reviewdomain.ErrAlreadyResolved), errors.Is(err, reviewdomain.ErrIgnoreTransactionBound):
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	case errors.Is(err, reviewdomain.ErrIgnoreNotAllowed):
-		if err := markCallbackProcessed(ctx, tx, sourceEventID); err != nil {
-			return err
-		}
-		if err := enqueueReply(ctx, tx, update, "Tinjauan ini tidak bisa diabaikan. Pilih salah satu jawaban di kartunya."); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	case err != nil:
-		return err
-	}
-	if err := markCallbackProcessed(ctx, tx, sourceEventID); err != nil {
-		return err
-	}
-	if err := enqueueReply(ctx, tx, update, "Diabaikan. Buktinya tetap tersimpan, tidak ada transaksi yang dicatat."); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 type ProjectReviewPayload struct {
