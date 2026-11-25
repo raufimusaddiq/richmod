@@ -62,6 +62,10 @@ func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdI
 }
 
 func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64, text string) error {
+	return p.BindReviewMessageAs(ctx, reviewRequestID, chatID, messageID, text, false)
+}
+
+func (p *Processor) BindReviewMessageAs(ctx context.Context, reviewRequestID string, chatID, messageID int64, text string, assistantShown bool) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
@@ -96,10 +100,10 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 			return fmt.Errorf("extend Telegram review projection: %w", err)
 		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO review_request_message(household_id,review_request_id,recipient_id,telegram_chat_id,telegram_message_id,delivered_text)
-		VALUES($1,$2,$3,$4,$5,NULLIF($6,''))
+	if _, err := tx.Exec(ctx, `INSERT INTO review_request_message(household_id,review_request_id,recipient_id,telegram_chat_id,telegram_message_id,delivered_text,assistant_shown)
+		VALUES($1,$2,$3,$4,$5,NULLIF($6,''),$7)
 		ON CONFLICT (telegram_chat_id,telegram_message_id) DO UPDATE SET delivered_text=EXCLUDED.delivered_text,superseded_at=NULL`,
-		householdID, reviewRequestID, recipientID, chatID, messageID, clean(text, 4000)); err != nil {
+		householdID, reviewRequestID, recipientID, chatID, messageID, clean(text, 4000), assistantShown); err != nil {
 		return fmt.Errorf("record Telegram review message: %w", err)
 	}
 	if previous != 0 && previous != messageID {

@@ -104,6 +104,10 @@ func TestInteractionWeeklyMeasuresAndWindows(t *testing.T) {
 	f.event("REPEATED_INPUT", "", "", 10*day)
 	f.event("ANSWERED", "TAP", "", 10*day)
 	f.event("ANSWERED", "TAP", "", 30*day)
+	f.event("ANSWERED", "TAP", "ASSISTANT_CARD", day)
+	f.event("ANSWERED", "REPLY", "ASSISTANT_CARD", 2*day)
+	f.event("ANSWERED", "TAP", "ASSISTANT_CARD", 10*day)
+	other.event("ANSWERED", "TAP", "ASSISTANT_CARD", day)
 	other.event("UNMATCHED", "", "", day)
 
 	handler := aggregateHandler(pool)
@@ -124,37 +128,31 @@ func TestInteractionWeeklyMeasuresAndWindows(t *testing.T) {
 	if cur.MedianFinishMs == nil || *cur.MedianFinishMs < 59000 || *cur.MedianFinishMs > 61000 {
 		t.Fatalf("median = %v, want about 60000", cur.MedianFinishMs)
 	}
-	if cur.Answers != 6 || cur.UnusableAnswers != 2 || cur.UnusableRate == nil || *cur.UnusableRate != 0.25 {
+	if cur.Answers != 8 || cur.UnusableAnswers != 2 || cur.UnusableRate == nil || *cur.UnusableRate != 0.2 {
 		t.Fatalf("answers = %d unusable = %d rate = %v", cur.Answers, cur.UnusableAnswers, cur.UnusableRate)
 	}
-	if cur.AnswerSources["TAP"] != 4 || cur.AnswerSources["REPLY"] != 1 || cur.AnswerSources["PLAIN"] != 1 || cur.AnswerSources["VIA_ASSISTANT"] != 0 {
+	if cur.AnswerSources["TAP"] != 4 || cur.AnswerSources["REPLY"] != 1 || cur.AnswerSources["PLAIN"] != 1 || cur.AnswerSources["VIA_ASSISTANT"] != 2 {
 		t.Fatalf("sources = %v", cur.AnswerSources)
 	}
 	if cur.RepeatedInput != 1 {
 		t.Fatalf("repeated = %d", cur.RepeatedInput)
 	}
 	prev := summary.Previous
-	if prev.CardsSent != 2 || prev.FinishedTelegram != 1 || prev.TypesSent != 1 || prev.RepeatedInput != 1 || prev.Answers != 2 {
+	if prev.CardsSent != 2 || prev.FinishedTelegram != 1 || prev.TypesSent != 1 || prev.RepeatedInput != 1 || prev.Answers != 3 || prev.AnswerSources["VIA_ASSISTANT"] != 1 || prev.AnswerSources["TAP"] != 2 {
 		t.Fatalf("previous = %+v", prev)
 	}
 	if prev.UnusableRate == nil || *prev.UnusableRate != 0 {
 		t.Fatalf("previous unusable rate = %v", prev.UnusableRate)
 	}
-	wantMissing := map[string]bool{"answers_via_assistant": true}
-	if len(summary.NotYetMeasurable) != len(wantMissing) {
+	if len(summary.NotYetMeasurable) != 0 {
 		t.Fatalf("notYetMeasurable = %v", summary.NotYetMeasurable)
-	}
-	for _, key := range summary.NotYetMeasurable {
-		if !wantMissing[key] {
-			t.Fatalf("unexpected coverage gap %q", key)
-		}
 	}
 
 	empty, err := handler.loadInteractionWeekly(ctx, other.household, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if empty.Current.CardsSent != 1 || empty.Current.UnusableAnswers != 1 || empty.Current.Answers != 1 {
+	if empty.Current.CardsSent != 1 || empty.Current.UnusableAnswers != 1 || empty.Current.Answers != 2 || empty.Current.AnswerSources["VIA_ASSISTANT"] != 1 {
 		t.Fatalf("other household saw %+v", empty.Current)
 	}
 	quiet := newWeeklyFixture(t, pool)
@@ -259,9 +257,7 @@ func TestInteractionWeeklyCountsReplyRepairsByReason(t *testing.T) {
 	if summary.Previous.BrokenReplies != 1 || summary.Previous.MechanicsReplies != 1 {
 		t.Fatalf("previous = %d broken, %d mechanics", summary.Previous.BrokenReplies, summary.Previous.MechanicsReplies)
 	}
-	for _, key := range summary.NotYetMeasurable {
-		if key != "answers_via_assistant" {
-			t.Fatalf("reply quality must be measurable, got %q", key)
-		}
+	if len(summary.NotYetMeasurable) != 0 {
+		t.Fatalf("notYetMeasurable = %v", summary.NotYetMeasurable)
 	}
 }

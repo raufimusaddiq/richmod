@@ -1,5 +1,7 @@
 package telegram
 
+import "github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+
 type evalScenario struct {
 	name          string
 	text          string
@@ -13,6 +15,8 @@ type evalScenario struct {
 	needsHelp     bool
 	needsDigit    bool
 	goodReply     string
+	wantCall      string
+	goodCall      gateway.ToolCall
 }
 
 func evalFacts(tool string, facts map[string]any) agentToolResult {
@@ -140,5 +144,23 @@ var evalScenarios = []evalScenario{
 	{
 		name: "evidence mismatch card", text: "kok kartunya muncul lagi?", openCards: []map[string]any{{"topic": "transaksi yang mungkin dobel", "amount_idr": "75000", "description": "makan"}},
 		goodReply: "Itu kartu makan Rp75.000 yang mungkin dobel, masih menunggu jawabanmu.\nPilih lewat tombolnya, ya.",
+	},
+	{
+		name: "card waiting, user says it was an asset purchase", text: "yang emas tadi itu beli aset ya",
+		openCards: []map[string]any{{"card_ref": "k1", "topic": "transfer yang belum jelas", "amount_idr": "500000", "description": "emas"}},
+		wantCall:  toolShowReviewCard,
+		goodCall:  gateway.ToolCall{Name: toolShowReviewCard, Arguments: []byte(`{"card_ref":"k1","step":"asset"}`)},
+	},
+	{
+		name: "card waiting, user asks to see it", text: "mana kartu yang kopi tadi?",
+		openCards: []map[string]any{{"card_ref": "k1", "topic": "kategori yang belum pasti", "amount_idr": "48000", "description": "kopi"}},
+		wantCall:  toolShowReviewCard,
+		goodCall:  gateway.ToolCall{Name: toolShowReviewCard, Arguments: []byte(`{"card_ref":"k1","step":null}`)},
+	},
+	{
+		name: "two cards waiting, user names the second", text: "yang bensin itu masuk transport",
+		openCards: []map[string]any{{"card_ref": "k1", "topic": "kategori yang belum pasti", "amount_idr": "48000", "description": "kopi"}, {"card_ref": "k2", "topic": "kategori yang belum pasti", "amount_idr": "90000", "description": "bensin"}},
+		wantCall:  toolShowReviewCard,
+		goodCall:  gateway.ToolCall{Name: toolShowReviewCard, Arguments: []byte(`{"card_ref":"k2","step":"category"}`)},
 	},
 }

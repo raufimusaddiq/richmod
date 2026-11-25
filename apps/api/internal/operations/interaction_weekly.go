@@ -202,6 +202,9 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 				switch action {
 				case "ANSWERED":
 					window.Answers += count
+					if decision == "ASSISTANT_CARD" {
+						source = "VIA_ASSISTANT"
+					}
 					if source == "" {
 						source = "UNKNOWN"
 					}
@@ -228,7 +231,6 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 	previous.finalize()
 	summary.Current, summary.Previous = current, previous
 	summary.DegradedSections = degraded
-	summary.NotYetMeasurable = append(summary.NotYetMeasurable, "answers_via_assistant")
 	return summary, nil
 }
 

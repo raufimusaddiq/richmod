@@ -122,6 +122,29 @@ func evalCheck(scenario evalScenario, reply string) []string {
 	return failures
 }
 
+func evalCheckCall(scenario evalScenario, response gateway.AgentResponse) []string {
+	var failures []string
+	called := false
+	for _, call := range response.ToolCalls {
+		if class, known := agentToolClassFor(call.Name); known && class == agentToolSideEffect {
+			failures = append(failures, "calls a tool that changes data: "+call.Name)
+		}
+		if call.Name == scenario.wantCall {
+			called = true
+			if _, err := validateAgentToolCall(call, "", ""); err != nil {
+				failures = append(failures, "invalid arguments: "+err.Error())
+			}
+		}
+	}
+	if !called {
+		failures = append(failures, "does not call "+scenario.wantCall)
+	}
+	if evalMutation.MatchString(response.Text) {
+		failures = append(failures, "claims a change that was not made")
+	}
+	return failures
+}
+
 type evalFakeGateway struct {
 	reply func(evalScenario) string
 	index int
@@ -133,6 +156,9 @@ func (g *evalFakeGateway) AgentTurn(_ context.Context, _ string, request gateway
 	text, _ := turn["current_user_text"].(string)
 	for _, scenario := range evalScenarios {
 		if strings.Contains(text, scenario.text) {
+			if scenario.wantCall != "" {
+				return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{scenario.goodCall}}, nil
+			}
 			return gateway.AgentResponse{Text: g.reply(scenario)}, nil
 		}
 	}
@@ -147,6 +173,12 @@ func runPromptEval(ctx context.Context, model conversationalGateway) map[string]
 		cancel()
 		if err != nil {
 			failures[scenario.name] = []string{"gateway error: " + err.Error()}
+			continue
+		}
+		if scenario.wantCall != "" {
+			if problems := evalCheckCall(scenario, response); len(problems) > 0 {
+				failures[scenario.name] = problems
+			}
 			continue
 		}
 		if problems := evalCheck(scenario, response.Text); len(problems) > 0 {

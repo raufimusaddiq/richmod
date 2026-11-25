@@ -15,15 +15,21 @@ const (
 	interactionRepeated       = "REPEATED_INPUT"
 )
 
+const decisionAssistantCard = "ASSISTANT_CARD"
+
 const repeatedInputWindow = 3 * time.Minute
 
 func (p *Processor) recordInteraction(ctx context.Context, householdID, sourceEventID, reviewItemID, action string, source interactionSource) {
 	if p.pool == nil || householdID == "" {
 		return
 	}
-	_, err := p.pool.Exec(ctx, `INSERT INTO product_telemetry_event(household_id,source_event_id,review_item_id,event_type,source_type,action)
-		VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,'INTERACTION',NULLIF($4,''),$5) ON CONFLICT DO NOTHING`,
-		householdID, sourceEventID, reviewItemID, string(source), action)
+	decisionSource := ""
+	if action == interactionAnswered && p.answeredOnAssistantCard(ctx, householdID, sourceEventID, reviewItemID, source) {
+		decisionSource = decisionAssistantCard
+	}
+	_, err := p.pool.Exec(ctx, `INSERT INTO product_telemetry_event(household_id,source_event_id,review_item_id,event_type,source_type,action,decision_source)
+		VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,'INTERACTION',NULLIF($4,''),$5,NULLIF($6,'')) ON CONFLICT DO NOTHING`,
+		householdID, sourceEventID, reviewItemID, string(source), action, decisionSource)
 	if err != nil {
 		slog.Default().Warn("record interaction telemetry failed", "household_id", householdID, "source_event_id", sourceEventID, "action", action, "error", err)
 	}

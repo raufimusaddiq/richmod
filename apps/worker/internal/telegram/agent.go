@@ -133,15 +133,14 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	var reviewPublic any
 	reviewCount := 0
 	var openCards []map[string]any
+	var cardRefs map[string]string
 	if explicitReply {
 		if resolved.Kind == interactionCardStep && merchantBinding == nil && resolved.Card.Binding != nil {
 			reviewBinding = resolved.Card.Binding
 			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 		}
 	} else {
-		for index := range resolved.OpenCards {
-			openCards = append(openCards, agentReviewBindingPublic(&resolved.OpenCards[index]))
-		}
+		cardRefs, openCards = showableCardRefs(resolved.OpenCards)
 		if resolved.Kind == interactionCardStep && resolved.Card.Binding != nil {
 			reviewBinding = resolved.Card.Binding
 			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
@@ -195,6 +194,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if evidence == nil && len(recentEvidence) == 0 {
 		generalTools = withoutTool(generalTools, "get_evidence_context")
 	}
+	if len(cardRefs) > 0 {
+		generalTools = append(generalTools, showReviewCardTool())
+	}
 	tools, workflowScope := generalTools, agentWorkflowGeneral
 	if explicitReply {
 		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
@@ -237,6 +239,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		ReviewType:             contextState.ReviewType,
 		ReviewMode:             contextState.ReviewMode,
 		Analytics:              analyticscore.NewSession(p.pool, householdID, now, sourceEventID),
+		CardRefs:               cardRefs,
 		FreshEvidenceDocuments: freshDocuments,
 		ReceivedAt:             receivedAt,
 		activity:               new(atomic.Int32),

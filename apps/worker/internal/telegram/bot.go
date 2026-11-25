@@ -28,6 +28,7 @@ type SendPayload struct {
 	BindDocumentID                string                `json:"bind_document_id,omitempty"`
 	BindMerchantLearningRequestID string                `json:"bind_merchant_learning_request_id,omitempty"`
 	SettledCard                   bool                  `json:"settled_card,omitempty"`
+	AssistantShown                bool                  `json:"assistant_shown,omitempty"`
 	ReplyMarkup                   *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
