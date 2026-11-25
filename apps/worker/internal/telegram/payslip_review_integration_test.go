@@ -110,7 +110,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 type payslipDateGateway struct{}
 
 func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"","description":"","note":"","confidence":0,"ambiguous":false,"pay_date":"2026-09-25"}`)}, gateway.Metadata{}, nil
+	return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("payslip cards are answered without the model")
 }
 
 func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {

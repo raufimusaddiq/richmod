@@ -40,6 +40,8 @@ func agentPendingMarkup(history []agentToolResult) *InlineKeyboardMarkup {
 		switch {
 		case result.Status == "PENDING_CONFIRMATION" && action == "BATCH_STAGED", result.Status == "UPDATED" && action == "BATCH_UPDATED":
 			return pendingBatchMarkup(result.confirmationToken)
+		case result.Status == "PENDING_CONFIRMATION" && action == assetPurchaseStagedAction:
+			return assetPurchaseMarkup(result.confirmationToken)
 		case result.Status == "PENDING_CONFIRMATION" && action == "CORRECTION_STAGED", result.Status == "EDIT_CONFIRMATION_REQUIRED":
 			return pendingActionMarkup(result.confirmationToken)
 		}
@@ -64,8 +66,14 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 	switch choice {
 	case callbackPendingActionYes:
 		handled, err = p.processPendingEdit(ctx, householdID, update, sourceEventID, true, token)
+		if !handled && err == nil {
+			handled, err = p.processPendingAssetPurchase(ctx, householdID, update, sourceEventID, true, token)
+		}
 	case callbackPendingActionNo:
 		handled, err = p.processPendingEdit(ctx, householdID, update, sourceEventID, false, token)
+		if !handled && err == nil {
+			handled, err = p.processPendingAssetPurchase(ctx, householdID, update, sourceEventID, false, token)
+		}
 	case callbackPendingBatchYes:
 		handled, err = p.processPendingBatch(ctx, householdID, update, sourceEventID, true, token)
 	case callbackPendingBatchNo:

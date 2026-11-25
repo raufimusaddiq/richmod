@@ -28,7 +28,7 @@ func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
 }
 
 func TestEveryExposedMutationToolIsClassified(t *testing.T) {
-	for _, tool := range AgentFinanceTools([]string{"dining"}, true, true, true, "TRANSFER_CLASSIFICATION", true, true, "TRANSFER_CLASSIFICATION") {
+	for _, tool := range AgentFinanceTools([]string{"dining"}, true, true) {
 		if _, known := agentToolClassFor(tool.Name); !known {
 			t.Fatalf("tool %q has no agent tool class", tool.Name)
 		}

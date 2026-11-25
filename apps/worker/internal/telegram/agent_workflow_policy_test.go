@@ -16,25 +16,39 @@ func sideEffectNames(tools []gateway.ToolDefinition) map[string]bool {
 	return out
 }
 
-func TestExplicitReviewReplyExposesOnlyBoundReviewMutation(t *testing.T) {
+func repliesTo(messageID int64) telegramUpdate {
 	var update telegramUpdate
 	update.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
-	}{MessageID: 77}
-	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
-	writes := sideEffectNames(filtered)
+	}{MessageID: messageID}
+	return update
+}
+
+func TestExplicitReviewReplyGivesTheAssistantNoWriteTool(t *testing.T) {
+	tools := AgentFinanceTools([]string{"dining"}, true, true)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, repliesTo(77), &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"})
 	if scope != agentWorkflowExactReview {
 		t.Fatalf("scope=%s", scope)
 	}
-	if len(writes) != 1 || !writes["resolve_review"] {
-		t.Fatalf("writes=%v; want resolve_review only", writes)
+	if writes := sideEffectNames(filtered); len(writes) != 0 {
+		t.Fatalf("a bound card reply exposed writes: %v", writes)
+	}
+}
+
+func TestExplicitWealthReplyOffersOnlyTheAssetPurchaseProposal(t *testing.T) {
+	tools := append(AgentFinanceTools([]string{"dining"}, true, true), proposeAssetPurchaseTool())
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, repliesTo(78), &agentReviewBinding{Kind: wealthObservationBindingKind, TargetID: "target", ReviewRequestID: "review"})
+	if scope != agentWorkflowExactReview {
+		t.Fatalf("scope=%s", scope)
+	}
+	if writes := sideEffectNames(filtered); len(writes) != 1 || !writes[toolProposeAssetPurchase] {
+		t.Fatalf("writes=%v; want only %s", writes, toolProposeAssetPurchase)
 	}
 }
 
 func TestPendingBatchDoesNotOwnUnrelatedAgentTurn(t *testing.T) {
-	tools := AgentFinanceTools([]string{"dining"}, false, true, false, "", false, false, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil)
+	tools := AgentFinanceTools([]string{"dining"}, false, true)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil)
 	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s; unrelated conversation must keep general scope", scope)
 	}
@@ -43,29 +57,9 @@ func TestPendingBatchDoesNotOwnUnrelatedAgentTurn(t *testing.T) {
 	}
 }
 
-func TestExplicitMerchantReplyExposesOnlyMerchantMutation(t *testing.T) {
-	var update telegramUpdate
-	update.Message.ReplyToMessage = &struct {
-		MessageID int64 `json:"message_id"`
-	}{MessageID: 88}
-	tools := AgentFinanceTools([]string{"dining"}, true, true, false, "", true, true, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "review", TransactionID: "tx", TelegramMessageID: 88})
-	writes := sideEffectNames(filtered)
-	if scope != agentWorkflowExactMerchant {
-		t.Fatalf("scope=%s", scope)
-	}
-	if len(writes) != 1 || !writes["resolve_merchant_learning"] {
-		t.Fatalf("writes=%v; want resolve_merchant_learning only", writes)
-	}
-}
-
 func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
-	var update telegramUpdate
-	update.Message.ReplyToMessage = &struct {
-		MessageID int64 `json:"message_id"`
-	}{MessageID: 99}
-	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, nil)
+	tools := AgentFinanceTools([]string{"dining"}, true, true)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, repliesTo(99), nil)
 	if scope != agentWorkflowExplicitUnbound {
 		t.Fatalf("scope=%s", scope)
 	}
@@ -75,9 +69,8 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 }
 
 func TestPendingActionDoesNotOwnOrdinaryTurn(t *testing.T) {
-	var update telegramUpdate
-	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"})
+	tools := AgentFinanceTools([]string{"dining"}, true, true)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"})
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s", scope)
@@ -87,18 +80,9 @@ func TestPendingActionDoesNotOwnOrdinaryTurn(t *testing.T) {
 	}
 }
 
-func TestSalaryChoiceDoesNotOwnOrdinaryTurn(t *testing.T) {
-	tools := AgentFinanceTools(nil, false, false, false, "", true, false, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil)
-	if scope != agentWorkflowGeneral || sideEffectNames(filtered)["resolve_salary_choice"] {
-		t.Fatalf("ordinary turn scope=%s writes=%v", scope, sideEffectNames(filtered))
-	}
-}
-
 func TestImplicitReviewBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
-	var update telegramUpdate
-	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
+	tools := AgentFinanceTools([]string{"dining"}, false, false)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"})
 	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s; an ordinary turn must keep the general catalog", scope)
 	}
@@ -107,23 +91,32 @@ func TestImplicitReviewBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
 	}
 }
 
-func TestImplicitMerchantBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
-	var update telegramUpdate
-	tools := AgentFinanceTools([]string{"dining"}, false, false, false, "", false, true, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "r", TransactionID: "t"})
-	if scope != agentWorkflowGeneral {
-		t.Fatalf("scope=%s; an ordinary turn must keep the general catalog", scope)
+func TestNoCardAnswerToolIsOfferedInAnyWorkflowState(t *testing.T) {
+	removed := []string{"resolve_review", "resolve_salary_choice", "resolve_merchant_learning"}
+	bindings := []*agentReviewBinding{
+		nil,
+		{Kind: "TRANSACTION", TargetID: "t", ReviewRequestID: "r"},
+		{Kind: "CYCLE_RESIDUAL", TargetID: "t", ReviewRequestID: "r"},
+		{Kind: "TRANSFER_RECONCILIATION", TargetID: "t", ReviewRequestID: "r"},
+		{Kind: "BANK_FACTS", TargetID: "t", ReviewRequestID: "r"},
+		{Kind: wealthObservationBindingKind, TargetID: "t", ReviewRequestID: "r"},
 	}
-	if side := sideEffectNames(filtered); !side["record_transaction"] {
-		t.Fatalf("general catalog must be intact, got %v", side)
-	}
-}
-
-func TestCycleResidualCardGivesTheAssistantNoMutationTool(t *testing.T) {
-	tools := AgentFinanceTools(nil, false, false, true, "CYCLE_RESIDUAL_ALLOCATION", false, false, "CYCLE_RESIDUAL")
-	for _, tool := range tools {
-		if tool.Name == "resolve_review" {
-			t.Fatalf("the assistant can still answer a cycle residual card with %s", tool.Name)
+	for _, pendingAction := range []bool{false, true} {
+		for _, pendingBatch := range []bool{false, true} {
+			base := append(AgentFinanceTools([]string{"dining"}, pendingAction, pendingBatch), showReviewCardTool(), proposeAssetPurchaseTool())
+			for _, binding := range bindings {
+				for _, update := range []telegramUpdate{{}, repliesTo(5)} {
+					tools, _ := applyAgentWorkflowToolPolicy(base, update, binding)
+					for _, name := range removed {
+						if agentToolAvailable(tools, name) || agentToolAvailable(base, name) {
+							t.Fatalf("%s offered (action=%v batch=%v binding=%v)", name, pendingAction, pendingBatch, binding)
+						}
+					}
+					if _, known := agentToolClassFor("resolve_review"); known {
+						t.Fatal("resolve_review is still a registered tool")
+					}
+				}
+			}
 		}
 	}
 }

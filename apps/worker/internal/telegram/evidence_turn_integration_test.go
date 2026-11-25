@@ -178,7 +178,7 @@ func TestBareAmountAfterAReceiptDoesNotCreateASecondTransaction(t *testing.T) {
 	}
 }
 
-func TestNaturalReplyResolvesTheReceiptReviewWithoutReaskingKnownFacts(t *testing.T) {
+func TestNaturalReplyAboutTheReceiptReviewShowsItsCardAndRecordsNothing(t *testing.T) {
 	t.Parallel()
 	for _, replyTo := range []int64{101, 0} {
 		t.Run(fmt.Sprint(replyTo), func(t *testing.T) {
@@ -193,44 +193,36 @@ func testNaturalCategoryReviewReply(t *testing.T, replyTo int64) {
 	f := newAgentIntegrationFixture(t, "turn-review")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	reviewID := linkReceiptReview(t, ctx, f, a, 301)
-	var transactionID, categoryID string
+	var transactionID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT transaction_id FROM review_request WHERE id=$1`, reviewID).Scan(&transactionID))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, f.householdID).Scan(&categoryID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, f.householdID).Scan(new(string)))
+	_, err := f.pool.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='SENT' WHERE review_request_id=$1`, reviewID)
+	mustAgentTest(t, err)
 	model := &capturingGateway{script: []gateway.AgentResponse{
-		{ToolCalls: []gateway.ToolCall{{CallID: "c1", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","category_slug":"makan"}`)}}},
-		{Text: "Sudah dicatat sebagai Makan."},
+		{ResponseID: "show", ToolCalls: []gateway.ToolCall{{CallID: "c1", Name: toolShowReviewCard, Arguments: json.RawMessage(`{"card_ref":"k1","step":"category"}`)}}},
+		{Text: "Kartunya sudah kukirim, tinggal diketuk."},
 	}}
 	p := evidenceTurnProcessor(f, model)
 
-	var amountBefore string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT amount::text FROM transaction WHERE id=$1`, transactionID).Scan(&amountBefore))
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	sourceID, err := runEvidenceTurn(t, ctx, f, p, "masukin ke makan aja", replyTo)
+	_, err = runEvidenceTurn(t, ctx, f, p, "masukin ke makan aja", replyTo)
 	mustAgentTest(t, err)
 
-	turn := model.turnContext(t, 0)
-	workflow, _ := turn["bound_evidence"].(map[string]any)["workflow"].(map[string]any)
-	if workflow == nil || workflow["review_open"] != true || !model.toolNames(0)["resolve_review"] {
-		t.Fatalf("the model was not given the evidence's review and its tool: workflow=%v tools=%v", workflow, model.toolNames(0))
+	names := model.toolNames(0)
+	if !names[toolShowReviewCard] || names["resolve_review"] {
+		t.Fatalf("the card was not offered as a card: tools=%v", names)
 	}
-	var status, categorySlug, amountAfter string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(c.slug,''),t.amount::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.id=$1`, transactionID).Scan(&status, &categorySlug, &amountAfter))
-	if status != "CONFIRMED" || categorySlug != "makan" {
-		t.Fatalf("receipt review result status=%s category=%s", status, categorySlug)
-	}
-	if amountAfter != amountBefore {
-		t.Fatalf("a category reply re-decided the known amount: %s -> %s", amountBefore, amountAfter)
+	var status string
+	var category *string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status,category_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&status, &category))
+	if status != "NEEDS_REVIEW" || category != nil {
+		t.Fatalf("the assistant answered the card: status=%s category=%v", status, category)
 	}
 	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
-		t.Fatalf("the correction created a second transaction: %d -> %d", before, after)
+		t.Fatalf("the turn created a second transaction: %d -> %d", before, after)
 	}
-	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1 AND evidence_type='RECEIPT_IMAGE'`, transactionID); n != 1 {
-		t.Fatalf("receipt evidence links = %d, want 1", n)
-	}
-
-	mustAgentTest(t, p.ProcessAgent(ctx, sourceID))
-	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
-		t.Fatalf("a replayed update changed the ledger: %d -> %d", before, after)
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'assistant_shown'='true' AND payload_json->>'review_request_id'=$1`, reviewID); n != 1 {
+		t.Fatalf("shown card jobs = %d, want 1", n)
 	}
 }
 

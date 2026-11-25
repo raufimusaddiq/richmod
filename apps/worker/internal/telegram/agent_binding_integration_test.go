@@ -2,55 +2,8 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
-
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
-
-func TestStandaloneMerchantReviewAnswerForOwnerAndMember(t *testing.T) {
-	t.Parallel()
-	for _, role := range []string{"OWNER", "MEMBER"} {
-		t.Run(role, func(t *testing.T) {
-			ctx := context.Background()
-			f := newAgentIntegrationFixture(t, "standalone-merchant-"+strings.ToLower(role))
-			_, err := f.pool.Exec(ctx, `UPDATE household_member SET role=$3 WHERE household_id=$1 AND user_id=$2`, f.householdID, f.userID, role)
-			mustAgentTest(t, err)
-			reviewID, transactionID := createAgentTransactionReview(t, ctx, f, "36500", 842)
-			_, err = f.pool.Exec(ctx, `UPDATE review_request SET review_type='UNKNOWN_MERCHANT' WHERE id=$1`, reviewID)
-			mustAgentTest(t, err)
-			_, err = f.pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT' WHERE review_request_id=$1`, reviewID)
-			mustAgentTest(t, err)
-			model := &capturingGateway{script: []gateway.AgentResponse{
-				{ToolCalls: []gateway.ToolCall{{CallID: "merchant-answer", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","merchant":"grab"}`)}}},
-				{Text: "Detail review sudah diperbarui."},
-			}}
-			p := evidenceTurnProcessor(f, model)
-			sourceID, err := runEvidenceTurn(t, ctx, f, p, "grab", 0)
-			mustAgentTest(t, err)
-			turn := model.turnContext(t, 0)
-			raw, err := json.Marshal(turn)
-			mustAgentTest(t, err)
-			for _, id := range []string{reviewID, transactionID, f.householdID, f.userID} {
-				if strings.Contains(string(raw), id) {
-					t.Fatal("model-visible turn exposes a canonical ID")
-				}
-			}
-			if turn["workflow_scope"] != string(agentWorkflowGeneral) || !model.toolNames(0)["resolve_review"] {
-				t.Fatalf("wrong workflow: %v tools=%v", turn, model.toolNames(0))
-			}
-			var status, merchant, conversation string
-			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(m.normalized_name,''),c.state FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id JOIN review_request r ON r.transaction_id=t.id JOIN review_conversation c ON c.review_request_id=r.id WHERE t.id=$1`, transactionID).Scan(&status, &merchant, &conversation))
-			if status != "NEEDS_REVIEW" || merchant != "grab" || conversation != "AWAITING_CATEGORY" {
-				t.Fatalf("status=%s merchant=%s conversation=%s", status, merchant, conversation)
-			}
-			if countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID) != 1 || countRows(t, ctx, f, `SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1 AND source_event_id=$2`, transactionID, sourceID) != 1 {
-				t.Fatal("answer duplicated a transaction or failed to preserve evidence")
-			}
-		})
-	}
-}
 
 func TestStandaloneReviewUntouchedWhenModelDoesNotResolveIt(t *testing.T) {
 	t.Parallel()
@@ -71,21 +24,6 @@ func TestStandaloneReviewUntouchedWhenModelDoesNotResolveIt(t *testing.T) {
 	}
 }
 
-func TestStandaloneReviewAmbiguityDoesNotExposeResolveReview(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "standalone-ambiguous")
-	createAgentTransactionReview(t, ctx, f, "36500", 842)
-	createAgentTransactionReview(t, ctx, f, "70000", 844)
-	model := &capturingGateway{}
-	p := evidenceTurnProcessor(f, model)
-	_, err := runEvidenceTurn(t, ctx, f, p, "grab", 0)
-	mustAgentTest(t, err)
-	if len(model.requests) == 0 || model.toolNames(0)["resolve_review"] || countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW' AND merchant_id IS NULL`, f.householdID) != 2 {
-		t.Fatal("ambiguous reviews exposed a review mutation tool or changed transactions")
-	}
-}
-
 func createAgentTransactionReview(t *testing.T, ctx context.Context, f agentIntegrationFixture, amount string, messageID int64) (string, string) {
 	t.Helper()
 	var transactionID, itemID, reviewID string
@@ -97,72 +35,6 @@ func createAgentTransactionReview(t *testing.T, ctx context.Context, f agentInte
 	_, err = f.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3)`, reviewID, f.chatID, messageID)
 	mustAgentTest(t, err)
 	return reviewID, transactionID
-}
-
-func TestAgentReviewBindingExactReplyWinsOverOtherOpenReview(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "binding-exact")
-	firstReview, _ := createAgentTransactionReview(t, ctx, f, "70000", 101)
-	createAgentTransactionReview(t, ctx, f, "90000", 202)
-
-	update := f.update
-	update.Message.ReplyToMessage = &struct {
-		MessageID int64 `json:"message_id"`
-	}{MessageID: 101}
-	p := NewProcessor(f.pool, nil)
-	binding, _, count, err := p.loadAgentReviewBinding(ctx, f.householdID, update)
-	mustAgentTest(t, err)
-	if count != 1 || binding == nil {
-		t.Fatalf("exact reply binding = %#v count=%d; want one target", binding, count)
-	}
-	if binding.Kind != "TRANSACTION" || binding.ReviewRequestID != firstReview {
-		t.Fatalf("exact reply resolved %#v; want review %s", binding, firstReview)
-	}
-}
-
-func TestAgentReviewBindingAmbiguityFailsClosed(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "binding-ambiguous")
-	createAgentTransactionReview(t, ctx, f, "70000", 101)
-	createAgentTransactionReview(t, ctx, f, "90000", 202)
-
-	p := NewProcessor(f.pool, nil)
-	binding, public, count, err := p.loadAgentReviewBinding(ctx, f.householdID, f.update)
-	mustAgentTest(t, err)
-	if binding != nil || count != 2 {
-		t.Fatalf("ambiguous binding=%#v count=%d public=%#v; want nil/2", binding, count, public)
-	}
-}
-
-func TestBoundReviewTargetDoesNotDriftWhenAnotherReviewAppears(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "binding-drift")
-	_, firstTransaction := createAgentTransactionReview(t, ctx, f, "70000", 101)
-	p := NewProcessor(f.pool, nil)
-	binding, _, count, err := p.loadAgentReviewBinding(ctx, f.householdID, f.update)
-	mustAgentTest(t, err)
-	if binding == nil || count != 1 {
-		t.Fatalf("initial binding=%#v count=%d", binding, count)
-	}
-
-	_, secondTransaction := createAgentTransactionReview(t, ctx, f, "90000", 202)
-	state := f.state
-	state.ReviewBinding = binding
-	state.ReviewBindingCount = 1
-	result, synthesize, err := p.agentResolveBoundReview(ctx, state, gateway.ToolCall{CallID: "bound-ignore", Name: "resolve_review"}, map[string]any{"action": "IGNORE"})
-	mustAgentTest(t, err)
-	if !synthesize || result.Status != "RESOLVED" {
-		t.Fatalf("bound resolution synthesize=%v result=%#v", synthesize, result)
-	}
-	var firstStatus, secondStatus string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, firstTransaction).Scan(&firstStatus))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, secondTransaction).Scan(&secondStatus))
-	if firstStatus != "VOIDED" || secondStatus != "NEEDS_REVIEW" {
-		t.Fatalf("bound target drifted: first=%s second=%s", firstStatus, secondStatus)
-	}
 }
 
 func createMerchantLearningReview(t *testing.T, ctx context.Context, f agentIntegrationFixture, messageID int64, merchantName string) (string, string) {
@@ -180,27 +52,8 @@ func createMerchantLearningReview(t *testing.T, ctx context.Context, f agentInte
 	return reviewID, transactionID
 }
 
-func TestMerchantLearningRequiresUniqueOrExactBinding(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "merchant-binding")
-	firstReview, _ := createMerchantLearningReview(t, ctx, f, 301, "merchanta")
-	createMerchantLearningReview(t, ctx, f, 302, "merchantb")
-	p := NewProcessor(f.pool, nil)
-
-	binding, count, err := p.loadAgentMerchantLearningBinding(ctx, f.householdID, f.update)
+func requireCategoryStep(t *testing.T, ctx context.Context, f agentIntegrationFixture, reviewID string) {
+	t.Helper()
+	_, err := f.pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["category"]'::jsonb) WHERE id=(SELECT review_item_id FROM review_request WHERE id=$1)`, reviewID)
 	mustAgentTest(t, err)
-	if binding != nil || count != 2 {
-		t.Fatalf("ambiguous merchant binding=%#v count=%d; want nil/2", binding, count)
-	}
-
-	update := f.update
-	update.Message.ReplyToMessage = &struct {
-		MessageID int64 `json:"message_id"`
-	}{MessageID: 301}
-	binding, count, err = p.loadAgentMerchantLearningBinding(ctx, f.householdID, update)
-	mustAgentTest(t, err)
-	if binding == nil || count != 1 || binding.ReviewRequestID != firstReview {
-		t.Fatalf("exact merchant binding=%#v count=%d; want %s", binding, count, firstReview)
-	}
 }

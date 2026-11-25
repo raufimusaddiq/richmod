@@ -131,7 +131,7 @@ func evalCheckCall(scenario evalScenario, response gateway.AgentResponse) []stri
 		}
 		if call.Name == scenario.wantCall {
 			called = true
-			if _, err := validateAgentToolCall(call, "", ""); err != nil {
+			if _, err := validateAgentToolCall(call); err != nil {
 				failures = append(failures, "invalid arguments: "+err.Error())
 			}
 		}

@@ -344,9 +344,7 @@ func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
 	model = &capturingGateway{}
 	_, err = runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "masukin ke makan aja", 0)
 	mustAgentTest(t, err)
-	if !model.toolNames(0)["resolve_review"] || model.turnContext(t, 0)["active_review"] == nil {
-		t.Fatal("a category answer to the single category card did not bind")
-	}
+	requireBoundToCard(t, model)
 
 	second, _ := createAgentTransactionReview(t, ctx, f, "70000", 502)
 	model = &capturingGateway{}
@@ -362,6 +360,8 @@ func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
 	if !strings.Contains(markup, callbackPendingCardPrefix+token) || !strings.Contains(markup, "Rp36.500") || !strings.Contains(markup, "Rp70.000") {
 		t.Fatalf("pick buttons = %s", markup)
 	}
+	requireCategoryStep(t, ctx, f, first)
+	requireCategoryStep(t, ctx, f, second)
 	tap := f.update
 	tap.Message.MessageID = 9999
 	mustAgentTest(t, func() error {

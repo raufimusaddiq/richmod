@@ -61,7 +61,7 @@ func TestTelegramAnalyticalQuestionsReuseCanonicalEngineAndNaturalReply(t *testi
 			state := f.state
 			state.ModelPhases = 0
 			state.Now = time.Date(2026, 9, 10, 12, 0, 0, 0, jakartaLocation())
-			state.Tools = AgentFinanceTools(nil, false, false, false, "", false, false, "")
+			state.Tools = AgentFinanceTools(nil, false, false)
 			state.TurnContext = map[string]any{"user_message": tc.question}
 			model := &analyticalTelegramGateway{}
 			first := gateway.AgentResponse{ResponseID: "first"}

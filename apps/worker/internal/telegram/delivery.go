@@ -77,11 +77,6 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 			}
 		}
 	}
-	if payload.BindMerchantLearningRequestID != "" {
-		if err := p.BindMerchantLearningMessage(ctx, payload.BindMerchantLearningRequestID, payload.ChatID, messageID); err != nil {
-			return err
-		}
-	}
 	if payload.BindDocumentID != "" {
 		if err := p.BindEvidenceMessage(ctx, payload.ChatID, messageID, payload.BindDocumentID); err != nil {
 			return err

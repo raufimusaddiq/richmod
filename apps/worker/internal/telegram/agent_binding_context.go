@@ -21,14 +21,6 @@ type agentReviewBinding struct {
 	Label             string
 }
 
-type agentMerchantLearningBinding struct {
-	ReviewRequestID   string
-	TransactionID     string
-	TelegramMessageID int64
-	Merchant          string
-	Category          string
-}
-
 func isAgentCoreSideEffect(name string) bool {
 	switch name {
 	case "record_transaction", "record_transaction_batch", "propose_transaction_correction",
@@ -37,34 +29,6 @@ func isAgentCoreSideEffect(name string) bool {
 	default:
 		return false
 	}
-}
-
-func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (*agentReviewBinding, any, int, error) {
-	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		binding, err := p.exactAgentReviewBinding(ctx, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID)
-		if err != nil {
-			return nil, nil, 0, err
-		}
-		if binding != nil {
-			return binding, agentReviewBindingPublic(binding), 1, nil
-		}
-	}
-
-	bindings, err := p.loadLiveReviewCards(ctx, householdID, update.Message.Chat.ID)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	if len(bindings) == 1 {
-		return &bindings[0], agentReviewBindingPublic(&bindings[0]), 1, nil
-	}
-	if len(bindings) > 1 {
-		public := make([]map[string]any, 0, len(bindings))
-		for index := range bindings {
-			public = append(public, agentReviewBindingPublic(&bindings[index]))
-		}
-		return nil, public, len(bindings), nil
-	}
-	return nil, nil, 0, nil
 }
 
 func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID string, chatID, messageID int64) (*agentReviewBinding, error) {
@@ -152,43 +116,4 @@ func awaitedReviewField(conversationState string) string {
 		return "category_slug"
 	}
 	return ""
-}
-
-func (p *Processor) loadAgentMerchantLearningBinding(ctx context.Context, householdID string, update telegramUpdate) (*agentMerchantLearningBinding, int, error) {
-	base := `SELECT r.id::text,r.transaction_id::text,COALESCE(rr.telegram_message_id,0)::bigint,
-		COALESCE(m.normalized_name,''),COALESCE(cat.name,'')
-		FROM review_request r
-		JOIN review_conversation c ON c.review_request_id=r.id
-		JOIN transaction t ON t.id=r.transaction_id
-		JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		LEFT JOIN merchant m ON m.id=t.merchant_id
-		LEFT JOIN category cat ON cat.id=t.category_id
-		WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION'
-		  AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2`
-	params := []any{householdID, update.Message.Chat.ID}
-	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		base += ` AND (rr.merchant_learning_message_id=$3 OR rr.telegram_message_id=$3)`
-		params = append(params, update.Message.ReplyToMessage.MessageID)
-	}
-	base += ` ORDER BY r.created_at DESC LIMIT 2`
-	rows, err := p.pool.Query(ctx, base, params...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	bindings := make([]agentMerchantLearningBinding, 0, 2)
-	for rows.Next() {
-		var binding agentMerchantLearningBinding
-		if err := rows.Scan(&binding.ReviewRequestID, &binding.TransactionID, &binding.TelegramMessageID, &binding.Merchant, &binding.Category); err != nil {
-			return nil, 0, err
-		}
-		bindings = append(bindings, binding)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
-	}
-	if len(bindings) == 1 {
-		return &bindings[0], 1, nil
-	}
-	return nil, len(bindings), nil
 }

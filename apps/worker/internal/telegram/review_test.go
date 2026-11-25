@@ -1,42 +1,11 @@
 package telegram
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
-
-func TestResidualConfirmationBlockersRequestOnlyMissingFacts(t *testing.T) {
-	decision := []byte(`{"missingFacts":["category","transaction_at"]}`)
-	if got := residualConfirmationBlockers(decision, false, false, false); len(got) != 2 || got[0] != "category" || got[1] != "transaction_at" {
-		t.Fatalf("blockers=%v", got)
-	}
-	if got := residualConfirmationBlockers(decision, true, false, false); len(got) != 1 || got[0] != "category" {
-		t.Fatalf("blockers=%v; a supplied date resolves only that fact", got)
-	}
-	if got := residualConfirmationBlockers(decision, true, true, false); len(got) != 0 {
-		t.Fatalf("all supplied facts, blockers=%v", got)
-	}
-	if got := residualConfirmationBlockers([]byte(`{}`), false, false, false); len(got) != 0 {
-		t.Fatalf("a contract-less legacy review keeps its previous behavior, blockers=%v", got)
-	}
-}
-
-func TestParseSuppliedReviewDateRejectsUnobservedFormats(t *testing.T) {
-	if parsed, err := parseSuppliedReviewDate("2026-09-24"); err != nil || parsed == nil || *parsed != "2026-09-24" {
-		t.Fatalf("valid date rejected: %v %v", parsed, err)
-	}
-	if parsed, err := parseSuppliedReviewDate(""); err != nil || parsed != nil {
-		t.Fatalf("empty date is not a supplied fact: %v %v", parsed, err)
-	}
-	if _, err := parseSuppliedReviewDate("24/09/2026"); err == nil {
-		t.Fatal("non-canonical date must not satisfy the residual contract")
-	}
-}
 
 func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	var update telegramUpdate
@@ -47,26 +16,6 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID != 17 {
 		t.Fatalf("reply binding = %#v", update.Message.ReplyToMessage)
 	}
-}
-
-func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
-	processor := &Processor{gateway: reviewTestGateway{}}
-	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", time.Now(), []categoryChoice{
-		{ID: "category-1", Name: "Belanja Rumah Tangga", Slug: "belanja-rumah-tangga"},
-		{ID: "category-2", Name: "Transportasi", Slug: "transportasi"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.CategorySlug != "belanja-rumah-tangga" || result.Confidence != 1 || result.Ambiguous {
-		t.Fatalf("unexpected extraction: %#v", result)
-	}
-}
-
-type reviewTestGateway struct{}
-
-func (reviewTestGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"belanja-rumah-tangga","description":"","note":"buat belanja rumah tangga","confidence":1,"ambiguous":false}`)}, gateway.Metadata{}, nil
 }
 
 func TestDecodeReviewSendPayload(t *testing.T) {
@@ -107,20 +56,5 @@ func TestAssistantRangeLabelUsesInclusiveJakartaDates(t *testing.T) {
 func TestFormatIDRSupportsNegativeCashflow(t *testing.T) {
 	if got := FormatIDR("-125000"); got != "-125.000" {
 		t.Fatalf("formatted=%q", got)
-	}
-}
-
-func TestPayslipReviewSchemaAcceptsCanonicalPayDateWithoutCategoryOptions(t *testing.T) {
-	schema := reviewSchema(nil, false)
-	properties := schema["properties"].(map[string]any)
-	if _, ok := properties["pay_date"]; !ok {
-		t.Fatal("pay_date missing from schema")
-	}
-	if _, ok := properties["category_slug"]; ok {
-		t.Fatal("empty category enum must be omitted")
-	}
-	required := schema["required"].([]string)
-	if !contains(required, "pay_date") {
-		t.Fatalf("required=%v", required)
 	}
 }

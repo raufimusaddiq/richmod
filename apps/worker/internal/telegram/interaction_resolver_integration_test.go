@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -108,12 +109,14 @@ func requireBoundToCard(t *testing.T, model *capturingGateway) {
 	if len(model.requests) == 0 {
 		t.Fatal("the model was never called")
 	}
-	turn := model.turnContext(t, 0)
-	if turn["workflow_scope"] != string(agentWorkflowExactReview) && turn["active_review"] == nil {
-		t.Fatalf("the answer did not bind to the card: scope=%v active=%v", turn["workflow_scope"], turn["active_review"])
+	raw, err := json.Marshal(model.turnContext(t, 0)["open_review_cards"])
+	mustAgentTest(t, err)
+	if !strings.Contains(string(raw), `"card_ref":"k1"`) {
+		t.Fatalf("the answer did not bind to the card: %s", raw)
 	}
-	if !model.toolNames(0)["resolve_review"] {
-		t.Fatalf("the card step has no resolve_review tool: %v", model.toolNames(0))
+	names := model.toolNames(0)
+	if !names[toolShowReviewCard] || names["resolve_review"] {
+		t.Fatalf("the card step is not shown as a card: %v", names)
 	}
 }
 
@@ -178,10 +181,11 @@ func TestReplyChainStopsAtAMerchantLearningQuestionAndNeverStealsIt(t *testing.T
 	model = &capturingGateway{}
 	_, err = sendText(t, ctx, f, NewProcessor(f.pool, model), "ya", 301)
 	mustAgentTest(t, err)
-	if len(model.requests) == 0 || !model.toolNames(0)["resolve_merchant_learning"] || model.toolNames(0)["resolve_review"] {
-		t.Fatalf("the direct merchant-learning reply lost its binding: %v", model.toolNames(0))
+	for _, removed := range []string{"resolve_review", "resolve_merchant_learning"} {
+		if len(model.requests) != 0 && model.toolNames(0)[removed] {
+			t.Fatalf("the assistant was offered %s for a reply to the merchant-learning question", removed)
+		}
 	}
-	wantInteraction(t, ctx, f, interactionAnswered)
 }
 
 func TestReplyChainToAClosedCardGetsFixedCopyWithoutTheModel(t *testing.T) {

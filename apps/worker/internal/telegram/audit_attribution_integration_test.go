@@ -57,7 +57,7 @@ func TestAuditF06DateThenCategoryCompletes(t *testing.T) {
 	f, transaction, proposal, request := seedAttributionReview(t, "EXPENSE", "TRANSACTION_FACTS_MISSING", false)
 	var category string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Synthetic category','synthetic') RETURNING id`, f.householdID).Scan(&category))
-	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","transaction_at":"2026-10-03"}`})
+	p := NewProcessor(f.pool, &typedReplyGateway{})
 	sendTypedReviewReply(t, ctx, f, p, request, "2026-10-03", true)
 	var residualDate, dateKnown bool
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT ri.decision->'missingFacts' ? 'transaction_at',COALESCE((p.metadata_json->>'date_known')::boolean,false) FROM review_item ri,transaction_proposal p WHERE ri.transaction_id=$1 AND p.id=$2`, transaction, proposal).Scan(&residualDate, &dateKnown))
@@ -83,7 +83,7 @@ func TestAuditF07IncomeCannotConfirmFallbackDate(t *testing.T) {
 	if status != "NEEDS_REVIEW" {
 		t.Fatalf("F07: transaction=%s; unchosen fallback date must remain in review", status)
 	}
-	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","transaction_at":"2026-10-03"}`})
+	p := NewProcessor(f.pool, &typedReplyGateway{})
 	sendTypedReviewReply(t, ctx, f, p, request, "2026-10-03", true)
 	var date string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status,to_char(transaction_at AT TIME ZONE 'Asia/Jakarta','YYYY-MM-DD') FROM transaction WHERE id=$1`, transaction).Scan(&status, &date))
@@ -113,7 +113,7 @@ func TestTransferClassificationSurvivesDateContinuation(t *testing.T) {
 				t.Errorf("classification first: status=%s relationship=%s missingDate=%v missingRelationship=%v", status, relationship, missingDate, missingRelationship)
 			}
 
-			p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","transaction_at":"2026-10-03"}`})
+			p := NewProcessor(f.pool, &typedReplyGateway{})
 			sendTypedReviewReply(t, ctx, f, p, request, "2026-10-03", true)
 			var kind, purpose, proposalKind, proposalStatus, proposalRelationship, date, itemStatus, requestStatus string
 			var dateKnown, settled bool

@@ -87,7 +87,7 @@ func TestMerchantFirstStepReply(t *testing.T) {
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(t.category_id::text,''),m.normalized_name FROM transaction t JOIN merchant m ON m.id=t.merchant_id WHERE t.id=$1`, transactionID).Scan(&status, &gotCategory, &name))
 			var stored []byte
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT decision FROM review_item WHERE transaction_id=$1`, transactionID).Scan(&stored))
-			if blocked := residualConfirmationBlockers(stored, false, true, false); len(blocked) != 0 {
+			if strings.Contains(string(stored), `"missingFacts":["merchant"`) || strings.Contains(string(stored), `"missingFacts": ["merchant"`) {
 				t.Fatalf("merchant reply did not advance decision: %s", stored)
 			}
 			if mode == "remembered" || mode == "legacy-card" {

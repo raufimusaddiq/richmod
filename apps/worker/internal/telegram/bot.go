@@ -21,16 +21,15 @@ type Bot struct {
 }
 
 type SendPayload struct {
-	ChatID                        int64                 `json:"chat_id"`
-	ReplyToMessageID              int64                 `json:"reply_to_message_id"`
-	Text                          string                `json:"text"`
-	ReviewRequestID               string                `json:"review_request_id,omitempty"`
-	BindDocumentID                string                `json:"bind_document_id,omitempty"`
-	BindMerchantLearningRequestID string                `json:"bind_merchant_learning_request_id,omitempty"`
-	SettledCard                   bool                  `json:"settled_card,omitempty"`
-	AssistantShown                bool                  `json:"assistant_shown,omitempty"`
-	UbahUntil                     string                `json:"ubah_until,omitempty"`
-	ReplyMarkup                   *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	ChatID           int64                 `json:"chat_id"`
+	ReplyToMessageID int64                 `json:"reply_to_message_id"`
+	Text             string                `json:"text"`
+	ReviewRequestID  string                `json:"review_request_id,omitempty"`
+	BindDocumentID   string                `json:"bind_document_id,omitempty"`
+	SettledCard      bool                  `json:"settled_card,omitempty"`
+	AssistantShown   bool                  `json:"assistant_shown,omitempty"`
+	UbahUntil        string                `json:"ubah_until,omitempty"`
+	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
 type EditPayload struct {

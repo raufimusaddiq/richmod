@@ -32,7 +32,7 @@ func TestReplyToUploadBindsOnlyThatEvidence(t *testing.T) {
 		if !found || string(got) != want.documentID {
 			t.Fatalf("reply to %d resolved %q found=%v, want %s", messageID, got, found, want.documentID)
 		}
-		evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, update, nil, false, true)
+		evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, update, nil, true)
 		mustAgentTest(t, err)
 		if evidence == nil || evidence.Document != canonicalDocumentID(want.documentID) || review != nil {
 			t.Fatalf("reply to %d bound %+v review=%+v", messageID, evidence, review)
@@ -58,12 +58,12 @@ func TestUnresolvedReplyNeverFallsBackToRecentEvidence(t *testing.T) {
 	if _, found, err := p.resolveReplyEvidence(ctx, f.householdID, update); err != nil || found {
 		t.Fatalf("unknown reply resolved: found=%v err=%v", found, err)
 	}
-	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, update, nil, false, true)
+	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, update, nil, true)
 	mustAgentTest(t, err)
 	if evidence != nil || review != nil {
 		t.Fatalf("an unresolved explicit reply fell back to recent evidence: %+v %+v", evidence, review)
 	}
-	evidence, _, err = p.bindTurnEvidence(ctx, f.householdID, f.sourceID, f.update, nil, false, false)
+	evidence, _, err = p.bindTurnEvidence(ctx, f.householdID, f.sourceID, f.update, nil, false)
 	mustAgentTest(t, err)
 	if evidence != nil {
 		t.Fatalf("a message with no reply bound evidence: %+v", evidence)
@@ -168,7 +168,7 @@ func TestReplyToUploadBindsItsOpenReceiptReview(t *testing.T) {
 	reviewID := linkReceiptReview(t, ctx, f, a, 301)
 	p := NewProcessor(f.pool, nil)
 
-	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, replyUpdate(f.update, 101), nil, false, true)
+	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, replyUpdate(f.update, 101), nil, true)
 	mustAgentTest(t, err)
 	if evidence == nil || review == nil {
 		t.Fatalf("evidence=%+v review=%+v, want both bound", evidence, review)
@@ -196,7 +196,7 @@ func TestReplyToReviewCardKeepsItsBindingAndAttachesEvidence(t *testing.T) {
 	update := replyUpdate(f.update, 301)
 	binding, err := p.exactAgentReviewBinding(ctx, f.householdID, f.chatID, 301)
 	mustAgentTest(t, err)
-	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, update, binding, false, true)
+	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, update, binding, true)
 	mustAgentTest(t, err)
 	if review == nil || review.ReviewRequestID != reviewID || evidence == nil || evidence.Document != canonicalDocumentID(a.documentID) {
 		t.Fatalf("card reply bound evidence=%+v review=%+v", evidence, review)
@@ -211,12 +211,12 @@ func TestUniqueActiveReviewGainsEvidenceContextOnly(t *testing.T) {
 	linkReceiptReview(t, ctx, f, a, 301)
 	p := NewProcessor(f.pool, nil)
 
-	binding, _, count, err := p.loadAgentReviewBinding(ctx, f.householdID, f.update)
+	binding, err := p.exactAgentReviewBinding(ctx, f.householdID, f.chatID, 301)
 	mustAgentTest(t, err)
-	if binding == nil || count != 1 {
-		t.Fatalf("active review binding=%v count=%d", binding, count)
+	if binding == nil {
+		t.Fatal("active review binding missing")
 	}
-	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, f.update, binding, false, false)
+	evidence, review, err := p.bindTurnEvidence(ctx, f.householdID, f.sourceID, f.update, binding, false)
 	mustAgentTest(t, err)
 	if evidence == nil || review != binding {
 		t.Fatalf("active binding evidence=%+v review=%+v", evidence, review)
@@ -227,9 +227,9 @@ func TestUniqueActiveReviewGainsEvidenceContextOnly(t *testing.T) {
 }
 
 func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) {
-	general := NativeFinanceTools(nil, false, false, false, "", false, false, "")
+	general := NativeFinanceTools(nil, false, false)
 	unbound := replyUpdate(telegramUpdate{}, 5)
-	filtered, scope := applyAgentWorkflowToolPolicy(general, unbound, nil, nil)
+	filtered, scope := applyAgentWorkflowToolPolicy(general, unbound, nil)
 	if scope != agentWorkflowExplicitUnbound {
 		t.Fatalf("setup scope = %s", scope)
 	}

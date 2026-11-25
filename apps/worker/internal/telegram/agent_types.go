@@ -48,8 +48,7 @@ type agentToolResult struct {
 	Mutation   map[string]any   `json:"mutation,omitempty"`
 	Review     map[string]any   `json:"review,omitempty"`
 
-	confirmationToken        string
-	merchantLearningReviewID string
+	confirmationToken string
 }
 
 func (r *agentToolResult) UnmarshalJSON(data []byte) error {
@@ -99,9 +98,6 @@ type agentState struct {
 	activity           *atomic.Int32
 	HasPendingAction   bool
 	HasPendingBatch    bool
-	HasSalaryChoice    bool
-	ReviewType         string
-	ReviewMode         string
 	ResidualDimensions []string
 
 	PreviousResponseID string
@@ -109,10 +105,7 @@ type agentState struct {
 	PendingToolOutputs []gateway.AgentToolOutput
 	ReadHistory        []gateway.AgentReadPhase
 
-	ReviewBinding           *agentReviewBinding
-	ReviewBindingCount      int
-	MerchantLearningBinding *agentMerchantLearningBinding
-	MerchantLearningCount   int
+	ReviewBinding *agentReviewBinding
 
 	Analytics *analyticscore.Session
 	CardRefs  map[string]string

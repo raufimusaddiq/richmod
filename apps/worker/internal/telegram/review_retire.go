@@ -137,15 +137,6 @@ func (p *Processor) RecordReviewCardText(ctx context.Context, chatID, messageID 
 	return err
 }
 
-func (p *Processor) BindMerchantLearningMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
-	_, err := p.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,merchant_learning_message_id,delivery_status) VALUES($1,$2,$3,'SKIPPED')
-		ON CONFLICT (review_request_id,telegram_chat_id) DO UPDATE SET merchant_learning_message_id=EXCLUDED.merchant_learning_message_id`, reviewRequestID, chatID, messageID)
-	if err != nil {
-		return fmt.Errorf("bind merchant learning message: %w", err)
-	}
-	return nil
-}
-
 func capitalizeFirst(text string) string {
 	runes := []rune(text)
 	if len(runes) == 0 {
