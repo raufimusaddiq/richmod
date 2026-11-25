@@ -25,6 +25,7 @@ const (
 	codeNotFound         = "NOT_FOUND"
 	codeVoided           = "TRANSACTION_VOIDED"
 	codeReviewOpen       = "REVIEW_OPEN"
+	codeSalaryRecorded   = "SALARY_RECORDED"
 	codeStale            = "STALE_EDIT"
 	codePreconditionNeed = "IF_MATCH_REQUIRED"
 	codeTransferLocked   = "TRANSFER_FIELD_LOCKED"

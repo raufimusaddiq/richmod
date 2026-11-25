@@ -181,6 +181,21 @@ export function voidFailure(status, body = {}) {
   return { kind: "error", message: "Transaksi belum dibatalkan. Coba lagi." };
 }
 
+export const MARK_SALARY_CONFIRM_MESSAGE = "Tandai pemasukan ini sebagai gaji dari slip gajinya? Jumlah dan tanggalnya tidak berubah, dan siklus gaji dihitung dari tanggal ini.";
+export const MARK_SALARY_SUCCESS_MESSAGE = "Pemasukan ini sekarang tercatat sebagai gaji.";
+
+export function canMarkSalary(transaction) {
+  return Boolean(transaction?.id) && transaction.canMarkSalary === true;
+}
+
+export function markSalaryFailure(status) {
+  if (status === 409) return { kind: "error", message: "Gaji untuk periode ini sudah tercatat.", reload: true };
+  if (status === 401 || status === 403) return { kind: "error", message: "Sesi berakhir atau akses ditolak. Masuk kembali." };
+  if (status === 404) return { kind: "error", message: "Transaksi tidak ditemukan. Muat ulang daftar transaksi.", reload: true };
+  if (status === 422) return { kind: "error", message: "Transaksi ini tidak bisa ditandai sebagai gaji. Detail dimuat ulang.", reload: true };
+  return { kind: "error", message: "Gaji belum tercatat. Coba lagi." };
+}
+
 export const REVERSE_MERGE_SUCCESS_MESSAGE = "Penggabungan dipisahkan. Transaksi yang tadi digabung kembali ke Tinjauan untuk diputuskan lagi.";
 
 export function mergeSummary(merge, formatAmount = value => value) {

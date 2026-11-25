@@ -153,3 +153,22 @@ added: `CONFIRMED` → `VOIDED` was already legal. There is no direct "confirm t
 - **Authorization:** any member of the household may void; there is no role or source
   restriction.
 - Un-voiding and Telegram void are not implemented.
+
+## Marking a payslip income as salary
+
+`POST /api/v1/transactions/{id}/mark-salary` (`ledger/lifecycle.go`, `MarkSalary` →
+`reviewdomain.MarkPayslipIncomeAsSalary`) is the drawer's "Tandai sebagai gaji" action,
+shown when `GET /api/v1/transactions/{id}` reports `canMarkSalary`. It repairs a payslip
+income that was confirmed as ordinary income, so no `salary_event` exists.
+
+- **Allowed on** a `CONFIRMED` `INCOME` backed by `PAYSLIP_IMAGE` evidence with a payslip
+  extraction (employer and `YYYY-MM` period) and no `salary_event` for that transaction.
+  Another household's transaction is 404; anything else not eligible is 422; a salary
+  event already on the transaction, or a `CONFIRMED` one for the same source and period,
+  is 409 `SALARY_RECORDED`.
+- **Writes** (one DB transaction, household salary advisory lock, row locked
+  `FOR UPDATE`): `RecordSalaryEvent` with the household policy (the source becomes
+  primary only if none is), pay date = the transaction's Jakarta date; a primary result
+  enqueues `GENERATE_CYCLE_RESIDUAL_REVIEW`; an `audit_log` row `MARK_PAYSLIP_SALARY` on
+  the transaction with `salary_event_id`, `period` and `primary`. The transaction itself
+  is unchanged.
