@@ -94,3 +94,37 @@ func TestMissingTransactionTimeAloneNeverOpensBankFactsReview(t *testing.T) {
 		t.Fatal("a zero received time is not evidence")
 	}
 }
+
+func TestOutgoingTransferToRememberedMerchantIsTheRememberedExpense(t *testing.T) {
+	listener := Listener{TrackingPolicy: "SPENDING_ONLY"}
+	outgoing, transfer, merchant, account := "OUTGOING", "TRANSFER", "PAMELLA DUA", "1234567890"
+	extraction := func(name *string) Extraction {
+		return Extraction{Kind: "TRANSACTION", Direction: &outgoing, Channel: &transfer, Merchant: name, Counterparty: &account, AmountIDR: ptr("105226"), TransactionAt: timePtr()}
+	}
+	remembered := MerchantMemory{MerchantID: "merchant-1", CategoryID: "cat-groceries", AutoApply: true}
+	ownAccount := []KnownAccount{{MatchHint: "7890", Relationship: "OWN_ACCOUNT"}}
+
+	cases := []struct {
+		name       string
+		extraction Extraction
+		known      []KnownAccount
+		memory     MerchantMemory
+		want       PolicyResult
+	}{
+		{"remembered merchant settles the transfer label", extraction(&merchant), nil, remembered, PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", CategoryID: "cat-groceries", Description: "Pengeluaran dengan kategori merchant yang telah dikonfirmasi.", AutoConfirm: true}},
+		{"a known own account still wins over memory", extraction(&merchant), ownAccount, remembered, PolicyResult{Type: "TRANSFER", Status: "CONFIRMED", Description: "Transfer antar rekening yang dikenal.", AutoConfirm: true}},
+		{"no memory keeps the human transfer choice", extraction(&merchant), nil, MerchantMemory{}, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
+		{"a disabled alias keeps the human transfer choice", extraction(&merchant), nil, MerchantMemory{MerchantID: "merchant-1", CategoryID: "cat-groceries"}, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
+		{"memory without an observed merchant keeps the human transfer choice", extraction(nil), nil, remembered, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EvaluateBankEmail(listener, tc.extraction, tc.known, tc.memory); got != tc.want {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+	if parked := applyCategoryAutoConfirmSwitch(EvaluateBankEmail(listener, extraction(&merchant), nil, remembered), false); parked.AutoConfirm || parked.ReviewType != "AMBIGUOUS_CATEGORY" || parked.Type != "EXPENSE" {
+		t.Fatalf("the category auto-confirm switch must still park a remembered transfer as a category review: %+v", parked)
+	}
+}
