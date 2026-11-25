@@ -73,7 +73,7 @@ const (
 	stopNothing         messageStop = ""
 	stopLiveCard        messageStop = "LIVE_CARD"
 	stopClosedCard      messageStop = "CLOSED_CARD"
-	stopMerchantLearing messageStop = "MERCHANT_LEARNING"
+	stopMerchantLearning messageStop = "MERCHANT_LEARNING"
 	stopEvidence        messageStop = "EVIDENCE"
 )
 
@@ -131,7 +131,7 @@ func (p *Processor) resolveReply(ctx context.Context, householdID string, update
 		case stopClosedCard:
 			result.Kind, result.Card = interactionClosedCard, classified.Card
 			return result, nil
-		case stopMerchantLearing:
+		case stopMerchantLearning:
 			if hop == 0 {
 				result.Kind = interactionMerchantLearning
 			}
@@ -206,7 +206,7 @@ func (p *Processor) classifyMessage(ctx context.Context, householdID string, cha
 	card.ChatID, card.MessageID, card.State = chatID, current, conversation
 	switch {
 	case learningMessage || conversation == "AWAITING_MERCHANT_DECISION":
-		out.Stop = stopMerchantLearing
+		out.Stop = stopMerchantLearning
 	case (requestStatus == "OPEN" || requestStatus == "EXPIRED") && (itemStatus == "OPEN" || itemStatus == "PENDING_SEND") && current != 0:
 		out.Stop = stopLiveCard
 	default:
