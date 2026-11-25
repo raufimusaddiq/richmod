@@ -465,6 +465,7 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 	if engineOwnedType(reviewType) {
 		review, err := loadEngineReview(ctx, tx, householdID, reviewRequestID, telegramUserID, false)
 		if err == nil {
+			review.ReadOnly = true
 			if step, owned, err := p.currentStep(ctx, tx, householdID, review); err != nil || owned {
 				return step.buttons(), err
 			}

@@ -60,18 +60,19 @@ const (
 )
 
 type Step struct {
-	Kind  stepKind
-	Fact  factKind
-	State string
-	Ack   string
-	Ask   string
-	Hint  string
-	Facts string
-	Why   string
-	Page  int
-	Back  bool
-	Raw   string
-	Rows  [][]InlineKeyboardButton
+	Kind     stepKind
+	Fact     factKind
+	State    string
+	Ack      string
+	Ask      string
+	Hint     string
+	Facts    string
+	Why      string
+	Page     int
+	Back     bool
+	Raw      string
+	ReadOnly bool
+	Rows     [][]InlineKeyboardButton
 }
 
 func (s Step) Title() string {

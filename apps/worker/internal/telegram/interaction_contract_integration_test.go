@@ -1122,7 +1122,7 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 		{"an account deactivated after the buttons were shown is refused", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
 			h.tapLabel("Beli aset")
 			h.exec(`UPDATE wealth_account SET active=false WHERE household_id=$1`, h.f.householdID)
-			h.tap("review:acct:0")
+			h.tapLabel("Emas")
 			h.wantCard("Pilihan itu sudah tidak berlaku.", "Belum ada akun aset yang aktif")
 			h.wantType("UNCLASSIFIED", "NEEDS_REVIEW")
 		}},
@@ -1143,6 +1143,22 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 			}
 			h.tapLabel("Emas")
 			h.wantJobs(`SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=$2 AND payload_json->>'status'='RESOLVED'`, 1, h.chatB, messageB)
+		}},
+		{"a button from an older copy never records a different account", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
+			h.tapLabel("Beli aset")
+			_, _, buttons := h.current()
+			var old string
+			for _, button := range buttons {
+				if strings.HasPrefix(button, "Emas|") {
+					old = strings.TrimPrefix(button, "Emas|")
+				}
+			}
+			h.exec(`INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Aaa Lain','ASSET','GOLD','OTHER')`, h.f.householdID)
+			h.tap("review:acctpage:0")
+			h.wantButtons("Aaa Lain", "Emas")
+			h.tap(old)
+			h.wantCard("Pilihan itu sudah tidak berlaku.", "Beli aset ke akun mana?")
+			h.wantType("UNCLASSIFIED", "NEEDS_REVIEW")
 		}},
 		{"a stale account tap is answered with the step, not guessed", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
 			h.tapLabel("Beli aset")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
+
+const accountStampBase = 1000
 
 const (
 	transferAsk            = "Ini untuk apa?"
@@ -200,13 +203,25 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 	for _, choice := range choices {
 		ids = append(ids, choice.ID)
 	}
-	encoded, err := json.Marshal(ids)
-	if err != nil {
+	var raw []byte
+	var version int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&raw, &version); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('account_candidates',$2::jsonb),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded)); err != nil {
-		return err
+	var stored []string
+	if json.Unmarshal(raw, &stored) != nil || !slices.Equal(stored, ids) {
+		version++
+		if !s.ReadOnly {
+			encoded, err := json.Marshal(ids)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('account_candidates',$2::jsonb,'account_version',$3::int),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded), version); err != nil {
+				return err
+			}
+		}
 	}
+	stamp := version % 10 * accountStampBase
 	prefix, pagePrefix := callbackAccount, callbackAccountPg
 	empty := noAssetAccountsHint
 	if s.Fact == factInvest {
@@ -223,7 +238,7 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 	end := min(start+chooserPageSize, len(choices))
 	s.Rows = nil
 	for index := start; index < end; index++ {
-		s.Rows = append(s.Rows, []InlineKeyboardButton{{Text: clean(choices[index].Name, 28), CallbackData: fmt.Sprintf("%s%d", prefix, index)}})
+		s.Rows = append(s.Rows, []InlineKeyboardButton{{Text: clean(choices[index].Name, 28), CallbackData: fmt.Sprintf("%s%d", prefix, stamp+index)}})
 	}
 	if pager := pagerRow(s.Page, len(choices), chooserPageSize, pagePrefix); len(pager) > 0 {
 		s.Rows = append(s.Rows, pager)
@@ -363,13 +378,18 @@ func (p *Processor) applyAccountTap(ctx context.Context, tx pgx.Tx, householdID,
 		}
 		return stepOutcome{Step: step.executable(cardActions(review.Decision, review.ReviewType))}, nil
 	}
-	index, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
-	if !strings.HasPrefix(data, prefix) || err != nil || index < 0 {
+	number, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
+	if !strings.HasPrefix(data, prefix) || err != nil || number < 0 {
 		return reask(step, accountStaleAck), nil
 	}
+	index, stamp := number%accountStampBase, number/accountStampBase
 	var raw []byte
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb) FROM review_conversation WHERE review_request_id=$1`, review.RequestID).Scan(&raw); err != nil {
+	var version int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, review.RequestID).Scan(&raw, &version); err != nil {
 		return stepOutcome{}, err
+	}
+	if stamp != version%10 {
+		return reask(step, accountStaleAck), nil
 	}
 	var stored []string
 	if json.Unmarshal(raw, &stored) != nil || index >= len(stored) {

@@ -77,11 +77,13 @@ func TestTelegramDateRecoversDeactivatedPartialClassificationCandidate(t *testin
 					mustAgentTest(t, p.ProcessAgent(ctx, source))
 				} else {
 					var offered bool
-					mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json::text LIKE '%'||$1||'%')`, "review:invest:0").Scan(&offered))
+					var offeredCallback string
+					mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT COALESCE((SELECT (regexp_match(payload_json::text,'review:invest:[0-9]+'))[1] FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json::text ~ 'review:invest:[0-9]+' ORDER BY created_at DESC LIMIT 1),'')`).Scan(&offeredCallback))
+					offered = offeredCallback != ""
 					if !offered {
 						t.Fatal("replacement account was not offered")
 					}
-					callback = "review:invest:0"
+					callback = offeredCallback
 				}
 			} else {
 				mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Synthetic replacement category','replacement') RETURNING id`, f.householdID).Scan(&replacement))

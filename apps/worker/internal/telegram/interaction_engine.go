@@ -31,6 +31,7 @@ type engineInput struct {
 }
 
 type engineReview struct {
+	ReadOnly      bool
 	RequestID     string
 	ItemID        string
 	TransactionID string
@@ -128,6 +129,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 			step = categoryStepFrom(step, step.Fact == factTransfer)
 		}
 	}
+	step.ReadOnly = e.ReadOnly
 	if err := step.loadRows(ctx, tx, e.RequestID, 0); err != nil {
 		return Step{}, false, err
 	}
@@ -574,6 +576,7 @@ func (p *Processor) peekStep(ctx context.Context, householdID, reviewRequestID s
 	if err != nil {
 		return Step{}, false, err
 	}
+	review.ReadOnly = true
 	return p.currentStep(ctx, tx, householdID, review)
 }
 
