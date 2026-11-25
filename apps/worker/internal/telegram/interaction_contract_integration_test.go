@@ -484,6 +484,21 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantTransaction("NEEDS_REVIEW", "", "")
 			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, 1, h.reviewID)
 		}},
+		{"a question thread-replied to a merchant card reaches the assistant", "UNKNOWN_MERCHANT", nil, func(h *contractHarness) {
+			messageID, text, _ := h.current()
+			followUp := nextMessageID()
+			h.absorb()
+			seedBotMessage(h.t, h.ctx, h.f, "Catatan tambahan.", messageID, followUp)
+			h.absorb()
+			_, err := sendText(h.t, h.ctx, h.f, h.p, "ini merchant apa maksudnya?", followUp)
+			mustAgentTest(h.t, err)
+			h.absorb()
+			h.wantAssistantCalls(1)
+			if after, afterText, _ := h.current(); after != messageID || afterText != text {
+				t.Fatalf("the card changed: %d %q", after, afterText)
+			}
+			h.wantTransaction("NEEDS_REVIEW", "", "")
+		}},
 		{"a plain question while a category card waits goes to the assistant even if the check says NONE", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.picker.script = []string{"NONE"}
 			messageID, text, _ := h.current()
@@ -529,7 +544,7 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantAnswered("THREAD_REPLY")
 		}},
 		{"unusable merchant text is asked again with the same buttons", "UNKNOWN_MERCHANT", nil, func(h *contractHarness) {
-			h.reply("???")
+			h.reply("!!!")
 			h.wantCard("Maaf, aku belum menangkap itu. Ini bayar ke mana?")
 			h.wantButtons("Beli aset", "Abaikan")
 			h.wantTransaction("NEEDS_REVIEW", "", "")
@@ -599,6 +614,11 @@ func TestInteractionEngineContract(t *testing.T) {
 				t.Fatalf("paging moved the card from message %d to %d", before, after)
 			}
 			h.wantCard("(halaman 2)")
+			h.tap("review:catpage:9")
+			if _, text, _ := h.current(); strings.Contains(text, "(halaman") {
+				t.Fatalf("a page that fell back to the first page kept its page number:\n%s", text)
+			}
+			h.tapLabel("Berikutnya")
 			h.tapLabel("Kategori 12")
 			h.wantCard("✅ Dicatat: Kategori 12.")
 			h.wantTransaction("CONFIRMED", "Toko Contoh", "Kategori 12")

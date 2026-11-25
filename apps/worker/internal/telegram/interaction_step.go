@@ -27,6 +27,8 @@ const (
 	factRemember factKind = "remember"
 )
 
+const categoryHint = "Pilih di bawah, atau ketik nama kategorinya."
+
 const (
 	callbackIgnore     = "review:ignore"
 	callbackAsset      = "review:asset"
@@ -134,7 +136,7 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 		return step, true
 	}
 	step.Kind, step.Fact, step.State = stepChoice, factCategory, "AWAITING_CATEGORY"
-	step.Ask, step.Hint = "Masuk kategori apa?", "Pilih di bawah, atau ketik nama kategorinya."
+	step.Ask, step.Hint = "Masuk kategori apa?", categoryHint
 	return step, true
 }
 
@@ -187,7 +189,13 @@ func (s *Step) loadCategoryRows(ctx context.Context, tx pgx.Tx, reviewID string,
 	if err != nil {
 		return err
 	}
+	if page > 0 && len(chooser.Items) == 0 {
+		if chooser, err = loadCategoryPage(ctx, tx, reviewID, 0); err != nil {
+			return err
+		}
+	}
 	s.Page = chooser.Page
+	s.Hint = categoryHint
 	if s.Page > 0 {
 		s.Hint = fmt.Sprintf("Pilih di bawah, atau ketik nama kategorinya (halaman %d).", s.Page+1)
 	}

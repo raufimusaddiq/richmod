@@ -127,7 +127,7 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 		if err := p.pool.QueryRow(ctx, `SELECT COALESCE((SELECT id::text FROM category WHERE household_id=$1 AND slug=$2 AND active),'')`, householdID, in.CategorySlug).Scan(&picked); err != nil {
 			return false, err
 		}
-	case in.Tap == "" && peeked.Fact == factCategory:
+	case in.Tap == "" && peeked.Fact == factCategory && !strings.Contains(in.Text, "?"):
 		picked = p.preselectCategory(ctx, householdID, sourceEventID, in.Text)
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -153,7 +153,7 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name=$2,parser_version='1' WHERE id=$1`, sourceEventID, engineParser); err != nil {
 		return false, err
 	}
-	if outcome.Declined && in.Tap == "" && in.CategorySlug == "" && !in.Targeted {
+	if outcome.Declined && in.Tap == "" && in.CategorySlug == "" && (!in.Targeted || strings.Contains(in.Text, "?")) {
 		return false, nil
 	}
 	if !outcome.Silent {
@@ -232,11 +232,6 @@ func staleTap(step Step) stepOutcome {
 func (p *Processor) categoryPage(ctx context.Context, tx pgx.Tx, review engineReview, step Step, page int) (stepOutcome, error) {
 	if err := step.loadCategoryRows(ctx, tx, review.RequestID, page); err != nil {
 		return stepOutcome{}, err
-	}
-	if page > 0 && len(step.Rows) <= 1 {
-		if err := step.loadCategoryRows(ctx, tx, review.RequestID, 0); err != nil {
-			return stepOutcome{}, err
-		}
 	}
 	return stepOutcome{Step: step.executable(cardActions(review.Decision, review.ReviewType))}, nil
 }
