@@ -116,6 +116,7 @@ func TestOutgoingTransferToRememberedMerchantIsTheRememberedExpense(t *testing.T
 		{"no memory keeps the human transfer choice", extraction(&merchant), nil, MerchantMemory{}, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
 		{"a disabled alias keeps the human transfer choice", extraction(&merchant), nil, MerchantMemory{MerchantID: "merchant-1", CategoryID: "cat-groceries"}, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
 		{"memory without an observed merchant keeps the human transfer choice", extraction(nil), nil, remembered, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
+		{"a known account without hint digits never matches", extraction(nil), []KnownAccount{{MatchHint: "rekening utama", Relationship: "OWN_ACCOUNT"}}, MerchantMemory{}, review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

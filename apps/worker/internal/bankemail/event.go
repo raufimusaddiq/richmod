@@ -71,7 +71,7 @@ func uniqueCategories(categories []CategoryOption) []CategoryOption {
 
 func EmitBankTransactionTool(categories ...CategoryOption) gateway.ToolDefinition {
 	categoryProp := map[string]any{"type": []string{"string", "null"}}
-	required := []string{"kind", "direction", "channel", "amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "missing_fields", "confidence"}
+	required := []string{"kind", "direction", "channel", "amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "category_slug", "missing_fields", "confidence", "review"}
 	unique := uniqueCategories(categories)
 	if len(unique) > 0 {
 		slugs := make([]string, 0, len(unique))
@@ -80,22 +80,21 @@ func EmitBankTransactionTool(categories ...CategoryOption) gateway.ToolDefinitio
 		}
 		sort.Strings(slugs)
 		categoryProp = nullableEnum(slugs)
-		required = append(required, "category_slug")
 	}
 	return gateway.ToolDefinition{Name: "emit_bank_transaction", Description: "Extract observed facts from one trusted bank notification email.", Parameters: map[string]any{
 		"type": "object", "additionalProperties": false, "properties": map[string]any{
-			"kind":          map[string]any{"type": "string", "enum": []string{"TRANSACTION", "NON_TRANSACTION", "UNKNOWN"}},
-			"direction":     nullableEnum([]string{"OUTGOING", "INCOMING", "INTERNAL", "UNKNOWN"}),
-			"channel":       nullableEnum([]string{"DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "TRANSFER", "ATM", "BANK_FEE", "INTERNAL_TRANSFER", "RDN", "OTHER", "UNKNOWN"}),
-			"amount_idr":    map[string]any{"type": []string{"string", "null"}, "pattern": "^[0-9]+$"},
+			"kind":           map[string]any{"type": "string", "enum": []string{"TRANSACTION", "NON_TRANSACTION", "UNKNOWN"}},
+			"direction":      nullableEnum([]string{"OUTGOING", "INCOMING", "INTERNAL", "UNKNOWN"}),
+			"channel":        nullableEnum([]string{"DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "TRANSFER", "ATM", "BANK_FEE", "INTERNAL_TRANSFER", "RDN", "OTHER", "UNKNOWN"}),
+			"amount_idr":     map[string]any{"type": []string{"string", "null"}, "pattern": "^[0-9]+$"},
 			"transaction_at": map[string]any{"type": []string{"string", "null"}},
-			"merchant":      map[string]any{"type": []string{"string", "null"}},
-			"counterparty":  map[string]any{"type": []string{"string", "null"}},
-			"reference":     map[string]any{"type": []string{"string", "null"}},
-			"description":   map[string]any{"type": []string{"string", "null"}},
-			"category_slug": categoryProp,
+			"merchant":       map[string]any{"type": []string{"string", "null"}},
+			"counterparty":   map[string]any{"type": []string{"string", "null"}},
+			"reference":      map[string]any{"type": []string{"string", "null"}},
+			"description":    map[string]any{"type": []string{"string", "null"}},
+			"category_slug":  categoryProp,
 			"missing_fields": map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "string", "enum": []string{"amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "direction", "channel"}}},
-			"confidence":    map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+			"confidence":     map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 			"review": map[string]any{"type": []string{"object", "null"}, "additionalProperties": false, "properties": map[string]any{
 				"summary":          map[string]any{"type": "string", "maxLength": 500},
 				"missingFields":    map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "string", "enum": []string{"amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "direction", "channel"}}},

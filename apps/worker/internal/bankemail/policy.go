@@ -77,11 +77,15 @@ func accountMatches(hint string, extraction Extraction) bool {
 		}
 		return out.String()
 	}
+	suffix := digits(hint)
+	if suffix == "" {
+		return false
+	}
 	needle := digits(value(extraction.Counterparty))
 	if needle == "" {
 		needle = digits(value(extraction.Description))
 	}
-	return needle != "" && strings.HasSuffix(needle, digits(hint))
+	return needle != "" && strings.HasSuffix(needle, suffix)
 }
 func value(v *string) string {
 	if v == nil {

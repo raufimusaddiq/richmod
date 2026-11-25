@@ -13,6 +13,13 @@ import (
 
 var ErrNotConfigured = errors.New("LLM gateway is not configured")
 
+var ErrToolCallShape = errors.New("LLM gateway tool call shape")
+
+type ToolCallShapeError struct{ Reason string }
+
+func (e ToolCallShapeError) Error() string        { return "LLM gateway returned " + e.Reason }
+func (e ToolCallShapeError) Is(target error) bool { return target == ErrToolCallShape }
+
 type UnavailableError struct{ Err error }
 
 func (e *UnavailableError) Error() string { return "LLM gateway unavailable: " + e.Err.Error() }

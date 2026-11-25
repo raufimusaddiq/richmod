@@ -392,16 +392,16 @@ func (c *Client) doChatCompletion(ctx context.Context, requestID string, payload
 func validateNativeCalls(calls []ToolCall, allowed map[string]bool, options NativeToolOptions, metadata Metadata) (ToolCall, Metadata, error) {
 	if len(calls) != 1 {
 		if len(calls) == 0 {
-			return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned no native tool call")
+			return ToolCall{}, metadata, ToolCallShapeError{"no native tool call"}
 		}
-		return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned multiple native tool calls")
+		return ToolCall{}, metadata, ToolCallShapeError{"multiple native tool calls"}
 	}
 	for _, call := range calls {
 		if !allowed[call.Name] {
-			return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned unknown tool")
+			return ToolCall{}, metadata, ToolCallShapeError{"unknown tool"}
 		}
 		if len(call.Arguments) == 0 || !json.Valid(call.Arguments) {
-			return ToolCall{}, metadata, fmt.Errorf("LLM gateway returned invalid tool arguments")
+			return ToolCall{}, metadata, ToolCallShapeError{"invalid tool arguments"}
 		}
 	}
 	return calls[0], metadata, nil

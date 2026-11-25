@@ -19,7 +19,7 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const insightPromptVersion = "cycle-analyst-v5"
+const insightPromptVersion = "cycle-analyst-v6"
 
 const minimumCompleteness = "0.7000"
 

@@ -82,6 +82,34 @@ func TestExtractorMakesOneCorrectiveCallForSchemaFailure(t *testing.T) {
 	}
 }
 
+type noToolCallThenValidGateway struct {
+	calls       int
+	retryPrompt string
+}
+
+func (g *noToolCallThenValidGateway) NativeToolCall(_ context.Context, _ string, systemPrompt string, _ any, _ []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	g.calls++
+	if g.calls == 1 {
+		return gateway.ToolCall{}, gateway.Metadata{}, gateway.ToolCallShapeError{Reason: "no native tool call"}
+	}
+	g.retryPrompt = systemPrompt
+	return gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(`{"kind":"NON_TRANSACTION","direction":null,"channel":null,"amount_idr":null,"transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"category_slug":null,"missing_fields":[],"confidence":0.9,"review":null}`)}, gateway.Metadata{}, nil
+}
+
+func TestExtractorRetriesOnceWhenModelReturnsNoToolCall(t *testing.T) {
+	llm := &noToolCallThenValidGateway{}
+	got, _, err := NewExtractor(llm).Extract(context.Background(), "source-no-call", Listener{BankName: "Bank"}, TrustedEmail{Body: "notice"})
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if llm.calls != 2 || got.Kind != "NON_TRANSACTION" {
+		t.Fatalf("calls=%d extraction=%+v", llm.calls, got)
+	}
+	if !strings.HasPrefix(llm.retryPrompt, extractionPrompt) || !strings.Contains(llm.retryPrompt, "no native tool call") {
+		t.Fatalf("retry must keep the full prompt and name the failure: %q", llm.retryPrompt)
+	}
+}
+
 type transportFailureGateway struct{ calls int }
 
 func (g *transportFailureGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
