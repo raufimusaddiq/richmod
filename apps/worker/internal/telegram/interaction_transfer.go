@@ -14,7 +14,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-const accountStampBase = 1000
+const (
+	accountStampBase = 1000
+	accountStampKey  = "account"
+)
 
 const (
 	transferAsk            = "Ini untuk apa?"
@@ -156,6 +159,12 @@ func (s *Step) loadRows(ctx context.Context, tx pgx.Tx, reviewID string, page in
 		}
 	case factCycle, factSplitAcct, factSplitAmount:
 		return s.loadCycleRows(ctx, tx, reviewID, page)
+	case factDuplicate:
+		return s.loadDuplicateRows(ctx, tx, reviewID, page)
+	case factEmailAccount, factEmailWealth, factWealthObs:
+		return s.loadEntityRows(ctx, tx, reviewID, page)
+	case factWealthConfirm:
+		return s.loadWealthConfirmRows(ctx, tx, reviewID)
 	case factBankAccount:
 		return s.loadBankAccountRows(ctx, tx, reviewID, page)
 	}
@@ -208,7 +217,7 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 	if s.Fact == factInvest {
 		prefix, pagePrefix, empty = callbackInvest, callbackInvestPg, noInvestAccountsHint
 	}
-	if err := s.loadStampedAccounts(ctx, tx, reviewID, choices, page, prefix, pagePrefix, empty); err != nil {
+	if err := s.loadStampedAccounts(ctx, tx, reviewID, accountStampKey, choices, page, prefix, pagePrefix, empty); err != nil {
 		return err
 	}
 	tail := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: callbackIgnore}}
@@ -219,30 +228,74 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 	return nil
 }
 
-func (s *Step) loadStampedAccounts(ctx context.Context, tx pgx.Tx, reviewID string, choices []accountChoice, page int, prefix, pagePrefix, empty string) error {
+func stampKeys(key string) (candidates, version string) {
+	return key + "_candidates", key + "_version"
+}
+
+func readStamp(ctx context.Context, tx pgx.Tx, reviewID, key string) ([]string, int, error) {
+	candidatesKey, versionKey := stampKeys(key)
+	var raw []byte
+	var version int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->$2,'[]'::jsonb),COALESCE((context_json->>$3)::int,0) FROM review_conversation WHERE review_request_id=$1`, reviewID, candidatesKey, versionKey).Scan(&raw, &version); err != nil {
+		return nil, 0, err
+	}
+	var stored []string
+	if json.Unmarshal(raw, &stored) != nil {
+		stored = nil
+	}
+	return stored, version, nil
+}
+
+func stampList(ctx context.Context, tx pgx.Tx, reviewID, key string, ids []string, readOnly bool) (int, error) {
+	stored, version, err := readStamp(ctx, tx, reviewID, key)
+	if err != nil {
+		return 0, err
+	}
+	if slices.Equal(stored, ids) {
+		return version, nil
+	}
+	version++
+	if readOnly {
+		return version, nil
+	}
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return 0, err
+	}
+	candidatesKey, versionKey := stampKeys(key)
+	_, err = tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object($2::text,$3::jsonb,$4::text,$5::int),updated_at=now() WHERE review_request_id=$1`, reviewID, candidatesKey, string(encoded), versionKey, version)
+	return version, err
+}
+
+func resolveStamp(ctx context.Context, tx pgx.Tx, reviewID, key, data, prefix string) (string, bool, error) {
+	number, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
+	if !strings.HasPrefix(data, prefix) || err != nil || number < 0 {
+		return "", false, nil
+	}
+	index, stamp := number%accountStampBase, number/accountStampBase
+	stored, version, err := readStamp(ctx, tx, reviewID, key)
+	if err != nil {
+		return "", false, err
+	}
+	if stamp != version || index >= len(stored) {
+		return "", false, nil
+	}
+	return stored[index], true, nil
+}
+
+func stampedData(prefix string, version, index int) string {
+	return fmt.Sprintf("%s%d", prefix, version*accountStampBase+index)
+}
+
+func (s *Step) loadStampedAccounts(ctx context.Context, tx pgx.Tx, reviewID, key string, choices []accountChoice, page int, prefix, pagePrefix, empty string) error {
 	ids := make([]string, 0, len(choices))
 	for _, choice := range choices {
 		ids = append(ids, choice.ID)
 	}
-	var raw []byte
-	var version int
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&raw, &version); err != nil {
+	version, err := stampList(ctx, tx, reviewID, key, ids, s.ReadOnly)
+	if err != nil {
 		return err
 	}
-	var stored []string
-	if json.Unmarshal(raw, &stored) != nil || !slices.Equal(stored, ids) {
-		version++
-		if !s.ReadOnly {
-			encoded, err := json.Marshal(ids)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('account_candidates',$2::jsonb,'account_version',$3::int),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded), version); err != nil {
-				return err
-			}
-		}
-	}
-	stamp := version * accountStampBase
 	s.Page = clampChooserPage(page, len(choices), chooserPageSize)
 	s.Hint = accountHint
 	if len(choices) == 0 {
@@ -254,7 +307,7 @@ func (s *Step) loadStampedAccounts(ctx context.Context, tx pgx.Tx, reviewID stri
 	end := min(start+chooserPageSize, len(choices))
 	s.Rows = nil
 	for index := start; index < end; index++ {
-		s.Rows = append(s.Rows, []InlineKeyboardButton{{Text: clean(choices[index].Name, 28), CallbackData: fmt.Sprintf("%s%d", prefix, stamp+index)}})
+		s.Rows = append(s.Rows, []InlineKeyboardButton{{Text: clean(choices[index].Name, 28), CallbackData: stampedData(prefix, version, index)}})
 	}
 	if pager := pagerRow(s.Page, len(choices), chooserPageSize, pagePrefix); len(pager) > 0 {
 		s.Rows = append(s.Rows, pager)
@@ -262,22 +315,12 @@ func (s *Step) loadStampedAccounts(ctx context.Context, tx pgx.Tx, reviewID stri
 	return nil
 }
 
-func resolveStampedAccount(ctx context.Context, tx pgx.Tx, reviewID, data, prefix string, current []accountChoice) (string, bool, error) {
-	number, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
-	if !strings.HasPrefix(data, prefix) || err != nil || number < 0 {
-		return "", false, nil
-	}
-	index, stamp := number%accountStampBase, number/accountStampBase
-	var raw []byte
-	var version int
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&raw, &version); err != nil {
+func resolveStampedAccount(ctx context.Context, tx pgx.Tx, reviewID, key, data, prefix string, current []accountChoice) (string, bool, error) {
+	id, ok, err := resolveStamp(ctx, tx, reviewID, key, data, prefix)
+	if err != nil || !ok || !accountListed(current, id) {
 		return "", false, err
 	}
-	var stored []string
-	if stamp != version || json.Unmarshal(raw, &stored) != nil || index >= len(stored) || !accountListed(current, stored[index]) {
-		return "", false, nil
-	}
-	return stored[index], true, nil
+	return id, true, nil
 }
 
 func accountFromText(ctx context.Context, tx pgx.Tx, householdID, hint string, targeted bool, choices []accountChoice) (string, bool, error) {
@@ -324,7 +367,7 @@ func (p *Processor) enterCategoryStep(ctx context.Context, tx pgx.Tx, householdI
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	return p.moveToStep(ctx, tx, review, categoryStepFrom(base, base.Fact == factTransfer))
+	return p.moveToStep(ctx, tx, review, categoryStepFrom(base, base.Fact == factTransfer || base.Fact == factQuality || base.Fact == factCorrection))
 }
 
 func (p *Processor) backToFirstStep(ctx context.Context, tx pgx.Tx, householdID string, review engineReview) (stepOutcome, error) {
@@ -420,7 +463,7 @@ func (p *Processor) applyAccountTap(ctx context.Context, tx pgx.Tx, householdID,
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	id, ok, err := resolveStampedAccount(ctx, tx, review.RequestID, data, prefix, current)
+	id, ok, err := resolveStampedAccount(ctx, tx, review.RequestID, accountStampKey, data, prefix, current)
 	if err != nil {
 		return stepOutcome{}, err
 	}
@@ -633,22 +676,7 @@ func (p *Processor) reloadedStep(ctx context.Context, tx pgx.Tx, householdID str
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	if step, ok := deriveStep(decision, reviewType, facts, subject); ok {
-		return p.moveToStep(ctx, tx, review, step)
-	}
-	card := buildReviewCard(decision, reviewType, facts, subject)
-	markup, err := reviewCardMarkup(ctx, tx, review.RequestID, reviewType, decision, card, subject)
-	if err != nil {
-		return stepOutcome{}, err
-	}
-	step := Step{Kind: stepChoice, Fact: factRefresh, Raw: card.Text()}
-	if markup != nil {
-		step.Rows = markup.InlineKeyboard
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.RequestID, card.State); err != nil {
-		return stepOutcome{}, err
-	}
-	return stepOutcome{Step: step, Changed: true}, nil
+	return p.moveToStep(ctx, tx, review, stepOrFallback(decision, reviewType, facts, subject))
 }
 
 func reconciliationAmount(ctx context.Context, tx pgx.Tx, householdID, itemID string) (string, error) {

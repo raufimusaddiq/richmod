@@ -15,7 +15,7 @@ func TestReviewToolArgumentsFollowTheCard(t *testing.T) {
 		{"purpose card", agentReviewBinding{Kind: "TRANSACTION", ReviewType: "UNKNOWN_PURPOSE", ConversationState: "AWAITING_DETAIL"}, []string{"action"}},
 		{"merchant card", agentReviewBinding{Kind: "TRANSACTION", ReviewType: "UNKNOWN_MERCHANT", ConversationState: "AWAITING_MERCHANT"}, []string{"action", "category_slug", "merchant"}},
 		{"transfer card", agentReviewBinding{Kind: "TRANSACTION", ReviewType: "TRANSFER_CLASSIFICATION", ConversationState: "AWAITING_DETAIL"}, []string{"action"}},
-		{"duplicate card", agentReviewBinding{Kind: "TRANSACTION", ReviewType: "POSSIBLE_DUPLICATE", ConversationState: "AWAITING_DETAIL"}, []string{"action", "candidate_ref", "description"}},
+		{"duplicate card", agentReviewBinding{Kind: "TRANSACTION", ReviewType: "POSSIBLE_DUPLICATE", ConversationState: "AWAITING_DETAIL"}, []string{"action", "candidate_ref"}},
 		{"bank facts card", agentReviewBinding{Kind: "BANK_FACTS", ReviewType: "UNKNOWN_BANK_TEMPLATE", ConversationState: "AWAITING_DETAIL"}, []string{"action"}},
 	}
 	for _, tc := range cases {

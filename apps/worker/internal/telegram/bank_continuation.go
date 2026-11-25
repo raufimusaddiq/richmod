@@ -12,7 +12,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-type bankCardCopy struct {
+type cardCopy struct {
 	RecipientID string
 	ChatID      int64
 	MessageID   int64
@@ -28,7 +28,7 @@ type bankCompletion struct {
 	Category      string
 }
 
-func loadBankCardCopies(ctx context.Context, tx pgx.Tx, itemID string) (string, string, []bankCardCopy, error) {
+func loadCardCopies(ctx context.Context, tx pgx.Tx, itemID string) (string, string, []cardCopy, error) {
 	rows, err := tx.Query(ctx, `SELECT r.id::text,r.household_id::text,rr.id::text,rr.telegram_chat_id,rr.telegram_message_id
 		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.review_item_id=$1 AND rr.telegram_message_id IS NOT NULL AND rr.delivery_status='SENT'
@@ -38,9 +38,9 @@ func loadBankCardCopies(ctx context.Context, tx pgx.Tx, itemID string) (string, 
 	}
 	defer rows.Close()
 	var requestID, householdID string
-	var copies []bankCardCopy
+	var copies []cardCopy
 	for rows.Next() {
-		var copy bankCardCopy
+		var copy cardCopy
 		if err := rows.Scan(&requestID, &householdID, &copy.RecipientID, &copy.ChatID, &copy.MessageID); err != nil {
 			return "", "", nil, err
 		}
@@ -50,7 +50,7 @@ func loadBankCardCopies(ctx context.Context, tx pgx.Tx, itemID string) (string, 
 }
 
 func BankCardContinuable(ctx context.Context, tx pgx.Tx, reviewItemID string) (bool, error) {
-	_, _, copies, err := loadBankCardCopies(ctx, tx, reviewItemID)
+	_, _, copies, err := loadCardCopies(ctx, tx, reviewItemID)
 	return len(copies) > 0, err
 }
 
@@ -109,7 +109,7 @@ func bankInstantLabel(at time.Time) string {
 }
 
 func ContinueBankCard(ctx context.Context, tx pgx.Tx, reviewItemID string) error {
-	requestID, householdID, copies, err := loadBankCardCopies(ctx, tx, reviewItemID)
+	requestID, householdID, copies, err := loadCardCopies(ctx, tx, reviewItemID)
 	if err != nil || len(copies) == 0 {
 		return err
 	}
@@ -137,7 +137,7 @@ func ContinueBankCard(ctx context.Context, tx pgx.Tx, reviewItemID string) error
 	return nil
 }
 
-func continueIntoReview(ctx context.Context, tx pgx.Tx, householdID, oldRequestID, transactionID string, copies []bankCardCopy) (bool, error) {
+func continueIntoReview(ctx context.Context, tx pgx.Tx, householdID, oldRequestID, transactionID string, copies []cardCopy) (bool, error) {
 	var itemID, reviewType string
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT id::text,review_type,decision FROM review_item WHERE transaction_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, transactionID, householdID).Scan(&itemID, &reviewType, &raw)
@@ -170,42 +170,45 @@ func continueIntoReview(ctx context.Context, tx pgx.Tx, householdID, oldRequestI
 	if err != nil {
 		return false, err
 	}
-	card := buildReviewCard(decision, reviewType, facts, subject)
-	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,$2)`, requestID, card.State); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,$2)`, requestID, buildReviewCard(decision, reviewType, facts, subject).State); err != nil {
 		return false, err
 	}
-	markup, err := reviewCardMarkup(ctx, tx, requestID, reviewType, decision, card, subject)
+	card, markup, err := renderStepCard(ctx, tx, requestID, reviewType, facts, decision, subject)
 	if err != nil {
 		return false, err
 	}
-	if card, err = loadedStepCard(ctx, tx, requestID, reviewType, facts, decision, subject, card); err != nil {
-		return false, err
-	}
+	return true, moveCardsToRequest(ctx, tx, oldRequestID, requestID, copies, card.Text(), markup)
+}
+
+func moveCardsToRequest(ctx context.Context, tx pgx.Tx, oldRequestID, requestID string, copies []cardCopy, cardText string, markup *InlineKeyboardMarkup) error {
 	if markup == nil {
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}
 	}
 	encodedMarkup, err := json.Marshal(markup)
 	if err != nil {
-		return false, err
+		return err
 	}
-	text := clean(card.Text(), 4000)
+	text := clean(cardText, 4000)
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=GREATEST(expires_at,now()+interval '7 days') WHERE id=$1 AND status='PENDING_SEND'`, requestID); err != nil {
+		return err
+	}
 	for _, copy := range copies {
 		if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=NULL,delivery_status='SKIPPED' WHERE id=$1`, copy.RecipientID); err != nil {
-			return false, err
+			return err
 		}
 		var recipientID string
 		if err := tx.QueryRow(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id,delivery_status,delivered_text,card_expires_at) VALUES($1,$2,$3,'SENT',$4,now()+interval '7 days') RETURNING id::text`, requestID, copy.ChatID, copy.MessageID, text).Scan(&recipientID); err != nil {
-			return false, err
+			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_request_message SET review_request_id=$3,recipient_id=$4,delivered_text=$5,superseded_at=NULL WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, copy.ChatID, copy.MessageID, requestID, recipientID, text); err != nil {
-			return false, err
+			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE job SET status='SUCCEEDED',finished_at=now(),updated_at=now(),payload_json=payload_json||'{"superseded_by":"card_continuation"}'::jsonb WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND status='PENDING' AND payload_json->>'review_request_id'=$1 AND (payload_json->>'chat_id')::bigint=$2 AND (payload_json->>'message_id')::bigint=$3`, oldRequestID, copy.ChatID, copy.MessageID); err != nil {
-			return false, err
+			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'review_request_id',$5::text))`, copy.ChatID, copy.MessageID, text, string(encodedMarkup), requestID); err != nil {
-			return false, err
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }

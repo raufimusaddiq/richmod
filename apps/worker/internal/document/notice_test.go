@@ -42,7 +42,7 @@ func TestNoticeCopyAsksForCorrectionsByReply(t *testing.T) {
 		payslipRecordedNotice("PT Maju", "9500000"),
 		receiptRecordedNotice("", ""),
 	} {
-		if !strings.HasSuffix(text, "Balas pesan ini kalau ada yang perlu dibetulkan.") {
+		if !strings.HasSuffix(text, "Kalau ada yang keliru, tulis koreksinya.") {
 			t.Fatalf("notice does not invite a reply: %q", text)
 		}
 		if strings.Contains(text, "  ") || strings.Contains(text, "\n") {

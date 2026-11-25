@@ -26,11 +26,12 @@ var telegramCallbackTokenPrefixes = []string{
 	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:", "pending:card:",
 	"review:cat:", "review:category:", "review:fe:account:", "review:fe:wealth:",
 	"review:invest:", "review:acct:", "review:cyc:", "review:bank:",
+	"review:dupm:", "review:fea:", "review:few:", "review:wo:",
 }
 
 var telegramCallbackNumberPrefixes = []string{
 	"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
-	"review:dup:merge:", "review:xfer:merge:", "review:cycpage:",
+	"review:dup:merge:", "review:xfer:merge:", "review:cycpage:", "review:wopage:",
 }
 
 func ValidTelegramCallback(data string) bool {

@@ -244,7 +244,7 @@ func (s *Step) loadCycleRows(ctx context.Context, tx pgx.Tx, reviewID string, pa
 	if s.Fact == factSplitAcct {
 		empty = splitNoAccountsHint
 	}
-	if err := s.loadStampedAccounts(ctx, tx, reviewID, choices, page, callbackCycle, callbackCyclePg, empty); err != nil {
+	if err := s.loadStampedAccounts(ctx, tx, reviewID, accountStampKey, choices, page, callbackCycle, callbackCyclePg, empty); err != nil {
 		return err
 	}
 	if s.Fact == factSplitAcct {
@@ -285,7 +285,7 @@ func (p *Processor) applyCycleTap(ctx context.Context, tx pgx.Tx, householdID, s
 		if err != nil {
 			return stepOutcome{}, err
 		}
-		id, ok, err := resolveStampedAccount(ctx, tx, review.RequestID, data, callbackCycle, current)
+		id, ok, err := resolveStampedAccount(ctx, tx, review.RequestID, accountStampKey, data, callbackCycle, current)
 		if err != nil {
 			return stepOutcome{}, err
 		}

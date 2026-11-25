@@ -399,7 +399,6 @@ func TestTapAndCardDeliveryAreRecordedAsInteractionSteps(t *testing.T) {
 		mustAgentTest(t, err)
 		mustAgentTest(t, p.Process(ctx, sourceID))
 	}
-	tap("review:edit")
 	tap("review:catpage:1")
 	wantInteraction(t, ctx, f, interactionAnswered)
 	tap("review:ignore")

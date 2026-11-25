@@ -45,7 +45,7 @@ var kinds = []Kind{
 		Telegram:        true,
 		TelegramActions: []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"},
 		Inbox:           []string{"SET_WEALTH_ACCOUNT", "IGNORE"},
-		Agent:           []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"},
+		Agent:           []string{"IGNORE"},
 	},
 	{
 		Reason: "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", Class: ClassEvidenceGap,
@@ -56,7 +56,7 @@ var kinds = []Kind{
 		WhyID:    "Isi dokumen belum bisa divalidasi otomatis.",
 		Telegram: true,
 		Inbox:    []string{"REPROCESS_DOCUMENT", "IGNORE"},
-		Agent:    []string{"REPROCESS_DOCUMENT", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "DOCUMENT_CLASSIFICATION", Class: ClassEvidenceGap,
@@ -67,7 +67,7 @@ var kinds = []Kind{
 		WhyID:    "Jenis dokumen belum bisa dikenali dengan yakin.",
 		Telegram: true,
 		Inbox:    []string{"REPROCESS_DOCUMENT", "IGNORE"},
-		Agent:    []string{"REPROCESS_DOCUMENT", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "UNKNOWN_BANK_TEMPLATE", Class: ClassEvidenceGap,
@@ -143,7 +143,7 @@ var kinds = []Kind{
 		WhyID:    "Rekening di email hanya disebut dalam teks, jadi perlu dipilih.",
 		Telegram: true,
 		Inbox:    []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
-		Agent:    []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "FINANCIAL_EMAIL_FACTS", Class: ClassEvidenceGap,
@@ -194,6 +194,7 @@ var kinds = []Kind{
 		Why:      "the extracted payroll transaction needs a human correction or confirmation",
 		WhyID:    "Transaksi dari slip gaji ini perlu dikoreksi atau dikonfirmasi.",
 		Telegram: true,
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "CONFLICTING_EVIDENCE", Class: ClassDuplicateAmbiguity,
@@ -203,6 +204,7 @@ var kinds = []Kind{
 		Why:      "two sources disagree about the same provider reference, so Go refuses to guess",
 		WhyID:    "Dua bukti tidak sepakat untuk referensi yang sama.",
 		Telegram: true,
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "POSSIBLE_DUPLICATE", Class: ClassDuplicateAmbiguity,
@@ -212,7 +214,7 @@ var kinds = []Kind{
 		Why:      "a plausible duplicate exists; choose the matching event, confirm as new, or ignore",
 		WhyID:    "Ada catatan lain yang mirip; mungkin duplikat.",
 		Telegram: true,
-		Agent:    []string{"MERGE_EXISTING", "CONFIRM", "IGNORE"},
+		Agent:    []string{"MERGE_EXISTING", "IGNORE"},
 	},
 	{
 		Reason: "RECEIPT_MISMATCH", Class: ClassCorrectionConfirmation,
@@ -222,6 +224,7 @@ var kinds = []Kind{
 		Why:      "the printed lines do not reconcile with the printed total",
 		WhyID:    "Rincian struk tidak cocok dengan totalnya.",
 		Telegram: true,
+		Agent:    []string{"IGNORE"},
 	},
 
 	{

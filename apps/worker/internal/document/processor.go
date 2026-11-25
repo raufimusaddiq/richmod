@@ -19,6 +19,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 const classificationPrompt = `Return exactly one classify_financial_document call; never answer with prose. Pick one document_type:
@@ -207,6 +208,11 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1`, sourceID, sourceStatus); err != nil {
 		return err
 	}
+	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" {
+		if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "Ini bukan dokumen keuangan, jadi tidak ada yang dicatat."); err != nil {
+			return err
+		}
+	}
 	if result.DocumentType == "OTHER_FINANCIAL_DOCUMENT" {
 		if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, unsupportedDocumentNotice()); err != nil {
 			return err
@@ -255,6 +261,15 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if observationStatus == "ACCEPTED" {
 			if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','ACCEPT_WEALTH_OBSERVATION','wealth_observation',$2,jsonb_build_object('resolved_wealth_account_id',$3::uuid,'observed_value_idr',$4::text))`, householdID, observationID, resolvedWealthID, observation.ObservedValueIDR); err != nil {
 				return err
+			}
+			var accountName string
+			if err := tx.QueryRow(ctx, `SELECT w.name FROM wealth_observation o JOIN wealth_account w ON w.id=o.resolved_wealth_account_id WHERE o.id=$1`, observationID).Scan(&accountName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if accountName != "" {
+				if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "✅ Saldo dicatat: "+accountName+" · Rp"+workerTelegram.FormatIDR(observation.ObservedValueIDR)+"\n\nIni catatan saldo saja, bukan transaksi."); err != nil {
+					return err
+				}
 			}
 		} else {
 			decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
@@ -445,6 +460,15 @@ func (p *Processor) TerminalClassificationFailureTx(ctx context.Context, tx pgx.
 	}
 	if tag.RowsAffected() > 0 {
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DOCUMENT_CLASSIFICATION_FAILED','source_event',$2,jsonb_build_object('document_id',$3::uuid,'error',$4::text))`, householdID, sourceID, documentID, truncate(cause)); err != nil {
+			return err
+		}
+	}
+	var documentStatus string
+	if err := tx.QueryRow(ctx, `SELECT status FROM document WHERE id=$1`, documentID).Scan(&documentStatus); err != nil {
+		return err
+	}
+	if documentStatus == "FAILED" {
+		if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "Dokumen ini belum bisa dibaca. Fotonya tetap tersimpan sebagai bukti."); err != nil {
 			return err
 		}
 	}

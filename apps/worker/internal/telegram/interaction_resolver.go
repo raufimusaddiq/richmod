@@ -103,11 +103,7 @@ func (p *Processor) resolveInteraction(ctx context.Context, householdID, sourceE
 }
 
 func navigationCallback(data string) bool {
-	switch data {
-	case "review:edit", "review:merchant", "review:description", "review:category":
-		return true
-	}
-	for _, prefix := range []string{"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:", "review:cycpage:"} {
+	for _, prefix := range []string{"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:", "review:cycpage:", "review:wopage:"} {
 		if strings.HasPrefix(data, prefix) {
 			return true
 		}
@@ -279,7 +275,9 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 		if err != nil {
 			return result, err
 		}
-		if card, ok := yesNoReshowCard(cards); ok && !blocked {
+		if card, ok, err := p.yesNoReshow(ctx, householdID, update, cards); err != nil {
+			return result, err
+		} else if ok && !blocked {
 			result = p.cardStepResult(result, update, card, sourcePlain, "")
 			result.Bound = true
 			return result, nil
@@ -394,6 +392,33 @@ func yesNoReshowCard(cards []agentReviewBinding) (agentReviewBinding, bool) {
 	return agentReviewBinding{}, false
 }
 
+func (p *Processor) yesNoReshow(ctx context.Context, householdID string, update telegramUpdate, cards []agentReviewBinding) (agentReviewBinding, bool, error) {
+	if card, ok := yesNoReshowCard(cards); ok {
+		return card, true, nil
+	}
+	if len(cards) != 1 || !evidenceReviewType(cards[0].ReviewType) {
+		return agentReviewBinding{}, false, nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return agentReviewBinding{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	review, err := loadEngineReview(ctx, tx, householdID, cards[0].ReviewRequestID, update.Message.From.ID, false)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return agentReviewBinding{}, false, nil
+	}
+	if err != nil {
+		return agentReviewBinding{}, false, err
+	}
+	review.ReadOnly = true
+	step, owned, err := p.currentStep(ctx, tx, householdID, review)
+	if err != nil || !owned || step.Fallback || !evidenceFact(step.Fact) {
+		return agentReviewBinding{}, false, err
+	}
+	return cards[0], true, nil
+}
+
 func singleTypedCard(cards []agentReviewBinding) (agentReviewBinding, bool) {
 	var found []agentReviewBinding
 	for _, card := range cards {
@@ -501,8 +526,7 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 	if err != nil {
 		return nil, err
 	}
-	card := buildReviewCard(decision, reviewType, "", subject)
-	markup, err := reviewCardMarkup(ctx, tx, reviewRequestID, reviewType, decision, card, subject)
+	_, markup, err := renderStepCard(ctx, tx, reviewRequestID, reviewType, "", decision, subject)
 	if err != nil || markup == nil {
 		return nil, err
 	}
@@ -517,6 +541,9 @@ func accountListKey(card agentReviewBinding) string {
 	if card.Kind == "CYCLE_RESIDUAL" {
 		return "CYCLE:" + card.ReviewRequestID
 	}
+	if card.Kind == cardKindEvidence || card.Kind == "WEALTH_OBSERVATION" {
+		return "ENTITY:" + card.ReviewRequestID
+	}
 	return card.ConversationState
 }
 
@@ -529,7 +556,8 @@ func (p *Processor) waitingAccounts(ctx context.Context, householdID string, car
 		step, cycle := stepForBinding(card)
 		cycle = cycle && card.Kind == "CYCLE_RESIDUAL" && (step.Fact == factCycle || step.Fact == factSplitAcct)
 		fact, waiting := facts[card.ConversationState]
-		if (!waiting && !cycle) || out[key] != nil {
+		entity := step.Fact == factEmailAccount || step.Fact == factEmailWealth || step.Fact == factWealthObs
+		if (!waiting && !cycle && !entity) || out[key] != nil {
 			continue
 		}
 		if tx == nil {
@@ -541,9 +569,12 @@ func (p *Processor) waitingAccounts(ctx context.Context, householdID string, car
 		}
 		var choices []accountChoice
 		var err error
-		if cycle {
+		switch {
+		case cycle:
 			choices, err = p.cycleCandidatesFor(ctx, tx, householdID, card.ReviewRequestID, step.Fact)
-		} else {
+		case entity:
+			choices, err = p.entityCandidatesFor(ctx, tx, householdID, card, step.Fact)
+		default:
 			choices, err = accountCandidates(ctx, tx, householdID, fact)
 		}
 		if err != nil {

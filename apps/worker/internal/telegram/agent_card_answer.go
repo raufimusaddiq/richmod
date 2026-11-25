@@ -27,7 +27,10 @@ const (
 	cardAnswerAccount  cardAnswerKind = "account"
 )
 
-const cardKindProposal = "PROPOSAL"
+const (
+	cardKindProposal = "PROPOSAL"
+	cardKindEvidence = "EVIDENCE"
+)
 
 type typedCardAnswer struct {
 	Kind  cardAnswerKind
@@ -143,6 +146,17 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			  AND ri.transaction_id IS NULL AND ri.source_event_id IS NOT NULL
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
 			  AND COALESCE(c.context_json->'bank_pending'->>'queued','')<>'true'
+			UNION ALL
+			SELECT 'EVIDENCE',ri.id::text,r.id::text,'',r.review_type,COALESCE(c.state,''),'',COALESCE(rr.telegram_message_id,0)::bigint,
+			       '',CASE WHEN ri.document_id IS NOT NULL THEN 'Dokumen' ELSE 'Bukti email' END,r.created_at,r.expires_at,r.review_item_id::text
+			FROM review_request r
+			JOIN review_item ri ON ri.id=r.review_item_id
+			LEFT JOIN review_conversation c ON c.review_request_id=r.id
+			JOIN review_request_recipient rr ON rr.review_request_id=r.id
+			WHERE r.household_id=$1 AND r.status='OPEN' AND ri.transaction_id IS NULL
+			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
+			  AND ((ri.document_id IS NOT NULL AND ri.review_type IN ('DOCUMENT_EXTRACTION_LOW_CONFIDENCE','DOCUMENT_CLASSIFICATION'))
+			    OR (ri.financial_email_observation_id IS NOT NULL AND ri.review_type IN ('FINANCIAL_EMAIL_RESOLUTION','FINANCIAL_EMAIL_FACTS','CONFLICTING_EVIDENCE')))
 		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at,expires_at,review_item_id)
 		WHERE expires_at>now()
 		-- One card per review request: a transfer case can match its review item
@@ -373,7 +387,7 @@ const callbackPendingCardPrefix = "pending:card:"
 
 func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, cards []agentReviewBinding, answer typedCardAnswer) error {
 	if (answer.Kind != cardAnswerCategory && answer.Kind != cardAnswerDate) || hasProposalCard(cards) {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Ada beberapa kartu yang menunggu jawaban seperti itu. Balas (Reply) kartu yang dimaksud langsung, ya.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Ada beberapa kartu yang menunggu jawaban seperti itu. Jawab langsung di kartu yang dimaksud, ya.")
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -424,7 +438,7 @@ func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID
 	return tx.Commit(ctx)
 }
 
-const cardChoiceStaleMessage = "Pilihan ini sudah tidak berlaku. Balas (Reply) kartu yang dimaksud langsung, ya."
+const cardChoiceStaleMessage = "Pilihan ini sudah tidak berlaku. Jawab langsung di kartu yang dimaksud, ya."
 
 func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	if !strings.HasPrefix(data, callbackPendingCardPrefix) {

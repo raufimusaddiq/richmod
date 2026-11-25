@@ -105,16 +105,6 @@ func (f *mergeTargetFixture) refusedReply() {
 	}
 }
 
-func TestRejectBoundReviewRefusesActiveMergeTarget(t *testing.T) {
-	t.Parallel()
-	f := newMergeTargetFixture(t, "EXPENSE", "AMBIGUOUS_CATEGORY")
-	if err := NewProcessor(f.pool, nil).rejectBoundReview(f.ctx, f.replySource, f.household, f.request, f.target, "AMBIGUOUS_CATEGORY", f.update); err != nil {
-		t.Fatalf("a refusal is a reply, not a failed job: %v", err)
-	}
-	f.untouched()
-	f.refusedReply()
-}
-
 func TestAgentRejectRefusesActiveMergeTargetWithToolStatus(t *testing.T) {
 	t.Parallel()
 	f := newMergeTargetFixture(t, "EXPENSE", "AMBIGUOUS_CATEGORY")

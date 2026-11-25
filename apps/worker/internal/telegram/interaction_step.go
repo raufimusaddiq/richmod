@@ -42,6 +42,17 @@ const (
 	factProposalIncome factKind = "proposalincome"
 	factPurpose        factKind = "purpose"
 	factBankConfirm    factKind = "bankconfirm"
+
+	factDuplicate     factKind = "duplicate"
+	factDispute       factKind = "dispute"
+	factEmailAccount  factKind = "emailaccount"
+	factEmailWealth   factKind = "emailwealth"
+	factWealthObs     factKind = "wealthobs"
+	factWealthConfirm factKind = "wealthconfirm"
+	factDocument      factKind = "document"
+	factQuality       factKind = "quality"
+	factCorrection    factKind = "correction"
+	factUnsupported   factKind = "unsupported"
 )
 
 const transferReviewType = "TRANSFER_CLASSIFICATION"
@@ -86,6 +97,19 @@ const (
 	callbackCancel          = "review:cancel"
 	callbackCycle           = "review:cyc:"
 	callbackCyclePg         = "review:cycpage:"
+
+	callbackDupMerge       = "review:dupm:"
+	callbackDupPg          = "review:duppage:"
+	callbackDupNew         = "review:dup:new"
+	callbackDisputeConfirm = "review:dispute:confirm"
+	callbackDisputeReject  = "review:dispute:reject"
+	callbackReprocess      = "review:reprocess"
+	callbackQuality        = "review:quality:confirm"
+	callbackEmailAccount   = "review:fea:"
+	callbackEmailWealth    = "review:few:"
+	callbackEmailPg        = "review:fepage:"
+	callbackWealthAccount  = "review:wo:"
+	callbackWealthPg       = "review:wopage:"
 )
 
 type Step struct {
@@ -101,6 +125,9 @@ type Step struct {
 	Back     bool
 	Raw      string
 	ReadOnly bool
+	Dispute  bool
+	Fallback bool
+	Defer    bool
 	Rows     [][]InlineKeyboardButton
 }
 
@@ -146,6 +173,8 @@ func (s Step) AnswerKind() cardAnswerKind {
 		return cardAnswerConfirm
 	case factPurpose:
 		return cardAnswerDetail
+	case factEmailAccount, factEmailWealth, factWealthObs:
+		return cardAnswerAccount
 	}
 	return cardAnswerNone
 }
@@ -168,8 +197,7 @@ func engineReviewType(reviewType string) bool {
 }
 
 func engineOwnedType(reviewType string) bool {
-	return engineReviewType(reviewType) || transferReview(reviewType) || payslipReviewType(reviewType) || reviewType == cycleReviewType ||
-		reviewType == bankReviewType || reviewType == missingAmountReviewType || factsReviewType(reviewType)
+	return reviewdec.TelegramProjectable(reviewType)
 }
 
 func transferReview(reviewType string) bool {
@@ -194,6 +222,9 @@ func engineOwnsTransfer(decision reviewdec.Decision, subject reviewSubject) bool
 }
 
 func engineOwnsDecision(decision reviewdec.Decision, reviewType string, subject reviewSubject) bool {
+	if situationOf(decision, reviewType, subject) != sitNone {
+		return true
+	}
 	if payslipReviewType(reviewType) {
 		return true
 	}
@@ -237,6 +268,9 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 		return Step{}, false
 	}
 	step := Step{Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
+	if sit := situationOf(decision, reviewType, subject); sit != sitNone {
+		return deriveEvidenceStep(step, sit, decision, reviewType), true
+	}
 	if payslipReviewType(reviewType) {
 		return derivePayslipStep(step, decision, reviewType), true
 	}
@@ -278,6 +312,9 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 
 func stepForBinding(card agentReviewBinding) (Step, bool) {
 	if step, ok := subjectStepForBinding(card); ok {
+		return step, true
+	}
+	if step, ok := evidenceStepForBinding(card); ok {
 		return step, true
 	}
 	if step, ok := factsStepForBinding(card); ok {
@@ -397,6 +434,9 @@ func (s *Step) loadCategoryRows(ctx context.Context, tx pgx.Tx, reviewID string,
 	if chooser.AssetPurchase {
 		tail = []InlineKeyboardButton{{Text: "Beli aset", CallbackData: callbackAsset}, tail[0]}
 	}
+	if s.Dispute {
+		tail = []InlineKeyboardButton{{Text: "Batalkan koreksi", CallbackData: callbackDisputeReject}}
+	}
 	if s.Back {
 		tail = append([]InlineKeyboardButton{{Text: "Kembali", CallbackData: callbackBack}}, tail...)
 	}
@@ -424,27 +464,11 @@ func stepRenderCard(step Step) reviewCard {
 	return reviewCard{State: step.State, Mode: "step", Title: step.Title(), Facts: step.Facts, Why: step.Why, Instruction: step.Hint}
 }
 
-func stepMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, subject reviewSubject) (*InlineKeyboardMarkup, error) {
-	step, ok := deriveStep(decision, reviewType, "", subject)
-	if !ok {
-		return nil, fmt.Errorf("review %s is not a step card", reviewType)
-	}
+func renderStepCard(ctx context.Context, tx pgx.Tx, reviewID, reviewType, facts string, decision reviewdec.Decision, subject reviewSubject) (reviewCard, *InlineKeyboardMarkup, error) {
+	step := stepOrFallback(decision, reviewType, facts, subject)
 	if err := step.loadRows(ctx, tx, reviewID, 0); err != nil {
-		return nil, err
+		return reviewCard{}, nil, err
 	}
-	return step.executable(cardActions(decision, reviewType)).Markup(), nil
-}
-
-func loadedStepCard(ctx context.Context, tx pgx.Tx, reviewID, reviewType, facts string, decision reviewdec.Decision, subject reviewSubject, card reviewCard) (reviewCard, error) {
-	if card.Mode != "step" {
-		return card, nil
-	}
-	step, ok := deriveStep(decision, reviewType, facts, subject)
-	if !ok {
-		return card, nil
-	}
-	if err := step.loadRows(ctx, tx, reviewID, 0); err != nil {
-		return card, err
-	}
-	return stepRenderCard(step.executable(cardActions(decision, reviewType))), nil
+	step = step.executable(cardActions(decision, reviewType))
+	return stepRenderCard(step), step.Markup(), nil
 }

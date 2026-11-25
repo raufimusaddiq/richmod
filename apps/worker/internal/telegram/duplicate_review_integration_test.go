@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"testing"
@@ -44,58 +43,6 @@ func seedDuplicateReview(t *testing.T, pool *pgxpool.Pool, stamp int64) (househo
 	_, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, reviewID)
 	must(err)
 	return household, userID, chatID, sourceID, duplicateID, targetID, reviewID, dupItemID
-}
-
-func TestTelegramDuplicateMergeUsesSharedOperation(t *testing.T) {
-	t.Parallel()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	stamp := testsupport.UniqueStamp()
-	household, _, chatID, _, duplicateID, targetID, reviewID, dupItemID := seedDuplicateReview(t, pool, stamp)
-	if _, err := pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,1)`, reviewID, chatID); err != nil {
-		t.Fatal(err)
-	}
-	var replySource string
-	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("cb-%d", stamp), []byte(fmt.Sprintf("cb-%d", stamp))).Scan(&replySource); err != nil {
-		t.Fatal(err)
-	}
-	update := telegramUpdate{}
-	update.Message.Chat.ID = chatID
-	update.Message.From.ID = chatID
-	update.Message.MessageID = 1
-	update.CallbackQuery = &telegramCallbackQuery{ID: "cb", Data: "review:dup:merge:0"}
-	update.CallbackQuery.From.ID = chatID
-	update.CallbackQuery.Message.Chat.ID = chatID
-	update.CallbackQuery.Message.MessageID = 1
-	update.Message.Chat.ID = chatID
-	update.Message.MessageID = 1
-	update.Message.From.ID = chatID
-	if _, err := pool.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_build_object('duplicate_candidates',jsonb_build_array($2::text)) WHERE review_request_id=$1`, reviewID, targetID); err != nil {
-		t.Fatal(err)
-	}
-	if handled, err := NewProcessor(pool, nil).processReviewDetailCallback(ctx, replySource, household, update, "review:dup:merge:0"); !handled || err != nil {
-		t.Fatalf("duplicate merge handled=%v err=%v", handled, err)
-	}
-	var sourceStatus, reviewStatus string
-	var mergeStatus sql.NullString
-	if err := pool.QueryRow(ctx, `SELECT (SELECT status FROM transaction WHERE id=$1),(SELECT status FROM review_item WHERE id=$2),(SELECT status FROM reconciliation_merge WHERE source_transaction_id=$1)`, duplicateID, dupItemID).Scan(&sourceStatus, &reviewStatus, &mergeStatus); err != nil {
-		t.Fatal(err)
-	}
-	if sourceStatus != "VOIDED" || reviewStatus != "RESOLVED" || !mergeStatus.Valid || mergeStatus.String != "ACTIVE" {
-		t.Fatalf("source=%s review=%s merge=%v", sourceStatus, reviewStatus, mergeStatus)
-	}
-	var targetStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, targetID).Scan(&targetStatus); err != nil || targetStatus != "CONFIRMED" {
-		t.Fatalf("target=%s err=%v", targetStatus, err)
-	}
 }
 
 func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) {

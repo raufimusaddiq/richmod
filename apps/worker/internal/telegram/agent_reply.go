@@ -366,7 +366,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	case "EVIDENCE_DISPUTE_USE_BUTTONS":
 		return "Koreksi screenshot hanya bisa diselesaikan dengan tombol di kartunya (Konfirmasi atau Batalkan). Belum ada yang diubah.", true
 	case "AMBIGUOUS_TARGET", "AMBIGUOUS_REVIEW":
-		return "Ada beberapa item yang mungkin kamu maksud. Balas pesan itemnya atau pilih item yang sesuai, ya.", true
+		return "Ada beberapa item yang mungkin kamu maksud. Sebut nama itemnya atau pilih item yang sesuai, ya.", true
 	case "TARGET_UNAVAILABLE":
 		return "Referensi transaksi itu sudah tidak tersedia. Cari transaksinya lagi dulu.", true
 	case "MISSING_TARGET":
@@ -426,13 +426,13 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	case "INVALID_PAY_DATE":
 		return "Tanggal pembayaran belum terbaca. Tulis tanggalnya, misalnya 25 Agu 2026.", true
 	case "INVALID_TRANSACTION_DATE":
-		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Balas kartu tinjauan dengan tanggalnya, misalnya 2026-10-03.", true
+		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Kirim tanggalnya, misalnya 2026-10-03.", true
 	case "TRANSFER_RECONCILIATION_REQUIRED":
 		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi.", true
 	case "MERGE_TARGET_ACTIVE":
 		return "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.", true
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
-		return "Tinjauan ini sudah berubah atau selesai. Buka atau balas pesan tinjauan terbaru untuk melanjutkan.", true
+		return "Tinjauan ini sudah berubah atau selesai. Lihat kartu terbarunya untuk melanjutkan.", true
 	}
 	return genericMutationReply, false
 }

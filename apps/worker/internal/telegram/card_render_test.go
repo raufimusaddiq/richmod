@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -42,10 +41,7 @@ func TestUnknownMerchantCardIsCoherent(t *testing.T) {
 	decision, _ := reviewdec.Preset("UNKNOWN_MERCHANT", "transaction", "t")
 	decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	card := buildReviewCard(decision, "UNKNOWN_MERCHANT", ReviewQuestion("25000", ""), reviewSubject{TransactionType: "EXPENSE"})
-	markup, err := reviewCardMarkup(context.Background(), nil, "", "UNKNOWN_MERCHANT", decision, card, reviewSubject{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	markup := stepOrFallback(decision, "UNKNOWN_MERCHANT", ReviewQuestion("25000", ""), reviewSubject{TransactionType: "EXPENSE"}).executable(cardActions(decision, "UNKNOWN_MERCHANT")).Markup()
 	text := card.Text()
 	want := "🟡 Ini bayar ke mana?\n\nNominal: Rp25.000\n\nAlasan: Belum ada kategori tersimpan untuk merchant ini.\n\nKetik nama toko atau merchant-nya."
 	if text != want {
