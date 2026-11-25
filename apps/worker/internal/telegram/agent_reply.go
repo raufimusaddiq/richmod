@@ -265,9 +265,11 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	}
 	if result.Status == "RESIDUAL_FACTS_REQUIRED" {
 		if missing, ok := missingFields(result.Review); ok {
-			return reviewNeedsFactsMessage(missing), true
+			if message := reviewNeedsFactsMessage(missing); message != "" {
+				return message, true
+			}
 		}
-		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid.", true
+		return reviewStillNeedsDetailsMessage, true
 	}
 	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
 		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda.", true
@@ -346,7 +348,9 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		case "REVIEW_DETAIL_SAVED":
 			if result.Status == "NEEDS_REVIEW" {
 				if missing, ok := missingFields(result.Review); ok {
-					return reviewNeedsFactsMessage(missing), true
+					if message := reviewNeedsFactsMessage(missing); message != "" {
+						return message, true
+					}
 				}
 			}
 			return "Detail tinjauan sudah diperbarui.", true

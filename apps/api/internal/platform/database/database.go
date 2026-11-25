@@ -9,12 +9,15 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
+const APIApplicationName = "richmod-api"
+
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
 	config.ConnConfig.RuntimeParams["timezone"] = clock.HouseholdTimezone
+	config.ConnConfig.RuntimeParams["application_name"] = APIApplicationName
 	config.MaxConnLifetime = 30 * time.Minute
 	config.MaxConnIdleTime = 5 * time.Minute
 	pool, err := pgxpool.NewWithConfig(ctx, config)

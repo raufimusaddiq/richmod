@@ -11,6 +11,7 @@ type agentReviewBinding struct {
 	Kind              string
 	TargetID          string
 	ReviewRequestID   string
+	ReviewItemID      string
 	TransactionID     string
 	ReviewType        string
 	ConversationState string
@@ -70,7 +71,7 @@ func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID str
 	var binding agentReviewBinding
 	var residualID, wealthID, transferID, bankItemID string
 	err := p.pool.QueryRow(ctx, `
-		SELECT r.id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),
+		SELECT r.id::text,r.review_item_id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),
 		       COALESCE(t.merchant_id::text,''),COALESCE(ri.cycle_residual_case_id::text,''),
 		       COALESCE(ri.wealth_observation_id::text,''),COALESCE(trc.id::text,''),
 		       COALESCE(rr.telegram_message_id,0)::bigint,
@@ -90,7 +91,7 @@ func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID str
 			OR (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id)
 		) AND trc.status='OPEN'
 		WHERE r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
-		LIMIT 1`, householdID, chatID, messageID).Scan(&binding.ReviewRequestID, &binding.TransactionID,
+		LIMIT 1`, householdID, chatID, messageID).Scan(&binding.ReviewRequestID, &binding.ReviewItemID, &binding.TransactionID,
 		&binding.ReviewType, &binding.ConversationState, &binding.MerchantID, &residualID, &wealthID, &transferID,
 		&binding.TelegramMessageID, &binding.AmountIDR, &binding.Label, &bankItemID)
 	if errors.Is(err, pgx.ErrNoRows) {

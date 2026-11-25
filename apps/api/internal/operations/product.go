@@ -311,7 +311,7 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 			return rows.Err()
 		},
 		func(ctx context.Context) error {
-			return h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1 AND event_type<>'UI_EVENT'`, householdID).Scan(&telemetryHistoryComplete)
+			return h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1 AND event_type NOT IN ('UI_EVENT','INTERACTION')`, householdID).Scan(&telemetryHistoryComplete)
 		},
 	)
 

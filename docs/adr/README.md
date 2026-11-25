@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-128**, in the heading form `## ADR-128: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-130**, in the heading form `## ADR-130: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -40,7 +40,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-028](#adr-028-canonical-universal-review-orchestration) | Canonical universal review orchestration | Accepted, amended by ADR-046 |
 | [ADR-029](#adr-029-s3-compatible-off-host-storage) | S3-compatible off-host storage | Accepted |
 | [ADR-030](#adr-030-native-only-model-tool-contract) | Native-only model tool contract | Accepted, partially superseded by ADR-033 for the Telegram conversational lane |
-| [ADR-031](#adr-031-conversational-telegram-turns-and-contextual-review-binding) | Conversational Telegram turns and contextual review binding | Accepted, amended by ADR-033 and extended by ADR-050 |
+| [ADR-031](#adr-031-conversational-telegram-turns-and-contextual-review-binding) | Conversational Telegram turns and contextual review binding | Accepted, amended by ADR-033 and extended by ADR-050, superseded for Telegram reply binding by ADR-129 as migration completes |
 | [ADR-032](#adr-032-dedicated-telegram-chat-lane) | Dedicated Telegram CHAT lane | Accepted, superseded in part 2026-10-11 (CHAT lane retired) |
 | [ADR-033](#adr-033-bounded-natural-conversational-finance-agent) | Bounded natural conversational finance agent | Accepted, amended by ADR-038; evidence context extends it in ADR-050; amended 2026-11-05 (agent loop hardening) |
 | [ADR-033](#adr-033-cloudflare-email-ingress-and-two-deploy-gmail-sunset) | Cloudflare email ingress and two-deploy Gmail sunset | Accepted; Deploy 2 completed in production 2026-09-05 |
@@ -56,7 +56,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-043](#adr-043-partial-financial-email-entity-resolution) | Partial financial-email entity resolution | Accepted for implementation |
 | [ADR-044](#adr-044-proposal-first-review-inbox) | Proposal-first Review Inbox | Accepted for implementation, amended by ADR-046 |
 | [ADR-045](#adr-045-single-intelligence-pass-routing-with-residual-bounded-rescue) | Single-intelligence-pass routing with residual bounded rescue | Superseded by ADR-120 (2026-11-24) |
-| [ADR-046](#adr-046-universal-review-interaction-projections) | Universal review interaction projections | Accepted architecture direction, amended repeatedly through 2026-11-06 |
+| [ADR-046](#adr-046-universal-review-interaction-projections) | Universal review interaction projections | Accepted architecture direction, amended repeatedly through 2026-11-06, superseded for Telegram reply binding by ADR-129 as migration completes |
 | [ADR-047](#adr-047-semantic-fact-ownership-and-accepted-fact-boundaries) | Semantic Fact Ownership and Accepted-Fact Boundaries | Accepted, amended 2026-09-28 |
 | [ADR-048](#adr-048-validation-consequences-residual-fidelity-and-domain-continuity) | Validation Consequences, Residual Fidelity, and Domain Continuity | Accepted, amended 2026-09-28 and 2026-10-02 |
 | [ADR-049](#adr-049-failed-sources-surface-as-dismissable-actions) | Failed Sources Surface as Dismissable Actions | Accepted, amended 2026-11 |
@@ -75,12 +75,12 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-062](#adr-062-privacy-safe-ui-telemetry-and-whole-cycle-comparison-base) | Privacy-safe UI telemetry and whole-cycle comparison base | Accepted |
 | [ADR-063](#adr-063-four-place-navigation-one-global--catat-sheet-one-keluarga-hub) | Four-place navigation, one global + Catat sheet, one Keluarga hub | Accepted |
 | [ADR-064](#adr-064-telegram-agent-turn-lifecycle-timeouts-and-failure-replies) | Telegram agent turn lifecycle, timeouts and failure replies | Accepted |
-| [ADR-065](#adr-065-telegram-review-card-answer-binding-and-mutation-invariants) | Telegram review-card answer binding and mutation invariants | Accepted |
+| [ADR-065](#adr-065-telegram-review-card-answer-binding-and-mutation-invariants) | Telegram review-card answer binding and mutation invariants | Accepted, superseded for Telegram reply binding by ADR-129 as migration completes |
 | [ADR-066](#adr-066-telegram-wealth-purchase-and-residual-mutations) | Telegram Wealth purchase and residual mutations | Accepted |
 | [ADR-067](#adr-067-evidence-refs-document-linking-and-duplicate-guards) | Evidence refs, document linking and duplicate guards | Accepted |
 | [ADR-068](#adr-068-telegram-delivery-idempotency-lock-order-and-bot-api-errors) | Telegram delivery idempotency, lock order and Bot API errors | Accepted |
-| [ADR-069](#adr-069-telegram-review-card-lifecycle-locking-and-retirement) | Telegram review card lifecycle, locking and retirement | Accepted |
-| [ADR-070](#adr-070-telegram-review-reply-and-button-handling) | Telegram review reply and button handling | Accepted |
+| [ADR-069](#adr-069-telegram-review-card-lifecycle-locking-and-retirement) | Telegram review card lifecycle, locking and retirement | Accepted, superseded for Telegram reply binding by ADR-129 as migration completes |
+| [ADR-070](#adr-070-telegram-review-reply-and-button-handling) | Telegram review reply and button handling | Accepted, superseded for Telegram reply binding by ADR-129 as migration completes |
 | [ADR-071](#adr-071-telegram-transaction-acceptance-gate-and-agent-input-boundaries) | Telegram transaction acceptance gate and agent input boundaries | Accepted |
 | [ADR-072](#adr-072-telegram-worker-job-and-sql-safety-invariants) | Telegram worker job and SQL safety invariants | Accepted |
 | [ADR-073](#adr-073-review-completion-operations-and-exact-binding) | Review completion operations and exact binding | Accepted |
@@ -88,12 +88,12 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-075](#adr-075-cycle-residual-refresh-and-card-editing) | Cycle residual refresh and card editing | Accepted |
 | [ADR-076](#adr-076-cross-lane-ledger-matching-locked-recheck-and-merge-safety) | Cross-lane ledger matching, locked recheck and merge safety | Accepted |
 | [ADR-077](#adr-077-source-lifecycle-and-review-state-cascade-invariants) | Source lifecycle and review state cascade invariants | Accepted |
-| [ADR-078](#adr-078-review-resolution-reopen-and-telegram-binding-invariants) | Review resolution, reopen and Telegram binding invariants | Accepted |
+| [ADR-078](#adr-078-review-resolution-reopen-and-telegram-binding-invariants) | Review resolution, reopen and Telegram binding invariants | Accepted, superseded for Telegram reply binding by ADR-129 as migration completes |
 | [ADR-079](#adr-079-transfer-classification-and-reconciliation-invariants) | Transfer classification and reconciliation invariants | Accepted |
 | [ADR-080](#adr-080-salary-missing-amount-and-wealth-review-correctness-rules) | Salary, missing-amount and wealth review correctness rules | Accepted |
 | [ADR-081](#adr-081-migration-repair-and-rollback-rules) | Migration repair and rollback rules | Accepted |
 | [ADR-082](#adr-082-review-ledger-and-wealth-data-invariants) | Review, ledger and wealth data invariants | Accepted |
-| [ADR-083](#adr-083-telegram-review-card-binding-and-job-lane-invariants) | Telegram review card, binding and job-lane invariants | Accepted |
+| [ADR-083](#adr-083-telegram-review-card-binding-and-job-lane-invariants) | Telegram review card, binding and job-lane invariants | Accepted, superseded for Telegram reply binding by ADR-129 as migration completes |
 | [ADR-084](#adr-084-telemetry-stores-no-financial-content) | Telemetry stores no financial content | Accepted |
 | [ADR-085](#adr-085-web-push-outbox-transport) | Web Push outbox transport | Accepted |
 | [ADR-086](#adr-086-operations-scripts-ci-guards-and-compose-safety) | Operations scripts, CI guards and Compose safety | Accepted |
@@ -138,6 +138,8 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-125](#adr-125-cross-check-model-email-facts-before-auto-confirm-and-bind-entities-on-exact-matches-only) | Cross-check model email facts before auto-confirm and bind entities on exact matches only | Accepted |
 | [ADR-126](#adr-126-telegram-records-similar-expenses-and-validates-model-facts-against-user-text) | Telegram records similar expenses and validates model facts against user text | Accepted |
 | [ADR-127](#adr-127-dedicated-backup-storage-pre-migration-backups-and-pinned-workflow-actions) | Dedicated backup storage, pre-migration backups and pinned workflow actions | Accepted |
+| [ADR-128](#adr-128-household-merchant-memory-wins-over-the-screenshot-model-category) | Household merchant memory wins over the screenshot model category | Accepted |
+| [ADR-129](#adr-129-telegram-interaction-engine) | Telegram interaction engine | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -289,7 +291,7 @@ One private S3-compatible bucket holds off-host data under a configurable `OSS_P
 Strict single-result finance workflows (extraction, classification) require exactly one provider-native tool call with `tool_choice=required` and parallel calls disabled; Go strictly decodes the arguments, validates domain rules and owns every mutation. JSON in prose, JSON-schema text output and natural-language fallback parsers are not production financial-action contracts. ADR-033 lifts the rule for Telegram free text only. A valid allowed expense category auto-confirms at category confidence 0.85 or above when overall extraction confidence is at least 0.90; lower confidence or an unknown category goes to review. Gateway telemetry records call kind and tool names without financial content.
 
 ## ADR-031: Conversational Telegram turns and contextual review binding
-*Accepted, amended by ADR-033 and extended by ADR-050 · 2026-09-01*
+*Accepted, amended by ADR-033 and extended by ADR-050, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-09-01*
 
 Telegram free-text turns get server-owned bounded context: recent user, assistant and tool turns (persisted in `telegram_conversation_turn`), allowed categories, pending states and active review context. Exact callback and reply bindings remain strongest; one uniquely active review may bind normal free text and several candidates require clarification. Canonical IDs stay server-private and `review_item` stays canonical. Required review facts are collected without guessing and later actions stay unavailable until their prerequisites exist. A Wealth observation from a Telegram image is answered by replying to that image; a mistaken balance extraction may become `ASSET_PURCHASE` only after Go resolves the user-supplied source account and time, with the image becoming transaction evidence and the observation dismissed. Backfilled transactions keep an explicit Jakarta date; named periods are normalized by Go (`PAGI` 09:00, `SIANG` 13:00, `SORE` 17:00, `MALAM` 20:00) and recorded as `APPROXIMATE` precision, while exact user-supplied `HH:MM` stays `EXACT`. ADR-033 replaced the "one tool decision ends the turn" model with bounded multi-phase turns.
 
@@ -369,7 +371,7 @@ Every review projection, Web and Telegram, renders from the stored ReviewDecisio
 Every canonical fact has one primary semantic owner per event (`DETERMINISTIC`, `JEV`, `GENERATIVE_EXTRACTION`, `USER`), chosen by question shape: deterministic exact state, Jev first when the task is already bounded, generative only when extraction, vision or open reasoning is required, then deterministic validation, then Jev only for a residual bounded uncertainty or an independent evidence-support claim, and a human only for irreducible uncertainty or policy intent. This is a decision tree, not a mandatory chain. A model pass that asks the same question about a dimension an earlier pass already settled acceptably (with no residual uncertainty and no independent evidence claim) is a redundant double-pass and is prohibited; combined provenance (`GENERATIVE_PLUS_JEV`) is valid only when Jev resolved a different fact. Generative output is accepted directly only through a source-specific acceptance contract (schema, enum membership, amount range, date provenance, arithmetic, household authorization, exact entity resolution, duplicate and conflict checks, completeness, policy-choice exclusion); confidence is never the sole gate. Call budgets: a simple Telegram transaction uses one Jev bundle and no generative call, a clear receipt one vision pass and no Jev (one residual category rescue if needed), a screenshot one vision pass plus at most one batched Jev request for unresolved rows only, and a failed initial Jev route never silently delegates to generative mutation authority. Missing evidence is never guessed by another model call: a receipt without a date gets `missing_facts=["transaction_at"]`, not `received_at`. A failed residual rescue keeps all valid known facts and opens a minimal review for the residual only. Related batched questions share one Jev call without re-judging resolved rows, ReviewDecision must list only unresolved residuals, telemetry must count calls, rescues and redundant double-passes, and every change to model ordering needs seven regression tests (clear bounded event skips generative, clear extraction skips Jev, one residual calls Jev before a human, missing evidence is not guessed, a Jev failure does not become generative authority, mixed batches take different paths, provenance lists only phases that ran). It amends ADR-038, 040, 041 and 042.
 
 ## ADR-046: Universal review interaction projections
-*Accepted architecture direction, amended repeatedly through 2026-11-06 · 2026-09-25*
+*Accepted architecture direction, amended repeatedly through 2026-11-06, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-09-25*
 
 Reviews use three layers: `review_item` plus ReviewDecision as canonical state, one shared review resolution service (lock the item, check it is active, validate household actor, action, supplied residual facts and candidates against current state, mutate, update the decision, audit, return a surface-neutral result), and Web and Telegram as projections that own no mutation policy. `review_request` is a Telegram projection of any `review_item` subject (no `transaction_id` requirement); the canonical item stays resolvable without it, renderers key on interaction mode, missing facts and allowed actions rather than `review_type`, and a coverage test fails if a producible type has no Telegram capability. Callback values must resolve to currently valid household-scoped candidates and models never pick canonical IDs. Callbacks and replies are exact bindings; open review state does not own later messages. Pending correction and batch buttons carry a rotating server-issued `confirmation_token` (migration `00082`) matched with household, Telegram user, chat and unexpired `PENDING` status under the mutation's row lock, so stale buttons change nothing. A review stays open after one residual is supplied and both surfaces re-render it; a duplicate or transfer relationship choice never erases missing category/date facts; source/document state derives from all siblings. A second surface or recipient acting later gets `ALREADY_RESOLVED` and nothing replays; projection expiry never erases the canonical review. No AI authority and no LLM call to render or route bounded callbacks; surface-neutral telemetry without raw values is exposed to Super Admin read-only at `/admin?tab=reviews`. **Amendments:** recipients derive from household ownership (`review_item` household, active member, active `telegram_identity`, `review_request_recipient`), with a source chat only a fallback (2026-09-28); source-only `UNKNOWN_BANK_TEMPLATE` cards dismiss via `IgnoreBankReview` (2026-10-05); typed answers to cards run on the conversational agent with Go validating, and bank-fact cards complete through `COMPLETE_BANK_FACTS` (2026-10-08); incoming `INCOME` rows get income/own-account/household/ignore buttons and `ClassifyTransferReview` accepts `INCOME` only for those (2026-10-13). On 2026-11-05 `reviewdomain.RefreshSourceLifecycle` became the only derivation of source status (a contract test refuses any inline `processing_status=CASE`), generic dismissal became `reviewdomain.IgnoreReview`/`IgnoreReviewItem`, and the Web dispatcher accepts only actions the list offers (`ExecutableActions`). Card delivery: every active member gets every card but only the raising member's chat is threaded; a chat shows at most three live cards and the rest wait `QUEUED`, released oldest-first under a per-chat advisory lock (migration `00094`); each copy expires seven days after its first delivery (`review_request_recipient.card_expires_at`), a typed reply to the exact card renews it and a tap never does, and the Inbox item stays open; a recipient has one live message; Telegram errors are classified (400/403 permanent, 429 honours `retry_after`, others retry, 8 attempts) and sent message IDs are recorded in `telegram_outbound_delivery` before binding; the API answers the callback query in the webhook response; a tap and a typed reply race through one guarded transition. Each card is built by `buildReviewCard` with its keyboard from the stored `allowedActions` (`reviewCardMarkup`), every rendered button executes through the canonical resolver, the category chooser leads with the merchant's own past categories, a category tap settles the card (out-of-order edits dropped by a per-card revision), and reopening builds a fresh `POSSIBLE_DUPLICATE` decision from current state.
 
@@ -476,7 +478,7 @@ Scope: how a conversational Telegram turn is bounded, how interim and failure no
 - **Amounts are never guessed**: `parseAmountToken` treats dots and commas as thousands separators unless a unit follows (`1,5jt`), and refuses a bare number under 500, since "25" probably means 25 ribu and Go does not guess. (`parseAmountToken`)
 
 ## ADR-065: Telegram review-card answer binding and mutation invariants
-*Accepted · 2026-11-21*
+*Accepted, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-11-21*
 
 Scope: how typed replies and button taps are bound to review cards and pending actions, and which mutations the conversational lane may or may not perform. Extends ADR-031, ADR-046 and ADR-050. These decisions were previously recorded only as source comments.
 
@@ -534,7 +536,7 @@ Scope: sending and editing review cards, the locks those paths take, and handlin
 - **Unauthorized sender gets silence**: when a queued sender is no longer an authorized member, nothing is replied, because the chat no longer belongs to a member and no household content may be sent to it. (`authorized.go`)
 
 ## ADR-069: Telegram review card lifecycle, locking and retirement
-*Accepted · 2026-11-21*
+*Accepted, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-11-21*
 
 Scope: how a `review_item` is projected to Telegram cards, how those cards are bound, locked, edited, expired and retired, and the database guards behind them. Extends ADR-046. These decisions were previously recorded only as source comments.
 
@@ -553,7 +555,7 @@ Scope: how a `review_item` is projected to Telegram cards, how those cards are b
 - **ReviewDecision trigger**: the migration 00078 trigger enforces `reviewdec.Validate` on `review_item`: no item without a complete decision, no degrading a stored one. Historical NULL-decision rows stay updatable but must never be reopened, which would put a contract-less review back in the Inbox and Telegram. (`review_item_contract_integration_test.go`)
 
 ## ADR-070: Telegram review reply and button handling
-*Accepted · 2026-11-21*
+*Accepted, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-11-21*
 
 Scope: how typed replies and button taps on review cards are validated, rendered and applied. Extends ADR-046 and ADR-039. These decisions were previously recorded only as source comments.
 
@@ -674,7 +676,7 @@ Scope: how a source event's status is derived from its review items, and how rev
 - **Item to request to conversation cascade**: resolving a review item closes its request and closing a request resolves its conversation, whichever resolver did the work (migration 00098). An expired request alone leaves the conversation awaiting because an expired card can be reopened. The merchant-learning question is asked after the request is `RESOLVED`, so its conversation must survive both the trigger and the repair. (`review_item_close_request`, `review_request_close_conversation`)
 
 ## ADR-078: Review resolution, reopen and Telegram binding invariants
-*Accepted · 2026-11-21*
+*Accepted, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-11-21*
 
 Scope: the shared `reviewdomain` operations that Web and Telegram call to resolve, reject and reopen review items, and the Telegram callback boundary. Extends ADR-046 and ADR-054. These decisions were previously recorded only as source comments.
 
@@ -758,7 +760,7 @@ Database-level rules for review items, transaction status and wealth observation
 - **Accepted wealth observations are independent of snapshots**: they are visible without a complete snapshot and never imply one or change snapshot-derived net worth, keeping observations distinct from transactions and snapshots. (`00073_accepted_wealth_observations`)
 
 ## ADR-083: Telegram review card, binding and job-lane invariants
-*Accepted · 2026-11-21*
+*Accepted, superseded for Telegram reply binding by ADR-129 as migration completes · 2026-11-21*
 
 Schema-level rules behind Telegram review projections, reply binding and job lanes. Extends ADR-046, ADR-050 and ADR-026. These decisions were previously recorded only as source comments.
 
@@ -1314,3 +1316,12 @@ Amendment (2026-11-25, marking a payslip income as salary): a confirmed payslip-
 **Reason:** a remembered merchant is a category the household chose to apply automatically, while a model category is untrusted output whose quality varies with the gateway's model rotation; in production a remembered merchant (Kopi & Camilan) was sent to review because a model guessed Makanan & Minuman at 0.7.
 
 **Consequence:** merchants the household never remembered still need model category confidence of at least 0.85 or go to review; the `EVIDENCE_CONFLICT` category decision no longer appears for screenshots.
+
+## ADR-129: Telegram interaction engine
+*Accepted · 2026-11-25*
+
+**Decision:** Every Telegram input (a tap, a Reply, a plain message, a typed button label) is mapped to one card and one step by a single resolver, and nothing else maps a Telegram message id to a review. The resolver walks a reply chain (bot follow-ups and the user's own answers, up to six hops, household and chat scoped) back to the card, binds a plain message to the single card waiting for typed input, treats an exact button label typed as text as that tap, asks "Jawaban atau catatan baru?" when an amount-bearing message arrives beside a step that does not expect an amount, and answers a Reply that reaches a closed card with fixed Go copy and no model call. The remaining engine is delivered in stages: a step model derived from `ReviewDecision`, one dispatcher, one renderer (card edited in place or re-sent through `BindReviewMessage`), Go-owned copy, an assistant that shows cards but never answers them, and step telemetry (`product_telemetry_event` `INTERACTION`: `ANSWERED`, `UNMATCHED`, `AMBIGUOUS`, `CLOSED_CARD_REPLY`, `REPEATED_INPUT`, `STEP_SHOWN`, `FINISHED_ON_WEB`).
+
+**Reason:** most multi-step reviews were finished on the web, follow-up prompts that asked the user to Reply were sent unbound and could not be answered, several separate lookups and callback handlers each re-derived the card from a message id, and failures were not recorded anywhere.
+
+**Consequence:** this supersedes the reply and binding rules of ADR-031, ADR-046, ADR-065, ADR-069, ADR-070, ADR-078 and ADR-083 progressively as each review type migrates; new code resolves Telegram messages to reviews only through the resolver. A Reply to an unbound message is ordinary chat (the `explicit_reply_unbound` hint is gone). `FINISHED_ON_WEB` is written by a deferred trigger for items resolved by a user through a connection whose `application_name` is `richmod-api`, which the API pool sets.

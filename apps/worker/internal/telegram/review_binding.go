@@ -118,6 +118,9 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 			return fmt.Errorf("retire Telegram review message sent after its copy expired: %w", err)
 		}
 	}
+	if previous != messageID {
+		recordStepShown(ctx, tx, reviewRequestID)
+	}
 	switch {
 	case terminal:
 		if _, err := tx.Exec(ctx, `SELECT enqueue_review_card_retirement($1::uuid,$2::uuid)`, reviewRequestID, recipientID); err != nil {
@@ -129,6 +132,20 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func recordStepShown(ctx context.Context, tx pgx.Tx, reviewRequestID string) {
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		return
+	}
+	if _, err := savepoint.Exec(ctx, `INSERT INTO product_telemetry_event(household_id,transaction_id,review_item_id,event_type,action)
+		SELECT household_id,transaction_id,review_item_id,'INTERACTION','STEP_SHOWN' FROM review_request WHERE id=$1`, reviewRequestID); err != nil {
+		_ = savepoint.Rollback(ctx)
+		slog.Default().Warn("record step shown telemetry failed", "review_request_id", reviewRequestID, "error", err)
+		return
+	}
+	_ = savepoint.Commit(ctx)
 }
 
 func enqueueSupersededCardRetirement(ctx context.Context, tx pgx.Tx, reviewRequestID, recipientID string, chatID, messageID int64, status string) error {

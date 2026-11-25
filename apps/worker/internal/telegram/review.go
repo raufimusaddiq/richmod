@@ -60,19 +60,24 @@ func residualConfirmationBlockers(decision []byte, dateSupplied, categorySupplie
 	return blocked
 }
 
+const reviewStillNeedsDetailsMessage = "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
+
+var reviewFactLabels = map[string]string{
+	"transaction_at": "tanggal transaksi",
+	"category":       "kategori",
+	"merchant":       "merchant",
+	"wealth_account": "akun kekayaan aktif",
+}
+
 func reviewNeedsFactsMessage(facts []string) string {
 	labels := []string{}
 	for _, fact := range facts {
-		switch fact {
-		case "transaction_at":
-			labels = append(labels, "tanggal transaksi")
-		case "category":
-			labels = append(labels, "kategori")
-		case "merchant":
-			labels = append(labels, "merchant")
-		case "wealth_account":
-			labels = append(labels, "akun kekayaan aktif")
+		if label := reviewFactLabels[fact]; label != "" && !contains(labels, label) {
+			labels = append(labels, label)
 		}
+	}
+	if len(labels) == 0 {
+		return ""
 	}
 	return "Masih perlu " + strings.Join(labels, " dan ") + ". Balas pesan ini (Reply) dengan detail tersebut untuk menyelesaikan tinjauan."
 }

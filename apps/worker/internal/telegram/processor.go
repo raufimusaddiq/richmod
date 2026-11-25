@@ -156,81 +156,14 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	} else if !authorized {
 		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
 	}
-	if update.CallbackQuery == nil && update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
-			return err
-		}
-	}
 	if update.CallbackQuery != nil {
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:dispute:") {
-			if handled, err := p.processEvidenceDisputeCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled || err != nil {
-				return err
-			}
-			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
-		}
-		if handled, err := p.processCardChoiceCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+		if tapped, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, ""); err != nil {
 			return err
+		} else if tapped.Kind == interactionCardStep {
+			p.recordInteraction(ctx, householdID, sourceEventID, tapped.Card.ReviewItemID, interactionAnswered, sourceTap)
 		}
-		if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+		if handled, err := p.dispatchCallback(ctx, sourceEventID, householdID, update); handled {
 			return err
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
-			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-		}
-		if update.CallbackQuery.Data == "review:reprocess" || update.CallbackQuery.Data == "review:ignore" {
-			if update.CallbackQuery.Data == "review:ignore" {
-				if handled, err := p.ignoreBankReview(ctx, sourceEventID, householdID, update); handled {
-					return err
-				}
-			}
-			if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-				return err
-			}
-			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-				return err
-			}
-			if handled, err := p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update); handled {
-				return err
-			}
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:fe:") || strings.HasPrefix(update.CallbackQuery.Data, "review:fepage:") {
-			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-				return err
-			}
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:bankpage:") {
-			return p.processBankAccountPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:bank:") {
-			return p.processBankAccountCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
-			return p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:investpage:") {
-			return p.processInvestmentPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:invest:") {
-			return p.processInvestmentCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
-			if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-				return err
-			}
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
-		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
-			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
-				return err
-			}
-			switch update.CallbackQuery.Data {
-			case "review:expense", "review:own", "review:household", "review:asset", "review:investment", "review:income":
-				if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
-					return err
-				}
-			}
 		}
 	}
 	text := strings.TrimSpace(update.Message.Text)
@@ -244,6 +177,88 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
 	return p.ProcessAgent(ctx, sourceEventID)
+}
+
+func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (handledResult bool, err error) {
+	defer func() {
+		if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
+			handledResult, err = true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")
+		}
+	}()
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:dispute:") {
+		if handled, err := p.processEvidenceDisputeCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled || err != nil {
+			return true, err
+		}
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+	}
+	if data := update.CallbackQuery.Data; data == callbackInteractionAnswer || data == callbackInteractionNew {
+		return true, p.processInteractionChoiceCallback(ctx, sourceEventID, householdID, update, data)
+	}
+	if handled, err := p.processCardChoiceCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+		return true, err
+	}
+	if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+		return true, err
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
+		return true, p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+	}
+	if update.CallbackQuery.Data == "review:reprocess" || update.CallbackQuery.Data == "review:ignore" {
+		if update.CallbackQuery.Data == "review:ignore" {
+			if handled, err := p.ignoreBankReview(ctx, sourceEventID, householdID, update); handled {
+				return true, err
+			}
+		}
+		if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return true, err
+		}
+		if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return true, err
+		}
+		if handled, err := p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update); handled {
+			return true, err
+		}
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:fe:") || strings.HasPrefix(update.CallbackQuery.Data, "review:fepage:") {
+		if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return true, err
+		}
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:bankpage:") {
+		return true, p.processBankAccountPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:bank:") {
+		return true, p.processBankAccountCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
+		return true, p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:investpage:") {
+		return true, p.processInvestmentPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:invest:") {
+		return true, p.processInvestmentCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
+		if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return true, err
+		}
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+	}
+	if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
+		if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return true, err
+		}
+		switch update.CallbackQuery.Data {
+		case "review:expense", "review:own", "review:household", "review:asset", "review:investment", "review:income":
+			if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
+				return true, err
+			}
+		}
+	}
+	return false, nil
 }
 
 func strPtr(value string) *string { return &value }
