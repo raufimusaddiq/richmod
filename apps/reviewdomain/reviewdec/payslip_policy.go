@@ -34,6 +34,8 @@ func payslipHeldReason(provenance map[string]any) string {
 		return "a salary for this payroll period is already recorded with different facts"
 	case provenance["extractionBelowAutoConfirmFloor"] == true:
 		return "the payslip was not read confidently enough to record automatically"
+	case provenance["arithmeticCheckable"] == false:
+		return "the payslip's layout cannot be checked arithmetically and its net pay differs from the last recorded salary"
 	case provenance["arithmeticOK"] == false:
 		return "the payslip's gross pay, allowances and deductions do not add up to net pay"
 	}

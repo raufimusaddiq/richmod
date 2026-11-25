@@ -154,6 +154,22 @@ func payslipAutoConfirmable(value payslipExtraction, arithmeticOK bool) bool {
 	return value.PayDate != nil && value.Confidence >= autoConfirmMinConfidence && (value.GrossPay == nil || arithmeticOK)
 }
 
+func payslipArithmeticCheckable(value payslipExtraction) bool {
+	return value.GrossPay != nil && len(value.OtherComponents) == 0
+}
+
+func payslipNeedsSalaryMatch(value payslipExtraction) bool {
+	return value.PayDate != nil && value.Confidence >= autoConfirmMinConfidence && !payslipArithmeticCheckable(value) && value.GrossPay != nil
+}
+
+func netPayMatchesLastPrimarySalary(ctx context.Context, tx pgx.Tx, householdID, employer, netPay string) (bool, error) {
+	var matches bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT se.net_pay=$3::numeric FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id
+		WHERE se.household_id=$1 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary AND ss.normalized_employer=$2
+		ORDER BY se.pay_date DESC,se.created_at DESC LIMIT 1),false)`, householdID, reviewdomain.NormalizedEmployer(employer), netPay).Scan(&matches)
+	return matches, err
+}
+
 func validatePayslip(value payslipExtraction, receivedAt time.Time) (time.Time, time.Time, bool, error) {
 	if value.Currency != "IDR" || !(value.Confidence >= 0 && value.Confidence <= 1) {
 		return time.Time{}, time.Time{}, false, fmt.Errorf("invalid payslip currency or confidence")
@@ -272,11 +288,19 @@ func (p *Processor) persistPayslipOnce(ctx context.Context, documentID, househol
 	if value.PayDate == nil {
 		reviewType = "MISSING_PAY_DATE"
 	}
+	salaryMatch := false
+	if !autoConfirm && payslipNeedsSalaryMatch(value) {
+		matches, err := netPayMatchesLastPrimarySalary(ctx, tx, householdID, value.Employer, value.NetPay)
+		if err != nil {
+			return err
+		}
+		salaryMatch, autoConfirm = matches, matches
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO UPDATE SET output_json=EXCLUDED.output_json,confidence=EXCLUDED.confidence,gateway_model=EXCLUDED.gateway_model,validated=true WHERE NOT document_extraction.validated`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
 	var proposalID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',$3,'IDR',$4,NULLIF($5,''),'Penghasilan dari slip gaji',$6,'NEEDS_REVIEW',jsonb_build_object('document_id',$7::uuid,'period',$8::text,'period_raw',$9::text,'arithmetic_ok',$10::boolean)) RETURNING id`, householdID, sourceID, value.NetPay, transactionAt, value.Employer, value.Confidence, documentID, period, value.Period, arithmeticOK).Scan(&proposalID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',$3,'IDR',$4,NULLIF($5,''),'Penghasilan dari slip gaji',$6,'NEEDS_REVIEW',jsonb_build_object('document_id',$7::uuid,'period',$8::text,'period_raw',$9::text,'arithmetic_ok',$10::boolean,'arithmetic_checkable',$11::boolean,'net_pay_matches_last_salary',$12::boolean)) RETURNING id`, householdID, sourceID, value.NetPay, transactionAt, value.Employer, value.Confidence, documentID, period, value.Period, arithmeticOK, payslipArithmeticCheckable(value), salaryMatch).Scan(&proposalID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -298,6 +322,7 @@ func (p *Processor) persistPayslipOnce(ctx context.Context, documentID, househol
 			decision.KnownFacts["transaction_at"] = transactionAt.Format(time.RFC3339)
 		}
 		decision.Provenance["arithmeticOK"] = arithmeticOK
+		decision.Provenance["arithmeticCheckable"] = payslipArithmeticCheckable(value)
 		decision.Provenance["hasPrimarySalary"] = hasPrimary
 		if conflicting {
 			decision.Provenance["conflictingSalaryEvent"] = true

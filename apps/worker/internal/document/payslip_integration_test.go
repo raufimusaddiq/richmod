@@ -246,3 +246,59 @@ func TestHeldPayslipWithPrimarySalaryCanBeRecordedAsSalary(t *testing.T) {
 		t.Fatalf("salary not recorded on the primary source: events=%d residual jobs=%d", events, jobs)
 	}
 }
+
+func TestUncheckablePayslipAutoConfirmsOnlyWhenNetPayMatchesLastPrimarySalary(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		netPay string
+		auto   bool
+	}{
+		{"same net pay as last salary", "8500000", true},
+		{"different net pay", "8600000", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := seedScreenshotFixture(t, "SAVR07 uncheckable payslip "+test.name)
+			ctx := context.Background()
+			var user, primaryID, previousTx string
+			if err := f.pool.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE household_id=$1`, f.householdID).Scan(&user); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'PT Contoh','pt contoh',true) RETURNING id::text`, f.householdID, user).Scan(&primaryID); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'INCOME','CONFIRMED',8500000,'IDR','2026-08-25 12:00+07',now()) RETURNING id::text`, f.householdID).Scan(&previousTx); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,'2026-08-01','2026-08-25',8500000,'IDR',$3,'CONFIRMED',$4)`, primaryID, f.householdID, previousTx, f.sourceID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='PAYSLIP' WHERE id=$1`, f.documentID); err != nil {
+				t.Fatal(err)
+			}
+			date, gross := "2026-09-25", "10000000"
+			slip := payslipExtraction{Period: "2026-09", Employer: "PT  Contoh", GrossPay: &gross, OtherComponents: []moneyLine{{Name: "Saldo dompet", Amount: "400000"}}, NetPay: test.netPay, Currency: "IDR", PayDate: &date, Confidence: .97}
+			at, parsedPeriod, arithmetic, err := validatePayslip(slip, payslipTestReceived)
+			if err != nil || arithmetic {
+				t.Fatalf("uncheckable slip: err=%v arithmetic=%t", err, arithmetic)
+			}
+			if err := (&Processor{pool: f.pool}).persistPayslip(ctx, f.documentID, f.householdID, f.sourceID, slip, "test-model", at, parsedPeriod.Format("2006-01"), payslipAutoConfirmable(slip, arithmetic), arithmetic); err != nil {
+				t.Fatal(err)
+			}
+			var reviews, events int
+			var why string
+			if err := f.pool.QueryRow(ctx, `SELECT
+				(SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
+				(SELECT count(*) FROM salary_event WHERE household_id=$1 AND salary_source_id=$2::uuid AND payroll_period='2026-09-01' AND status='CONFIRMED'),
+				COALESCE((SELECT decision->>'whyNotAutoConfirm' FROM review_item WHERE document_id=$3::uuid),'')`, f.householdID, primaryID, f.documentID).Scan(&reviews, &events, &why); err != nil {
+				t.Fatal(err)
+			}
+			if test.auto && (reviews != 0 || events != 1) {
+				t.Fatalf("matching net pay must record the salary without review: reviews=%d events=%d", reviews, events)
+			}
+			if !test.auto && (reviews != 1 || events != 0 || why != "the payslip's layout cannot be checked arithmetically and its net pay differs from the last recorded salary") {
+				t.Fatalf("different net pay must be held with its reason: reviews=%d events=%d why=%q", reviews, events, why)
+			}
+		})
+	}
+}

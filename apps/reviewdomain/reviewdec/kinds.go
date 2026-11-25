@@ -331,20 +331,21 @@ func TelegramCompleteActions() []string {
 }
 
 var whyTranslations = map[string]string{
-	"the bounded category decision did not reach a confident, well-separated choice":                       "Kategori belum cukup yakin untuk dipilih otomatis.",
-	"no supported merchant-to-category mapping or decisive category ruling was available":                  "Belum ada kategori tersimpan untuk merchant ini.",
-	"own-account versus expense is a human policy choice the evidence cannot decide":                       "Bukti tidak bisa membedakan transfer ke rekening sendiri dan pengeluaran.",
-	"the email did not clearly support an ordinary spending classification":                                "Email tidak jelas menunjukkan pengeluaran biasa.",
-	"the screenshot does not show an amount":                                                               "Nominal tidak terlihat di screenshot.",
-	"evidence cannot separate income from an own-account or household transfer on a screenshot row":        "Screenshot tidak bisa membedakan penghasilan dan transfer sendiri.",
-	"the image and the bounded plane named different categories":                                           "Gambar dan penilaian kategori menunjuk kategori berbeda.",
-	"the household disputes a previous screenshot link; explicit human button confirmation is required":    "Tautan screenshot sebelumnya dibantah, jadi perlu konfirmasi lewat tombol.",
-	"the provider email points to a different funding account than the canonical account already selected": "Email menunjuk rekening sumber yang berbeda dari yang sudah dipilih.",
-	"pay date is absent and the first salary source requires household classification":                     "Tanggal pembayaran tidak ada dan jenis gaji pertama perlu dipilih.",
-	"a salary for this payroll period is already recorded with different facts":                            "Gaji untuk periode ini sudah tercatat dengan angka berbeda.",
-	"the payslip was not read confidently enough to record automatically":                                  "Slip gaji belum terbaca cukup yakin untuk dicatat otomatis.",
-	"the payslip's gross pay, allowances and deductions do not add up to net pay":                          "Gaji kotor, tunjangan, dan potongan di slip tidak cocok dengan gaji bersih.",
-	"the payslip needs confirmation before it is recorded as salary":                                       "Slip gaji perlu dikonfirmasi sebelum dicatat sebagai gaji.",
+	"the bounded category decision did not reach a confident, well-separated choice":                              "Kategori belum cukup yakin untuk dipilih otomatis.",
+	"no supported merchant-to-category mapping or decisive category ruling was available":                         "Belum ada kategori tersimpan untuk merchant ini.",
+	"own-account versus expense is a human policy choice the evidence cannot decide":                              "Bukti tidak bisa membedakan transfer ke rekening sendiri dan pengeluaran.",
+	"the email did not clearly support an ordinary spending classification":                                       "Email tidak jelas menunjukkan pengeluaran biasa.",
+	"the screenshot does not show an amount":                                                                      "Nominal tidak terlihat di screenshot.",
+	"evidence cannot separate income from an own-account or household transfer on a screenshot row":               "Screenshot tidak bisa membedakan penghasilan dan transfer sendiri.",
+	"the image and the bounded plane named different categories":                                                  "Gambar dan penilaian kategori menunjuk kategori berbeda.",
+	"the household disputes a previous screenshot link; explicit human button confirmation is required":           "Tautan screenshot sebelumnya dibantah, jadi perlu konfirmasi lewat tombol.",
+	"the provider email points to a different funding account than the canonical account already selected":        "Email menunjuk rekening sumber yang berbeda dari yang sudah dipilih.",
+	"pay date is absent and the first salary source requires household classification":                            "Tanggal pembayaran tidak ada dan jenis gaji pertama perlu dipilih.",
+	"a salary for this payroll period is already recorded with different facts":                                   "Gaji untuk periode ini sudah tercatat dengan angka berbeda.",
+	"the payslip was not read confidently enough to record automatically":                                         "Slip gaji belum terbaca cukup yakin untuk dicatat otomatis.",
+	"the payslip's gross pay, allowances and deductions do not add up to net pay":                                 "Gaji kotor, tunjangan, dan potongan di slip tidak cocok dengan gaji bersih.",
+	"the payslip's layout cannot be checked arithmetically and its net pay differs from the last recorded salary": "Susunan slip tidak bisa dicek otomatis dan gaji bersihnya berbeda dari gaji terakhir.",
+	"the payslip needs confirmation before it is recorded as salary":                                              "Slip gaji perlu dikonfirmasi sebelum dicatat sebagai gaji.",
 }
 
 func WhyLine(decision Decision) string {
