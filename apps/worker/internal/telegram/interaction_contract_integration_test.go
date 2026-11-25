@@ -1745,6 +1745,20 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 			h.tapLabel("Semua sisa")
 			h.wantAllocations("Reksa Contoh 700000", "Tabungan Contoh 500000")
 		}},
+		{"a leftover lowered mid-split restarts the card instead of showing a negative remainder", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
+			h.tapLabel("Bagi ke beberapa akun")
+			h.tapLabel("Tabungan Contoh")
+			h.reply("500rb")
+			h.exec(`UPDATE cycle_residual_case SET basis_residual_idr=400000 WHERE id=$1`, h.caseID)
+			h.tapLabel("Reksa Contoh")
+			h.wantCard("Sisa siklus 25 Agu–24 Sep: Rp400.000. Mau dialokasikan ke mana?")
+			if _, text, _ := h.current(); strings.Contains(text, "-Rp") {
+				t.Fatalf("a negative remainder was shown: %q", text)
+			}
+			h.wantButtons("Tabungan Contoh", "Bagi ke beberapa akun", "Biarkan saja")
+			h.wantAllocations()
+			h.wantItemActive()
+		}},
 		{"Batal mid-split clears it and returns to the first step", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
 			before, _, _ := h.current()
 			h.tapLabel("Bagi ke beberapa akun")

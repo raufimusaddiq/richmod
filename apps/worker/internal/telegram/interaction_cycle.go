@@ -180,6 +180,14 @@ func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, householdID s
 		return Step{}, err
 	}
 	remaining := split.remaining(e.Subject.Cycle.Residual)
+	if remaining.Sign() <= 0 {
+		if !e.ReadOnly {
+			if err := saveCycleSplit(ctx, tx, e.RequestID, "AWAITING_DETAIL", nil); err != nil {
+				return Step{}, err
+			}
+		}
+		return base.WithAck(cycleChangedAck), nil
+	}
 	var lines []string
 	for _, allocation := range split.Allocations {
 		amount, _ := new(big.Int).SetString(allocation.Amount, 10)
