@@ -110,15 +110,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 				return err
 			}
 		}
-		proposalReview, err := p.repliesToProposalReview(ctx, householdID, target)
-		if err != nil {
-			return err
-		}
-		if proposalReview {
-			if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, target); handled || err != nil {
-				return err
-			}
-		}
 	}
 	ctx = withTurnIdentity(ctx, householdID, sourceEventID)
 	categories, err := p.categorySlugs(ctx, householdID)

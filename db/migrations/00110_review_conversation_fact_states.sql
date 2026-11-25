@@ -1,0 +1,40 @@
+-- +goose Up
+ALTER TABLE review_conversation DROP CONSTRAINT review_conversation_state_check;
+ALTER TABLE review_conversation ADD CONSTRAINT review_conversation_state_check CHECK (
+  state IN (
+    'AWAITING_MERCHANT'
+    ,'AWAITING_CATEGORY'
+    ,'AWAITING_DETAIL'
+    ,'AWAITING_DATE'
+    ,'AWAITING_PURPOSE'
+    ,'AWAITING_CONFIRMATION'
+    ,'AWAITING_MERCHANT_DECISION'
+    ,'AWAITING_ASSET_WEALTH'
+    ,'AWAITING_INVESTMENT_ACCOUNT'
+    ,'AWAITING_CYCLE_ACCOUNT'
+    ,'AWAITING_CYCLE_AMOUNT'
+    ,'AWAITING_AMOUNT'
+    ,'AWAITING_BANK_ACCOUNT'
+    ,'RESOLVED'
+  )
+);
+
+-- +goose Down
+UPDATE review_conversation SET state='AWAITING_DETAIL' WHERE state IN ('AWAITING_AMOUNT','AWAITING_BANK_ACCOUNT');
+ALTER TABLE review_conversation DROP CONSTRAINT review_conversation_state_check;
+ALTER TABLE review_conversation ADD CONSTRAINT review_conversation_state_check CHECK (
+  state IN (
+    'AWAITING_MERCHANT'
+    ,'AWAITING_CATEGORY'
+    ,'AWAITING_DETAIL'
+    ,'AWAITING_DATE'
+    ,'AWAITING_PURPOSE'
+    ,'AWAITING_CONFIRMATION'
+    ,'AWAITING_MERCHANT_DECISION'
+    ,'AWAITING_ASSET_WEALTH'
+    ,'AWAITING_INVESTMENT_ACCOUNT'
+    ,'AWAITING_CYCLE_ACCOUNT'
+    ,'AWAITING_CYCLE_AMOUNT'
+    ,'RESOLVED'
+  )
+);

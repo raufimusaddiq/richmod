@@ -62,26 +62,6 @@ func residualConfirmationBlockers(decision []byte, dateSupplied, categorySupplie
 
 const reviewStillNeedsDetailsMessage = "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
 
-var reviewFactLabels = map[string]string{
-	"transaction_at": "tanggal transaksi",
-	"category":       "kategori",
-	"merchant":       "merchant",
-	"wealth_account": "akun kekayaan aktif",
-}
-
-func reviewNeedsFactsMessage(facts []string) string {
-	labels := []string{}
-	for _, fact := range facts {
-		if label := reviewFactLabels[fact]; label != "" && !contains(labels, label) {
-			labels = append(labels, label)
-		}
-	}
-	if len(labels) == 0 {
-		return ""
-	}
-	return "Masih perlu " + strings.Join(labels, " dan ") + ". Balas pesan ini (Reply) dengan detail tersebut untuk menyelesaikan tinjauan."
-}
-
 func parseSuppliedReviewDate(value string) (*string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -126,107 +106,6 @@ type categoryChoice struct {
 	ID   string
 	Name string
 	Slug string
-}
-
-func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
-	var err error
-	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
-		return false, nil
-	}
-	var amountItemID, amountProposalID, amountSourceID, amountUserID, amountRequestID, amountState, stagedAmount, amountType string
-	var amountBound bool
-	bindTx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return true, err
-	}
-	item, err := bindOpenCardItem(ctx, bindTx, householdID, update, update.Message.ReplyToMessage.MessageID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		_ = bindTx.Rollback(ctx)
-		return true, err
-	}
-	if err == nil {
-		switch item.ReviewType {
-		case "MISSING_AMOUNT":
-			err = bindTx.QueryRow(ctx, `SELECT p.id::text,p.source_event_id::text,c.state,COALESCE(c.context_json->>'amount_idr',''),p.proposed_type
-				FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
-				WHERE r.id=$1 AND c.state IN ('AWAITING_DETAIL','AWAITING_CONFIRMATION')`, item.RequestID).Scan(&amountProposalID, &amountSourceID, &amountState, &stagedAmount, &amountType)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				_ = bindTx.Rollback(ctx)
-				return true, err
-			}
-			if err == nil {
-				amountItemID, amountUserID, amountRequestID, amountBound = item.ItemID, item.UserID, item.RequestID, true
-			}
-		}
-	}
-	_ = bindTx.Rollback(ctx)
-	if amountBound {
-		amount := strings.TrimSpace(update.Message.Text)
-		incomeConfirmed := false
-		if amountState == "AWAITING_CONFIRMATION" {
-			switch incomeReviewChoice(amount) {
-			case "CONFIRM":
-				amount, incomeConfirmed = stagedAmount, true
-			case "REJECT":
-				tx, beginErr := p.pool.Begin(ctx)
-				if beginErr != nil {
-					return true, beginErr
-				}
-				defer tx.Rollback(ctx)
-				if err := reviewdomain.IgnoreMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: householdID, UserID: amountUserID, ReviewItemID: amountItemID, ProposalID: amountProposalID, SourceEventID: amountSourceID, ActorType: "TELEGRAM"}); err != nil {
-					return true, err
-				}
-				if err := enqueueReply(ctx, tx, update, "Tidak dicatat sebagai penghasilan."); err != nil {
-					return true, err
-				}
-				return true, tx.Commit(ctx)
-			default:
-				return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Balas pesan ini (Reply) dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan.")
-			}
-		}
-		if parsed, ok := parseBankFactsAnswer(amount); ok {
-			amount = parsed
-		}
-		if !reviewdomain.ValidBankAmountIDR(amount) {
-			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Nominalnya belum terbaca. Balas pesan ini (Reply) dengan angka rupiah tanpa pemisah. Contoh: 75000.")
-		}
-		tx, beginErr := p.pool.Begin(ctx)
-		if beginErr != nil {
-			return true, beginErr
-		}
-		defer tx.Rollback(ctx)
-		if amountType == "INCOME" && amountState == "AWAITING_DETAIL" {
-			tag, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CONFIRMATION',context_json=context_json||jsonb_build_object('amount_idr',$2::text),updated_at=now() WHERE review_request_id=$1 AND state='AWAITING_DETAIL' AND EXISTS(SELECT 1 FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND r.status='OPEN' AND ri.status IN ('OPEN','PENDING_SEND'))`, amountRequestID, amount)
-			if err != nil {
-				return true, err
-			}
-			if tag.RowsAffected() != 1 {
-				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-			}
-			if err := enqueueReviewMessage(ctx, tx, amountRequestID, update.Message.Chat.ID, update.Message.MessageID, "Nominalnya sudah diterima, belum dicatat sebagai penghasilan. Balas pesan ini (Reply) dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan."); err != nil {
-				return true, err
-			}
-			return true, tx.Commit(ctx)
-		}
-		result, resolveErr := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{
-			HouseholdID: householdID, UserID: amountUserID, ReviewItemID: amountItemID, ProposalID: amountProposalID,
-			SourceEventID: amountSourceID, ActorType: "TELEGRAM", AmountIDR: &amount, IncomeConfirmed: incomeConfirmed,
-		})
-		if errors.Is(resolveErr, reviewdomain.ErrMissingAmountReviewInvalid) {
-			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Tinjauan ini sudah berubah. Buka Kotak Tinjauan untuk melanjutkan.")
-		}
-		if resolveErr != nil {
-			return true, resolveErr
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','amount')) ON CONFLICT DO NOTHING`, result.TransactionID, amountSourceID, amountRequestID); err != nil {
-			return true, err
-		}
-		if err := enqueueReply(ctx, tx, update, "✅ Nominal transaksi sudah disimpan. Tinjauan selesai."); err != nil {
-			return true, err
-		}
-		return true, tx.Commit(ctx)
-	}
-	return false, nil
 }
 
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {

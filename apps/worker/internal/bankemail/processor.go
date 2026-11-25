@@ -105,6 +105,9 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
 			return err
 		}
+		if err = workerTelegram.ContinueBankCard(ctx, tx, payload.ReviewID); err != nil {
+			return err
+		}
 		if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
 			return err
 		}
@@ -152,24 +155,13 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	if _, err = tx.Exec(ctx, `UPDATE bank_email_extraction SET output_json=$2::jsonb,validation_status='VALID',policy_result=$3 WHERE source_event_id=$1`, payload.SourceEventID, mustJSON(extraction), result.Status); err != nil {
 		return err
 	}
-	if payload.TelegramChatID != 0 {
-		message := "Email bank diproses tanpa mencatat transaksi."
-		switch result.Status {
-		case "LINKED":
-			message = "Email bank ditautkan ke transaksi yang sudah tercatat."
-		case "CONFIRMED":
-			message = "Transaksi bank dicatat."
-		case "NEEDS_REVIEW":
-			message = "Fakta bank tersimpan. Transaksi masih perlu ditinjau melalui kartu review baru."
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$2::bigint,'text',$3::text) WHERE EXISTS(SELECT 1 FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND rr.telegram_chat_id=$2)`, payload.ReviewID, payload.TelegramChatID, message); err != nil {
-			return err
-		}
-	}
 	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::timestamptz),updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID, value(extraction.AmountIDR), extraction.TransactionAt); err != nil {
 		return err
 	}
 	if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
+		return err
+	}
+	if err = workerTelegram.ContinueBankCard(ctx, tx, payload.ReviewID); err != nil {
 		return err
 	}
 	if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
@@ -685,8 +677,18 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		if len(duplicateCandidates) > 0 {
 			decision = duplicateReviewDecision(decision, transactionID, duplicateCandidates)
 		}
+		continuable := false
+		if completingReviewID != "" {
+			if continuable, err = workerTelegram.BankCardContinuable(ctx, tx, completingReviewID); err != nil {
+				return err
+			}
+		}
 		var chatID int64
-		if e := tx.QueryRow(ctx, `SELECT ti.telegram_user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1 AND ti.active ORDER BY ti.created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
+		if continuable {
+			if _, err = workerTelegram.CreateTransactionReviewItem(ctx, tx, transactionID, result.ReviewType, "OPEN", decision); err != nil {
+				return err
+			}
+		} else if e := tx.QueryRow(ctx, `SELECT ti.telegram_user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1 AND ti.active ORDER BY ti.created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message, decision); err != nil {
 				return err

@@ -13,20 +13,11 @@ import (
 )
 
 const (
-	dateForwardDays   = 31
-	payDateMaxAgeDays = 400
-)
-
-const (
 	salaryAsk         = "Slip gaji ini dicatat sebagai apa?"
 	payDateAsk        = "Tanggal pembayarannya kapan?"
 	payslipAppAsk     = "Slip gaji ini perlu dicek di aplikasi."
 	payslipAppHint    = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
 	salaryChoiceHint  = "Pilih di bawah."
-	dateHint          = "Pilih di bawah, atau ketik tanggalnya."
-	dateOtherHint     = "Ketik tanggalnya, misalnya 3 Okt atau 25/9."
-	futureDateAck     = "Tanggal itu belum terjadi."
-	staleDateAck      = "Tanggal itu terlalu lama untuk slip ini."
 	salaryInvalidAck  = "Pilihan itu tidak berlaku untuk slip ini."
 	salaryPolicyAck   = "✅ Jenis gaji disimpan."
 	salaryEvidenceKey = "salary_classification"
@@ -93,19 +84,6 @@ func pairRows(buttons []InlineKeyboardButton) [][]InlineKeyboardButton {
 		buttons = buttons[take:]
 	}
 	return rows
-}
-
-func dateStepFrom(base Step, ask string, actions []string, extra ...InlineKeyboardButton) Step {
-	base.Kind, base.Fact, base.State, base.Back = stepFact, factDate, "AWAITING_DATE", false
-	base.Ask, base.Hint = ask, dateHint
-	buttons := []InlineKeyboardButton{{Text: "Hari ini", CallbackData: callbackDateToday}, {Text: "Kemarin", CallbackData: callbackDateYesterday}}
-	buttons = append(buttons, extra...)
-	buttons = append(buttons, InlineKeyboardButton{Text: "Tanggal lain", CallbackData: callbackDateOther})
-	if contains(actions, "IGNORE") {
-		buttons = append(buttons, InlineKeyboardButton{Text: "Abaikan", CallbackData: callbackIgnore})
-	}
-	base.Rows = pairRows(buttons)
-	return base
 }
 
 func subjectStepForBinding(card agentReviewBinding) (Step, bool) {
@@ -331,39 +309,6 @@ func (p *Processor) ignorePayslip(ctx context.Context, tx pgx.Tx, householdID st
 		return stepOutcome{}, err
 	}
 	return stepOutcome{Step: ignoredStep(clean(employer, 60), amount), Settled: true, Changed: true}, nil
-}
-
-func jakartaMidnight(at time.Time) time.Time {
-	local := at.In(jakartaLocation())
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, jakartaLocation())
-}
-
-func (p *Processor) applyDateTap(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, data string) (stepOutcome, error) {
-	today := jakartaMidnight(p.now())
-	switch data {
-	case callbackDateToday:
-		return p.finishPayDate(ctx, tx, householdID, sourceEventID, review, step, today)
-	case callbackDateYesterday:
-		return p.finishPayDate(ctx, tx, householdID, sourceEventID, review, step, today.AddDate(0, 0, -1))
-	case callbackDateOther:
-		step.Hint = dateOtherHint
-		return stepOutcome{Step: step, Changed: true}, nil
-	}
-	return reask(step, salaryInvalidAck), nil
-}
-
-func (p *Processor) applyDateText(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, now time.Time, review engineReview, step Step, text string) (stepOutcome, error) {
-	date, ok := parseDateValue(text, now, dateForwardDays)
-	if !ok {
-		return reask(step, unusableAnswerAck), nil
-	}
-	if date.After(jakartaMidnight(now)) {
-		return stepOutcome{Step: step.WithAck(futureDateAck)}, nil
-	}
-	if date.Before(jakartaMidnight(now).AddDate(0, 0, -payDateMaxAgeDays)) {
-		return stepOutcome{Step: step.WithAck(staleDateAck)}, nil
-	}
-	return p.finishPayDate(ctx, tx, householdID, sourceEventID, review, step, date)
 }
 
 func (p *Processor) finishPayDate(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, date time.Time) (stepOutcome, error) {

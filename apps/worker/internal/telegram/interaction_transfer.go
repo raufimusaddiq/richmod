@@ -156,6 +156,8 @@ func (s *Step) loadRows(ctx context.Context, tx pgx.Tx, reviewID string, page in
 		}
 	case factCycle, factSplitAcct, factSplitAmount:
 		return s.loadCycleRows(ctx, tx, reviewID, page)
+	case factBankAccount:
+		return s.loadBankAccountRows(ctx, tx, reviewID, page)
 	}
 	return nil
 }

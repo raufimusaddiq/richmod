@@ -16,11 +16,12 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 		wantState  string
 		context    string
 		wantMode   string
+		subject    reviewSubject
 	}{
 		{
-			name: "missing amount is a bound reply", reviewType: "MISSING_AMOUNT",
-			decision:  reviewdec.Decision{ReasonCode: "MISSING_AMOUNT", MissingFacts: []string{"amount_idr", "transfer_relationship"}},
-			wantState: "AWAITING_DETAIL", context: "Email bank", wantMode: "reply",
+			name: "missing amount is an amount step", reviewType: "MISSING_AMOUNT",
+			decision:  reviewdec.Decision{ReasonCode: "MISSING_AMOUNT", MissingFacts: []string{"amount"}, AllowedActions: []string{"SET_AMOUNT", "IGNORE"}},
+			wantState: "AWAITING_AMOUNT", context: "Email bank", wantMode: "step",
 		},
 		{
 			name: "salary classification offers bounded choices", reviewType: "PAYSLIP_CONFIRMATION",
@@ -33,19 +34,22 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 			wantState: "AWAITING_CATEGORY", context: "keep context", wantMode: "step",
 		},
 		{
-			name: "missing date is a bound reply", reviewType: "MISSING_TRANSACTION_DATE",
-			decision:  reviewdec.Decision{MissingFacts: []string{"transaction_at"}, AllowedActions: []string{"SET_PAY_DATE", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
-			wantState: "AWAITING_DATE", context: "Nominal: Rp18.502", wantMode: "reply",
+			name: "missing date is a date step", reviewType: "MISSING_TRANSACTION_DATE",
+			decision:  reviewdec.Decision{MissingFacts: []string{"transaction_at"}, AllowedActions: []string{"SET_TRANSACTION_DATE", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
+			subject:   reviewSubject{TransactionType: "EXPENSE"},
+			wantState: "AWAITING_DATE", context: "Nominal: Rp18.502", wantMode: "step",
 		},
 		{
 			name: "compound residual collects the date first", reviewType: "TRANSACTION_FACTS_MISSING",
-			decision:  reviewdec.Decision{MissingFacts: []string{"category", "transaction_at"}, AllowedActions: []string{"CONFIRM_REVIEW", "SET_PAY_DATE", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
-			wantState: "AWAITING_DATE", context: "Nominal: Rp18.502", wantMode: "reply",
+			decision:  reviewdec.Decision{MissingFacts: []string{"category", "transaction_at"}, AllowedActions: []string{"CONFIRM_REVIEW", "SET_TRANSACTION_DATE", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
+			subject:   reviewSubject{TransactionType: "EXPENSE"},
+			wantState: "AWAITING_DATE", context: "Nominal: Rp18.502", wantMode: "step",
 		},
 		{
-			name: "unknown purpose is a bound reply", reviewType: "UNKNOWN_PURPOSE",
+			name: "unknown purpose is a purpose step", reviewType: "UNKNOWN_PURPOSE",
 			decision:  reviewdec.Decision{MissingFacts: []string{"transaction_semantics"}, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
-			wantState: "AWAITING_DETAIL", context: "Nominal: Rp18.502", wantMode: "reply",
+			subject:   reviewSubject{TransactionType: "EXPENSE"},
+			wantState: "AWAITING_PURPOSE", context: "Nominal: Rp18.502", wantMode: "step",
 		},
 		{
 			name: "duplicate conflict offers duplicate intents", reviewType: "POSSIBLE_DUPLICATE",
@@ -65,7 +69,7 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state, message, mode := renderReviewPresentation(tt.decision, tt.reviewType, tt.context)
+			state, message, mode := renderReviewPresentation(tt.decision, tt.reviewType, tt.context, tt.subject)
 			t.Logf("state=%s mode=%s\n%s", state, mode, message)
 			if state != tt.wantState || mode != tt.wantMode {
 				t.Fatalf("state=%q message=%q mode=%q", state, message, mode)
@@ -92,7 +96,6 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 		}
 	}
 	t.Logf("help:\n%s", helpMessage)
-	t.Logf("bank pending: %s", bankFactsQueuedMessage)
 }
 
 func TestRequiredFieldReplyMarkupOnlyOffersIgnore(t *testing.T) {

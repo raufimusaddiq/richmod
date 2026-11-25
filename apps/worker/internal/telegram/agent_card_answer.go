@@ -40,9 +40,7 @@ func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 	}
 	switch {
 	case card.Kind == cardKindProposal:
-		return proposalExpectedAnswer(card)
-	case card.Kind == "BANK_FACTS":
-		return cardAnswerAmount
+		return cardAnswerNone
 	case card.Kind != "TRANSACTION":
 		return cardAnswerNone
 	case card.ConversationState == "AWAITING_CATEGORY":
@@ -51,16 +49,6 @@ func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 		return cardAnswerDate
 	case card.ConversationState == "AWAITING_MERCHANT", card.ConversationState == "AWAITING_DETAIL", card.ReviewType == "UNKNOWN_PURPOSE":
 		return cardAnswerDetail
-	}
-	return cardAnswerNone
-}
-
-func proposalExpectedAnswer(card agentReviewBinding) cardAnswerKind {
-	switch {
-	case card.ReviewType == "MISSING_AMOUNT" && card.ConversationState == "AWAITING_CONFIRMATION":
-		return cardAnswerConfirm
-	case card.ReviewType == "MISSING_AMOUNT" && card.ConversationState == "AWAITING_DETAIL":
-		return cardAnswerAmount
 	}
 	return cardAnswerNone
 }
@@ -154,6 +142,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			WHERE r.household_id=$1 AND r.status='OPEN' AND ri.review_type='UNKNOWN_BANK_TEMPLATE'
 			  AND ri.transaction_id IS NULL AND ri.source_event_id IS NOT NULL
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
+			  AND COALESCE(c.context_json->'bank_pending'->>'queued','')<>'true'
 		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at,expires_at,review_item_id)
 		WHERE expires_at>now()
 		-- One card per review request: a transfer case can match its review item
@@ -215,7 +204,9 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 				value, ok = parsed.Format("2006-01-02"), true
 			}
 		case cardAnswerAmount:
-			value, ok = parseBankFactsAnswer(text)
+			if amount, valid := parseAnswerAmount(text); valid {
+				value, ok = amount.String(), true
+			}
 		case cardAnswerConfirm:
 			value, ok = normalizeAnswer(text), isYesNoAnswer(text) || incomeReviewChoice(text) != ""
 		case cardAnswerDetail:

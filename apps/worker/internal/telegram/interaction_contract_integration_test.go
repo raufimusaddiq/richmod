@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -63,6 +64,11 @@ type contractHarness struct {
 	primary       bool
 	otherPrimary  bool
 	largeLeftover bool
+	unlinked      bool
+	knownAmount   bool
+	knownTime     bool
+	missingFacts  []string
+	categorized   bool
 	checked       map[string]bool
 	markups       map[int64][]string
 	texts         map[int64]string
@@ -185,6 +191,12 @@ func (h *contractHarness) openReview() {
 	case h.kind == "CYCLE_RESIDUAL_ALLOCATION":
 		h.openCycle()
 		return
+	case h.kind == "UNKNOWN_BANK_TEMPLATE":
+		h.openBank()
+		return
+	case h.kind == "MISSING_AMOUNT":
+		h.openProposalAmount()
+		return
 	}
 	if h.reconcile {
 		h.openReconciliation()
@@ -195,6 +207,9 @@ func (h *contractHarness) openReview() {
 		mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Toko Contoh') RETURNING id`, h.f.householdID).Scan(&merchant))
 	}
 	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,created_by_user_id) VALUES($1,$4,'NEEDS_REVIEW',25000,'IDR',now(),NULLIF($2,'')::uuid,$3) RETURNING id`, h.f.householdID, merchant, h.f.userID, h.txType).Scan(&h.txID))
+	if h.kind == "MISSING_TRANSACTION_DATE" || h.categorized {
+		h.exec(`UPDATE transaction SET category_id=(SELECT id FROM category WHERE household_id=$1 AND slug='makan') WHERE id=$2`, h.f.householdID, h.txID)
+	}
 	if h.mergeSource != "" {
 		h.exec(`INSERT INTO reconciliation_merge(household_id,source_transaction_id,target_transaction_id,status,created_by_user_id) VALUES($1,$2,$3,'ACTIVE',$4)`, h.f.householdID, h.mergeSource, h.txID, h.f.userID)
 	}
@@ -204,7 +219,13 @@ func (h *contractHarness) openReview() {
 	}
 	tx, err := h.f.pool.Begin(h.ctx)
 	mustAgentTest(h.t, err)
-	mustAgentTest(h.t, EnqueueReviewRequest(h.ctx, tx, h.txID, h.kind, h.f.chatID, 0, facts))
+	var preset []reviewdec.Decision
+	if len(h.missingFacts) > 0 {
+		decision, _ := reviewdec.Preset(h.kind, "transaction", h.txID)
+		decision.MissingFacts = h.missingFacts
+		preset = append(preset, decision)
+	}
+	mustAgentTest(h.t, EnqueueReviewRequest(h.ctx, tx, h.txID, h.kind, h.f.chatID, 0, facts, preset...))
 	mustAgentTest(h.t, tx.Commit(h.ctx))
 	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, h.txID).Scan(&h.reviewID))
 	h.deliver()

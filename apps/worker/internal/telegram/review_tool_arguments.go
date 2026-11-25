@@ -7,10 +7,7 @@ import (
 )
 
 var reviewActionArguments = map[string][]string{
-	"MERGE_EXISTING":       {"candidate_ref"},
-	"SET_PAY_DATE":         {"pay_date", "transaction_at"},
-	"SET_TRANSACTION_DATE": {"transaction_at"},
-	"COMPLETE_BANK_FACTS":  {"amount_idr", "transaction_at"},
+	"MERGE_EXISTING": {"candidate_ref"},
 }
 
 func confirmArguments(conversationState string) []string {

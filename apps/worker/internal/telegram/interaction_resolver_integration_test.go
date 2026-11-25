@@ -318,18 +318,6 @@ func TestRepeatedInputWithinThreeMinutesIsRecorded(t *testing.T) {
 	}
 }
 
-func TestReviewNeverRendersAnEmptyMissingFactsList(t *testing.T) {
-	if got := reviewNeedsFactsMessage(nil); got != "" {
-		t.Fatalf("nothing missing must render nothing, got %q", got)
-	}
-	if got := reviewNeedsFactsMessage([]string{"unknown_fact"}); got != "" {
-		t.Fatalf("an unlabelled fact must render nothing, got %q", got)
-	}
-	if got := reviewNeedsFactsMessage([]string{"transaction_at", "category"}); got == "" {
-		t.Fatal("known missing facts must still be listed")
-	}
-}
-
 func createPayslipCard(t *testing.T, ctx context.Context, f agentIntegrationFixture, messageID int64) (string, string) {
 	t.Helper()
 	stamp := testsupport.UniqueStamp()
@@ -386,7 +374,7 @@ func TestReplayPlainYesReachesTheSingleWaitingConfirmationCard(t *testing.T) {
 	if len(model.requests) != 0 {
 		t.Fatal("a plain yes beside a single confirmation card went to the model instead of the card")
 	}
-	if countRows(t, ctx, f, `SELECT count(*) FROM review_item WHERE id=$1 AND status='OPEN'`, itemID) != 1 || countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%''penghasilan''%'`, f.chatID) != 1 {
+	if countRows(t, ctx, f, `SELECT count(*) FROM review_item WHERE id=$1 AND status='OPEN'`, itemID) != 1 || countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%dicatat sebagai apa%'`, f.chatID) != 1 {
 		t.Fatal("the card did not answer its own confirmation step")
 	}
 	wantInteraction(t, ctx, f, interactionAnswered, "PLAIN")

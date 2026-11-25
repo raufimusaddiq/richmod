@@ -31,6 +31,8 @@ type reviewSubject struct {
 	Purpose         string
 	Reconciliation  bool
 	Cycle           *cycleSubject
+	Bank            *bankSubject
+	ProposalType    string
 }
 
 func (s reviewSubject) transactionType(decision reviewdec.Decision) string {
@@ -49,13 +51,20 @@ func loadReviewSubject(ctx context.Context, tx pgx.Tx, reviewID string) (reviewS
 	var hasCycle bool
 	err := tx.QueryRow(ctx, `SELECT COALESCE(t.type,''),COALESCE(t.purpose,''),
 		ri.transaction_id IS NULL AND EXISTS(SELECT 1 FROM transfer_reconciliation_case trc WHERE trc.household_id=ri.household_id AND trc.status='OPEN' AND ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id AND trc.financial_email_observation_id IS NULL),
-		crc.id IS NOT NULL,COALESCE(crc.cycle_start,'0001-01-01'),COALESCE(crc.cycle_end,'0001-01-01'),COALESCE(crc.basis_residual_idr::text,'')
+		crc.id IS NOT NULL,COALESCE(crc.cycle_start,'0001-01-01'),COALESCE(crc.cycle_end,'0001-01-01'),COALESCE(crc.basis_residual_idr::text,''),
+		COALESCE(tp.proposed_type,'')
 		FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
 		LEFT JOIN transaction t ON t.id=COALESCE(r.transaction_id,ri.transaction_id) AND t.household_id=r.household_id
 		LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id AND crc.household_id=r.household_id
-		WHERE r.id=$1`, reviewID).Scan(&subject.TransactionType, &subject.Purpose, &subject.Reconciliation, &hasCycle, &cycle.Start, &cycle.End, &cycle.Residual)
+		LEFT JOIN transaction_proposal tp ON tp.id=ri.proposal_id AND tp.household_id=r.household_id
+		WHERE r.id=$1`, reviewID).Scan(&subject.TransactionType, &subject.Purpose, &subject.Reconciliation, &hasCycle, &cycle.Start, &cycle.End, &cycle.Residual, &subject.ProposalType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return reviewSubject{}, nil
+	}
+	if err == nil {
+		if subject.Bank, err = loadBankSubject(ctx, tx, reviewID); err != nil {
+			return reviewSubject{}, err
+		}
 	}
 	if hasCycle {
 		subject.Cycle = &cycle
@@ -98,10 +107,13 @@ func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, req
 	return enqueueReviewUpdateWithMarkup(ctx, tx, request, update, card.Text(), markup)
 }
 
-const unknownReviewPrompt = "🟡 Perlu detail transaksi"
+const (
+	unknownReviewPrompt = "🟡 Perlu detail transaksi"
+	appReviewHint       = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
+)
 
-func renderReviewPresentation(decision reviewdec.Decision, reviewType, context string) (state, reviewMessage, markupMode string) {
-	card := buildReviewCard(decision, reviewType, context, reviewSubject{})
+func renderReviewPresentation(decision reviewdec.Decision, reviewType, context string, subject reviewSubject) (state, reviewMessage, markupMode string) {
+	card := buildReviewCard(decision, reviewType, context, subject)
 	return card.State, card.Text(), card.Mode
 }
 
@@ -111,12 +123,6 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	}
 	card := reviewCard{State: "AWAITING_DETAIL", Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
 	switch {
-	case decision.ReasonCode == "MISSING_AMOUNT":
-		card.Mode, card.Title = "reply", "🟡 Nominal transaksi belum terbaca"
-		card.Instruction = "Balas pesan ini (Reply) dengan nominal dalam rupiah, tanpa pemisah. Contoh: 75000."
-		if contains(decision.MissingFacts, "transfer_relationship") {
-			card.Instruction += " Setelah itu, konfirmasi apakah ini penghasilan atau transfer sendiri."
-		}
 	case decision.ReasonCode == "RECEIPT_MISMATCH" && decision.Consequence == reviewdec.QualitySignal && len(decision.MissingFacts) == 0:
 		card.Mode, card.Title = "receipt_quality", "🧾 Rincian struk berbeda dari total yang tercetak"
 		card.Instruction = "Cek totalnya dulu. Pilih Terima total untuk mencatat total yang tercetak."
@@ -132,30 +138,21 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
 		card.Mode, card.Title = "financial_email", promptTitle(decision)
 		card.Instruction = "Pilih rekening untuk bukti email ini."
-	case contains(decision.MissingFacts, "transaction_at"):
-		card.State, card.Mode, card.Title = "AWAITING_DATE", "reply", promptTitle(decision)
-		card.Instruction = dateInstruction()
 	case isCategoryOnly(decision):
 		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "category", "🟡 Kategori belum pasti"
 		card.Instruction = "Pilih kategori di bawah, atau balas pesan ini (Reply) dengan tujuan pengeluaran."
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		card.Mode, card.Title = "duplicate", promptTitle(decision)
 		card.Instruction = replyInstruction(decision)
-	case contains(decision.MissingFacts, "merchant"):
-		card.State, card.Mode, card.Title = "AWAITING_MERCHANT", "reply", "🟡 Nama merchant belum ada"
-		card.Instruction = "Balas pesan ini (Reply) dengan nama merchant."
 	case contains(decision.MissingFacts, "wealth_snapshot_confirmation"):
 		card.Mode, card.Title = "reply", "🟡 Akun kekayaan belum pasti"
 		card.Instruction = "Balas pesan ini (Reply) dengan nama akun kekayaan yang benar."
-	case decision.ReasonCode == "UNKNOWN_BANK_TEMPLATE":
-		card.Mode, card.Title = "reply", "🟡 Detail transaksi bank belum terbaca"
-		card.Instruction = "Balas pesan ini (Reply) dengan nominal dan waktu transaksi. Contoh: 54000 2026-09-23T13:45:00+07:00."
 	case requiresBoundReply(decision):
 		card.Mode, card.Title = "reply", promptTitle(decision)
 		card.Instruction = replyInstruction(decision)
 	default:
 		card.Mode, card.Title = "reply", unknownReviewPrompt
-		card.Instruction = "Balas pesan ini (Reply) dengan keterangan atau tujuan transaksi."
+		card.Instruction = appReviewHint
 	}
 	return card
 }
@@ -405,21 +402,14 @@ func promptTitle(decision reviewdec.Decision) string {
 	return unknownReviewPrompt
 }
 
-func dateInstruction() string {
-	return "Balas pesan ini (Reply) dengan tanggal transaksi (YYYY-MM-DD)."
-}
-
 func replyInstruction(decision reviewdec.Decision) string {
 	if contains(decision.MissingFacts, "duplicate_relationship") {
 		return "Pilih catatan yang ingin digabung, atau pilih Catat sebagai baru di bawah."
 	}
-	if contains(decision.MissingFacts, "transaction_at") {
-		return dateInstruction()
-	}
 	if contains(decision.MissingFacts, "correction_details") {
 		return "Balas pesan ini (Reply) dengan koreksi untuk transaksi ini."
 	}
-	return "Balas pesan ini (Reply) dengan keterangan atau tujuan transaksi."
+	return appReviewHint
 }
 
 func categoryPageText(ctx context.Context, tx pgx.Tx, householdID, reviewID string, page int) string {
