@@ -610,6 +610,9 @@ func (p *Processor) persistInvalidDocumentExtraction(ctx context.Context, docume
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) SELECT household_id,'WORKER','REJECT_DOCUMENT_EXTRACTION','source_event',$1,jsonb_build_object('document_id',$2::uuid,'stage',$3::text,'reason',$4::text) FROM source_event WHERE id=$1`, sourceID, documentID, stage, truncate(cause)); err != nil {
 		return err
 	}
+	if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "Dokumen ini belum bisa dibaca. Fotonya tetap tersimpan sebagai bukti."); err != nil {
+		return err
+	}
 	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}

@@ -432,7 +432,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	case "MERGE_TARGET_ACTIVE":
 		return "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.", true
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
-		return "Tinjauan ini sudah berubah atau selesai. Buka atau balas pesan tinjauan terbaru untuk melanjutkan.", true
+		return "Tinjauan ini sudah berubah atau selesai. Lihat kartu terbarunya untuk melanjutkan.", true
 	}
 	return genericMutationReply, false
 }

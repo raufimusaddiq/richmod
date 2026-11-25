@@ -1,12 +1,16 @@
 package telegram_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/document"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -163,5 +167,83 @@ func TestALaterNoticeForAnAlreadyContinuedDocumentIsNotSwallowed(t *testing.T) {
 	p.must(tx.Commit(p.ctx))
 	if handled {
 		t.Fatal("a notice from a later run was dropped because an earlier run had used the card")
+	}
+}
+
+type classifyingGW struct {
+	documentType string
+	observation  string
+}
+
+func (g classifyingGW) NativeToolCall(_ context.Context, _ string, _ string, _ any, tools []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	switch tools[0].Name {
+	case "classify_financial_document":
+		return gateway.ToolCall{Name: tools[0].Name, Arguments: json.RawMessage(fmt.Sprintf(`{"document_type":%q,"confidence":0.98,"reason":"synthetic"}`, g.documentType))}, gateway.Metadata{Model: "synthetic"}, nil
+	case "extract_wealth_observation":
+		return gateway.ToolCall{Name: tools[0].Name, Arguments: json.RawMessage(g.observation)}, gateway.Metadata{Model: "synthetic"}, nil
+	}
+	return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected tool %s", tools[0].Name)
+}
+
+func (p *pipe) rereadAfterTap(documentType, observation string) (string, int64) {
+	p.t.Helper()
+	u, _, message := p.unreadableUpload()
+	if _, err := p.press("review:reprocess", message, p.tgUser); err != nil {
+		p.t.Fatal(err)
+	}
+	sends := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat)
+	reader := document.NewProcessorWithStorage(p.pool, classifyingGW{documentType: documentType, observation: observation}, p.storage)
+	p.must(reader.Process(p.ctx, u.document))
+	if after := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat); after != sends {
+		p.t.Fatalf("the result came as %d loose message(s)", after-sends)
+	}
+	return u.document, message
+}
+
+func TestRereadThatIsNotAFinancialDocumentSaysSoOnTheCard(t *testing.T) {
+	t.Parallel()
+	p := newPipe(t)
+	_, message := p.rereadAfterTap("NON_FINANCIAL_OR_UNSUPPORTED", "")
+	if got := p.lastEdit(message); !strings.Contains(got, "Ini bukan dokumen keuangan, jadi tidak ada yang dicatat.") {
+		t.Fatalf("the card says %q", got)
+	}
+}
+
+func TestRereadThatBecomesAWealthBalanceFinishesOnTheCard(t *testing.T) {
+	t.Parallel()
+	p := newPipe(t)
+	p.exec(`INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas Contoh','ASSET','GOLD','OTHER')`, p.household)
+	_, message := p.rereadAfterTap("WEALTH_OBSERVATION", `{"institution":"Bank Contoh","account_hint":"Emas Contoh","observed_value_idr":"15000000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.98}`)
+	got := p.lastEdit(message)
+	if !strings.Contains(got, "✅ Saldo dicatat: Emas Contoh · Rp15.000.000") || !strings.Contains(got, "bukan transaksi") {
+		t.Fatalf("the card says %q", got)
+	}
+}
+
+func TestRereadWhoseClassificationFailsForGoodSaysSoOnTheCard(t *testing.T) {
+	t.Parallel()
+	p := newPipe(t)
+	u, _, message := p.unreadableUpload()
+	if _, err := p.press("review:reprocess", message, p.tgUser); err != nil {
+		t.Fatal(err)
+	}
+	p.must(p.docs.HandleTerminalFailure(p.ctx, u.document, errors.New("gateway unavailable")))
+	if got := p.lastEdit(message); !strings.Contains(got, "Dokumen ini belum bisa dibaca") {
+		t.Fatalf("the card says %q", got)
+	}
+}
+
+func TestRereadOfAnUnpaidInvoiceSaysSoOnTheCard(t *testing.T) {
+	t.Parallel()
+	p := newPipe(t)
+	u, _, message := p.unreadableUpload()
+	if _, err := p.press("review:reprocess", message, p.tgUser); err != nil {
+		t.Fatal(err)
+	}
+	p.exec(`UPDATE document SET document_type='BILL_OR_INVOICE' WHERE id=$1::uuid`, u.document)
+	p.gw.extraction = json.RawMessage(`{"account_hint":"","payment_status":"UNPAID","confidence":0.9,"transactions":[]}`)
+	p.must(p.docs.ProcessScreenshot(p.ctx, u.document))
+	if got := p.lastEdit(message); !strings.Contains(got, "Dokumen ini belum bisa dibaca") {
+		t.Fatalf("the card says %q", got)
 	}
 }
