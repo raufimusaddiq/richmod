@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/plainlabel"
 	"log/slog"
 	"strings"
 	"sync"
@@ -66,7 +67,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
-	p.noteRepeatedInput(ctx, householdID, sourceEventID, update, receivedAt)
+	repeatedQuestion := p.noteRepeatedInput(ctx, householdID, sourceEventID, update, receivedAt)
 	resolved, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, interactionOverride(parserName))
 	if err != nil {
 		return err
@@ -216,8 +217,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
 	turnContext["merchant_learning_count"] = merchantCount
+	markRepeatedQuestion(turnContext, repeatedQuestion)
 	if len(openCards) > 0 {
-		turnContext["open_review_cards"] = openCards
+		turnContext["open_review_cards"] = plainOpenCards(openCards)
 	}
 	if evidence != nil {
 		turnContext["bound_evidence"] = evidence.Context
@@ -352,7 +354,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			if state.RequiredTool != "" {
 				return fmt.Errorf("required native tool %q was not returned", state.RequiredTool)
 			}
-			return p.finishAgentText(ctx, state, response.Text)
+			return p.finishModelText(ctx, state, response.Text, replyFallbackFor(state, finalPhase))
 		}
 		if finalPhase {
 			return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")
@@ -585,6 +587,7 @@ func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState
 			defer wg.Done()
 			prefix := fmt.Sprintf("p%dr%d", state.ModelPhases, index+1)
 			results[index], errs[index] = p.executeAgentRead(ctx, state, calls[index].Call, calls[index].Args, prefix)
+			results[index].Facts = plainlabel.Facts(results[index].Facts)
 		}()
 	}
 	wg.Wait()
@@ -614,26 +617,25 @@ func readCacheKey(name string, args map[string]any) string {
 }
 
 func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversationalGateway, state *agentState, result agentToolResult) error {
+	if message, ok := mutationOutcomeCopy(result); ok {
+		return p.finishAgentText(ctx, state, message)
+	}
 	if state.ModelPhases >= defaultAgentLimits.MaxModelPhases {
 		return p.finishAgentText(ctx, state, agentMutationFallback(result))
 	}
-	instruction := "Write the final user-facing response for this completed finance action. Use only the authoritative result below. Do not add financial facts and do not request another action."
-	if isNonMutatingRefusal(result) {
-		instruction = "Nothing was recorded or changed: Go refused this finance action. Tell the user briefly that nothing was saved and what detail is missing or wrong, using only the authoritative result below. Do not claim the action was completed and do not request another action."
-	}
 	content := map[string]any{
-		"instruction":                 instruction,
+		"instruction":                 "Explain this finished finance action to the user in plain words. Use only the authoritative result below. Do not add financial facts and do not request another action.",
 		"current_user_text":           state.TurnContext["current_user_text"],
-		"authoritative_action_result": result,
+		"authoritative_action_result": plainResult(result),
 	}
 	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.ModelCallTimeout)
 	response, err := model.AgentTurn(phaseCtx, state.SourceEventID, gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: content})
 	cancel()
-	if err != nil || len(response.ToolCalls) != 0 || strings.TrimSpace(response.Text) == "" {
+	if err != nil || len(response.ToolCalls) != 0 {
 		return p.finishAgentText(ctx, state, agentMutationFallback(result))
 	}
 	state.ModelPhases++
-	return p.finishAgentText(ctx, state, response.Text)
+	return p.finishModelText(ctx, state, response.Text, agentMutationFallback(result))
 }
 
 func agentModelContent(state *agentState) map[string]any {
