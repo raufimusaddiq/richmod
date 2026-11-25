@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 const (
@@ -60,12 +59,14 @@ func ubahDoneMarkup() *InlineKeyboardMarkup {
 func (p *Processor) ubahOffer(ctx context.Context, tx pgx.Tx, householdID, reviewRequestID string) (ubahOffer, bool, error) {
 	var offer ubahOffer
 	var reviewType, status, kind, categoryID, merchantID string
-	var raw []byte
-	err := tx.QueryRow(ctx, `SELECT ri.review_type,COALESCE(ri.decision,'{}'::jsonb),t.id::text,t.status,t.type,COALESCE(t.category_id::text,''),COALESCE(t.merchant_id::text,'')
+	var askedDate bool
+	err := tx.QueryRow(ctx, `SELECT ri.review_type,t.id::text,t.status,t.type,COALESCE(t.category_id::text,''),COALESCE(t.merchant_id::text,''),
+			EXISTS(SELECT 1 FROM transaction_evidence te WHERE te.transaction_id=t.id AND te.evidence_type='TELEGRAM_REVIEW_REPLY'
+			       AND te.metadata_json->>'review_request_id'=r.id::text AND te.metadata_json->>'field'='transaction_at')
 		FROM review_request r
 		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
 		JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
-		WHERE r.id=$1 AND r.household_id=$2`, reviewRequestID, householdID).Scan(&reviewType, &raw, &offer.TransactionID, &status, &kind, &categoryID, &merchantID)
+		WHERE r.id=$1 AND r.household_id=$2`, reviewRequestID, householdID).Scan(&reviewType, &offer.TransactionID, &status, &kind, &categoryID, &merchantID, &askedDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return offer, false, nil
 	}
@@ -75,12 +76,8 @@ func (p *Processor) ubahOffer(ctx context.Context, tx pgx.Tx, householdID, revie
 	if !ubahReviewTypes[reviewType] || status != "CONFIRMED" || (kind != "EXPENSE" && kind != "INCOME") || categoryID == "" {
 		return offer, false, nil
 	}
-	var decision reviewdec.Decision
-	if err := json.Unmarshal(raw, &decision); err != nil {
-		return offer, false, fmt.Errorf("decode Ubah decision: %w", err)
-	}
 	offer.Category = true
-	offer.Date = (reviewType == "MISSING_TRANSACTION_DATE" || reviewType == "TRANSACTION_FACTS_MISSING") && contains(decision.MissingFacts, "transaction_at")
+	offer.Date = askedDate
 	if merchantID != "" && kind == "EXPENSE" && reviewType != transferReviewType {
 		if offer.Remember, err = merchantLearningEligible(ctx, tx, householdID, merchantID, categoryID, offer.TransactionID); err != nil {
 			return offer, false, err
@@ -362,7 +359,7 @@ func (p *Processor) processUbahTap(ctx context.Context, sourceEventID, household
 	case strings.HasPrefix(data, callbackCategory) && state.Mode == "category":
 		return correct(reviewdomain.CorrectionCommand{CategoryID: strings.TrimPrefix(data, callbackCategory)}, "")
 	case data == callbackUbahDate && offer.Date:
-		return show("date", reviewdomain.TelegramCardText("Transaksi ini terjadi tanggal berapa?", "", "", ""),
+		return show("date", reviewdomain.TelegramCardText(transactionDateAsk, "", "", dateHint),
 			[][]InlineKeyboardButton{{{Text: "Hari ini", CallbackData: callbackDateToday}, {Text: "Kemarin", CallbackData: callbackDateYesterday}}, back})
 	case (data == callbackDateToday || data == callbackDateYesterday) && state.Mode == "date" && offer.Date:
 		at := jakartaMidnight(p.now())
@@ -399,4 +396,105 @@ func ubahOwnsTap(data string) bool {
 	return strings.HasPrefix(data, callbackUbah) ||
 		strings.HasPrefix(data, callbackCategory) || strings.HasPrefix(data, callbackCategoryPg) ||
 		data == callbackDateToday || data == callbackDateYesterday
+}
+
+func (p *Processor) processUbahText(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
+	text := strings.TrimSpace(update.Message.Text)
+	if text == "" || strings.HasPrefix(text, "/") {
+		return false, nil
+	}
+	chatID := update.Message.Chat.ID
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, transactionID string
+	var raw []byte
+	err = tx.QueryRow(ctx, `SELECT r.id::text,COALESCE(r.transaction_id::text,''),c.context_json->'ubah'
+		FROM review_conversation c
+		JOIN review_request r ON r.id=c.review_request_id AND r.household_id=$1
+		WHERE c.context_json ? 'ubah' AND c.context_json->'ubah'->>'chat_id'=($2::bigint)::text AND c.context_json->'ubah'->>'mode'='date'
+		  AND NOT COALESCE((c.context_json->'ubah'->>'closed')::boolean,false)
+		ORDER BY c.updated_at DESC LIMIT 1 FOR UPDATE OF c`, householdID, chatID).Scan(&reviewID, &transactionID, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var state ubahState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return false, nil
+	}
+	if reply := update.Message.ReplyToMessage; reply != nil && reply.MessageID != 0 && reply.MessageID != state.MessageID {
+		return false, nil
+	}
+	var userID string
+	if err := tx.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil || userID != state.UserID {
+		return false, nil
+	}
+	now := p.now().In(jakartaLocation())
+	if !now.Before(state.Until) {
+		return false, nil
+	}
+	date, ok := parseDateValue(text, now, dateForwardDays)
+	if !ok {
+		return false, nil
+	}
+	offer, offered, err := p.ubahOffer(ctx, tx, householdID, reviewID)
+	if err != nil {
+		return true, err
+	}
+	if !offered || !offer.Date {
+		return false, nil
+	}
+	reply := ""
+	switch {
+	case date.After(jakartaMidnight(now)):
+		reply = futureDateAck
+	case date.Before(jakartaMidnight(now).AddDate(0, 0, -payDateMaxAgeDays)):
+		reply = staleDateGenericAck
+	}
+	if reply == "" {
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			return true, err
+		}
+		err = reviewdomain.CorrectConfirmedTransaction(ctx, sp, reviewdomain.CorrectionCommand{
+			HouseholdID: householdID, ActorUserID: userID, ActorType: "TELEGRAM", TransactionID: offer.TransactionID, ReviewRequestID: reviewID, TransactionAt: &date,
+		})
+		if err != nil {
+			_ = sp.Rollback(ctx)
+			if !errors.Is(err, reviewdomain.ErrCorrectionNotAllowed) {
+				return true, err
+			}
+			reply = ubahGoneAck
+		} else if err := sp.Commit(ctx); err != nil {
+			return true, err
+		}
+	}
+	if reply == "" {
+		doneText, err := p.ubahDoneText(ctx, tx, householdID, offer.TransactionID, "Tanggal diubah ke "+reviewdomain.FormatIndonesianDate(date)+".")
+		if err != nil {
+			return true, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{ubah,mode}','"done"'::jsonb),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+			return true, err
+		}
+		if err := settleReviewCardInPlace(ctx, tx, reviewID, state.ChatID, state.MessageID, doneText, ubahDoneMarkup()); err != nil {
+			return true, err
+		}
+	}
+	if reply != "" {
+		rows := [][]InlineKeyboardButton{{{Text: "Hari ini", CallbackData: callbackDateToday}, {Text: "Kemarin", CallbackData: callbackDateYesterday}}, {{Text: "Kembali", CallbackData: callbackUbahBack}}}
+		prompt := reviewdomain.TelegramCardText(reply+" "+transactionDateAsk, "", "", dateHint)
+		if err := settleReviewCardInPlace(ctx, tx, reviewID, state.ChatID, state.MessageID, prompt, &InlineKeyboardMarkup{InlineKeyboard: rows}); err != nil {
+			return true, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-ubah',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
 }

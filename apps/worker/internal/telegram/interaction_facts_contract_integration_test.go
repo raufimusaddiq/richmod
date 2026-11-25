@@ -436,6 +436,35 @@ func TestInteractionEngineFactsContract(t *testing.T) {
 			h.wantCard("Tanggal itu belum terjadi.", "Transaksi ini terjadi tanggal berapa?")
 			h.wantTransaction("NEEDS_REVIEW", "", "Makan")
 		}},
+		{"Ubah date step takes a date typed as a reply and corrects the saved transaction", dateKind, nil, func(h *contractHarness) {
+			h.tapLabel("Kemarin")
+			h.openUbahDate()
+			h.wantCard("Transaksi ini terjadi tanggal berapa?", "ketik tanggalnya")
+			h.reply("3 Nov")
+			h.wantCard("✅ Tersimpan: Makan · Rp25.000", "Tanggal diubah ke")
+			h.wantButtons("Ubah")
+			h.wantJobs(`SELECT count(*) FROM transaction WHERE id=$1 AND to_char(transaction_at AT TIME ZONE 'Asia/Jakarta','MM-DD')='11-03'`, 1, h.txID)
+			h.wantJobs(`SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='EDIT_TRANSACTION'`, 1, h.txID)
+			h.wantAssistantCalls(0)
+		}},
+		{"Ubah date step takes a date typed as a plain message", dateKind, nil, func(h *contractHarness) {
+			h.tapLabel("Kemarin")
+			h.openUbahDate()
+			h.plain("3 Nov")
+			h.wantCard("Tanggal diubah ke")
+			h.wantJobs(`SELECT count(*) FROM transaction WHERE id=$1 AND to_char(transaction_at AT TIME ZONE 'Asia/Jakarta','MM-DD')='11-03'`, 1, h.txID)
+			h.wantJobs(`SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='EDIT_TRANSACTION'`, 1, h.txID)
+			h.wantAssistantCalls(0)
+		}},
+		{"Ubah date step refuses a future date and changes nothing", dateKind, nil, func(h *contractHarness) {
+			h.tapLabel("Kemarin")
+			h.openUbahDate()
+			h.plain("25/12/2099")
+			h.wantCard("Tanggal itu belum terjadi.", "Transaksi ini terjadi tanggal berapa?")
+			h.wantJobs(`SELECT count(*) FROM transaction WHERE id=$1 AND (transaction_at AT TIME ZONE 'Asia/Jakarta')::date=(now() AT TIME ZONE 'Asia/Jakarta')::date-1`, 1, h.txID)
+			h.wantJobs(`SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='EDIT_TRANSACTION'`, 0, h.txID)
+			h.wantAssistantCalls(0)
+		}},
 		{"a date that is too old is refused", dateKind, nil, func(h *contractHarness) {
 			h.reply("1/1/2020")
 			h.wantCard("Tanggal itu terlalu lama.", "Transaksi ini terjadi tanggal berapa?")

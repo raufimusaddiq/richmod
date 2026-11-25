@@ -305,6 +305,12 @@ func (h *contractHarness) absorb() {
 	}
 }
 
+func (h *contractHarness) openUbahDate() {
+	h.t.Helper()
+	h.tapLabel("Ubah")
+	h.tapLabel("Tanggal")
+}
+
 func (h *contractHarness) releaseLegacyQueue() {
 	h.t.Helper()
 	h.exec(`INSERT INTO job(type,payload_json,max_attempts) SELECT 'SEND_TELEGRAM_MESSAGE',queued_payload,8 FROM review_request_recipient WHERE delivery_status='QUEUED' AND queued_payload IS NOT NULL AND telegram_chat_id=ANY($1)`, h.chats())

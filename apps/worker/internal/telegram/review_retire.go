@@ -176,15 +176,15 @@ func closingNoteText(via, resolverName, doneLine, outcomePhrase string) string {
 }
 
 func (p *Processor) loadClosingNote(ctx context.Context, payload RetireCardPayload, boundMessageID int64) (string, error) {
-	var via, resolverID, resolverName, doneLine, recipientUser string
-	err := p.pool.QueryRow(ctx, `SELECT COALESCE(ri.resolved_via,''),COALESCE(ri.resolved_by_user_id::text,''),COALESCE(u.display_name,''),
+	var via, resolverID, resolverName, doneLine, recipientUser, action string
+	err := p.pool.QueryRow(ctx, `SELECT COALESCE(ri.resolution_action,''),COALESCE(ri.resolved_via,''),COALESCE(ri.resolved_by_user_id::text,''),COALESCE(u.display_name,''),
 			COALESCE(c.context_json->>'done_line',''),COALESCE(ti.user_id::text,'')
 		FROM review_request r
 		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
 		LEFT JOIN "user" u ON u.id=ri.resolved_by_user_id
 		LEFT JOIN review_conversation c ON c.review_request_id=r.id
 		LEFT JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id
-		WHERE r.id=$1`, payload.ReviewRequestID, payload.ChatID).Scan(&via, &resolverID, &resolverName, &doneLine, &recipientUser)
+		WHERE r.id=$1`, payload.ReviewRequestID, payload.ChatID).Scan(&action, &via, &resolverID, &resolverName, &doneLine, &recipientUser)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -201,12 +201,12 @@ func (p *Processor) loadClosingNote(ctx context.Context, payload RetireCardPaylo
 	if via != "SYSTEM" && resolverName == "" {
 		via = "SYSTEM"
 	}
-	phrase, err := reviewOutcomeFor(ctx, p.pool, payload.ReviewRequestID, false)
-	if err != nil {
-		return "", fmt.Errorf("load Telegram review closing summary: %w", err)
-	}
-	if phrase == "ditutup otomatis karena tidak lagi berlaku" {
-		phrase = ""
+	phrase := ""
+	if !autoClosedAction(action) {
+		var err error
+		if phrase, err = reviewOutcomeFor(ctx, p.pool, payload.ReviewRequestID, false); err != nil {
+			return "", fmt.Errorf("load Telegram review closing summary: %w", err)
+		}
 	}
 	return closingNoteText(via, resolverName, doneLine, phrase), nil
 }

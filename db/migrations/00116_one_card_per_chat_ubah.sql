@@ -14,6 +14,8 @@ END $$;
 
 ALTER TABLE review_request_message ADD COLUMN delivered_markup JSONB;
 
+CREATE INDEX review_conversation_ubah_chat_idx ON review_conversation((context_json->'ubah'->>'chat_id')) WHERE context_json ? 'ubah';
+
 ALTER TABLE review_item ADD COLUMN resolved_via TEXT CHECK (resolved_via IN ('TELEGRAM','WEB','SYSTEM'));
 
 -- +goose StatementBegin
@@ -153,6 +155,7 @@ $$;
 -- +goose StatementEnd
 
 -- +goose Down
+DROP INDEX IF EXISTS review_conversation_ubah_chat_idx;
 DELETE FROM job WHERE type='EXPIRE_UBAH_BUTTON' AND status='PENDING';
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_job_lane() RETURNS trigger LANGUAGE plpgsql AS $$
