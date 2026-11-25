@@ -119,6 +119,7 @@
   .review-card { padding: 18px; }
   .review-card form { grid-template-columns: minmax(0, 1fr); }
   .review-card form > p, .review-card form > .review-actions { grid-column: auto; }
+  .review-card form > button { justify-self: stretch; }
   .review-top strong { font-size: var(--text-lg); }
   .action-card { align-items: stretch; flex-direction: column; padding: 18px; }
   .action-buttons { justify-content: stretch; }

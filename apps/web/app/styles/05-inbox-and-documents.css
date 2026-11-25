@@ -18,6 +18,7 @@
 .state-line { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0; padding: 11px 0; border-block: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
 .review-card form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .review-card form > p, .review-card form > .review-actions { grid-column: 1 / -1; }
+.review-card form > button { align-self: end; justify-self: start; }
 .review-actions, .transfer-options, .action-buttons, .dialog-actions, .row-actions, .invite-actions, .integration-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .review-actions, .transfer-options { margin-top: 15px; }
 .transfer-options button { min-height: var(--control-height-compact); }
