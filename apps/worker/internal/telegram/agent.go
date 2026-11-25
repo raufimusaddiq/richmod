@@ -66,10 +66,33 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
-	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
-			return err
+	p.noteRepeatedInput(ctx, householdID, sourceEventID, update, receivedAt)
+	resolved, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, interactionOverride(parserName))
+	if err != nil {
+		return err
+	}
+	update = resolved.Update
+	switch resolved.Kind {
+	case interactionClosedCard:
+		p.recordInteraction(ctx, householdID, sourceEventID, resolved.Card.ReviewItemID, interactionClosedReply, "")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, closedCardReply)
+	case interactionAmbiguous:
+		p.recordInteraction(ctx, householdID, sourceEventID, "", interactionAmbiguousEvent, "")
+		return p.askWhichCard(ctx, householdID, sourceEventID, update, resolved.Candidates, resolved.Answer)
+	case interactionAnswerOrNew:
+		return p.askAnswerOrNew(ctx, householdID, sourceEventID, update)
+	case interactionCardStep:
+		p.recordInteraction(ctx, householdID, sourceEventID, resolved.Card.ReviewItemID, interactionAnswered, resolved.Source)
+		if resolved.ButtonData != "" {
+			if handled, err := p.dispatchCallback(ctx, sourceEventID, householdID, syntheticTap(update, resolved.Card, resolved.ButtonData)); handled || err != nil {
+				return err
+			}
 		}
+	}
+	if resolved.Unmatched {
+		p.recordInteraction(ctx, householdID, sourceEventID, "", interactionUnmatched, "")
+	}
+	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
 		if err != nil {
 			return err
@@ -107,37 +130,20 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	reviewCount := 0
 	var openCards []map[string]any
 	if explicitReply {
-		if merchantBinding == nil {
-			reviewBinding, err = p.exactAgentReviewBinding(ctx, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID)
-			if err != nil {
-				return err
-			}
-			if reviewBinding != nil {
-				reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
-			}
+		if resolved.Kind == interactionCardStep && merchantBinding == nil && resolved.Card.Binding != nil {
+			reviewBinding = resolved.Card.Binding
+			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 		}
 	} else {
-		cards, err := p.loadLiveReviewCards(ctx, householdID, update.Message.Chat.ID)
-		if err != nil {
-			return err
+		for index := range resolved.OpenCards {
+			openCards = append(openCards, agentReviewBindingPublic(&resolved.OpenCards[index]))
 		}
-		names, err := p.categoryNames(ctx, householdID)
-		if err != nil {
-			return err
-		}
-		matched, answer := matchTypedCardAnswer(text, cards, names, p.turnTime(update))
-		switch {
-		case len(matched) == 1:
-			reviewBinding = &matched[0]
+		if resolved.Kind == interactionCardStep && resolved.Card.Binding != nil {
+			reviewBinding = resolved.Card.Binding
 			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
-		case len(matched) > 1:
-			return p.askWhichCard(ctx, householdID, sourceEventID, update, matched, answer)
-		}
-		for index := range cards {
-			openCards = append(openCards, agentReviewBindingPublic(&cards[index]))
 		}
 		if reviewBinding == nil {
-			reviewCount = len(cards)
+			reviewCount = len(resolved.OpenCards)
 		}
 	}
 
@@ -186,17 +192,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		generalTools = withoutTool(generalTools, "get_evidence_context")
 	}
 	tools, workflowScope := generalTools, agentWorkflowGeneral
-	staleWorkflowReply := false
 	if explicitReply {
 		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
 		if workflowScope == agentWorkflowExplicitUnbound && evidence == nil {
-			staleWorkflowReply, err = p.replyTargetsWorkflowMessage(ctx, householdID, update)
-			if err != nil {
-				return err
-			}
-			if !staleWorkflowReply {
-				tools, workflowScope = generalTools, agentWorkflowGeneral
-			}
+			tools, workflowScope = generalTools, agentWorkflowGeneral
 		}
 	}
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
@@ -207,9 +206,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	turnContext["merchant_learning_count"] = merchantCount
 	if len(openCards) > 0 {
 		turnContext["open_review_cards"] = openCards
-	}
-	if staleWorkflowReply {
-		turnContext["explicit_reply_unbound"] = true
 	}
 	if evidence != nil {
 		turnContext["bound_evidence"] = evidence.Context

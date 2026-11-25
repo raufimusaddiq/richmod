@@ -196,6 +196,10 @@ func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
+	chooseInteraction(t, ctx, f, processor, answerOrNewQuestion, callbackInteractionNew)
+	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
+		t.Fatal(err)
+	}
 	var confirmed, newExpenseNeedsReview, oldExpenseNeedsReview, reviewStatus, reviewRequestStatus int
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND amount=5000),count(*) FILTER(WHERE type='EXPENSE' AND status='NEEDS_REVIEW' AND amount=5000),count(*) FILTER(WHERE id=$2 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, f.householdID, oldTransaction).Scan(&confirmed, &newExpenseNeedsReview, &oldExpenseNeedsReview))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item i JOIN review_request r ON r.review_item_id=i.id WHERE r.id=$1 AND i.status='OPEN'`, reviewID).Scan(&reviewStatus))

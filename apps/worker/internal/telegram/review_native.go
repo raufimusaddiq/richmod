@@ -157,7 +157,11 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		return payDateErr
 	}
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
-		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
+		message := reviewNeedsFactsMessage(blocked)
+		if message == "" {
+			message = reviewStillNeedsDetailsMessage
+		}
+		return enqueueReply(ctx, tx, update, message)
 	}
 	var transactionAt *time.Time
 	if payDate != nil {

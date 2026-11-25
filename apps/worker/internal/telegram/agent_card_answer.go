@@ -23,7 +23,10 @@ const (
 	cardAnswerDate     cardAnswerKind = "transaction_at"
 	cardAnswerAmount   cardAnswerKind = "amount_idr"
 	cardAnswerDetail   cardAnswerKind = "detail"
+	cardAnswerConfirm  cardAnswerKind = "confirmation"
 )
+
+const cardKindProposal = "PROPOSAL"
 
 type typedCardAnswer struct {
 	Kind  cardAnswerKind
@@ -32,6 +35,8 @@ type typedCardAnswer struct {
 
 func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 	switch {
+	case card.Kind == cardKindProposal:
+		return proposalExpectedAnswer(card)
 	case card.Kind == "BANK_FACTS":
 		return cardAnswerAmount
 	case card.Kind != "TRANSACTION":
@@ -47,14 +52,61 @@ func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 	return cardAnswerNone
 }
 
+func proposalExpectedAnswer(card agentReviewBinding) cardAnswerKind {
+	switch {
+	case card.ConversationState == "AWAITING_DATE" && (card.ReviewType == "PAYSLIP_CONFIRMATION" || card.ReviewType == "MISSING_PAY_DATE"):
+		return cardAnswerDate
+	case card.ReviewType == "MISSING_AMOUNT" && card.ConversationState == "AWAITING_CONFIRMATION":
+		return cardAnswerConfirm
+	case card.ReviewType == "MISSING_AMOUNT" && card.ConversationState == "AWAITING_DETAIL":
+		return cardAnswerAmount
+	}
+	return cardAnswerNone
+}
+
+func (p *Processor) loadWaitingCards(ctx context.Context, householdID string, chatID int64) ([]agentReviewBinding, error) {
+	cards, err := p.loadLiveReviewCards(ctx, householdID, chatID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := p.pool.Query(ctx, `SELECT ri.id::text,r.id::text,ri.id::text,ri.review_type,COALESCE(c.state,''),rr.telegram_message_id,
+			COALESCE(p.amount::text,''),COALESCE(NULLIF(p.counterparty_raw,''),NULLIF(p.merchant_raw,''),'Slip gaji')
+		FROM review_request r
+		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
+		JOIN transaction_proposal p ON p.id=ri.proposal_id
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		LEFT JOIN review_conversation c ON c.review_request_id=r.id
+		WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL
+		  AND ri.status IN ('OPEN','PENDING_SEND') AND ri.transaction_id IS NULL AND r.transaction_id IS NULL
+		ORDER BY r.created_at DESC LIMIT $3::int`, householdID, chatID, maxLiveCards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for _, card := range cards {
+		seen[card.ReviewRequestID] = true
+	}
+	for rows.Next() {
+		card := agentReviewBinding{Kind: cardKindProposal}
+		if err := rows.Scan(&card.TargetID, &card.ReviewRequestID, &card.ReviewItemID, &card.ReviewType, &card.ConversationState, &card.TelegramMessageID, &card.AmountIDR, &card.Label); err != nil {
+			return nil, err
+		}
+		if !seen[card.ReviewRequestID] {
+			cards = append(cards, card)
+		}
+	}
+	return cards, rows.Err()
+}
+
 func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string, chatID int64) ([]agentReviewBinding, error) {
 	rows, err := p.pool.Query(ctx, `
-		SELECT kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label FROM (
-		SELECT DISTINCT ON (review_request_id) kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at
+		SELECT kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,review_item_id FROM (
+		SELECT DISTINCT ON (review_request_id) kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,review_item_id,sort_at
 		FROM (
 			SELECT 'TRANSACTION'::text,r.id::text,r.id::text,t.id::text,r.review_type,
 			       COALESCE(c.state,''),COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)::bigint,
-			       t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),r.created_at,r.expires_at
+			       t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),r.created_at,r.expires_at,r.review_item_id::text
 			FROM review_request r
 			JOIN transaction t ON t.id=r.transaction_id
 			JOIN review_conversation c ON c.review_request_id=r.id
@@ -62,7 +114,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2
 			UNION ALL
 			SELECT 'TRANSFER_RECONCILIATION',trc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       trc.amount_idr::text,COALESCE(trc.description,'Transfer'),r.created_at,r.expires_at
+			       trc.amount_idr::text,COALESCE(trc.description,'Transfer'),r.created_at,r.expires_at,r.review_item_id::text
 			FROM transfer_reconciliation_case trc
 			JOIN review_item ri ON (
 				(ri.source_event_id IS NOT NULL AND ri.source_event_id=trc.source_event_id)
@@ -74,7 +126,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
 			UNION ALL
 			SELECT 'WEALTH_OBSERVATION',wo.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       wo.observed_value_idr::text,trim(wo.institution||' '||wo.account_hint),r.created_at,r.expires_at
+			       wo.observed_value_idr::text,trim(wo.institution||' '||wo.account_hint),r.created_at,r.expires_at,r.review_item_id::text
 			FROM wealth_observation wo
 			JOIN review_item ri ON ri.wealth_observation_id=wo.id
 			JOIN review_request r ON r.review_item_id=ri.id
@@ -83,7 +135,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
 			UNION ALL
 			SELECT 'CYCLE_RESIDUAL',crc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       crc.basis_residual_idr::text,'Sisa siklus gaji',r.created_at,r.expires_at
+			       crc.basis_residual_idr::text,'Sisa siklus gaji',r.created_at,r.expires_at,r.review_item_id::text
 			FROM review_request r
 			JOIN review_item ri ON ri.id=r.review_item_id
 			JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id
@@ -92,7 +144,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
 			UNION ALL
 			SELECT 'BANK_FACTS',ri.id::text,r.id::text,'',r.review_type,COALESCE(c.state,''),'',COALESCE(rr.telegram_message_id,0)::bigint,
-			       '','Email bank',r.created_at,r.expires_at
+			       '','Email bank',r.created_at,r.expires_at,r.review_item_id::text
 			FROM review_request r
 			JOIN review_item ri ON ri.id=r.review_item_id
 			LEFT JOIN review_conversation c ON c.review_request_id=r.id
@@ -100,7 +152,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			WHERE r.household_id=$1 AND r.status='OPEN' AND ri.review_type='UNKNOWN_BANK_TEMPLATE'
 			  AND ri.transaction_id IS NULL AND ri.source_event_id IS NOT NULL
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
-		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at,expires_at)
+		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at,expires_at,review_item_id)
 		WHERE expires_at>now()
 		-- One card per review request: a transfer case can match its review item
 		-- through both the source event and the email observation.
@@ -117,7 +169,7 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 		var card agentReviewBinding
 		if err := rows.Scan(&card.Kind, &card.TargetID, &card.ReviewRequestID, &card.TransactionID,
 			&card.ReviewType, &card.ConversationState, &card.MerchantID, &card.TelegramMessageID,
-			&card.AmountIDR, &card.Label); err != nil {
+			&card.AmountIDR, &card.Label, &card.ReviewItemID); err != nil {
 			return nil, err
 		}
 		cards = append(cards, card)
@@ -158,6 +210,8 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 			}
 		case cardAnswerAmount:
 			value, ok = parseBankFactsAnswer(text)
+		case cardAnswerConfirm:
+			value, ok = normalizeAnswer(text), isYesNoAnswer(text) || incomeReviewChoice(text) != ""
 		case cardAnswerDetail:
 			detailCards = append(detailCards, card)
 		}
@@ -309,21 +363,19 @@ var yesNoAnswers = map[string]bool{
 
 func isYesNoAnswer(text string) bool { return yesNoAnswers[normalizeAnswer(text)] }
 
-func (p *Processor) replyTargetsWorkflowMessage(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
-	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
-		return false, nil
+func hasProposalCard(cards []agentReviewBinding) bool {
+	for _, card := range cards {
+		if card.Kind == cardKindProposal {
+			return true
+		}
 	}
-	var found bool
-	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND (rr.telegram_message_id=$3 OR rr.merchant_learning_message_id=$3))`,
-		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&found)
-	return found, err
+	return false
 }
 
 const callbackPendingCardPrefix = "pending:card:"
 
 func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, cards []agentReviewBinding, answer typedCardAnswer) error {
-	if answer.Kind != cardAnswerCategory && answer.Kind != cardAnswerDate {
+	if (answer.Kind != cardAnswerCategory && answer.Kind != cardAnswerDate) || hasProposalCard(cards) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Ada beberapa kartu yang menunggu jawaban seperti itu. Balas (Reply) kartu yang dimaksud langsung, ya.")
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})

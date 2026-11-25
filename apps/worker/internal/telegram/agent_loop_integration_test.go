@@ -313,8 +313,8 @@ func TestExplicitReplyToANonWorkflowMessageIsAnOrdinaryTurn(t *testing.T) {
 	model := &capturingGateway{}
 	_, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "kopi 20rb", 777)
 	mustAgentTest(t, err)
-	if turn := model.turnContext(t, 0); turn["workflow_scope"] != string(agentWorkflowGeneral) || turn["explicit_reply_unbound"] != nil || !model.toolNames(0)["record_transaction"] {
-		t.Fatalf("reply to a plain bot message: scope=%v unbound=%v tools=%v", turn["workflow_scope"], turn["explicit_reply_unbound"], model.toolNames(0))
+	if turn := model.turnContext(t, 0); turn["workflow_scope"] != string(agentWorkflowGeneral) || !model.toolNames(0)["record_transaction"] {
+		t.Fatalf("reply to a plain bot message: scope=%v tools=%v", turn["workflow_scope"], model.toolNames(0))
 	}
 
 	reviewID, _ := createAgentTransactionReview(t, ctx, f, "36500", 888)
@@ -323,8 +323,8 @@ func TestExplicitReplyToANonWorkflowMessageIsAnOrdinaryTurn(t *testing.T) {
 	model = &capturingGateway{}
 	_, err = runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "makan", 888)
 	mustAgentTest(t, err)
-	if turn := model.turnContext(t, 0); turn["explicit_reply_unbound"] != true || model.toolNames(0)["record_transaction"] {
-		t.Fatalf("reply to a closed card: unbound=%v tools=%v", turn["explicit_reply_unbound"], model.toolNames(0))
+	if len(model.requests) != 0 || lastReply(t, ctx, f) != closedCardReply {
+		t.Fatalf("reply to a closed card: model calls=%d reply=%q", len(model.requests), lastReply(t, ctx, f))
 	}
 }
 
@@ -338,8 +338,8 @@ func TestTypedAnswersBindToCardsOnlyByDeterministicRules(t *testing.T) {
 	model := &capturingGateway{}
 	_, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "kopi 20rb", 0)
 	mustAgentTest(t, err)
-	if model.toolNames(0)["resolve_review"] || model.turnContext(t, 0)["active_review"] != nil || model.turnContext(t, 0)["open_review_cards"] == nil {
-		t.Fatalf("an expense text bound to the open card: %v", model.turnContext(t, 0))
+	if len(model.requests) != 0 || countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text'=$2`, f.chatID, answerOrNewQuestion) != 1 {
+		t.Fatalf("an amount text beside a waiting card must ask answer-or-new without calling the model (calls=%d)", len(model.requests))
 	}
 	model = &capturingGateway{}
 	_, err = runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "masukin ke makan aja", 0)
