@@ -1,3 +1,4 @@
+import InteractionWeekly from "./InteractionWeekly";
 import { time, number, percent, duration, Badge, Metric, Empty, Pending, useLoad, Table } from "./shared";
 
 export default function Overview({ setError }) {
@@ -126,6 +127,7 @@ export default function Overview({ setError }) {
           </dl>
         </article>
       </div>
+      <InteractionWeekly />
       <article className="surface admin-panel">
         <div className="section-title"><h2>Kejadian operasional terbaru</h2></div>
         {data.recentEvents?.length ? <Table headers={["Waktu", "Keparahan", "Kejadian", "Komponen", "Referensi"]}>{data.recentEvents.map((x, i) => <tr key={`${x.referenceId}-${i}`}><td>{time(x.createdAt)}</td><td><Badge value={x.severity} /></td><td>{x.type}</td><td>{x.component}</td><td className="admin-id">{x.referenceId}</td></tr>)}</Table> : <Empty>Belum ada kejadian operasional.</Empty>}
