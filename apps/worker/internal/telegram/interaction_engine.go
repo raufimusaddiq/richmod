@@ -114,7 +114,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 }
 
 func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, card interactionCard, in engineInput) (bool, error) {
-	if card.ReviewRequestID == "" || !engineReviewType(card.ReviewType) || in.Tap == callbackAsset {
+	if card.ReviewRequestID == "" || !engineReviewType(card.ReviewType) || in.Tap == callbackAsset || (navigationCallback(in.Tap) && !strings.HasPrefix(in.Tap, callbackCategoryPg)) {
 		return false, nil
 	}
 	peeked, owned, err := p.peekStep(ctx, householdID, card.ReviewRequestID, update.Message.From.ID)
@@ -308,6 +308,12 @@ func (p *Processor) nextAfterMerchant(ctx context.Context, tx pgx.Tx, householdI
 	facts, err := transactionReviewSummary(ctx, tx, householdID, review.TransactionID)
 	if err != nil {
 		return Step{}, false, err
+	}
+	if len(review.Decision.MissingFacts) == 0 {
+		review.Decision.MissingFacts = []string{"category"}
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["category"]'::jsonb),updated_at=now() WHERE id=$1`, review.ItemID); err != nil {
+			return Step{}, false, err
+		}
 	}
 	step, ok := deriveStep(review.Decision, review.ReviewType, facts, review.Subject)
 	if !ok {

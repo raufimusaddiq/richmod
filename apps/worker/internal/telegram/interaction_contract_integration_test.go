@@ -495,6 +495,10 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantTransaction("NEEDS_REVIEW", "Toko Contoh", "")
 			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, 1, h.reviewID)
 		}},
+		{"a stale navigation tap on an engine card is left to the legacy handler", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+			h.tap("review:edit")
+			h.wantCard("Pilih detail yang ingin diubah:")
+		}},
 		{"a plain yes on the remember step answers the card", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.tapLabel("Makan")
 			h.plain("ya")

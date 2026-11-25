@@ -82,10 +82,6 @@ func (s Step) AnswerKind() cardAnswerKind {
 	return cardAnswerNone
 }
 
-func (s Step) Same(other Step) bool {
-	return s.Kind == other.Kind && s.Fact == other.Fact
-}
-
 func (s Step) WithAck(ack string) Step {
 	s.Ack = ack
 	return s
