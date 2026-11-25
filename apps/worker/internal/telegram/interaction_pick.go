@@ -1,11 +1,10 @@
 package telegram
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 	"unicode/utf8"
-
-	"context"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )

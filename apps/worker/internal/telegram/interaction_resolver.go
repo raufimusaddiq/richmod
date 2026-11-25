@@ -274,7 +274,11 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 		}
 	}
 	if override != interactionParserNew && text != "" && isYesNoAnswer(text) {
-		if _, typed := singleTypedCard(cards); !typed {
+		blocked, err := p.plainAnswerBlocked(ctx, householdID, update)
+		if err != nil {
+			return result, err
+		}
+		if _, typed := singleTypedCard(cards); !typed && !blocked {
 			if card, ok, err := p.rememberCard(ctx, householdID, update.Message.Chat.ID); err != nil {
 				return result, err
 			} else if ok {
@@ -311,6 +315,18 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 		result.Kind, result.Card = interactionAnswerOrNew, interactionCard{ReviewRequestID: single.ReviewRequestID, ReviewItemID: single.ReviewItemID}
 	}
 	return result, nil
+}
+
+func (p *Processor) plainAnswerBlocked(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
+	action, err := p.loadAgentPendingAction(ctx, householdID, update)
+	if err != nil || action != nil {
+		return action != nil, err
+	}
+	batch, err := p.loadAgentPendingBatch(ctx, householdID, update)
+	if err != nil || batch != nil {
+		return batch != nil, err
+	}
+	return p.hasPendingSalaryChoice(ctx, householdID, update)
 }
 
 func (p *Processor) rememberCard(ctx context.Context, householdID string, chatID int64) (interactionCard, bool, error) {

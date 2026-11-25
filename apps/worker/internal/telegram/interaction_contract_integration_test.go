@@ -522,6 +522,15 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantAssistantCalls(0)
 			h.wantAnswered("TAP", "PLAIN")
 		}},
+		{"a plain yes meant for a pending confirmation is not taken as the remember answer", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+			h.tapLabel("Makan")
+			var pendingTx string
+			mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',9000,now()) RETURNING id`, h.f.householdID).Scan(&pendingTx))
+			h.exec(`INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$2,$3,now(),'PENDING')`, h.f.householdID, h.f.chatID, pendingTx)
+			h.chat("ya")
+			h.wantAlias(false)
+			h.wantAnswered("TAP")
+		}},
 		{"a thread reply to the remember step answers the card", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.tapLabel("Makan")
 			h.threadReply("tidak")

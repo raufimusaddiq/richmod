@@ -582,6 +582,8 @@ func (p *Processor) ProcessCardAnswer(ctx context.Context, sourceEventID string)
 	if authorized, err := telegramMemberAuthorized(ctx, p.pool, update.Message.From.ID, householdID); err != nil {
 		return false, fmt.Errorf("re-check Telegram sender: %w", err)
 	} else if authorized && text != "" && !isHelpCommand(text) {
+		stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
+		defer stopTyping()
 		resolved, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, interactionOverride(parserName))
 		if err != nil {
 			return false, err
