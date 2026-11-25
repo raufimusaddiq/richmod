@@ -335,6 +335,12 @@ func (p *Processor) applyTap(ctx context.Context, tx pgx.Tx, householdID, source
 	if legacyDetailNavigation(data) {
 		return reask(step, choiceStaleAck), nil
 	}
+	if step.Fallback {
+		if data == callbackIgnore && stepOffers(step, data) {
+			return p.applyIgnore(ctx, tx, householdID, sourceEventID, review, step)
+		}
+		return reask(step, choiceStaleAck), nil
+	}
 	if sit := review.situation(); sit != sitNone && (evidenceFact(step.Fact) || sit == sitDispute) {
 		return p.applyEvidenceTap(ctx, tx, householdID, sourceEventID, review, step, data, sit)
 	}

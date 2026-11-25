@@ -22,7 +22,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	for _, name := range []string{"bank", "transaction", "wrong_message", "unauthorized_actor", "inactive_member", "cross_household", "disallowed_action"} {
+	for _, name := range []string{"bank", "bank_foreign_tap", "transaction", "wrong_message", "unauthorized_actor", "inactive_member", "cross_household", "disallowed_action"} {
 		t.Run(name, func(t *testing.T) {
 			must := func(err error) {
 				if err != nil {
@@ -56,9 +56,13 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 				_, err = pool.Exec(ctx, `UPDATE review_item SET decision='{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS"]}'::jsonb WHERE id=$1`, item)
 				must(err)
 			}
+			data := "review:ignore"
+			if name == "bank_foreign_tap" {
+				data = "review:confirm"
+			}
 			callback := func() string {
 				return seedTelegramRaw(t, pool, callbackHousehold, "TELEGRAM_CALLBACK", map[string]any{"callback_query": map[string]any{
-					"id": fmt.Sprint(testsupport.UniqueStamp()), "data": "review:ignore", "from": map[string]any{"id": actor},
+					"id": fmt.Sprint(testsupport.UniqueStamp()), "data": data, "from": map[string]any{"id": actor},
 					"message": map[string]any{"message_id": message, "chat": map[string]any{"id": chat}},
 				}})
 			}

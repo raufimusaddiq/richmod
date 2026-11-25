@@ -893,6 +893,15 @@ func TestInteractionEngineReceiptMismatchContract(t *testing.T) {
 			h.wantTransaction("CONFIRMED", "Warung Contoh", "Makan")
 			h.wantAssistantCalls(0)
 		}},
+		{"a typed total goes to the assistant and leaves the card alone", qualityKind, nil, func(h *contractHarness) {
+			messageID, text, _ := h.current()
+			h.question(messageID, "totalnya 27 ribu")
+			h.wantAssistantCalls(1)
+			if after, afterText, _ := h.current(); after != messageID || afterText != text {
+				t.Fatalf("the card changed: %d %q", after, afterText)
+			}
+			h.wantTransaction("NEEDS_REVIEW", "Warung Contoh", "Makan")
+		}},
 		{"a plain yes shows the question again and records nothing", qualityKind, nil, func(h *contractHarness) {
 			h.plain("ya")
 			h.wantCard("Maaf, aku belum menangkap itu. Rincian struk tidak cocok dengan total yang tercetak.")

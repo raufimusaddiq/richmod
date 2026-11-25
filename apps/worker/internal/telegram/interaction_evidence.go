@@ -173,7 +173,7 @@ func deriveEvidenceStep(step Step, sit situation, decision reviewdec.Decision, r
 		}
 		step.Rows = append(step.Rows, ignoreRow(actions)...)
 	case sitQuality:
-		step.Fact, step.Ask, step.Hint = factQuality, qualityAsk, qualityHint
+		step.Fact, step.Ask, step.Hint, step.Defer = factQuality, qualityAsk, qualityHint, true
 		var buttons []InlineKeyboardButton
 		if contains(actions, "CONFIRM_REVIEW") {
 			buttons = append(buttons, InlineKeyboardButton{Text: "Terima total", CallbackData: callbackQuality})
