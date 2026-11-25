@@ -224,6 +224,9 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		}
 		result.Facts = map[string]any{"ref": ref, "transaction_at": at.In(jakartaLocation()).Format(time.RFC3339), "type": typ, "status": status, "amount_idr": amount, "category": untrustedField(category), "description": untrustedField(description), "merchant": untrustedField(merchant)}
 
+	case toolShowReviewCard:
+		return p.agentShowReviewCard(ctx, state, args, result)
+
 	case "query_wealth":
 		var observed time.Time
 		var value string

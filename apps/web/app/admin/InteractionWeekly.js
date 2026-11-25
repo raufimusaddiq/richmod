@@ -125,17 +125,11 @@ function Summary({ data }) {
           </tr>
         ))}
       </Table>
-      {data.notYetMeasurable.includes("answers_via_assistant") && (
-        <p className="notice" role="note">
-          Belum bisa diukur: jawaban lewat asisten. Angka 0 pada ukuran ini bukan tanda berhasil.
-        </p>
-      )}
       <div className="section-title"><h3>Cara jawaban masuk</h3></div>
       <Table headers={["Cara", "7 hari terakhir", "7 hari sebelumnya"]}>
         {sourceLabels.map(([key, label]) => {
           const cell = (window) => {
             if (degraded.includes("events")) return UNAVAILABLE;
-            if (key === "VIA_ASSISTANT" && data.notYetMeasurable.includes("answers_via_assistant")) return "Belum bisa diukur";
             return number(window.answerSources[key]);
           };
           return (
