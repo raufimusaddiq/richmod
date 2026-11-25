@@ -121,7 +121,7 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 
 	f.tap(17, "review:remember", text)
 	text, markup = f.lastEdit(17)
-	if !strings.HasPrefix(text, "✅ Tersimpan: Tins Mart · Galon Isi Ulang") || !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(markup, "review:") {
+	if !strings.HasPrefix(text, "✅ Tersimpan: Tins Mart · Galon Isi Ulang") || !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(strings.ReplaceAll(markup, callbackUbah, ""), "review:") {
 		t.Fatalf("card after remember: %q %s", text, markup)
 	}
 	if sends := f.sendsToChat(); sends != sendsBefore {
@@ -510,7 +510,7 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 		t.Fatalf("a late retirement erased the question: %+v", calls)
 	}
 	f.tap(95, "review:remember", question)
-	if text, markup := f.lastEdit(95); !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(markup, "review:") {
+	if text, markup := f.lastEdit(95); !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(strings.ReplaceAll(markup, callbackUbah, ""), "review:") {
 		t.Fatalf("remember after duplicate taps: %q %s", text, markup)
 	}
 }

@@ -233,7 +233,7 @@ func TestInteractionWeeklyReportsSlowSectionsInsteadOfFailing(t *testing.T) {
 	}
 }
 
-func TestInteractionWeeklyCountsReplyRepairsByReason(t *testing.T) {
+func TestInteractionWeeklyCountsReplyRepairsAndUbahReopensByWindow(t *testing.T) {
 	t.Parallel()
 	pool := integrationPool(t)
 	f := newWeeklyFixture(t, pool)
@@ -247,6 +247,10 @@ func TestInteractionWeeklyCountsReplyRepairsByReason(t *testing.T) {
 	f.event("REPLY_REPAIRED", "", "TELEGRAM_MECHANICS", 10*day)
 	f.event("REPLY_REPAIRED", "", "EMPTY", 30*day)
 	other.event("REPLY_REPAIRED", "", "EMPTY", day)
+	f.event("UBAH_REOPENED", "", "", day)
+	f.event("UBAH_REOPENED", "", "", 2*day)
+	f.event("UBAH_REOPENED", "", "", 10*day)
+	other.event("UBAH_REOPENED", "", "", day)
 	summary, err := aggregateHandler(pool).loadInteractionWeekly(context.Background(), f.household, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -256,6 +260,9 @@ func TestInteractionWeeklyCountsReplyRepairsByReason(t *testing.T) {
 	}
 	if summary.Previous.BrokenReplies != 1 || summary.Previous.MechanicsReplies != 1 {
 		t.Fatalf("previous = %d broken, %d mechanics", summary.Previous.BrokenReplies, summary.Previous.MechanicsReplies)
+	}
+	if summary.Current.UbahReopened != 2 || summary.Previous.UbahReopened != 1 {
+		t.Fatalf("ubah reopens = %d current, %d previous", summary.Current.UbahReopened, summary.Previous.UbahReopened)
 	}
 	if len(summary.NotYetMeasurable) != 0 {
 		t.Fatalf("notYetMeasurable = %v", summary.NotYetMeasurable)

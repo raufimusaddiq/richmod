@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -68,6 +69,15 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 		}
 	}
 	note := reviewClosureNote(status, outcome)
+	if status == "RESOLVED" {
+		closing, err := p.loadClosingNote(ctx, payload, boundMessageID)
+		if err != nil {
+			return err
+		}
+		if closing != "" {
+			note = closing
+		}
+	}
 	switch {
 	case note != "":
 	case recipientStatus == "EXPIRED":
@@ -134,4 +144,69 @@ func (p *Processor) BindMerchantLearningMessage(ctx context.Context, reviewReque
 		return fmt.Errorf("bind merchant learning message: %w", err)
 	}
 	return nil
+}
+
+func capitalizeFirst(text string) string {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return ""
+	}
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
+func closingNoteText(via, resolverName, doneLine, outcomePhrase string) string {
+	var head string
+	switch via {
+	case "TELEGRAM":
+		head = "Sudah diselesaikan oleh " + resolverName + " di Telegram."
+	case "WEB":
+		head = "Sudah diselesaikan oleh " + resolverName + " di aplikasi."
+	default:
+		head = "Sudah diselesaikan otomatis."
+	}
+	summary := strings.TrimSpace(doneLine)
+	if summary == "" && outcomePhrase != "" && via != "SYSTEM" {
+		summary = capitalizeFirst(outcomePhrase) + "."
+	}
+	if summary == "" {
+		return head
+	}
+	return head + "\n" + summary
+}
+
+func (p *Processor) loadClosingNote(ctx context.Context, payload RetireCardPayload, boundMessageID int64) (string, error) {
+	var via, resolverID, resolverName, doneLine, recipientUser string
+	err := p.pool.QueryRow(ctx, `SELECT COALESCE(ri.resolved_via,''),COALESCE(ri.resolved_by_user_id::text,''),COALESCE(u.display_name,''),
+			COALESCE(c.context_json->>'done_line',''),COALESCE(ti.user_id::text,'')
+		FROM review_request r
+		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
+		LEFT JOIN "user" u ON u.id=ri.resolved_by_user_id
+		LEFT JOIN review_conversation c ON c.review_request_id=r.id
+		LEFT JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id
+		WHERE r.id=$1`, payload.ReviewRequestID, payload.ChatID).Scan(&via, &resolverID, &resolverName, &doneLine, &recipientUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load Telegram review closing note: %w", err)
+	}
+	if via == "" {
+		return "", nil
+	}
+	if via == "TELEGRAM" && resolverID != "" && resolverID == recipientUser && boundMessageID != payload.MessageID {
+		return supersededCardNote, nil
+	}
+	resolverName = clean(resolverName, 80)
+	if via != "SYSTEM" && resolverName == "" {
+		via = "SYSTEM"
+	}
+	phrase, err := reviewOutcomeFor(ctx, p.pool, payload.ReviewRequestID, false)
+	if err != nil {
+		return "", fmt.Errorf("load Telegram review closing summary: %w", err)
+	}
+	if phrase == "ditutup otomatis karena tidak lagi berlaku" {
+		phrase = ""
+	}
+	return closingNoteText(via, resolverName, doneLine, phrase), nil
 }

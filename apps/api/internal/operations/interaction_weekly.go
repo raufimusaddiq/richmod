@@ -46,6 +46,7 @@ type interactionWindow struct {
 	RepeatedInput       int                  `json:"repeatedInput"`
 	BrokenReplies       int                  `json:"brokenReplies"`
 	MechanicsReplies    int                  `json:"mechanicsReplies"`
+	UbahReopened        int                  `json:"ubahReopened"`
 	MedianFinishMs      *int64               `json:"medianFinishMs"`
 }
 
@@ -186,7 +187,7 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 				  action, COALESCE(source_type,''), COALESCE(decision_source,''), count(*)
 				FROM product_telemetry_event
 				WHERE household_id=$1 AND event_type='INTERACTION' AND occurred_at >= $3 AND occurred_at < $4
-				  AND action IN ('ANSWERED','UNMATCHED','AMBIGUOUS','CLOSED_CARD_REPLY','REPEATED_INPUT','REPLY_REPAIRED')
+				  AND action IN ('ANSWERED','UNMATCHED','AMBIGUOUS','CLOSED_CARD_REPLY','REPEATED_INPUT','REPLY_REPAIRED','UBAH_REOPENED')
 				GROUP BY 1,2,3,4`, householdID, current.Start, previous.Start, current.End)
 			if err != nil {
 				return err
@@ -215,6 +216,8 @@ func (h *Handler) loadInteractionWeekly(ctx context.Context, householdID string,
 					window.UnusableAnswers += count
 				case "REPEATED_INPUT":
 					window.RepeatedInput += count
+				case "UBAH_REOPENED":
+					window.UbahReopened += count
 				case "REPLY_REPAIRED":
 					switch decision {
 					case "EMPTY", "BROKEN_TEXT", "INTERNAL_CODE":

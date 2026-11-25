@@ -9,6 +9,10 @@ import (
 )
 
 func reviewOutcome(ctx context.Context, db authorizationQuerier, reviewRequestID string) (string, error) {
+	return reviewOutcomeFor(ctx, db, reviewRequestID, true)
+}
+
+func reviewOutcomeFor(ctx context.Context, db authorizationQuerier, reviewRequestID string, withResolver bool) (string, error) {
 	var itemStatus, action, resolver, category, transactionStatus string
 	err := db.QueryRow(ctx, `SELECT ri.status,COALESCE(ri.resolution_action,''),COALESCE(u.display_name,''),
 			COALESCE(c.name,''),COALESCE(t.status,'')
@@ -23,6 +27,9 @@ func reviewOutcome(ctx context.Context, db authorizationQuerier, reviewRequestID
 	}
 	if err != nil {
 		return "", err
+	}
+	if !withResolver {
+		resolver = ""
 	}
 	return describeReviewOutcome(itemStatus, action, resolver, category, transactionStatus), nil
 }

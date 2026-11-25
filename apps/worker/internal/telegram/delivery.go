@@ -16,6 +16,7 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 	if err != nil {
 		return err
 	}
+	sentLine := ""
 	if messageID == 0 {
 		authorized, err := p.RecipientAuthorized(ctx, payload.ChatID, householdID)
 		if err != nil {
@@ -34,7 +35,16 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 				return p.skipReviewDelivery(ctx, payload)
 			}
 		}
-		if messageID, err = bot.Send(ctx, payload); err != nil {
+		outbound := payload
+		if payload.ReviewRequestID != "" && !payload.SettledCard {
+			line, err := p.cardPositionLine(ctx, payload.ChatID, payload.ReviewRequestID)
+			if err != nil {
+				return err
+			}
+			outbound.Text = withPositionLine(payload.Text, line)
+			sentLine = line
+		}
+		if messageID, err = bot.Send(ctx, outbound); err != nil {
 			return err
 		}
 		if err := p.recordDelivery(ctx, jobID, householdID, payload.ChatID, messageID); err != nil {
@@ -54,6 +64,17 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 		}
 		if err := p.BindReviewMessageAs(ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text, payload.AssistantShown); err != nil {
 			return err
+		}
+		p.recordReviewCardMarkup(ctx, payload.ChatID, messageID, payload.ReplyMarkup)
+		if payload.UbahUntil != "" {
+			if err := p.armUbahFromSend(ctx, payload, messageID); err != nil {
+				return err
+			}
+		}
+		if !payload.SettledCard {
+			if err := p.refreshPositionIfStale(ctx, payload.ChatID, payload.ReviewRequestID, sentLine); err != nil {
+				return err
+			}
 		}
 	}
 	if payload.BindMerchantLearningRequestID != "" {
@@ -264,9 +285,13 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 		slog.Default().Info("queued Telegram edit dropped: recipient no longer authorized", "job_id", jobID)
 		return nil
 	}
+	if payload.RefreshPosition {
+		return p.refreshCardPosition(ctx, bot, payload)
+	}
 	if payload.OutcomeRequestID != "" {
 		return p.ApplyCardOutcomeEdit(ctx, bot, payload)
 	}
+	outbound := payload
 	if payload.ReviewRequestID != "" {
 		live, err := p.reviewCopyEditable(ctx, payload.ReviewRequestID, payload.ChatID, payload.MessageID)
 		if err != nil {
@@ -275,12 +300,20 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 		if !live {
 			return nil
 		}
+		line, err := p.cardPositionLine(ctx, payload.ChatID, payload.ReviewRequestID)
+		if err != nil {
+			return err
+		}
+		outbound.Text = withPositionLine(payload.Text, line)
 	}
-	err = bot.Edit(ctx, payload)
+	err = bot.Edit(ctx, outbound)
 	switch {
 	case err == nil:
 		if err := p.RecordReviewCardText(ctx, payload.ChatID, payload.MessageID, payload.Text); err != nil {
 			slog.Default().Warn("record edited Telegram review card text failed", "job_id", jobID, "error", err)
+		}
+		if payload.ReviewRequestID != "" {
+			p.recordReviewCardMarkup(ctx, payload.ChatID, payload.MessageID, payload.ReplyMarkup)
 		}
 		return nil
 	case editNotModified(err):

@@ -19,6 +19,7 @@ var telegramCallbackExact = map[string]struct{}{
 	"review:leave": {}, "review:xfer:new": {}, "review:back": {}, "review:cancel": {},
 	"review:date:today": {}, "review:date:yesterday": {}, "review:date:other": {}, "review:date:email": {},
 	"review:cycsplit": {}, "review:cycmissing": {}, "review:cycall": {}, "interaction:answer": {}, "interaction:new": {},
+	"review:ubah": {}, "review:ubah:cat": {}, "review:ubah:date": {}, "review:ubah:remember": {}, "review:ubah:back": {}, "review:ubah:done": {},
 	"pending:action:yes": {}, "pending:action:no": {}, "pending:batch:yes": {}, "pending:batch:no": {},
 }
 
