@@ -126,12 +126,3 @@ func (p *Processor) RecordReviewCardText(ctx context.Context, chatID, messageID 
 	_, err := p.pool.Exec(ctx, `UPDATE review_request_message SET delivered_text=NULLIF($3,'') WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, chatID, messageID, clean(text, 4000))
 	return err
 }
-
-func (p *Processor) BindMerchantLearningMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
-	_, err := p.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,merchant_learning_message_id,delivery_status) VALUES($1,$2,$3,'SKIPPED')
-		ON CONFLICT (review_request_id,telegram_chat_id) DO UPDATE SET merchant_learning_message_id=EXCLUDED.merchant_learning_message_id`, reviewRequestID, chatID, messageID)
-	if err != nil {
-		return fmt.Errorf("bind merchant learning message: %w", err)
-	}
-	return nil
-}

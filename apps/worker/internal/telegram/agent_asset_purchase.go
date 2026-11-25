@@ -264,7 +264,7 @@ func (p *Processor) applyAssetPurchaseTx(ctx context.Context, tx pgx.Tx, househo
 		return "INCOMPATIBLE_WEALTH_ACCOUNT", nil
 	}
 	var accountActive bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2)`, proposal.accountID, householdID).Scan(&accountActive); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, proposal.accountID, householdID).Scan(&accountActive); err != nil {
 		return "", err
 	}
 	if !accountActive {

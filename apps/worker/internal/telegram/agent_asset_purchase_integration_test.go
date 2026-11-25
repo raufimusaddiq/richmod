@@ -128,6 +128,15 @@ func TestAssetPurchaseCancelAndWrongBindingRecordNothing(t *testing.T) {
 	}
 	scene.wantUntouched(t)
 
+	stale := newAssetPurchaseScene(t, "asset-purchase-inactive", 705)
+	staged := stale.propose(t, stale.state())
+	_, err := stale.f.pool.Exec(context.Background(), `UPDATE account SET active=false WHERE id=$1`, stale.accountID)
+	mustAgentTest(t, err)
+	if !stale.confirm(t, true, staged.confirmationToken) {
+		t.Fatal("confirm tap was not handled")
+	}
+	stale.wantUntouched(t)
+
 	otherChat := newAssetPurchaseScene(t, "asset-purchase-chat", 703)
 	state := otherChat.state()
 	state.Update.Message.Chat.ID = otherChat.f.chatID + 999

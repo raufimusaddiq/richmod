@@ -117,3 +117,20 @@ func TestReplyToTheMerchantLearningQuestionGoesToTheEngineNotTheAssistant(t *tes
 		t.Fatal("the user's own yes did not save the merchant rule")
 	}
 }
+
+func TestAssistantShowsAWaitingManualCorrectionCard(t *testing.T) {
+	runContractRows(t, []contractRow{
+		{"plain words about a waiting correction card show it and change nothing", fixKind, nil, func(h *contractHarness) {
+			gw := h.assistant(`{"card_ref":"k1","step":null}`)
+			h.ask("mana kartu koreksi yang tadi?")
+			if !gw.offered(0) {
+				h.t.Fatal("show_review_card was not offered for the correction card")
+			}
+			if got := gw.outcome(h.t); got != "card_shown" {
+				h.t.Fatalf("tool outcome = %q", got)
+			}
+			h.wantItemActive()
+			h.wantTransaction("NEEDS_REVIEW", "Warung Contoh", "Makan")
+		}},
+	})
+}

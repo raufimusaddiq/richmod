@@ -21,14 +21,6 @@ type agentReviewBinding struct {
 	Label             string
 }
 
-type agentMerchantLearningBinding struct {
-	ReviewRequestID   string
-	TransactionID     string
-	TelegramMessageID int64
-	Merchant          string
-	Category          string
-}
-
 func isAgentCoreSideEffect(name string) bool {
 	switch name {
 	case "record_transaction", "record_transaction_batch", "propose_transaction_correction",
