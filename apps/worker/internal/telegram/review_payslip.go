@@ -26,7 +26,7 @@ func (p *Processor) continueProposalAmountReview(ctx context.Context, sourceEven
 }
 
 func (p *Processor) processPayslipPolicyCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
-	choice := map[string]string{"review:salary:primary": "PRIMARY_SALARY", "review:salary:ordinary": "ORDINARY_INCOME"}[data]
+	choice := map[string]string{"review:salary:primary": "PRIMARY_SALARY", "review:salary:household": "HOUSEHOLD_POLICY", "review:salary:ordinary": "ORDINARY_INCOME"}[data]
 	if choice == "" {
 		return false, nil
 	}

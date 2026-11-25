@@ -190,7 +190,7 @@ func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) 
 			break
 		}
 	}
-	if !allowed || (cmd.Action != "PRIMARY_SALARY" && cmd.Action != "ORDINARY_INCOME" && cmd.Action != "SET_PAY_DATE") {
+	if !allowed || (cmd.Action != "PRIMARY_SALARY" && cmd.Action != "HOUSEHOLD_POLICY" && cmd.Action != "ORDINARY_INCOME" && cmd.Action != "SET_PAY_DATE") {
 		return out, ErrPayslipReviewInvalid
 	}
 	needsDate, needsPolicy := false, false
@@ -222,7 +222,7 @@ func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) 
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, cmd.HouseholdID).Scan(&hasPrimary); err != nil {
 			return out, err
 		}
-		if cmd.Action == "PRIMARY_SALARY" && hasPrimary {
+		if (cmd.Action == "PRIMARY_SALARY" && hasPrimary) || (cmd.Action == "HOUSEHOLD_POLICY" && !hasPrimary) {
 			return out, ErrPayslipReviewInvalid
 		}
 	} else {

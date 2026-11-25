@@ -24,7 +24,7 @@ export function rememberLabel(item) {
 }
 
 const transferLabels = { OWN_ACCOUNT: "rekening sendiri", HOUSEHOLD_ACCOUNT: "rekening rumah tangga", INVESTMENT_ACCOUNT: "investasi", ASSET_PURCHASE: "beli aset", EXPENSE: "pengeluaran", IGNORE: "diabaikan" };
-const resolveLabels = { IGNORE: "diabaikan", MERGE_EXISTING: "disatukan", CONFIRM_NEW_TRANSFER: "transfer baru dicatat", SET_WEALTH_ACCOUNT: "akun dipilih", SET_FINANCIAL_EMAIL_ENTITIES: "rekening dipilih", ALLOCATE_RETAINED_BALANCE: "sisa dialokasikan", LEAVE_UNALLOCATED: "dibiarkan", COMPLETE_BANK_FACTS: "dilengkapi", SET_PAY_DATE: "tanggal diisi", PRIMARY_SALARY: "gaji utama", ORDINARY_INCOME: "pemasukan biasa", ACKNOWLEDGE: "dimengerti" };
+const resolveLabels = { IGNORE: "diabaikan", MERGE_EXISTING: "disatukan", CONFIRM_NEW_TRANSFER: "transfer baru dicatat", SET_WEALTH_ACCOUNT: "akun dipilih", SET_FINANCIAL_EMAIL_ENTITIES: "rekening dipilih", ALLOCATE_RETAINED_BALANCE: "sisa dialokasikan", LEAVE_UNALLOCATED: "dibiarkan", COMPLETE_BANK_FACTS: "dilengkapi", SET_PAY_DATE: "tanggal diisi", PRIMARY_SALARY: "gaji utama", HOUSEHOLD_POLICY: "dicatat sebagai gaji", ORDINARY_INCOME: "pemasukan biasa", ACKNOWLEDGE: "dimengerti" };
 
 export function resolutionSummary(name, body, categories = []) {
   if (name === "confirm") {

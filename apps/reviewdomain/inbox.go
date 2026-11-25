@@ -66,7 +66,7 @@ func Executable(kind, action string, b Binding) bool {
 		return openTransaction
 	case "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING":
 		return kind == "CYCLE_RESIDUAL_ALLOCATION" && b.Subject == SubjectCycleResidual
-	case "PRIMARY_SALARY", "ORDINARY_INCOME":
+	case "PRIMARY_SALARY", "HOUSEHOLD_POLICY", "ORDINARY_INCOME":
 		return payslipKinds[kind] && b.Subject == SubjectProposal
 	case "SET_PAY_DATE":
 		if payslipKinds[kind] {

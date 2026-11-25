@@ -19,7 +19,23 @@ func PayslipPolicy(decision Decision, reason string, hasPrimary bool) Decision {
 		decision.InteractionMode = ModeSingleField
 		decision.WhyNotAuto = kindByReason["MISSING_PAY_DATE"].Why
 	case reason == "PAYSLIP_CONFIRMATION" && hasPrimary:
-		decision.AllowedActions = slices.DeleteFunc(slices.Clone(decision.AllowedActions), func(action string) bool { return action == "PRIMARY_SALARY" })
+		decision.AllowedActions = []string{"HOUSEHOLD_POLICY", "ORDINARY_INCOME", "IGNORE"}
+		if decision.Provenance["conflictingSalaryEvent"] == true {
+			decision.AllowedActions = []string{"ORDINARY_INCOME", "IGNORE"}
+		}
+		decision.WhyNotAuto = payslipHeldReason(decision.Provenance)
 	}
 	return decision
+}
+
+func payslipHeldReason(provenance map[string]any) string {
+	switch {
+	case provenance["conflictingSalaryEvent"] == true:
+		return "a salary for this payroll period is already recorded with different facts"
+	case provenance["extractionBelowAutoConfirmFloor"] == true:
+		return "the payslip was not read confidently enough to record automatically"
+	case provenance["arithmeticOK"] == false:
+		return "the payslip's gross pay, allowances and deductions do not add up to net pay"
+	}
+	return "the payslip needs confirmation before it is recorded as salary"
 }

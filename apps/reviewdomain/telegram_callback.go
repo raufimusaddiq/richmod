@@ -14,7 +14,7 @@ var telegramCallbackExact = map[string]struct{}{
 	"review:investment": {}, "review:confirm": {}, "review:change": {}, "review:remember": {},
 	"review:once": {}, "review:edit": {}, "review:merchant": {}, "review:description": {},
 	"review:category": {}, "review:ignore": {}, "review:reprocess": {},
-	"review:quality:confirm": {}, "review:salary:primary": {}, "review:salary:ordinary": {},
+	"review:quality:confirm": {}, "review:salary:primary": {}, "review:salary:household": {}, "review:salary:ordinary": {},
 	"review:dup:new": {}, "review:dispute:confirm": {}, "review:dispute:reject": {},
 	"review:leave": {}, "review:xfer:new": {},
 	"pending:action:yes": {}, "pending:action:no": {}, "pending:batch:yes": {}, "pending:batch:no": {},
