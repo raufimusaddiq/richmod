@@ -4,7 +4,7 @@ import { ledgerBasics, transaction } from "../support/data.js";
 const rows = count => Array.from({ length: count }, (_, index) => transaction(`tx-${index + 1}`, `Toko ${index + 1}`, { transactionAt: `2026-09-${String(20 - index).padStart(2, "0")}T09:20:00+07:00` }));
 
 function ledgerApi(api, { items = rows(3), total, next = "" } = {}) {
-  const state = { items, voided: new Set(), edits: [] };
+  const state = { items, voided: new Set(), marked: new Set(), edits: [] };
   api.use(request => {
     const { path, method, query } = request;
     if (path === "/api/v1/transactions") {
@@ -14,7 +14,7 @@ function ledgerApi(api, { items = rows(3), total, next = "" } = {}) {
     }
     if (/^\/api\/v1\/transactions\/tx-[^/]+\/(evidence|audit)$/.test(path)) return [];
     const detail = path.match(/^\/api\/v1\/transactions\/(tx-[^/]+)$/);
-    if (detail && method === "GET") return { ...(state.items.find(item => item.id === detail[1]) || state.items[0]), updatedAt: "2026-09-06T10:00:00Z", ...(state.voided.has(detail[1]) ? { status: "VOIDED" } : {}) };
+    if (detail && method === "GET") return { ...(state.items.find(item => item.id === detail[1]) || state.items[0]), updatedAt: "2026-09-06T10:00:00Z", ...(state.voided.has(detail[1]) ? { status: "VOIDED" } : {}), ...(state.marked.has(detail[1]) ? { canMarkSalary: false } : {}) };
     return ledgerBasics(path);
   });
   return state;
@@ -160,6 +160,19 @@ test.describe("cancelling a transaction", () => {
     await expect(drawer.getByRole("button", { name: "Batalkan transaksi" })).toHaveCount(0);
     await expect(drawer.getByRole("button", { name: "Ubah", exact: true })).toHaveCount(0);
   });
+});
+
+test("a payslip income offers Tandai sebagai gaji, posts once after confirming, then no longer offers it", { tag: "@desktop-only" }, async ({ page, api }) => {
+  const state = ledgerApi(api, { items: [transaction("tx-1", "PT Contoh", { type: "INCOME", amount: "8500000", canMarkSalary: true })] });
+  api.on("/api/v1/transactions/tx-1/mark-salary", () => { state.marked.add("tx-1"); return { salaryEventId: "se-1", period: "2026-10", primary: true }; }, { method: "POST" });
+  await page.goto("/transactions", { waitUntil: "networkidle" });
+  await page.locator(".transaction-row").first().click();
+  const drawer = page.getByRole("dialog", { name: "Detail transaksi" });
+  await drawer.getByRole("button", { name: "Tandai sebagai gaji" }).click();
+  await page.locator("dialog[open]:not(.create-dialog)").getByRole("button", { name: "Ya, tandai" }).click();
+  await expect.poll(() => api.calls("/api/v1/transactions/tx-1/mark-salary", "POST").length).toBe(1);
+  await expect(drawer.getByRole("status")).toContainText("tercatat sebagai gaji");
+  await expect(drawer.getByRole("button", { name: "Tandai sebagai gaji" })).toHaveCount(0);
 });
 
 test("editing sends only the changed fields with the version it read, and Escape in the editor leaves the drawer", { tag: "@desktop-only" }, async ({ page, api }) => {

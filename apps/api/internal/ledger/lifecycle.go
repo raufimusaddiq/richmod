@@ -56,7 +56,8 @@ type activeMergeView struct {
 
 type transactionDetail struct {
 	transactionView
-	ActiveMerges []activeMergeView `json:"activeMerges"`
+	ActiveMerges  []activeMergeView `json:"activeMerges"`
+	CanMarkSalary bool              `json:"canMarkSalary"`
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +259,51 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		slog.ErrorContext(r.Context(), "load active merges for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
 		merges = []activeMergeView{}
 	}
-	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges})
+	markable, err := reviewdomain.CanMarkPayslipIncomeAsSalary(r.Context(), h.pool, household, v.ID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "load salary eligibility for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
+		markable = false
+	}
+	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges, CanMarkSalary: markable})
+}
+
+func (h *Handler) MarkSalary(w http.ResponseWriter, r *http.Request) {
+	p, household, ok := principalHousehold(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if uuid.Validate(id) != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "transaction not found"})
+		return
+	}
+	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to record salary"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	result, err := reviewdomain.MarkPayslipIncomeAsSalary(r.Context(), tx, reviewdomain.MarkSalaryCommand{HouseholdID: household, UserID: p.UserID, TransactionID: id})
+	switch {
+	case errors.Is(err, reviewdomain.ErrSalaryMarkNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "transaction not found"})
+		return
+	case errors.Is(err, reviewdomain.ErrSalaryMarkConflict):
+		writeJSON(w, http.StatusConflict, map[string]string{"code": codeSalaryRecorded, "error": "salary for this payroll period is already recorded"})
+		return
+	case errors.Is(err, reviewdomain.ErrSalaryMarkIneligible):
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "only a confirmed payslip income can be marked as salary"})
+		return
+	case err != nil:
+		slog.ErrorContext(r.Context(), "mark payslip income as salary", "household_id", household, "transaction_id", id, "error", err)
+		writeJSON(w, 500, map[string]string{"error": "unable to record salary"})
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to record salary"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"salaryEventId": result.SalaryEventID, "period": result.Period, "primary": result.Primary})
 }
 
 func (h *Handler) activeMerges(ctx context.Context, household, id string) ([]activeMergeView, error) {

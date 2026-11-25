@@ -82,19 +82,20 @@ func PromoteEvidenceDocuments(ctx context.Context, tx pgx.Tx, householdID, trans
 }
 
 type PayslipFacts struct {
-	Employer string
-	Period   string
-	NetPay   string
+	Employer      string
+	Period        string
+	NetPay        string
+	SourceEventID string
 }
 
 func LoadPayslipFacts(ctx context.Context, tx pgx.Tx, householdID, transactionID string) (PayslipFacts, bool, error) {
 	var facts PayslipFacts
-	err := tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period',''),t.amount::text
+	err := tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period',''),t.amount::text,te.source_event_id::text
 		FROM transaction t
 		JOIN transaction_evidence te ON te.transaction_id=t.id
 		JOIN document d ON d.id=NULLIF(te.metadata_json->>'document_id','')::uuid AND d.household_id=t.household_id
 		JOIN document_extraction de ON de.document_id=d.id AND de.stage='PAYSLIP'
-		WHERE t.id=$1 AND t.household_id=$2 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, transactionID, householdID).Scan(&facts.Employer, &facts.Period, &facts.NetPay)
+		WHERE t.id=$1 AND t.household_id=$2 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, transactionID, householdID).Scan(&facts.Employer, &facts.Period, &facts.NetPay, &facts.SourceEventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return facts, false, nil
 	}

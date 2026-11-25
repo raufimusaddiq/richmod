@@ -1277,6 +1277,8 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 
 **Consequence:** no migration; `transaction_evidence` gains one more `link_status` value (`REVERSED`) that active readers already exclude through the `ACTIVE` filter; a duplicate resolution surfaces as "not found/already resolved" to both web and Telegram callers; a wealth recap can no longer show a zero-length duplicate salary cycle.
 
+Amendment (2026-11-25, marking a payslip income as salary): a confirmed payslip-backed income without a salary event can be marked as salary from the transaction drawer (`POST /api/v1/transactions/{id}/mark-salary`, `reviewdomain.MarkPayslipIncomeAsSalary`), recorded under the household policy like the payslip auto path, enqueuing the residual job when the source is primary and auditing `MARK_PAYSLIP_SALARY`. A payslip confirmed as ordinary income by mistake otherwise never started its salary cycle and could not be repaired; an existing salary for the same source and period is refused (409), never overwritten.
+
 ## ADR-125: Cross-check model email facts before auto-confirm and bind entities on exact matches only
 *Accepted - 2026-11-25*
 
