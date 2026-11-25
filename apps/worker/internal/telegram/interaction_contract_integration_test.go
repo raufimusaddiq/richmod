@@ -197,8 +197,8 @@ func (h *contractHarness) openReview() {
 func (h *contractHarness) chats() []int64 { return []int64{h.f.chatID, h.chatB} }
 
 func (h *contractHarness) cardMessages() []int64 {
-	rows, err := h.f.pool.Query(h.ctx, `SELECT telegram_message_id FROM review_request_recipient WHERE review_request_id=$1 AND telegram_message_id IS NOT NULL
-		UNION SELECT telegram_message_id FROM review_request_message WHERE review_request_id=$1`, h.reviewID)
+	rows, err := h.f.pool.Query(h.ctx, `SELECT telegram_message_id FROM review_request_recipient WHERE telegram_chat_id=ANY($1) AND telegram_message_id IS NOT NULL
+		UNION SELECT telegram_message_id FROM review_request_message WHERE telegram_chat_id=ANY($1)`, h.chats())
 	mustAgentTest(h.t, err)
 	defer rows.Close()
 	var out []int64
@@ -1059,6 +1059,43 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 			h.tapLabel("Beli aset")
 			h.reply("akun 10")
 			h.wantCard("✅ Tersimpan: Beli aset · Akun 10 · Rp25.000")
+		}},
+		{"an account on page two typed plainly finishes the card", transfer, []contractOption{unclassified, withAssetAccounts("Akun 01", "Akun 02", "Akun 03", "Akun 04", "Akun 05", "Akun 06", "Akun 07", "Akun 08", "Akun 09", "Akun 10 dengan nama yang sangat panjang sekali")}, func(h *contractHarness) {
+			h.tapLabel("Beli aset")
+			h.wantNoButton("Akun 10 dengan nama yang sangat panjang sekali")
+			h.plain("akun 10 dengan nama yang sangat panjang sekali")
+			h.wantCard("✅ Tersimpan: Beli aset · Akun 10 dengan nama yang sangat panjang sekali · Rp25.000")
+			h.wantTransfer("TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Akun 10 dengan nama yang sangat panjang sekali")
+			h.wantAssistantCalls(0)
+		}},
+		{"an institution typed plainly is not an exact name and goes to the assistant", transfer, []contractOption{unclassified, withAssetAccountAt("Emas", "Antam")}, func(h *contractHarness) {
+			h.tapLabel("Beli aset")
+			h.chat("antam")
+			h.wantAssistantCalls(1)
+			h.wantType("UNCLASSIFIED", "NEEDS_REVIEW")
+		}},
+		{"an account name typed plainly while two account steps wait asks which card and saves nothing", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
+			h.tapLabel("Beli aset")
+			var second string
+			mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,created_by_user_id) VALUES($1,'UNCLASSIFIED','NEEDS_REVIEW',40000,'IDR',now(),$2) RETURNING id`, h.f.householdID, h.f.userID).Scan(&second))
+			tx, err := h.f.pool.Begin(h.ctx)
+			mustAgentTest(h.t, err)
+			mustAgentTest(h.t, EnqueueReviewRequest(h.ctx, tx, second, transfer, h.f.chatID, 0, "Nominal: Rp40.000"))
+			mustAgentTest(h.t, tx.Commit(h.ctx))
+			h.deliver()
+			var secondReview string
+			var secondMessage int64
+			mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `SELECT r.id::text,rr.telegram_message_id FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.transaction_id=$1 AND rr.telegram_chat_id=$2`, second, h.f.chatID).Scan(&secondReview, &secondMessage))
+			h.tapOn(h.f.chatID, secondMessage, h.texts[secondMessage], "review:asset")
+			h.chat("Emas")
+			h.wantAssistantCalls(0)
+			h.wantType("UNCLASSIFIED", "NEEDS_REVIEW")
+			var status string
+			mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `SELECT status FROM transaction WHERE id=$1`, second).Scan(&status))
+			if status != "NEEDS_REVIEW" {
+				t.Fatalf("the second card was answered: %s", status)
+			}
+			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'text' LIKE 'Ada beberapa kartu%'`, 1)
 		}},
 		{"investment accounts are paged by position", transfer, []contractOption{unclassified, withInvestmentAccounts("Dana 01", "Dana 02", "Dana 03", "Dana 04", "Dana 05", "Dana 06", "Dana 07", "Dana 08", "Dana 09")}, func(h *contractHarness) {
 			h.tapLabel("Investasi")

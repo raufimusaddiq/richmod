@@ -297,7 +297,11 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 	if err != nil {
 		return result, err
 	}
-	matched, answer := matchTypedCardAnswer(text, cards, names, p.turnTime(update))
+	accounts, err := p.waitingAccounts(ctx, householdID, cards)
+	if err != nil {
+		return result, err
+	}
+	matched, answer := matchTypedCardAnswer(text, cards, names, accounts, p.turnTime(update))
 	switch {
 	case len(matched) == 1:
 		return p.cardStepResult(result, update, matched[0], sourcePlain, ""), nil
@@ -486,4 +490,29 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 		buttons = append(buttons, row...)
 	}
 	return buttons, nil
+}
+
+func (p *Processor) waitingAccounts(ctx context.Context, householdID string, cards []agentReviewBinding) (map[string][]accountChoice, error) {
+	facts := map[string]factKind{"AWAITING_ASSET_WEALTH": factAsset, "AWAITING_INVESTMENT_ACCOUNT": factInvest}
+	out := map[string][]accountChoice{}
+	var tx pgx.Tx
+	for _, card := range cards {
+		fact, waiting := facts[card.ConversationState]
+		if !waiting || out[card.ConversationState] != nil {
+			continue
+		}
+		if tx == nil {
+			var err error
+			if tx, err = p.pool.Begin(ctx); err != nil {
+				return nil, err
+			}
+			defer tx.Rollback(ctx)
+		}
+		choices, err := accountCandidates(ctx, tx, householdID, fact)
+		if err != nil {
+			return nil, err
+		}
+		out[card.ConversationState] = append([]accountChoice{}, choices...)
+	}
+	return out, nil
 }

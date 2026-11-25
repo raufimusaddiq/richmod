@@ -176,7 +176,7 @@ func accountCandidates(ctx context.Context, tx pgx.Tx, householdID string, fact 
 	if fact == factInvest {
 		role = "INVESTMENT"
 	}
-	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND ($2='' OR usage_role=$2) ORDER BY name,id`, householdID, role)
+	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND ($2='' OR usage_role=$2) ORDER BY (wealth_type IN ('BANK','CASH','EWALLET')),name,id`, householdID, role)
 	if err != nil {
 		return nil, err
 	}
@@ -385,6 +385,24 @@ func (p *Processor) applyAccountTap(ctx context.Context, tx pgx.Tx, householdID,
 	return p.finishAccount(ctx, tx, householdID, sourceEventID, review, step, stored[index])
 }
 
+var errNoExactAccount = errors.New("no listed account has exactly this name")
+
+func exactAccountMatch(text string, choices []accountChoice) (accountChoice, bool) {
+	value := stripAnswerFiller(text)
+	if value == "" || strings.Contains(text, "?") {
+		return accountChoice{}, false
+	}
+	var found accountChoice
+	count := 0
+	for _, choice := range choices {
+		if value == stripAnswerFiller(choice.Name) || value == normalizeAnswer(choice.Name) {
+			found = choice
+			count++
+		}
+	}
+	return found, count == 1
+}
+
 func accountListed(choices []accountChoice, id string) bool {
 	for _, choice := range choices {
 		if choice.ID == id {
@@ -394,7 +412,7 @@ func accountListed(choices []accountChoice, id string) bool {
 	return false
 }
 
-func (p *Processor) applyAccountText(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, text string) (stepOutcome, error) {
+func (p *Processor) applyAccountText(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, text string, targeted bool) (stepOutcome, error) {
 	hint := strings.TrimSpace(text)
 	if hint == "" || len([]rune(hint)) > 80 || strings.Contains(hint, "?") {
 		return reask(step, unusableAnswerAck), nil
@@ -403,7 +421,15 @@ func (p *Processor) applyAccountText(ctx context.Context, tx pgx.Tx, householdID
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	id, resolveErr := resolveUniqueWealthHint(ctx, tx, householdID, hint)
+	var id string
+	var resolveErr error
+	if targeted {
+		id, resolveErr = resolveUniqueWealthHint(ctx, tx, householdID, hint)
+	} else if exact, ok := exactAccountMatch(hint, choices); ok {
+		id = exact.ID
+	} else {
+		resolveErr = errNoExactAccount
+	}
 	if resolveErr != nil || !accountListed(choices, id) {
 		return reask(step, "Aku belum menemukan satu akun yang cocok dengan “"+clean(hint, 40)+"”."), nil
 	}

@@ -224,7 +224,7 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 		}
 		return p.applyCategory(ctx, tx, householdID, sourceEventID, review, step, picked)
 	case factAsset, factInvest:
-		return p.applyAccountText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
+		return p.applyAccountText(ctx, tx, householdID, sourceEventID, review, step, in.Text, in.Targeted)
 	case factRemember:
 		remember, ok := rememberAnswer(in.Text)
 		if !ok {

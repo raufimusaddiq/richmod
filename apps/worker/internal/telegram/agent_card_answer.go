@@ -197,7 +197,7 @@ func (p *Processor) categoryNames(ctx context.Context, householdID string) (map[
 	return names, rows.Err()
 }
 
-func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories map[string]string, now time.Time) ([]agentReviewBinding, typedCardAnswer) {
+func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories map[string]string, accounts map[string][]accountChoice, now time.Time) ([]agentReviewBinding, typedCardAnswer) {
 	var matched []agentReviewBinding
 	var answer typedCardAnswer
 	var detailCards []agentReviewBinding
@@ -207,6 +207,10 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 		switch kind {
 		case cardAnswerCategory:
 			value, ok = parseCategoryAnswer(text, categories)
+		case cardAnswerAccount:
+			if choice, exact := exactAccountMatch(text, accounts[card.ConversationState]); exact {
+				value, ok = normalizeAnswer(choice.Name), true
+			}
 		case cardAnswerDate:
 			if parsed, valid := parseDateValue(text, now, 0); valid {
 				value, ok = parsed.Format("2006-01-02"), true
