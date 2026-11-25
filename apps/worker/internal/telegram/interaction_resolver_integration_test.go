@@ -26,8 +26,8 @@ func seedText(t *testing.T, ctx context.Context, f agentIntegrationFixture, text
 	mustAgentTest(t, err)
 	stamp := testsupport.UniqueStamp()
 	var sourceID string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`,
-		f.householdID, fmt.Sprintf("seed-%d-%d", stamp, messageID), []byte(fmt.Sprintf("seed-%d-%d", stamp, messageID))).Scan(&sourceID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED',$4,$5) RETURNING id`,
+		f.householdID, fmt.Sprintf("seed-%d-%d", stamp, messageID), []byte(fmt.Sprintf("seed-%d-%d", stamp, messageID)), messageID, f.chatID).Scan(&sourceID))
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
 	mustAgentTest(t, err)
 	return sourceID
@@ -391,13 +391,19 @@ func TestTapAndCardDeliveryAreRecordedAsInteractionSteps(t *testing.T) {
 	if got := countRows(t, ctx, f, `SELECT count(*) FROM product_telemetry_event WHERE household_id=$1 AND event_type='INTERACTION' AND action='STEP_SHOWN'`, f.householdID); got != 1 {
 		t.Fatalf("STEP_SHOWN rows = %d, want 1", got)
 	}
-	raw, err := json.Marshal(callbackUpdate(f.chatID, 777, "review:ignore"))
-	mustAgentTest(t, err)
-	var sourceID string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, f.householdID, fmt.Sprintf("tap-%d", testsupport.UniqueStamp()), raw).Scan(&sourceID))
-	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
-	mustAgentTest(t, err)
-	mustAgentTest(t, p.Process(ctx, sourceID))
+	tap := func(data string) {
+		raw, err := json.Marshal(callbackUpdate(f.chatID, 777, data))
+		mustAgentTest(t, err)
+		var sourceID string
+		mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, f.householdID, fmt.Sprintf("tap-%d", testsupport.UniqueStamp()), raw).Scan(&sourceID))
+		_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
+		mustAgentTest(t, err)
+		mustAgentTest(t, p.Process(ctx, sourceID))
+	}
+	tap("review:edit")
+	tap("review:catpage:1")
+	wantInteraction(t, ctx, f, interactionAnswered)
+	tap("review:ignore")
 	wantInteraction(t, ctx, f, interactionAnswered, "TAP")
 }
 

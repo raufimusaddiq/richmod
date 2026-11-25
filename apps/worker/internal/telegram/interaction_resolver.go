@@ -101,6 +101,19 @@ func (p *Processor) resolveInteraction(ctx context.Context, householdID, sourceE
 	return p.resolvePlain(ctx, householdID, update, override, result)
 }
 
+func navigationCallback(data string) bool {
+	switch data {
+	case "review:edit", "review:merchant", "review:description", "review:category":
+		return true
+	}
+	for _, prefix := range []string{"review:catpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:"} {
+		if strings.HasPrefix(data, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Processor) resolveTap(ctx context.Context, householdID string, update telegramUpdate) (interactionResult, error) {
 	result := interactionResult{Kind: interactionNone, Update: update}
 	message := update.CallbackQuery.Message
@@ -238,7 +251,7 @@ func (p *Processor) replyThreadParent(ctx context.Context, householdID string, c
 			ORDER BY d.created_at DESC LIMIT 1),
 		(SELECT NULLIF(pl.payload_json#>>'{message,reply_to_message,message_id}','')::bigint FROM source_event s JOIN source_event_payload pl ON pl.source_event_id=s.id
 			WHERE s.household_id=$1 AND s.source_type='TELEGRAM_TEXT' AND s.received_at>now()-interval '30 days'
-			  AND pl.payload_json#>>'{message,chat,id}'=$2::text AND pl.payload_json#>>'{message,message_id}'=$3::text
+			  AND s.telegram_chat_id=$2 AND s.telegram_message_id=$3
 			ORDER BY s.received_at DESC LIMIT 1),
 		0)`, householdID, chatID, messageID).Scan(&parent)
 	if err != nil {

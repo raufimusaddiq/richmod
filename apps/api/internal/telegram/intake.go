@@ -246,12 +246,22 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	}
 
 	payloadHash := sha256.Sum256(input.RawPayload)
+	var textEnvelope struct {
+		Message struct {
+			MessageID int64 `json:"message_id"`
+			Chat      struct {
+				ID int64 `json:"id"`
+			} `json:"chat"`
+		} `json:"message"`
+	}
+	_ = json.Unmarshal(input.RawPayload, &textEnvelope)
+	textMessageID, textChatID := textEnvelope.Message.MessageID, textEnvelope.Message.Chat.ID
 	var sourceEventID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO source_event (household_id,source_type,external_id,received_at,payload_hash,processing_status)
-		VALUES ($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED')
+		INSERT INTO source_event (household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id)
+		VALUES ($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED',NULLIF($4::bigint,0),NULLIF($5::bigint,0))
 		ON CONFLICT DO NOTHING
-		RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:]).Scan(&sourceEventID)
+		RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:], textMessageID, textChatID).Scan(&sourceEventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

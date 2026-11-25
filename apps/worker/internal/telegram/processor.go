@@ -159,7 +159,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	if update.CallbackQuery != nil {
 		if tapped, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, ""); err != nil {
 			return err
-		} else if tapped.Kind == interactionCardStep {
+		} else if tapped.Kind == interactionCardStep && !navigationCallback(update.CallbackQuery.Data) {
 			p.recordInteraction(ctx, householdID, sourceEventID, tapped.Card.ReviewItemID, interactionAnswered, sourceTap)
 		}
 		if handled, err := p.dispatchCallback(ctx, sourceEventID, householdID, update); handled {
