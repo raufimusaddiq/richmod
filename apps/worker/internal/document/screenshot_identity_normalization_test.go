@@ -138,17 +138,19 @@ func TestScreenshotRepairPromptNamesTheRuleAndStaysFieldRestricted(t *testing.T)
 	if len(properties) != len(repairableFieldNames("EWALLET_SCREENSHOT")) {
 		t.Fatalf("repair schema is no longer field-restricted: %v", properties)
 	}
-	if description, _ := properties["transactions"].(map[string]any)["description"].(string); !strings.Contains(description, "at most once") {
-		t.Fatalf("repair schema must carry the identifier rule: %q", description)
+	repairRow := properties["transactions"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	if repairRow["amount"].(map[string]any)["pattern"] != "^[0-9]+$" || repairRow["transaction_identifiers"].(map[string]any)["description"] != screenshotIdentifiersDescription {
+		t.Fatalf("repair schema must carry the extraction row contract: %v", repairRow)
+	}
+	if _, closed := repairRow["category_slug"].(map[string]any)["enum"]; closed {
+		t.Fatal("repair schema must not restrict category_slug to an empty household list")
+	}
+	if !strings.Contains(capture.prompt, "INVALID_TRANSACTION_IDENTITY = ") {
+		t.Fatalf("repair prompt must explain the flagged code: %s", capture.prompt)
 	}
 }
 
-func TestExtractionPromptAndSchemaStateTheIdentifierRule(t *testing.T) {
-	for _, want := range []string{"at most once per row", "at most 3 identifiers", "most specific"} {
-		if !strings.Contains(screenshotPrompt, want) {
-			t.Fatalf("screenshotPrompt missing %q", want)
-		}
-	}
+func TestExtractionSchemaStatesTheIdentifierRule(t *testing.T) {
 	rows := screenshotSchema([]string{"food"})["properties"].(map[string]any)["transactions"].(map[string]any)["items"].(map[string]any)
 	field := rows["properties"].(map[string]any)["transaction_identifiers"].(map[string]any)
 	description, _ := field["description"].(string)

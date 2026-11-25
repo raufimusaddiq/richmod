@@ -150,7 +150,7 @@ func TestScreenshotCaptionIsBoundedAndSanitised(t *testing.T) {
 	if !strings.HasPrefix(evidence, "transfer ke Bibit ") {
 		t.Fatalf("evidence lost its leading words: %q", evidence[:40])
 	}
-	prompt := screenshotExtractionText("Extract all completed transaction rows.", []byte(`["food-and-drink"]`), evidence)
+	prompt := screenshotExtractionText("Extract all completed transaction rows.", `["food-and-drink"]`, evidence)
 	if strings.Contains(prompt, strings.Repeat("a", screenshotCaptionChars+1)) {
 		t.Fatal("prompt carries evidence beyond the bound")
 	}

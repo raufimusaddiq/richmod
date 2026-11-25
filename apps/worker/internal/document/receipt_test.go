@@ -2,6 +2,7 @@ package document
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -112,6 +113,16 @@ func TestCollidingCategorySlugsAreNeverOfferedOrResolved(t *testing.T) {
 	rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("1000"), Currency: "IDR", CategorySlug: ptr("food"), CategoryConfidence: .95, Confidence: .95}}}, time.Now().In(jakarta()), categories, "")
 	if err != nil || len(rows) != 1 || rows[0].CategoryDecided || rows[0].CategoryID != nil {
 		t.Fatalf("screenshot must not decide a colliding slug: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestCategoryChoicesCarryParentChildLabels(t *testing.T) {
+	var choices []categoryChoice
+	if err := json.Unmarshal([]byte(categoryChoicesJSON([]categoryOption{{ID: "a", Slug: "kopi-camilan", Label: categoryLabel("Kopi & Camilan", "Makanan & Minuman")}})), &choices); err != nil {
+		t.Fatal(err)
+	}
+	if len(choices) != 1 || choices[0].Slug != "kopi-camilan" || choices[0].Label != "Makanan & Minuman > Kopi & Camilan" {
+		t.Fatalf("category choices = %+v", choices)
 	}
 }
 
