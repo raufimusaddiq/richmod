@@ -34,6 +34,9 @@ type typedCardAnswer struct {
 }
 
 func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
+	if step, ok := stepForBinding(card); ok {
+		return step.AnswerKind()
+	}
 	switch {
 	case card.Kind == cardKindProposal:
 		return proposalExpectedAnswer(card)
@@ -45,8 +48,7 @@ func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 		return cardAnswerCategory
 	case card.ConversationState == "AWAITING_DATE":
 		return cardAnswerDate
-	case card.ConversationState == "AWAITING_MERCHANT", card.ConversationState == "AWAITING_DETAIL",
-		card.ReviewType == "UNKNOWN_MERCHANT" && card.MerchantID == "", card.ReviewType == "UNKNOWN_PURPOSE":
+	case card.ConversationState == "AWAITING_MERCHANT", card.ConversationState == "AWAITING_DETAIL", card.ReviewType == "UNKNOWN_PURPOSE":
 		return cardAnswerDetail
 	}
 	return cardAnswerNone
@@ -469,6 +471,27 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 			_, _ = p.pool.Exec(context.WithoutCancel(ctx), `UPDATE telegram_pending_card_choice SET status='PENDING',resolved_at=NULL WHERE id=$1 AND status='RESOLVED'`, choiceID)
 		}
 	}()
+	if engineReviewType(binding.ReviewType) && field == string(cardAnswerCategory) {
+		asTyped := update
+		asTyped.CallbackQuery = nil
+		card := interactionCard{ReviewRequestID: binding.ReviewRequestID, ReviewItemID: binding.ReviewItemID, ReviewType: binding.ReviewType, ChatID: update.Message.Chat.ID, MessageID: cardMessageID}
+		handled, err := p.runStepEngine(ctx, householdID, sourceEventID, asTyped, card, engineInput{CategorySlug: value})
+		if err != nil {
+			return true, err
+		}
+		if handled {
+			applied = true
+			tx, err := p.pool.Begin(ctx)
+			if err != nil {
+				return true, err
+			}
+			defer tx.Rollback(ctx)
+			if err := enqueueRetireButtons(ctx, tx, update, "Sudah dipilih."); err != nil {
+				return true, err
+			}
+			return true, tx.Commit(ctx)
+		}
+	}
 	categories, err := p.categorySlugs(ctx, householdID)
 	if err != nil {
 		return true, err

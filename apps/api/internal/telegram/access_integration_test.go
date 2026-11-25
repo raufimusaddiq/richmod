@@ -123,3 +123,66 @@ func TestLinkNeverRebindsABoundTelegramID(t *testing.T) {
 		t.Fatalf("fresh Telegram ID: %v", err)
 	}
 }
+
+func TestCaptureRoutesRepliesToLiveReviewCardsToTheCardAnswerJob(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	telegramID := stamp%9_000_000_000 + 11
+	var householdID, userID, transactionID, itemID, requestID string
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Card answer %d", stamp)).Scan(&householdID))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Card Answer','x') RETURNING id`, fmt.Sprintf("card-answer-%d@example.test", stamp)).Scan(&userID))
+	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'MEMBER')`, householdID, userID)
+	must(err)
+	_, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, telegramID, householdID, userID)
+	must(err)
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now()) RETURNING id`, householdID).Scan(&transactionID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, transactionID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,$3,'UNKNOWN_MERCHANT','OPEN',$4) RETURNING id`, householdID, itemID, transactionID, telegramID).Scan(&requestID))
+	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,4242)`, requestID, telegramID)
+	must(err)
+
+	store := NewPostgreSQLStore(pool)
+	jobFor := func(offset int64, replyTo int64) string {
+		t.Helper()
+		reply := ""
+		if replyTo != 0 {
+			reply = fmt.Sprintf(`,"reply_to_message":{"message_id":%d}`, replyTo)
+		}
+		payload := fmt.Sprintf(`{"update_id":%d,"message":{"message_id":%d,"text":"Warung Contoh","chat":{"id":%d}%s}}`, stamp+offset, 9000+offset, telegramID, reply)
+		_, err := store.Capture(ctx, CaptureInput{UpdateID: stamp + offset, TelegramUserID: telegramID, RawPayload: []byte(payload)})
+		must(err)
+		var jobType string
+		must(pool.QueryRow(ctx, `SELECT j.type FROM job j JOIN source_event s ON s.id::text=j.payload_json->>'source_event_id' WHERE s.external_id=$1`, fmt.Sprintf("telegram:update:%d", stamp+offset)).Scan(&jobType))
+		return jobType
+	}
+	if got := jobFor(1, 4242); got != "PROCESS_TELEGRAM_CARD_ANSWER" {
+		t.Fatalf("a reply to a live card queued %s", got)
+	}
+	if got := jobFor(2, 777); got != "PROCESS_TELEGRAM_TEXT" {
+		t.Fatalf("a reply to an unrelated message queued %s", got)
+	}
+	if got := jobFor(3, 0); got != "PROCESS_TELEGRAM_TEXT" {
+		t.Fatalf("a plain message queued %s", got)
+	}
+	_, err = pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now() WHERE id=$1`, itemID)
+	must(err)
+	if got := jobFor(4, 4242); got != "PROCESS_TELEGRAM_TEXT" {
+		t.Fatalf("a reply to a finished card queued %s", got)
+	}
+}

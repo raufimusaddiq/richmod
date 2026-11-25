@@ -30,7 +30,7 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 		{
 			name: "category only is a bounded chooser", reviewType: "UNKNOWN_MERCHANT",
 			decision:  reviewdec.Decision{DecisionClass: reviewdec.ClassEvidenceGap, MissingFacts: []string{"category"}, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
-			wantState: "AWAITING_CATEGORY", context: "keep context", wantMode: "category",
+			wantState: "AWAITING_CATEGORY", context: "keep context", wantMode: "step",
 		},
 		{
 			name: "missing date is a bound reply", reviewType: "MISSING_TRANSACTION_DATE",

@@ -248,8 +248,11 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	payloadHash := sha256.Sum256(input.RawPayload)
 	var textEnvelope struct {
 		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      struct {
+			MessageID      int64 `json:"message_id"`
+			ReplyToMessage struct {
+				MessageID int64 `json:"message_id"`
+			} `json:"reply_to_message"`
+			Chat struct {
 				ID int64 `json:"id"`
 			} `json:"chat"`
 		} `json:"message"`
@@ -271,7 +274,26 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	if _, err := tx.Exec(ctx, `INSERT INTO source_event_payload (source_event_id,payload_json) VALUES ($1,$2::jsonb)`, sourceEventID, string(input.RawPayload)); err != nil {
 		return false, fmt.Errorf("preserve telegram payload: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('PROCESS_TELEGRAM_TEXT',jsonb_build_object('source_event_id',$1::uuid))`, sourceEventID); err != nil {
+	jobType := "PROCESS_TELEGRAM_TEXT"
+	if textEnvelope.Message.ReplyToMessage.MessageID != 0 {
+		var liveCard bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM review_request_recipient rr
+			JOIN review_request r ON r.id=rr.review_request_id
+			JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
+			LEFT JOIN review_conversation c ON c.review_request_id=r.id
+			WHERE r.household_id=$1 AND rr.telegram_chat_id=$2
+			  AND ((r.status IN ('OPEN','PENDING_SEND') AND ri.status IN ('OPEN','PENDING_SEND')
+			        AND (rr.telegram_message_id=$3 OR EXISTS(SELECT 1 FROM review_request_message m WHERE m.recipient_id=rr.id AND m.telegram_chat_id=$2 AND m.telegram_message_id=$3)))
+			    OR (c.state='AWAITING_MERCHANT_DECISION' AND rr.telegram_message_id=$3)))`,
+			householdID, textChatID, textEnvelope.Message.ReplyToMessage.MessageID).Scan(&liveCard); err != nil {
+			return false, fmt.Errorf("classify telegram reply target: %w", err)
+		}
+		if liveCard {
+			jobType = "PROCESS_TELEGRAM_CARD_ANSWER"
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ($2,jsonb_build_object('source_event_id',$1::uuid))`, sourceEventID, jobType); err != nil {
 		return false, fmt.Errorf("enqueue telegram processing: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

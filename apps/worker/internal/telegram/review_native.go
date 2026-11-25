@@ -217,39 +217,15 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 			}
 		}
 	}
-	if err := reviewdomain.RefreshTransactionLifecycle(ctx, tx, householdID, transactionID); err != nil {
-		return err
+	merchant := ""
+	if merchantID != nil {
+		merchant = *merchantID
 	}
-	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
-	if askRemember {
-		if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)
-			AND NOT EXISTS(SELECT 1 FROM transaction h WHERE h.household_id=$1 AND h.merchant_id=$2 AND h.id<>$4 AND h.status='CONFIRMED' AND h.category_id IS NOT NULL AND h.category_id<>$3
-				AND (h.auto_confirmed_at IS NULL OR EXISTS(SELECT 1 FROM product_telemetry_event e WHERE e.household_id=$1 AND e.transaction_id=h.id AND e.event_type='AUTO_CONFIRM_CORRECTION' AND 'category'=ANY(e.changed_fields))))`, householdID, *merchantID, categoryID, transactionID).Scan(&askRemember); err != nil {
-			return err
-		}
-	}
-	if askRemember {
-		if err := resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT_DECISION',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {
-			return err
-		}
-	} else {
-		if err := resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($2,$1,'TELEGRAM_REVIEW_REPLY',$3,jsonb_build_object('review_request_id',$4::uuid,'classification','CONFIRM')) ON CONFLICT DO NOTHING`, sourceEventID, transactionID, value.Confidence, reviewID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES ($1,'TELEGRAM',$2,'RESOLVE_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'category_id',NULLIF($5,'')::uuid,'merchant_id',(SELECT merchant_id FROM transaction WHERE id=$3)))`, householdID, userID, transactionID, reviewID, categoryID); err != nil {
+	askRemember, err := finishConfirmedReview(ctx, tx, confirmedReview{
+		HouseholdID: householdID, UserID: userID, ReviewID: reviewID, TransactionID: transactionID, CategoryID: categoryID,
+		SourceEventID: sourceEventID, MerchantID: merchant, Confidence: value.Confidence, OfferLearning: offerMerchantLearning,
+	})
+	if err != nil {
 		return err
 	}
 	learningMarkup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat kategori", CallbackData: "review:remember"}, {Text: "Hanya kali ini", CallbackData: "review:once"}}}}
@@ -274,6 +250,53 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		return err
 	}
 	return nil
+}
+
+type confirmedReview struct {
+	HouseholdID, UserID, ReviewID, TransactionID, CategoryID, SourceEventID, MerchantID string
+	Confidence                                                                          float64
+	OfferLearning                                                                       bool
+}
+
+func merchantLearningEligible(ctx context.Context, tx pgx.Tx, householdID, merchantID, categoryID, transactionID string) (bool, error) {
+	var eligible bool
+	err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)
+		AND NOT EXISTS(SELECT 1 FROM transaction h WHERE h.household_id=$1 AND h.merchant_id=$2 AND h.id<>$4 AND h.status='CONFIRMED' AND h.category_id IS NOT NULL AND h.category_id<>$3
+			AND (h.auto_confirmed_at IS NULL OR EXISTS(SELECT 1 FROM product_telemetry_event e WHERE e.household_id=$1 AND e.transaction_id=h.id AND e.event_type='AUTO_CONFIRM_CORRECTION' AND 'category'=ANY(e.changed_fields))))`, householdID, merchantID, categoryID, transactionID).Scan(&eligible)
+	return eligible, err
+}
+
+func finishConfirmedReview(ctx context.Context, tx pgx.Tx, in confirmedReview) (bool, error) {
+	if err := reviewdomain.RefreshTransactionLifecycle(ctx, tx, in.HouseholdID, in.TransactionID); err != nil {
+		return false, err
+	}
+	askRemember := false
+	if in.OfferLearning && in.MerchantID != "" && in.CategoryID != "" {
+		var err error
+		if askRemember, err = merchantLearningEligible(ctx, tx, in.HouseholdID, in.MerchantID, in.CategoryID, in.TransactionID); err != nil {
+			return false, err
+		}
+	}
+	if err := resolveCanonicalReviewItem(ctx, tx, in.ReviewID, in.UserID, "TELEGRAM_CONFIRMED"); err != nil {
+		return false, err
+	}
+	state := "RESOLVED"
+	if askRemember {
+		state = "AWAITING_MERCHANT_DECISION"
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$3,context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, in.ReviewID, in.CategoryID, state); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, in.SourceEventID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($2,$1,'TELEGRAM_REVIEW_REPLY',$3,jsonb_build_object('review_request_id',$4::uuid,'classification','CONFIRM')) ON CONFLICT DO NOTHING`, in.SourceEventID, in.TransactionID, in.Confidence, in.ReviewID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES ($1,'TELEGRAM',$2,'RESOLVE_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'category_id',NULLIF($5,'')::uuid,'merchant_id',(SELECT merchant_id FROM transaction WHERE id=$3)))`, in.HouseholdID, in.UserID, in.TransactionID, in.ReviewID, in.CategoryID); err != nil {
+		return false, err
+	}
+	return askRemember, nil
 }
 
 type cardOutcome struct {
@@ -389,28 +412,7 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
-	if remember {
-		var merchantID, categoryID string
-		if err = tx.QueryRow(ctx, `SELECT merchant_id,category_id FROM transaction WHERE id=$1 AND household_id=$2 AND status='CONFIRMED' AND merchant_id IS NOT NULL AND category_id IS NOT NULL`, transactionID, householdID).Scan(&merchantID, &categoryID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 AND household_id=$1 ON CONFLICT(household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true`, householdID, merchantID, categoryID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REMEMBER_MERCHANT','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'merchant_id',$5::uuid,'category_id',$6::uuid))`, householdID, userID, transactionID, reviewID, merchantID, categoryID); err != nil {
-			return err
-		}
-	}
-	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($3,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$1::uuid,'remember_merchant',$4::boolean)) ON CONFLICT DO NOTHING`, reviewID, sourceEventID, transactionID, remember); err != nil {
+	if err = commitMerchantLearning(ctx, tx, householdID, userID, reviewID, transactionID, sourceEventID, remember); err != nil {
 		return err
 	}
 	message := "Kategori ini hanya dipakai untuk transaksi tadi, tidak disimpan sebagai aturan merchant."
@@ -447,6 +449,35 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func commitMerchantLearning(ctx context.Context, tx pgx.Tx, householdID, userID, reviewID, transactionID, sourceEventID string, remember bool) error {
+	var err error
+	if remember {
+		var merchantID, categoryID string
+		if err = tx.QueryRow(ctx, `SELECT merchant_id,category_id FROM transaction WHERE id=$1 AND household_id=$2 AND status='CONFIRMED' AND merchant_id IS NOT NULL AND category_id IS NOT NULL`, transactionID, householdID).Scan(&merchantID, &categoryID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 AND household_id=$1 ON CONFLICT(household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true`, householdID, merchantID, categoryID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REMEMBER_MERCHANT','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'merchant_id',$5::uuid,'category_id',$6::uuid))`, householdID, userID, transactionID, reviewID, merchantID, categoryID); err != nil {
+			return err
+		}
+	}
+	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($3,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$1::uuid,'remember_merchant',$4::boolean)) ON CONFLICT DO NOTHING`, reviewID, sourceEventID, transactionID, remember); err != nil {
+		return err
+	}
+	return nil
 }
 
 func reviewSchema(slugs []string, categoriesRequired ...bool) map[string]any {

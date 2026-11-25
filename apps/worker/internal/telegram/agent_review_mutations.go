@@ -84,6 +84,29 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 	return result, true, nil
 }
 
+func setReviewMerchant(ctx context.Context, tx pgx.Tx, householdID, reviewID, transactionID, value string) (string, error) {
+	var merchantID, rememberedCategoryID string
+	match, err := merchantmemory.Lookup(ctx, tx, householdID, value)
+	if err != nil {
+		return "", err
+	}
+	if match != nil {
+		merchantID, rememberedCategoryID = match.MerchantID, match.CategoryID
+	} else if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
+		return "", err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
+		return "", err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
+		return "", err
+	}
+	if err = recordReviewMerchantFact(ctx, tx, householdID, reviewID, value); err != nil {
+		return "", err
+	}
+	return rememberedCategoryID, nil
+}
+
 func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState, call gateway.ToolCall, review agentTransactionReview, field, value string) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -107,26 +130,7 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	rememberedCategoryID := ""
 	dateCompleted := false
 	if field == "merchant" {
-		var merchantID string
-		match, lookupErr := merchantmemory.Lookup(ctx, tx, state.HouseholdID, value)
-		if lookupErr != nil {
-			return result, true, lookupErr
-		}
-		if match != nil {
-			merchantID, rememberedCategoryID = match.MerchantID, match.CategoryID
-		} else {
-			err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, state.HouseholdID, value).Scan(&merchantID)
-		}
-		if err != nil {
-			return result, true, err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, review.transactionID, merchantID, state.HouseholdID); err != nil {
-			return result, true, err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, value); err != nil {
-			return result, true, err
-		}
-		if err = recordReviewMerchantFact(ctx, tx, state.HouseholdID, review.reviewID, value); err != nil {
+		if rememberedCategoryID, err = setReviewMerchant(ctx, tx, state.HouseholdID, review.reviewID, review.transactionID, value); err != nil {
 			return result, true, err
 		}
 	} else if field == "transaction_at" {

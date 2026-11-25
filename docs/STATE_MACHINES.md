@@ -18,7 +18,7 @@ Last audited: 2026-11 (see ADR-049 amendment, migrations 00097, 00098 and 00100)
 | `review_item` → `review_request` → `review_conversation` | item RESOLVED closes its request; request RESOLVED/CANCELLED resolves its conversations (not EXPIRED, not `AWAITING_MERCHANT_DECISION`) | triggers `review_item_close_request`, `review_request_close_conversation` (00098) |
 | `review_request` card delivery | see `review_request_recipient` below | triggers/functions of 00079 and 00094 |
 | `review_item.decision` | an item may never be (re)opened without a valid decision | trigger `review_item_require_decision` (00078) |
-| `job.lane` | assigned from the type: INTERACTIVE / DETERMINISTIC / DEFAULT / BACKGROUND | trigger `enforce_job_lane` (00104) |
+| `job.lane` | assigned from the type: INTERACTIVE / DETERMINISTIC / DEFAULT / BACKGROUND | trigger `enforce_job_lane` (00107) |
 
 ## Enforced in Go (single owner)
 

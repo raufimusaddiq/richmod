@@ -83,6 +83,13 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return p.askAnswerOrNew(ctx, householdID, sourceEventID, update)
 	case interactionCardStep:
 		p.recordInteraction(ctx, householdID, sourceEventID, resolved.Card.ReviewItemID, interactionAnswered, resolved.Source)
+		input := engineInput{Text: text}
+		if resolved.ButtonData != "" {
+			input = engineInput{Tap: resolved.ButtonData}
+		}
+		if handled, err := p.runStepEngine(ctx, householdID, sourceEventID, update, resolved.Card, input); handled || err != nil {
+			return err
+		}
 		if resolved.ButtonData != "" {
 			if handled, err := p.dispatchCallback(ctx, sourceEventID, householdID, syntheticTap(update, resolved.Card, resolved.ButtonData)); handled || err != nil {
 				return err

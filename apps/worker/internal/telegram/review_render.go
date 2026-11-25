@@ -94,6 +94,9 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 }
 
 func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) reviewCard {
+	if step, ok := deriveStep(decision, reviewType, facts, subject); ok {
+		return stepRenderCard(step)
+	}
 	card := reviewCard{State: "AWAITING_DETAIL", Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
 	kind := subject.transactionType(decision)
 	switch {
@@ -142,12 +145,6 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		card.Mode, card.Title = "duplicate", promptTitle(decision)
 		card.Instruction = replyInstruction(decision)
-	case contains(decision.MissingFacts, "merchant"):
-		card.State, card.Mode, card.Title = "AWAITING_MERCHANT", "reply", "🟡 Nama merchant belum ada"
-		card.Instruction = "Balas pesan ini (Reply) dengan nama merchant."
-		if merchantAssetOption(decision, reviewType) {
-			card.Instruction += " Jika ini pembelian aset, pilih Beli aset."
-		}
 	case decision.ReasonCode == "CYCLE_RESIDUAL_ALLOCATION":
 		card.Mode, card.Title = "cycle", reviewdomain.CycleResidualCardTitle
 		card.Instruction = reviewdomain.CycleResidualCardReplyInstruction
@@ -198,6 +195,9 @@ func cardActions(decision reviewdec.Decision, reviewType string) []string {
 type reviewMarkupBuilder func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject, actions []string) (*InlineKeyboardMarkup, error)
 
 var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
+	"step": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, _ reviewCard, subject reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		return stepMarkup(ctx, tx, reviewID, reviewType, decision, subject)
+	},
 	"category": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
 		return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0), nil
 	},
@@ -210,12 +210,8 @@ var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
 		}
 		return reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0), nil
 	},
-	"reply": func(_ context.Context, _ pgx.Tx, _, reviewType string, decision reviewdec.Decision, card reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		row := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
-		if card.State == "AWAITING_MERCHANT" && merchantAssetOption(decision, reviewType) {
-			row = []InlineKeyboardButton{{Text: "Beli aset", CallbackData: "review:asset"}, row[0]}
-		}
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{row}}, nil
+	"reply": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
 	},
 	"cycle": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, actions []string) (*InlineKeyboardMarkup, error) {
 		if contains(actions, "LEAVE_UNALLOCATED") {

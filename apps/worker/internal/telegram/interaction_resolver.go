@@ -218,6 +218,8 @@ func (p *Processor) classifyMessage(ctx context.Context, householdID string, cha
 	}
 	card.ChatID, card.MessageID, card.State = chatID, current, conversation
 	switch {
+	case !learningMessage && conversation == "AWAITING_MERCHANT_DECISION" && engineReviewType(card.ReviewType) && current == messageID:
+		out.Stop = stopLiveCard
 	case learningMessage || conversation == "AWAITING_MERCHANT_DECISION":
 		out.Stop = stopMerchantLearning
 	case (requestStatus == "OPEN" || requestStatus == "EXPIRED") && (itemStatus == "OPEN" || itemStatus == "PENDING_SEND") && current != 0:
@@ -393,10 +395,14 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 	}
 	defer tx.Rollback(ctx)
 	var raw []byte
-	var reviewType string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb),ri.review_type FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
-		WHERE r.id=$1 AND r.household_id=$2`, reviewRequestID, householdID).Scan(&raw, &reviewType); err != nil {
+	var reviewType, state string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb),ri.review_type,COALESCE(c.state,'') FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
+		LEFT JOIN review_conversation c ON c.review_request_id=r.id
+		WHERE r.id=$1 AND r.household_id=$2`, reviewRequestID, householdID).Scan(&raw, &reviewType, &state); err != nil {
 		return nil, err
+	}
+	if state == "AWAITING_MERCHANT_DECISION" && engineReviewType(reviewType) {
+		return rememberStep("", "", "").buttons(), nil
 	}
 	var decision reviewdec.Decision
 	if err := json.Unmarshal(raw, &decision); err != nil {
