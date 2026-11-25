@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,5 +170,49 @@ func TestAssetPurchaseToolIsOfferedOnlyForABoundBalanceScreenshot(t *testing.T) 
 	call := gateway.ToolCall{Name: toolProposeAssetPurchase, Arguments: json.RawMessage(`{"source_account_hint":"Jago","wealth_account_hint":null,"date_reference":"EXPLICIT","explicit_date":null,"local_time":null}`)}
 	if _, err := validateProposeAssetPurchase(call); err == nil {
 		t.Fatal("an explicit date without a date was accepted")
+	}
+}
+
+func (s assetPurchaseScene) insertTransferAtProposalTime(t *testing.T, transactionType, status string) {
+	t.Helper()
+	ctx := context.Background()
+	var at string
+	mustAgentTest(t, s.f.pool.QueryRow(ctx, `SELECT context_json->'asset_purchase'->>'transaction_at' FROM review_conversation WHERE review_request_id=$1`, s.created.reviewID).Scan(&at))
+	_, err := s.f.pool.Exec(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,created_by_user_id) VALUES($1,$2,$3,$4,5000000,'IDR',$5::timestamptz,$6)`, s.f.householdID, s.accountID, transactionType, status, at, s.f.userID)
+	mustAgentTest(t, err)
+}
+
+func TestAssetPurchaseWithTwoSimilarTransfersKeepsTheCardWaiting(t *testing.T) {
+	t.Parallel()
+	scene := newAssetPurchaseScene(t, "asset-purchase-two-similar", 706)
+	result := scene.propose(t, scene.state())
+	scene.insertTransferAtProposalTime(t, "TRANSFER", "NEEDS_REVIEW")
+	scene.insertTransferAtProposalTime(t, "UNCLASSIFIED", "NEEDS_REVIEW")
+	if !scene.confirm(t, true, result.confirmationToken) {
+		t.Fatal("confirm tap was not handled")
+	}
+	scene.wantUntouched(t)
+	if outcome := assetPurchaseOutcomeMessage("TRANSFER_RECONCILIATION_REQUIRED", assetPurchaseProposal{}); !strings.Contains(outcome, "Kartu saldonya tetap menunggu") {
+		t.Fatalf("the refusal gives no next step: %q", outcome)
+	}
+}
+
+func TestAssetPurchaseReusingAnExistingRowSaysSo(t *testing.T) {
+	t.Parallel()
+	scene := newAssetPurchaseScene(t, "asset-purchase-reuse", 707)
+	result := scene.propose(t, scene.state())
+	scene.insertTransferAtProposalTime(t, "UNCLASSIFIED", "NEEDS_REVIEW")
+	if !scene.confirm(t, true, result.confirmationToken) {
+		t.Fatal("confirm tap was not handled")
+	}
+	var transactions int
+	mustAgentTest(t, scene.f.pool.QueryRow(context.Background(), `SELECT count(*) FROM transaction WHERE household_id=$1 AND account_id=$2`, scene.f.householdID, scene.accountID).Scan(&transactions))
+	if transactions != 1 {
+		t.Fatalf("a new transaction was created beside the existing row: %d", transactions)
+	}
+	var reply string
+	mustAgentTest(t, scene.f.pool.QueryRow(context.Background(), `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 ORDER BY created_at DESC LIMIT 1`, scene.f.chatID).Scan(&reply))
+	if !strings.Contains(reply, "transaksi yang sudah ada") {
+		t.Fatalf("outcome does not say the existing row was used: %q", reply)
 	}
 }

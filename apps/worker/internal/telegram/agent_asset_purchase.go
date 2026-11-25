@@ -237,8 +237,10 @@ func assetPurchaseOutcomeMessage(status string, proposal assetPurchaseProposal) 
 	switch status {
 	case "RESOLVED":
 		return "✅ Pembelian aset Rp" + FormatIDR(proposal.amount) + " sudah tercatat."
+	case "RESOLVED_EXISTING":
+		return "✅ Pembelian aset Rp" + FormatIDR(proposal.amount) + " tercatat dengan memakai transaksi yang sudah ada pada hari itu, tidak ada transaksi baru."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
-		return "Ada transaksi lain yang mirip pada hari itu, jadi belum ada yang dicatat. Cek dulu di halaman transaksi."
+		return "Ada beberapa transaksi mirip pada hari itu, jadi belum ada yang dicatat. Kartu saldonya tetap menunggu: pilih akun atau Abaikan di kartunya, atau rapikan transaksinya di halaman Transaksi lalu minta lagi."
 	case "INCOMPATIBLE_WEALTH_ACCOUNT":
 		return "Akun kekayaan itu tidak bisa dipakai untuk pembelian aset, jadi belum ada yang dicatat."
 	default:
@@ -274,7 +276,7 @@ func (p *Processor) applyAssetPurchaseTx(ctx context.Context, tx pgx.Tx, househo
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return "", err
 	}
-	transactionID, status, err := p.upsertAssetPurchaseTransferTx(ctx, tx, householdID, userID, proposal)
+	transactionID, reused, status, err := p.upsertAssetPurchaseTransferTx(ctx, tx, householdID, userID, proposal)
 	if err != nil || status != "" {
 		return status, err
 	}
@@ -310,10 +312,13 @@ func (p *Processor) applyAssetPurchaseTx(ctx context.Context, tx pgx.Tx, househo
 	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, proposal.at, userID); err != nil {
 		return "", err
 	}
+	if reused {
+		return "RESOLVED_EXISTING", nil
+	}
 	return "RESOLVED", nil
 }
 
-func (p *Processor) upsertAssetPurchaseTransferTx(ctx context.Context, tx pgx.Tx, householdID, userID string, proposal assetPurchaseProposal) (string, string, error) {
+func (p *Processor) upsertAssetPurchaseTransferTx(ctx context.Context, tx pgx.Tx, householdID, userID string, proposal assetPurchaseProposal) (string, bool, string, error) {
 	localAt := proposal.at.In(jakartaLocation())
 	dayStart := time.Date(localAt.Year(), localAt.Month(), localAt.Day(), 0, 0, 0, 0, jakartaLocation()).UTC()
 	type candidate struct {
@@ -328,23 +333,23 @@ func (p *Processor) upsertAssetPurchaseTransferTx(ctx context.Context, tx pgx.Tx
 		ORDER BY abs(extract(epoch FROM transaction_at-$6::timestamptz)),id
 		LIMIT 2`, householdID, proposal.accountID, proposal.amount, dayStart, dayStart.AddDate(0, 0, 1), proposal.at.UTC())
 	if err != nil {
-		return "", "", err
+		return "", false, "", err
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
 		if err = rows.Scan(&c.id, &c.kind, &c.status, &c.purpose, &c.existingWealth, &c.at); err != nil {
 			rows.Close()
-			return "", "", err
+			return "", false, "", err
 		}
 		candidates = append(candidates, c)
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
-		return "", "", err
+		return "", false, "", err
 	}
 	if len(candidates) > 1 {
-		return "", "TRANSFER_RECONCILIATION_REQUIRED", nil
+		return "", false, "TRANSFER_RECONCILIATION_REQUIRED", nil
 	}
 	if len(candidates) == 0 {
 		var transactionID string
@@ -352,16 +357,16 @@ func (p *Processor) upsertAssetPurchaseTransferTx(ctx context.Context, tx pgx.Tx
 			INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at)
 			VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Pembelian investasi dari observasi kekayaan',$5,'ASSET_PURCHASE',$6::uuid,now())
 			RETURNING id::text`, householdID, proposal.accountID, proposal.amount, proposal.at, userID, proposal.wealthID).Scan(&transactionID)
-		return transactionID, "", err
+		return transactionID, false, "", err
 	}
 	found := candidates[0]
 	if found.at.Sub(proposal.at).Abs() >= time.Minute {
-		return "", "TRANSFER_RECONCILIATION_REQUIRED", nil
+		return "", false, "TRANSFER_RECONCILIATION_REQUIRED", nil
 	}
 	switch {
 	case found.kind == "TRANSFER" && found.status == "CONFIRMED":
 		if found.purpose != "ASSET_PURCHASE" || found.existingWealth != proposal.wealthID {
-			return "", "TRANSFER_RECONCILIATION_REQUIRED", nil
+			return "", false, "TRANSFER_RECONCILIATION_REQUIRED", nil
 		}
 	case found.kind == "UNCLASSIFIED" || found.status == "NEEDS_REVIEW":
 		updated, err := tx.Exec(ctx, `
@@ -372,16 +377,16 @@ func (p *Processor) upsertAssetPurchaseTransferTx(ctx context.Context, tx pgx.Tx
 			    confirmed_at=COALESCE(confirmed_at,now()),voided_at=NULL,updated_at=now()
 			WHERE id=$1 AND household_id=$3 AND status<>'VOIDED'`, found.id, proposal.wealthID, householdID)
 		if err != nil {
-			return "", "", err
+			return "", false, "", err
 		}
 		if updated.RowsAffected() != 1 {
-			return "", "TRANSFER_RECONCILIATION_REQUIRED", nil
+			return "", false, "TRANSFER_RECONCILIATION_REQUIRED", nil
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='TRANSFER',proposal_status='ACCEPTED',metadata_json=metadata_json||jsonb_build_object('purpose','ASSET_PURCHASE','agent_sprint',1),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, found.id); err != nil {
-			return "", "", err
+			return "", false, "", err
 		}
 	default:
-		return "", "TRANSFER_RECONCILIATION_REQUIRED", nil
+		return "", false, "TRANSFER_RECONCILIATION_REQUIRED", nil
 	}
-	return found.id, "", nil
+	return found.id, true, "", nil
 }
