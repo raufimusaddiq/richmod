@@ -148,7 +148,6 @@ func parseStrictBankRFC3339(value string) (time.Time, error) {
 	return parsed, nil
 }
 
-
 func oneOf(value string, values ...string) bool {
 	for _, item := range values {
 		if value == item {
