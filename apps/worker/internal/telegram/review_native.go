@@ -15,7 +15,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func (p *Processor) extractReview(ctx context.Context, sourceEventID, text string, categories []categoryChoice) (reviewExtraction, error) {
+func (p *Processor) extractReview(ctx context.Context, sourceEventID, text string, now time.Time, categories []categoryChoice) (reviewExtraction, error) {
 	if p.gateway == nil {
 		return reviewExtraction{}, fmt.Errorf("review classifier unavailable")
 	}
@@ -24,7 +24,7 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 		slugs = append(slugs, category.Slug)
 	}
 	call, metadata, err := p.gateway.NativeToolCall(ctx, sourceEventID, reviewPrompt,
-		map[string]any{"reply": untrustedUser(text), "allowed_category_slugs": slugs},
+		map[string]any{"reply": untrustedUser(text), "allowed_category_slugs": slugs, "current_jakarta_date": now.In(jakartaLocation()).Format("2006-01-02")},
 		[]gateway.ToolDefinition{{Name: "resolve_review", Description: "Resolve one already-bound finance review using bounded values.", Parameters: reviewSchema(slugs, len(categories) > 0)}}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return reviewExtraction{}, err

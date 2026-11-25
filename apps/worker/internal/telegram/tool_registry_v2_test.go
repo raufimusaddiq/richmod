@@ -23,6 +23,14 @@ func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
 	if _, err := ValidateNativeToolCall(call); err != nil {
 		t.Fatalf("reference correction rejected: %v", err)
 	}
+	args, _ = json.Marshal(map[string]any{"target_ref": "tx_2", "search_text": nil, "period": nil, "from_date": nil, "to_date": nil, "category_slug": nil, "description": "koreksi", "date_reference": nil, "explicit_date": nil, "local_time": nil})
+	if _, err := ValidateNativeToolCall(gateway.ToolCall{Name: "propose_transaction_correction", Arguments: args}); err != nil {
+		t.Fatalf("reference correction without period rejected: %v", err)
+	}
+	args, _ = json.Marshal(map[string]any{"target_ref": nil, "search_text": "kopi", "period": nil, "from_date": nil, "to_date": nil, "category_slug": nil, "description": "koreksi", "date_reference": nil, "explicit_date": nil, "local_time": nil})
+	if _, err := ValidateNativeToolCall(gateway.ToolCall{Name: "propose_transaction_correction", Arguments: args}); err == nil || !strings.Contains(err.Error(), "CURRENT_CYCLE") {
+		t.Fatalf("search correction without period: err=%v, want the allowed periods named", err)
+	}
 }
 
 func TestReviewActionMatrixIsBoundedByType(t *testing.T) {

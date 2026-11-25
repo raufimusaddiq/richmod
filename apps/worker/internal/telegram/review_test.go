@@ -74,7 +74,7 @@ func TestReviewRequiresFactFailsClosedForInvalidContract(t *testing.T) {
 
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}
-	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", []categoryChoice{
+	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", time.Now(), []categoryChoice{
 		{ID: "category-1", Name: "Belanja Rumah Tangga", Slug: "belanja-rumah-tangga"},
 		{ID: "category-2", Name: "Transportasi", Slug: "transportasi"},
 	})
