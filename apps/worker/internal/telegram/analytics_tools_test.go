@@ -10,7 +10,7 @@ import (
 
 func TestTelegramExposesSharedAnalyticalReadTools(t *testing.T) {
 	catalog := map[string]bool{}
-	for _, tool := range AgentFinanceTools(nil, false, false, false, "", false, false, "") {
+	for _, tool := range AgentFinanceTools(nil, false, false) {
 		catalog[tool.Name] = true
 	}
 	for _, tool := range analyticscore.Tools() {

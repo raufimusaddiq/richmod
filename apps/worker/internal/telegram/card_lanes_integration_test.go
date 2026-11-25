@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
@@ -323,30 +324,6 @@ func TestIncomeCardConfirmAndChangeExecute(t *testing.T) {
 	}
 }
 
-func TestReRenderedCardKeepsItsRemainingActions(t *testing.T) {
-	t.Parallel()
-	f := newCardFixture(t)
-	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',18502,now()) RETURNING id`, f.household)
-	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'MISSING_TRANSACTION_DATE','OPEN','{"version":1,"reasonCode":"MISSING_TRANSACTION_DATE","missingFacts":["transaction_at"],"allowedActions":["SET_PAY_DATE","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
-	request := f.bindCard(item, transaction, "MISSING_TRANSACTION_DATE", "AWAITING_DATE", 61, "card")
-	tx, err := f.pool.Begin(f.ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback(f.ctx)
-	update := callbackUpdate(f.chat, 61, "review:cat:x")
-	if err := refreshReviewFactsProjection(f.ctx, tx, f.household, request, update); err != nil {
-		t.Fatal(err)
-	}
-	var text, markup string
-	if err := tx.QueryRow(f.ctx, `SELECT payload_json->>'text',payload_json->'reply_markup'::text FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, request).Scan(&text, &markup); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(markup, "review:ignore") || !strings.Contains(text, "Nominal: Rp18.502") || !strings.Contains(text, "Alasan: ") {
-		t.Fatalf("re-rendered card: %q %s", text, markup)
-	}
-}
-
 func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
 	t.Parallel()
 	f := newCardFixture(t)
@@ -629,4 +606,12 @@ func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
 	if strings.Contains(markup, "review:xfer:merge:") || strings.Contains(markup, "review:xfer:new") || !strings.Contains(markup, "review:ignore") {
 		t.Fatalf("a purpose-less case with no mergeable candidate offers only dismiss: %s", markup)
 	}
+}
+
+func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page int) *InlineKeyboardMarkup {
+	chooser, err := loadCategoryPage(ctx, tx, reviewID, page)
+	if err != nil {
+		return nil
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: chooser.keyboard()}
 }

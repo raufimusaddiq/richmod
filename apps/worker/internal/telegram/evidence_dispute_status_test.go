@@ -7,7 +7,7 @@ func TestDisputeStatusesHaveSpecificRepliesNotGenericSuccess(t *testing.T) {
 	seen := map[string]string{}
 	for _, status := range []string{
 		"EVIDENCE_DISPUTE_STAGED", "EVIDENCE_DISPUTE_ALREADY_STAGED", "EVIDENCE_DISPUTE_INVALID",
-		"EVIDENCE_DISPUTE_UNAUTHORIZED", "EVIDENCE_DISPUTE_USE_BUTTONS",
+		"EVIDENCE_DISPUTE_UNAUTHORIZED",
 	} {
 		reply := agentMutationFallback(agentToolResult{Tool: "dispute_evidence_link", Status: status})
 		if reply == "" || reply == generic {

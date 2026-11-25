@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 type mergeTargetFixture struct {
@@ -102,45 +101,5 @@ func (f *mergeTargetFixture) refusedReply() {
 	}
 	if got := f.str(`SELECT processing_status FROM source_event WHERE id=$1`, f.replySource); got != "IGNORED" {
 		f.t.Fatalf("reply source event = %s", got)
-	}
-}
-
-func TestAgentRejectRefusesActiveMergeTargetWithToolStatus(t *testing.T) {
-	t.Parallel()
-	f := newMergeTargetFixture(t, "EXPENSE", "AMBIGUOUS_CATEGORY")
-	state := &agentState{SourceEventID: f.replySource, HouseholdID: f.household, Update: f.update}
-	result, _, err := NewProcessor(f.pool, nil).agentRejectTransactionReview(f.ctx, state, gateway.ToolCall{CallID: "c1", Name: "reject_transaction_review"}, agentTransactionReview{reviewID: f.request, transactionID: f.target, reviewType: "AMBIGUOUS_CATEGORY"})
-	if err != nil {
-		t.Fatalf("a refusal is a tool status, not an error: %v", err)
-	}
-	if result.Status != "MERGE_TARGET_ACTIVE" {
-		t.Fatalf("status = %q", result.Status)
-	}
-	f.untouched()
-	reply, ok := agentMutationReply(result)
-	if !ok || !strings.Contains(reply, "tujuan penggabungan yang masih aktif") {
-		t.Fatalf("deterministic reply = %q (%v)", reply, ok)
-	}
-}
-
-func TestAgentSalaryIgnoreRefusesActiveMergeTarget(t *testing.T) {
-	t.Parallel()
-	f := newMergeTargetFixture(t, "INCOME", "PAYSLIP_CONFIRMATION")
-	if _, err := f.pool.Exec(f.ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date,status) VALUES($1,$2,$2,$3,'Test','2026-11-01','2026-11-25','PENDING')`, f.household, f.chat, f.target); err != nil {
-		t.Fatal(err)
-	}
-	state := &agentState{SourceEventID: f.replySource, HouseholdID: f.household, Update: f.update}
-	result, _, err := NewProcessor(f.pool, nil).agentResolveSalaryChoice(f.ctx, state, gateway.ToolCall{CallID: "c2", Name: "resolve_salary_choice"}, map[string]any{"choice": "IGNORE"})
-	if err != nil {
-		t.Fatalf("a refusal is a tool status, not an error: %v", err)
-	}
-	if result.Status != "MERGE_TARGET_ACTIVE" {
-		t.Fatalf("status = %q", result.Status)
-	}
-	if got := f.str(`SELECT status FROM transaction WHERE id=$1`, f.target); got != "NEEDS_REVIEW" {
-		t.Fatalf("target status = %s", got)
-	}
-	if got := f.str(`SELECT status FROM salary_pending_choice WHERE transaction_id=$1`, f.target); got != "PENDING" {
-		t.Fatalf("salary choice = %s, the household must still be able to answer it", got)
 	}
 }

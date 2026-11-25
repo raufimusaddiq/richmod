@@ -6,189 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
-
-func (p *Processor) extractReview(ctx context.Context, sourceEventID, text string, now time.Time, categories []categoryChoice) (reviewExtraction, error) {
-	if p.gateway == nil {
-		return reviewExtraction{}, fmt.Errorf("review classifier unavailable")
-	}
-	slugs := make([]string, 0, len(categories))
-	for _, category := range categories {
-		slugs = append(slugs, category.Slug)
-	}
-	call, metadata, err := p.gateway.NativeToolCall(ctx, sourceEventID, reviewPrompt,
-		map[string]any{"reply": untrustedUser(text), "allowed_category_slugs": slugs, "current_jakarta_date": now.In(jakartaLocation()).Format("2006-01-02")},
-		[]gateway.ToolDefinition{{Name: "resolve_review", Description: "Resolve one already-bound finance review using bounded values.", Parameters: reviewSchema(slugs, len(categories) > 0)}}, gateway.NativeToolOptions{Required: true})
-	if err != nil {
-		return reviewExtraction{}, err
-	}
-	result, err := gateway.DecodeToolArguments[reviewExtraction](call, "resolve_review")
-	if err != nil {
-		return reviewExtraction{}, err
-	}
-	_ = metadata
-	if result.Confidence < 0 || result.Confidence > 1 {
-		return reviewExtraction{}, fmt.Errorf("review confidence outside range")
-	}
-	result.Description = clean(result.Description, 500)
-	result.Note = clean(result.Note, 1000)
-	return result, nil
-}
-
-func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description, date string) (field, value string, required bool) {
-	if state == "AWAITING_MERCHANT" || (reviewType == "UNKNOWN_MERCHANT" && merchantID == "" && strings.TrimSpace(merchant) != "") {
-		return "merchant", clean(strings.TrimSpace(merchant), 500), true
-	}
-	if state == "AWAITING_DATE" {
-		return "transaction_at", strings.TrimSpace(date), true
-	}
-	if reviewType == "UNKNOWN_PURPOSE" || state == "AWAITING_DETAIL" {
-		return "description", clean(strings.TrimSpace(description), 500), true
-	}
-	return "", "", false
-}
-
-func validReviewDate(value string) bool {
-	_, err := time.Parse("2006-01-02", strings.TrimSpace(value))
-	return err == nil
-}
-
-func validReviewTimestamp(value string) bool {
-	if strings.TrimSpace(value) == "" {
-		return false
-	}
-	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
-	return err == nil && !parsed.IsZero() && parsed.Format(time.RFC3339) != ""
-}
-
-func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	var userID string
-	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
-		return err
-	}
-	if err := p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, value, userID, true); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction, userID string, offerMerchantLearning bool) error {
-	var err error
-	var merchantID *string
-	var storedDecision []byte
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM review_request WHERE id=$1 AND household_id=$2 FOR UPDATE`, reviewID, householdID); err != nil {
-		return err
-	}
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id WHERE rr.id=$1 AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE OF ri`, reviewID, householdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-	payDate, payDateErr := parseSuppliedReviewDate(value.PayDate)
-	if payDateErr != nil {
-		return payDateErr
-	}
-	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
-		return enqueueReply(ctx, tx, update, reviewStillNeedsDetailsMessage)
-	}
-	var transactionAt *time.Time
-	if payDate != nil {
-		parsed, err := time.ParseInLocation("2006-01-02", *payDate, jakartaLocation())
-		if err != nil {
-			return err
-		}
-		transactionAt = &parsed
-	}
-	var requestID string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&requestID); err != nil {
-		return err
-	}
-	confirmResult, err := reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
-		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
-		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: requestID,
-		Action: "TELEGRAM_CONFIRMED", CategorySupplied: categoryID != "", CategoryID: categoryID,
-		Description: value.Description, Note: value.Note, TransactionAt: transactionAt,
-		ResolveReview: false,
-	})
-	if err != nil {
-		var missing *reviewdomain.ErrMissingFacts
-		if errors.As(err, &missing) {
-			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_FACTS','transaction',$3)`, householdID, userID, transactionID); err != nil {
-				return err
-			}
-			return refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update)
-		}
-		if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
-			return enqueueReply(ctx, tx, update, "Pilih kategori rumah tangga yang masih aktif.")
-		}
-		return err
-	}
-	merchantID = &confirmResult.MerchantID
-	if confirmResult.MerchantID == "" {
-		merchantID = nil
-	}
-	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, householdID, transactionID); err != nil {
-		return err
-	}
-	if value.PayDate != "" {
-		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, householdID, transactionID)
-		if err != nil {
-			return err
-		}
-		if ok && reviewPayrollPeriodPattern.MatchString(facts.Period) {
-			if _, err := reviewdomain.RecordSalaryEvent(ctx, tx, reviewdomain.SalaryCommand{
-				HouseholdID: householdID, Employer: facts.Employer, Period: facts.Period,
-				PayDate: value.PayDate, NetPay: facts.NetPay,
-				Transaction: transactionID, SourceEvent: sourceEventID,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-	merchant := ""
-	if merchantID != nil {
-		merchant = *merchantID
-	}
-	askRemember, err := finishConfirmedReview(ctx, tx, confirmedReview{
-		HouseholdID: householdID, UserID: userID, ReviewID: reviewID, TransactionID: transactionID, CategoryID: categoryID,
-		SourceEventID: sourceEventID, MerchantID: merchant, Confidence: value.Confidence, OfferLearning: offerMerchantLearning,
-	})
-	if err != nil {
-		return err
-	}
-	learningMarkup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat kategori", CallbackData: "review:remember"}, {Text: "Hanya kali ini", CallbackData: "review:once"}}}}
-	if update.CallbackQuery != nil {
-		outcome, err := confirmedCardOutcome(ctx, tx, householdID, transactionID)
-		if err != nil {
-			return err
-		}
-		if askRemember {
-			if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('learning_card',jsonb_build_object('chat_id',$2::bigint,'message_id',$3::bigint)) WHERE review_request_id=$1`, reviewID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID); err != nil {
-				return err
-			}
-			return settleReviewCardInPlace(ctx, tx, reviewID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, outcome.withQuestion(), learningMarkup)
-		}
-		return settleReviewCardInPlace(ctx, tx, reviewID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, outcome.text(""), nil)
-	}
-	if askRemember {
-		if err := enqueueMerchantLearningQuestion(ctx, tx, reviewID, update, "✅ Sudah dicatat. Pakai kategori ini juga untuk transaksi berikutnya dari merchant yang sama?", learningMarkup); err != nil {
-			return err
-		}
-	} else if err := enqueueReply(ctx, tx, update, "✅ Sudah dicatat. Kotak Tinjauan juga sudah diperbarui."); err != nil {
-		return err
-	}
-	return nil
-}
 
 type confirmedReview struct {
 	HouseholdID, UserID, ReviewID, TransactionID, CategoryID, SourceEventID, MerchantID string
@@ -249,10 +71,6 @@ func (o cardOutcome) text(note string) string {
 		title += ": " + o.Category
 	}
 	return reviewdomain.TelegramCardText(title, o.Facts, "", note)
-}
-
-func (o cardOutcome) withQuestion() string {
-	return o.text("Pakai " + o.Category + " juga untuk transaksi berikutnya dari " + o.Merchant + "?")
 }
 
 func confirmedCardOutcome(ctx context.Context, tx pgx.Tx, householdID, transactionID string) (cardOutcome, error) {
@@ -416,27 +234,6 @@ func commitMerchantLearning(ctx context.Context, tx pgx.Tx, householdID, userID,
 		return err
 	}
 	return nil
-}
-
-func reviewSchema(slugs []string, categoriesRequired ...bool) map[string]any {
-	sort.Strings(slugs)
-	properties := map[string]any{
-		"description": map[string]any{"type": "string"},
-		"note":        map[string]any{"type": "string"},
-		"confidence":  map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-		"ambiguous":   map[string]any{"type": "boolean"},
-		"pay_date":    map[string]any{"type": "string"},
-	}
-	required := []string{"description", "note", "confidence", "ambiguous", "pay_date"}
-	if len(categoriesRequired) == 0 || categoriesRequired[0] {
-		properties["category_slug"] = map[string]any{"type": "string", "enum": slugs}
-		required = append(required, "category_slug")
-	}
-	return map[string]any{
-		"type": "object", "additionalProperties": false,
-		"properties": properties,
-		"required":   required,
-	}
 }
 
 func ReviewQuestion(amount, merchant string) string {

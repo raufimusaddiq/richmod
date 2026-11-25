@@ -12,8 +12,7 @@ import (
 )
 
 type receiptDateGateway struct {
-	arguments string
-	calls     int
+	calls int
 }
 
 func (*receiptDateGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -22,21 +21,12 @@ func (*receiptDateGateway) NativeToolCall(context.Context, string, string, any, 
 
 func (g *receiptDateGateway) AgentTurn(context.Context, string, gateway.AgentRequest) (gateway.AgentResponse, error) {
 	g.calls++
-	if g.calls == 1 {
-		return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "date-reply", Name: "resolve_review", Arguments: json.RawMessage(g.arguments)}}}, nil
-	}
 	return gateway.AgentResponse{Text: "Tanggal disimpan."}, nil
 }
 
-func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
+func TestTypedReplyStoresReceiptTransactionDate(t *testing.T) {
 	t.Parallel()
-	cases := map[string]string{
-		"transaction_at":           `{"action":"CONFIRM","transaction_at":"2026-10-03"}`,
-		"transaction_at, unpadded": `{"action":"CONFIRM","transaction_at":"2026-10-3"}`,
-		"pay_date":                 `{"action":"CONFIRM","pay_date":"2026-10-03"}`,
-		"RFC3339 timestamp":        `{"action":"CONFIRM","transaction_at":"2026-10-03T22:55:00+07:00"}`,
-	}
-	for name, arguments := range cases {
+	for _, name := range []string{"typed date"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			f := newAgentIntegrationFixture(t, "receipt-date")
@@ -58,7 +48,7 @@ func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 				t.Fatalf("receipt date card state=%s, want AWAITING_DATE", state)
 			}
 
-			model := &receiptDateGateway{arguments: arguments}
+			model := &receiptDateGateway{}
 			p := NewProcessor(f.pool, model)
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			f.update.Message.Text = "2026-10-3"
@@ -88,7 +78,7 @@ func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 	}
 }
 
-func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
+func TestTypedReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "receipt-date-invalid")
@@ -102,7 +92,7 @@ func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 	mustAgentTest(t, tx.Commit(ctx))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
-	p := NewProcessor(f.pool, &receiptDateGateway{arguments: `{"action":"CONFIRM","transaction_at":"besok lusa"}`})
+	p := NewProcessor(f.pool, &receiptDateGateway{})
 	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 	f.update.Message.Text = "besok lusa"
 	f.update.Message.ReplyToMessage = &struct {
@@ -148,13 +138,5 @@ func TestReceiptReviewCardNamesItsTransaction(t *testing.T) {
 	}
 	if got := strings.Count(text, "Transaksi ini terjadi tanggal berapa?"); got != 1 {
 		t.Fatalf("title appears %d times in %q", got, text)
-	}
-}
-
-func TestRefusedReviewDetailIsNotReportedAsDone(t *testing.T) {
-	generic := agentMutationFallback(agentToolResult{Status: "SOME_UNKNOWN_STATUS"})
-	text := agentMutationFallback(agentToolResult{Status: "INVALID_TRANSACTION_DATE"})
-	if text == generic || !strings.Contains(text, "belum ada yang disimpan") {
-		t.Fatalf("INVALID_TRANSACTION_DATE fallback reads as success: %q", text)
 	}
 }

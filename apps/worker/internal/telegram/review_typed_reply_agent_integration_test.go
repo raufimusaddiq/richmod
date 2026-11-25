@@ -14,8 +14,7 @@ import (
 )
 
 type typedReplyGateway struct {
-	arguments string
-	calls     int
+	calls int
 }
 
 func (*typedReplyGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -24,9 +23,6 @@ func (*typedReplyGateway) NativeToolCall(context.Context, string, string, any, [
 
 func (g *typedReplyGateway) AgentTurn(context.Context, string, gateway.AgentRequest) (gateway.AgentResponse, error) {
 	g.calls++
-	if g.calls == 1 {
-		return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "typed-reply", Name: "resolve_review", Arguments: json.RawMessage(g.arguments)}}}, nil
-	}
 	return gateway.AgentResponse{Text: "Sudah dicatat."}, nil
 }
 
@@ -74,7 +70,7 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 				mustAgentTest(t, tx.Commit(ctx))
 				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
-				p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","description":"makan siang tim"}`})
+				p := NewProcessor(f.pool, &typedReplyGateway{})
 				sendTypedReviewReply(t, ctx, f, p, reviewID, "makan siang tim", mode.reply)
 
 				var status, description, itemStatus string
@@ -106,7 +102,7 @@ func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 			mustAgentTest(t, tx.Commit(ctx))
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
-			p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","transaction_at":"2026-10-03"}`})
+			p := NewProcessor(f.pool, &typedReplyGateway{})
 			sendTypedReviewReply(t, ctx, f, p, reviewID, "2026-10-03", mode.reply)
 
 			var at time.Time
@@ -133,7 +129,7 @@ func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 	mustAgentTest(t, tx.Commit(ctx))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
-	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","description":"makan siang tim"}`})
+	p := NewProcessor(f.pool, &typedReplyGateway{})
 	sendTypedReviewReply(t, ctx, f, p, reviewID, "makan siang tim", true)
 
 	var description, state string
@@ -181,7 +177,7 @@ func runTypedAmountReply(t *testing.T, label, reply, wantAmount string) {
 	mustAgentTest(t, tx.QueryRow(ctx, `SELECT id FROM review_request WHERE review_item_id=$1`, itemID).Scan(&reviewID))
 	mustAgentTest(t, tx.Commit(ctx))
 
-	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM"}`})
+	p := NewProcessor(f.pool, &typedReplyGateway{})
 	sendTypedReviewReply(t, ctx, f, p, reviewID, reply, true)
 
 	var amount, status, itemStatus string

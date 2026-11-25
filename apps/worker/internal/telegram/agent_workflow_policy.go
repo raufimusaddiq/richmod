@@ -7,7 +7,6 @@ type agentWorkflowScope string
 const (
 	agentWorkflowGeneral         agentWorkflowScope = "GENERAL"
 	agentWorkflowExactReview     agentWorkflowScope = "EXACT_REVIEW"
-	agentWorkflowExactMerchant   agentWorkflowScope = "EXACT_MERCHANT_LEARNING"
 	agentWorkflowExplicitUnbound agentWorkflowScope = "EXPLICIT_REPLY_UNBOUND"
 )
 
@@ -15,7 +14,6 @@ func applyAgentWorkflowToolPolicy(
 	tools []gateway.ToolDefinition,
 	update telegramUpdate,
 	reviewBinding *agentReviewBinding,
-	merchantBinding *agentMerchantLearningBinding,
 ) ([]gateway.ToolDefinition, agentWorkflowScope) {
 	explicitReply := update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0
 	if !explicitReply {
@@ -23,13 +21,11 @@ func applyAgentWorkflowToolPolicy(
 	}
 	allowed := map[string]bool{}
 	scope := agentWorkflowExplicitUnbound
-	switch {
-	case reviewBinding != nil:
-		allowed["resolve_review"] = true
+	if reviewBinding != nil {
 		scope = agentWorkflowExactReview
-	case merchantBinding != nil:
-		allowed["resolve_merchant_learning"] = true
-		scope = agentWorkflowExactMerchant
+		if assetPurchaseOffered(reviewBinding) {
+			allowed[toolProposeAssetPurchase] = true
+		}
 	}
 	filtered := make([]gateway.ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
@@ -52,8 +48,7 @@ func pendingBatchTool(name string) bool { return name == "pending_batch_decision
 
 func workflowBoundTool(name string) bool {
 	switch name {
-	case "confirm_pending_action", "cancel_pending_action", "pending_batch_decision", "resolve_review",
-		"resolve_salary_choice", "resolve_merchant_learning":
+	case "confirm_pending_action", "cancel_pending_action", "pending_batch_decision", toolProposeAssetPurchase:
 		return true
 	default:
 		return false

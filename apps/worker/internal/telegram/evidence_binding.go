@@ -158,7 +158,7 @@ func (p *Processor) newEvidenceBinding(ctx context.Context, householdID, sourceE
 	return &agentEvidenceBinding{Document: document, Context: contexts[0], HasLinkedTransaction: linked}, nil
 }
 
-func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, reviewBinding *agentReviewBinding, merchantBound, explicitReply bool) (*agentEvidenceBinding, *agentReviewBinding, error) {
+func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, reviewBinding *agentReviewBinding, explicitReply bool) (*agentEvidenceBinding, *agentReviewBinding, error) {
 	if reviewBinding != nil {
 		document, found, err := p.documentForReviewBinding(ctx, householdID, reviewBinding)
 		if err != nil || !found {
@@ -175,7 +175,7 @@ func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEve
 		p.recordCEUOutcome(ctx, householdID, sourceEventID, outcome)
 		return evidence, reviewBinding, nil
 	}
-	if !explicitReply || merchantBound {
+	if !explicitReply {
 		return nil, nil, nil
 	}
 	document, found, err := p.resolveReplyEvidence(ctx, householdID, update)

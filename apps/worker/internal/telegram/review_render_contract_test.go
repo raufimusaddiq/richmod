@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -64,9 +63,6 @@ func TestActiveReasonsArePresetBacked(t *testing.T) {
 
 func telegramReviewLanes() map[string]bool {
 	telegramLanes := map[string]bool{"CONFIRM_REVIEW": true, "IGNORE": true, "CLASSIFY_TRANSFER": true}
-	for _, action := range reviewdec.AllAgentActions() {
-		telegramLanes[action] = true
-	}
 	telegramLanes["MERGE_EXISTING"] = true
 	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
 	telegramLanes["SET_TRANSACTION_DATE"] = true
@@ -128,9 +124,6 @@ func TestUnregisteredProducerFailsTheGate(t *testing.T) {
 
 func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
 	const deadEndAction = "TEST_ONLY_DEAD_END_ACTION"
-	if contains(reviewdec.AllAgentActions(), deadEndAction) {
-		t.Fatalf("%s must not be a registered ordinary action", deadEndAction)
-	}
 	decision, ok := reviewdec.Preset("AMBIGUOUS_CATEGORY", "transaction", "00000000-0000-0000-0000-000000000000")
 	if !ok {
 		t.Fatal("AMBIGUOUS_CATEGORY lost its preset")
@@ -205,20 +198,5 @@ func TestBankAccountChooserPaginatesBeyondEightItems(t *testing.T) {
 	}
 	if len(page1.InlineKeyboard[4]) != 1 || page1.InlineKeyboard[4][0].CallbackData != "review:bankpage:0" {
 		t.Fatalf("page 1 pager = %+v", page1.InlineKeyboard[4])
-	}
-}
-
-func TestAgentToolResultDecodesMissingFieldsAsStringSlice(t *testing.T) {
-	raw := []byte(`{"status":"RESIDUAL_FACTS_REQUIRED","review":{"required":true,"missing_fields":["category","transaction_at"]}}`)
-	var decoded agentToolResult
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	got, ok := missingFields(decoded.Review)
-	if !ok || len(got) != 2 || got[0] != "category" || got[1] != "transaction_at" {
-		t.Fatalf("missingFields = %v,%v; want [category transaction_at],true", got, ok)
-	}
-	if reply, handled := agentMutationReply(decoded); !handled || reply == "" {
-		t.Fatalf("agentMutationReply = %q,%v", reply, handled)
 	}
 }

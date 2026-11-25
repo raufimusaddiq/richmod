@@ -10,7 +10,6 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 const maxLiveCards = 10
@@ -480,11 +479,15 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 			_, _ = p.pool.Exec(context.WithoutCancel(ctx), `UPDATE telegram_pending_card_choice SET status='PENDING',resolved_at=NULL WHERE id=$1 AND status='RESOLVED'`, choiceID)
 		}
 	}()
-	if engineOwnedType(binding.ReviewType) && field == string(cardAnswerCategory) {
+	if engineOwnedType(binding.ReviewType) {
 		asTyped := update
 		asTyped.CallbackQuery = nil
 		card := interactionCard{ReviewRequestID: binding.ReviewRequestID, ReviewItemID: binding.ReviewItemID, ReviewType: binding.ReviewType, ChatID: update.Message.Chat.ID, MessageID: cardMessageID}
-		handled, err := p.runStepEngine(ctx, householdID, sourceEventID, asTyped, card, engineInput{CategorySlug: value, Targeted: true})
+		input := engineInput{Text: value, Targeted: true}
+		if field == string(cardAnswerCategory) {
+			input = engineInput{CategorySlug: value, Targeted: true}
+		}
+		handled, err := p.runStepEngine(ctx, householdID, sourceEventID, asTyped, card, input)
 		if err != nil {
 			return true, err
 		}
@@ -501,38 +504,5 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 			return true, tx.Commit(ctx)
 		}
 	}
-	categories, err := p.categorySlugs(ctx, householdID)
-	if err != nil {
-		return true, err
-	}
-	bound := update
-	bound.Message.ReplyToMessage = &struct {
-		MessageID int64 `json:"message_id"`
-	}{MessageID: cardMessageID}
-	state := &agentState{SourceEventID: sourceEventID, HouseholdID: householdID, Update: bound, Now: p.now().In(jakartaLocation()),
-		Categories: categories, ReviewBinding: binding, ReviewBindingCount: 1, ReviewType: binding.ReviewType, ReviewMode: binding.Kind}
-	args := map[string]any{"action": "CONFIRM", field: value}
-	result, _, err := p.agentResolveBoundReview(ctx, state, gateway.ToolCall{Name: "resolve_review", CallID: "card-choice"}, args)
-	if err != nil {
-		return true, err
-	}
-	applied = result.Mutation != nil
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return true, err
-	}
-	defer tx.Rollback(ctx)
-	if err := finalizeAgentSource(ctx, tx, householdID, sourceEventID, "telegram-agent-card-choice"); err != nil {
-		return true, err
-	}
-	if err := enqueueReply(ctx, tx, update, agentMutationFallback(result)); err != nil {
-		return true, err
-	}
-	if err := enqueueRetireButtons(ctx, tx, update, "Sudah dipilih."); err != nil {
-		return true, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return true, err
-	}
-	return true, nil
+	return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu itu sudah selesai atau berubah, jadi belum ada yang diubah.")
 }

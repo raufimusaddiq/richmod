@@ -19,20 +19,13 @@ var nonMutatingRefusalStatuses = map[string]bool{
 	"TRANSFER_PURPOSE_REQUIRED":        true,
 	"INCOMPATIBLE_TRANSFER_PURPOSE":    true,
 	"INCOMPATIBLE_WEALTH_ACCOUNT":      true,
-	"ALLOCATION_TOTAL_MISMATCH":        true,
-	"MISSING_ASSET_PURCHASE_FACTS":     true,
 	"WEALTH_ACCOUNT_AMBIGUOUS":         true,
-	"MISSING_WEALTH_ACCOUNT":           true,
 	"ACCOUNT_AMBIGUOUS":                true,
 	"TOO_MANY_CANDIDATES":              true,
 	"INVALID_AMOUNT":                   true,
 	"INVALID_TIME":                     true,
-	"INVALID_CHOICE":                   true,
-	"NO_PENDING_SALARY_CHOICE":         true,
-	"NO_MERCHANT_LEARNING_PENDING":     true,
 	"TRANSFER_RECONCILIATION_REQUIRED": true,
 	"TRANSACTION_UNDER_REVIEW":         true,
-	"IGNORE_NOT_ALLOWED":               true,
 	"TRANSFER_CLASSIFICATION_REQUIRED": true,
 	"TRANSFER_NOT_CATEGORIZABLE":       true,
 	"TRANSACTION_VOIDED":               true,
@@ -240,37 +233,9 @@ func (p *Processor) recoverUnansweredTurn(ctx context.Context, sourceEventID, ho
 	return tx.Commit(ctx)
 }
 
-const merchantLearningQuestion = "✅ Sudah dicatat. Pakai kategori ini juga untuk transaksi berikutnya dari merchant yang sama? Pilih tombol di bawah, atau balas ya / tidak."
-
-func merchantLearningMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat kategori", CallbackData: "review:remember"}, {Text: "Hanya kali ini", CallbackData: "review:once"}}}}
-}
-
-func pendingMerchantLearningReviewID(history []agentToolResult) string {
-	for index := len(history) - 1; index >= 0; index-- {
-		if history[index].Class != agentToolSideEffect {
-			continue
-		}
-		if history[index].Status == "AWAITING_MERCHANT_DECISION" {
-			return history[index].merchantLearningReviewID
-		}
-		return ""
-	}
-	return ""
-}
-
 func agentMutationReply(result agentToolResult) (string, bool) {
-	if result.Status == "AWAITING_MERCHANT_DECISION" {
-		return merchantLearningQuestion, true
-	}
-	if result.Status == "RESIDUAL_FACTS_REQUIRED" {
-		return reviewStillNeedsDetailsMessage, true
-	}
 	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
 		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda.", true
-	}
-	if result.Status == "INVALID_CANDIDATE" {
-		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud.", true
 	}
 	if result.Mutation != nil {
 		action, _ := result.Mutation["action"].(string)
@@ -278,10 +243,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		switch action {
 		case "TRANSACTION_RECORDED":
 			return transactionRecordedMessage(result), true
-		case "BANK_REVIEW_IGNORED":
-			return "Bukti email bank diabaikan.", true
-		case "DUPLICATE_MERGED":
-			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru.", true
 		case "POSSIBLE_EXISTING_TRANSACTION":
 			return possibleExistingMessage(result.Mutation), true
 		case "TRANSFER_RECORDED":
@@ -293,10 +254,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 			return "Transfer ini sudah tercatat sebelumnya, jadi tidak dicatat lagi.", true
 		case "TRANSFER_RECONCILIATION_STAGED":
 			return "Transfer ini perlu ditinjau karena ada transaksi yang mungkin sama.", true
-		case "TRANSFER_RECONCILIATION_RESOLVED":
-			return "Rekonsiliasi transfer sudah diselesaikan.", true
-		case "TRANSFER_RECONCILIATION_IGNORED":
-			return "Rekonsiliasi transfer sudah diabaikan tanpa mencatatnya sebagai transfer baru.", true
 		case "BATCH_STAGED":
 			return batchStagedMessage(result.Mutation, "Daftar transaksinya begini:"), true
 		case "BATCH_UPDATED":
@@ -312,6 +269,8 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 				return "✅ Semua transaksi dalam daftar sudah tercatat.", true
 			}
 			return batchOutcomeMessage(recorded, reviewed, skipped), true
+		case assetPurchaseStagedAction:
+			return assetPurchaseStagedMessage(result.Mutation), true
 		case "CORRECTION_STAGED", "CORRECT_EXISTING_TRANSACTION":
 			return correctionStagedMessage(result.Mutation), true
 		case "CORRECTION_RESOLVED":
@@ -319,38 +278,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 				return "✅ Perubahan transaksi sudah disimpan.", true
 			}
 			return "Perubahan transaksi dibatalkan.", true
-		case "SALARY_CHOICE_RESOLVED":
-			choice, _ := result.Mutation["choice"].(string)
-			switch choice {
-			case "PRIMARY":
-				return "Gaji utama sudah disimpan dan menjadi acuan siklus keuangan.", true
-			case "ORDINARY":
-				return "✅ Gaji sudah disimpan sebagai pemasukan biasa.", true
-			case "IGNORE":
-				return "Gaji tersebut sudah diabaikan.", true
-			}
-		case "MERCHANT_LEARNING_RESOLVED":
-			if remember, _ := result.Mutation["remember"].(bool); remember {
-				return "Kategori merchant sudah disimpan sebagai aturan.", true
-			}
-			return "Kategori merchant tidak disimpan sebagai aturan.", true
-		case "REVIEW_CONFIRMED", "REVIEW_TRANSFER_CLASSIFIED":
-			return "✅ Tinjauan sudah selesai dan data keuangan sudah diperbarui.", true
-		case "REVIEW_IGNORED":
-			return "Tinjauan sudah selesai tanpa mencatatnya sebagai transaksi aktif.", true
-		case "REVIEW_DETAIL_SAVED":
-			if result.Status == "NEEDS_REVIEW" {
-				return reviewStillNeedsDetailsMessage, true
-			}
-			return "Detail tinjauan sudah diperbarui.", true
-		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
-			return "✅ Detail tinjauan sudah diperbarui.", true
-		case "WEALTH_ACCOUNT_SET":
-			return "Akun kekayaan untuk observasi tersebut sudah diperbarui.", true
-		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
-			return "Observasi kekayaan sudah direklasifikasi sebagai pembelian aset.", true
-		case "WEALTH_OBSERVATION_IGNORED":
-			return "Observasi kekayaan sudah diabaikan.", true
 		}
 	}
 
@@ -363,9 +290,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Screenshot ini belum bisa dipisahkan lewat chat: hanya satu baris pengeluaran yang tergabung ke catatan lama, dengan nominal dan tanggal terbaca, yang bisa dikoreksi. Tidak ada yang diubah.", true
 	case "EVIDENCE_DISPUTE_UNAUTHORIZED":
 		return "Aku tidak bisa memverifikasi akun Telegram-mu di keluarga ini, jadi koreksi tidak dibuat.", true
-	case "EVIDENCE_DISPUTE_USE_BUTTONS":
-		return "Koreksi screenshot hanya bisa diselesaikan dengan tombol di kartunya (Konfirmasi atau Batalkan). Belum ada yang diubah.", true
-	case "AMBIGUOUS_TARGET", "AMBIGUOUS_REVIEW":
+	case "AMBIGUOUS_TARGET":
 		return "Ada beberapa item yang mungkin kamu maksud. Sebut nama itemnya atau pilih item yang sesuai, ya.", true
 	case "TARGET_UNAVAILABLE":
 		return "Referensi transaksi itu sudah tidak tersedia. Cari transaksinya lagi dulu.", true
@@ -379,14 +304,8 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Perubahan itu sudah tidak menunggu konfirmasi: sudah selesai, dibatalkan, atau lewat 30 menit. Sebutkan lagi perubahan yang kamu mau, nanti kubuatkan konfirmasi baru.", true
 	case "SOURCE_EVIDENCE_FIXES_AMOUNT":
 		return sourceEvidenceFixesAmountMessage, true
-	case "NO_PENDING_SALARY_CHOICE":
-		return "Tidak ada pilihan gaji aktif yang perlu diselesaikan.", true
-	case "NO_MERCHANT_LEARNING_PENDING":
-		return "Tidak ada konfirmasi aturan merchant yang aktif.", true
 	case "ACCOUNT_AMBIGUOUS":
 		return "Aku belum bisa memastikan rekening sumbernya. Sebutkan nama rekening yang lebih spesifik, ya.", true
-	case "IGNORE_NOT_ALLOWED":
-		return "Tinjauan ini tidak bisa diabaikan. Pilih salah satu jawaban di kartunya.", true
 	case "TRANSFER_CLASSIFICATION_REQUIRED":
 		return "Ini transfer, bukan pengeluaran, jadi perlu diklasifikasikan dulu: ke rekening sendiri, rekening keluarga, atau investasi. Belum ada yang dicatat.", true
 	case "TRANSACTION_UNDER_REVIEW":
@@ -399,45 +318,20 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Aku belum bisa menentukan jenis transfernya. Sebutkan akun tujuannya (tabungan, investasi, atau utang) atau tulis bahwa ini pindah antar rekening. Belum ada yang dicatat.", true
 	case "INCOMPATIBLE_TRANSFER_PURPOSE", "INCOMPATIBLE_WEALTH_ACCOUNT":
 		return "Akun kekayaan itu tidak cocok untuk aksi ini, jadi belum ada yang diubah. Sebutkan akun yang sesuai, ya.", true
-	case "ALLOCATION_TOTAL_MISMATCH":
-		return "Total alokasi belum sama dengan nilai sisa siklus, jadi belum ada yang disimpan. Periksa nominalnya, ya.", true
-	case "MISSING_ASSET_PURCHASE_FACTS":
-		return "Untuk mencatat pembelian aset aku perlu rekening sumber dan waktu transaksinya. Belum ada yang diubah.", true
 	case "TOO_MANY_CANDIDATES":
 		return "Ada terlalu banyak transaksi yang mirip, jadi belum ada yang dicatat. Sebutkan jam atau detail lain yang lebih spesifik, ya.", true
 	case "INVALID_AMOUNT":
 		return "Nominalnya belum valid, jadi belum ada yang dicatat. Tulis nominal rupiah tanpa titik atau koma, misalnya 25000.", true
 	case "INVALID_TIME":
 		return "Tanggal atau jam transaksinya belum terbaca, jadi belum ada yang dicatat.", true
-	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
+	case "WEALTH_ACCOUNT_AMBIGUOUS":
 		return "Aku belum bisa memastikan akun kekayaannya. Sebutkan nama akun yang lebih spesifik, ya.", true
-	case "MISSING_REVIEW_DETAIL":
-		return "Masih ada detail tinjauan yang perlu kamu lengkapi.", true
 	case "MISSING_SEARCH_TEXT":
 		return "Transaksi apa yang kamu cari? Sebutkan nama merchant atau keperluannya, ya.", true
-	case "MISSING_CATEGORY", "INVALID_CATEGORY":
+	case "INVALID_CATEGORY":
 		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia.", true
-	case "BANK_ACCOUNT_REQUIRED":
-		return "Pilih rekening untuk email bank ini dari tombol yang dikirim.", true
-	case "BANK_ACCOUNT_UNAVAILABLE":
-		return "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu.", true
-	case "MISSING_BANK_FACTS":
-		return "Nominal dan waktu transaksi masih perlu dilengkapi.", true
-	case "INVALID_PAY_DATE":
-		return "Tanggal pembayaran belum terbaca. Tulis tanggalnya, misalnya 25 Agu 2026.", true
-	case "INVALID_TRANSACTION_DATE":
-		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Kirim tanggalnya, misalnya 2026-10-03.", true
-	case "TRANSFER_RECONCILIATION_REQUIRED":
-		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi.", true
-	case "MERGE_TARGET_ACTIVE":
-		return "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.", true
-	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
+	case "STALE_REVIEW_BINDING":
 		return "Tinjauan ini sudah berubah atau selesai. Lihat kartu terbarunya untuk melanjutkan.", true
 	}
 	return genericMutationReply, false
-}
-
-func missingFields(review map[string]any) ([]string, bool) {
-	value, ok := review["missing_fields"].([]string)
-	return value, ok && len(value) > 0
 }

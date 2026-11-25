@@ -72,37 +72,6 @@ func loadReviewSubject(ctx context.Context, tx pgx.Tx, reviewID string) (reviewS
 	return subject, err
 }
 
-func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, request string, update telegramUpdate) error {
-	var raw []byte
-	var reason, itemID string
-	if err := tx.QueryRow(ctx, `SELECT ri.decision,ri.review_type,ri.id::text FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND r.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND')`, request, household).Scan(&raw, &reason, &itemID); err != nil {
-		return err
-	}
-	var decision reviewdec.Decision
-	if err := json.Unmarshal(raw, &decision); err != nil {
-		return err
-	}
-	summary, err := reviewItemSummary(ctx, tx, household, itemID)
-	if err != nil {
-		return err
-	}
-	subject, err := loadReviewSubject(ctx, tx, request)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, request, buildReviewCard(decision, reason, summary, subject).State); err != nil {
-		return err
-	}
-	card, markup, err := renderStepCard(ctx, tx, request, reason, summary, decision, subject)
-	if err != nil {
-		return err
-	}
-	if markup == nil {
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}
-	}
-	return enqueueReviewUpdateWithMarkup(ctx, tx, request, update, card.Text(), markup)
-}
-
 const appReviewHint = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
 
 func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) reviewCard {
@@ -276,14 +245,4 @@ func isCategoryOnly(decision reviewdec.Decision) bool {
 	}
 	return decision.DecisionClass == reviewdec.ClassEvidenceGap &&
 		(contains(decision.AllowedActions, "CONFIRM_REVIEW") || contains(decision.AllowedActions, "SET_CATEGORY"))
-}
-
-func reviewFollowUpText(ctx context.Context, tx pgx.Tx, reviewID, title, instruction string) string {
-	var householdID, transactionID string
-	_ = tx.QueryRow(ctx, `SELECT household_id::text,COALESCE(transaction_id::text,'') FROM review_request WHERE id=$1`, reviewID).Scan(&householdID, &transactionID)
-	facts := ""
-	if transactionID != "" {
-		facts, _ = transactionReviewSummary(ctx, tx, householdID, transactionID)
-	}
-	return reviewdomain.TelegramCardText(title, facts, "", instruction)
 }

@@ -143,7 +143,7 @@ func (p *Processor) resolveReply(ctx context.Context, householdID string, update
 			return result, nil
 		case stopMerchantLearning:
 			if hop == 0 {
-				result.Kind = interactionMerchantLearning
+				result.Kind, result.Card = interactionMerchantLearning, classified.Card
 			}
 			return result, nil
 		case stopEvidence:
@@ -334,7 +334,7 @@ func (p *Processor) plainAnswerBlocked(ctx context.Context, householdID string, 
 	if err != nil || batch != nil {
 		return batch != nil, err
 	}
-	return p.hasPendingSalaryChoice(ctx, householdID, update)
+	return false, nil
 }
 
 func (p *Processor) rememberCard(ctx context.Context, householdID string, chatID int64) (interactionCard, bool, error) {
