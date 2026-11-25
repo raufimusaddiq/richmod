@@ -39,6 +39,9 @@ func EvaluateBankEmail(listener Listener, extraction Extraction, knownAccounts [
 				return PolicyResult{Type: "TRANSFER", Status: "CONFIRMED", Description: "Transfer antar rekening yang dikenal.", AutoConfirm: true}
 			}
 		}
+		if rememberedExpense(remembered, extraction) {
+			return rememberedMerchantExpense(remembered)
+		}
 		return review("Tujuan transfer perlu dikonfirmasi.", "TRANSFER_CLASSIFICATION")
 	}
 	if extraction.Direction != nil && *extraction.Direction == "OUTGOING" && extraction.Channel != nil {
@@ -47,13 +50,21 @@ func EvaluateBankEmail(listener Listener, extraction Extraction, knownAccounts [
 			if extraction.Merchant == nil || strings.TrimSpace(*extraction.Merchant) == "" {
 				return PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "UNKNOWN_MERCHANT", Description: "Nama merchant belum tersedia."}
 			}
-			if remembered.AutoApply && remembered.CategoryID != "" {
-				return PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", CategoryID: remembered.CategoryID, Description: "Pengeluaran dengan kategori merchant yang telah dikonfirmasi.", AutoConfirm: true}
+			if rememberedExpense(remembered, extraction) {
+				return rememberedMerchantExpense(remembered)
 			}
 			return PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "AMBIGUOUS_CATEGORY", Description: "Pengeluaran menunggu kategori."}
 		}
 	}
 	return review("Transaksi perlu ditinjau sebelum dicatat.", "UNKNOWN_PURPOSE")
+}
+
+func rememberedExpense(remembered MerchantMemory, extraction Extraction) bool {
+	return remembered.AutoApply && remembered.CategoryID != "" && strings.TrimSpace(value(extraction.Merchant)) != ""
+}
+
+func rememberedMerchantExpense(remembered MerchantMemory) PolicyResult {
+	return PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", CategoryID: remembered.CategoryID, Description: "Pengeluaran dengan kategori merchant yang telah dikonfirmasi.", AutoConfirm: true}
 }
 
 func accountMatches(hint string, extraction Extraction) bool {
