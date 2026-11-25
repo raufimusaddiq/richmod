@@ -24,30 +24,26 @@ type CorrectionCommand struct {
 	TransactionAt   *time.Time
 }
 
-type CorrectionResult struct {
-	Changed bool
-}
-
-func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionCommand) (CorrectionResult, error) {
+func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionCommand) error {
 	if cmd.CategoryID == "" && cmd.TransactionAt == nil {
-		return CorrectionResult{}, ErrCorrectionEmpty
+		return ErrCorrectionEmpty
 	}
 	var status, kind string
 	var categoryID *string
 	var at time.Time
 	err := tx.QueryRow(ctx, `SELECT status,type,category_id::text,transaction_at FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, cmd.TransactionID, cmd.HouseholdID).Scan(&status, &kind, &categoryID, &at)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return CorrectionResult{}, ErrCorrectionNotAllowed
+		return ErrCorrectionNotAllowed
 	}
 	if err != nil {
-		return CorrectionResult{}, fmt.Errorf("lock transaction for correction: %w", err)
+		return fmt.Errorf("lock transaction for correction: %w", err)
 	}
 	if status != "CONFIRMED" || (kind != "EXPENSE" && kind != "INCOME") {
-		return CorrectionResult{}, ErrCorrectionNotAllowed
+		return ErrCorrectionNotAllowed
 	}
 	if cmd.CategoryID != "" {
 		if err := ValidateCategoryForHousehold(ctx, tx, cmd.HouseholdID, cmd.CategoryID); err != nil {
-			return CorrectionResult{}, err
+			return err
 		}
 	}
 	newCategory, newAt := categoryID, at
@@ -60,10 +56,10 @@ func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionC
 	categoryChanged := cmd.CategoryID != "" && (categoryID == nil || *categoryID != cmd.CategoryID)
 	dateChanged := !newAt.Equal(at)
 	if !categoryChanged && !dateChanged {
-		return CorrectionResult{}, nil
+		return nil
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transaction SET category_id=$3::uuid,transaction_at=$4,updated_at=now() WHERE id=$1 AND household_id=$2`, cmd.TransactionID, cmd.HouseholdID, newCategory, newAt); err != nil {
-		return CorrectionResult{}, fmt.Errorf("correct transaction: %w", err)
+		return fmt.Errorf("correct transaction: %w", err)
 	}
 	actorType := cmd.ActorType
 	if actorType == "" {
@@ -74,15 +70,15 @@ func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionC
 			jsonb_build_object('category_id',$5::text,'transaction_at',$6::timestamptz),
 			jsonb_build_object('category_id',$7::text,'transaction_at',$8::timestamptz,'review_request_id',NULLIF($9,'')))`,
 		cmd.HouseholdID, actorType, cmd.ActorUserID, cmd.TransactionID, categoryID, at, newCategory, newAt, cmd.ReviewRequestID); err != nil {
-		return CorrectionResult{}, fmt.Errorf("audit transaction correction: %w", err)
+		return fmt.Errorf("audit transaction correction: %w", err)
 	}
 	if dateChanged {
 		if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, at, cmd.ActorUserID); err != nil {
-			return CorrectionResult{}, err
+			return err
 		}
 		if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, newAt, cmd.ActorUserID); err != nil {
-			return CorrectionResult{}, err
+			return err
 		}
 	}
-	return CorrectionResult{Changed: true}, nil
+	return nil
 }

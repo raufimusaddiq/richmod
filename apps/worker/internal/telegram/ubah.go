@@ -240,6 +240,9 @@ func (p *Processor) processUbahTap(ctx context.Context, sourceEventID, household
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return false, nil
 	}
+	if !ubahOwnsTap(data) {
+		return false, nil
+	}
 	finish := func(reply string) (bool, error) {
 		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-ubah',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return true, err
@@ -320,7 +323,7 @@ func (p *Processor) processUbahTap(ctx context.Context, sourceEventID, household
 		if err != nil {
 			return true, err
 		}
-		_, err = reviewdomain.CorrectConfirmedTransaction(ctx, sp, cmd)
+		err = reviewdomain.CorrectConfirmedTransaction(ctx, sp, cmd)
 		switch {
 		case errors.Is(err, reviewdomain.ErrInvalidCandidate):
 			_ = sp.Rollback(ctx)
@@ -387,4 +390,10 @@ func (p *Processor) ubahRemember(ctx context.Context, tx pgx.Tx, householdID, us
 		return true, err
 	}
 	return done("⭐ Diingat untuk " + outcome.Merchant + ". Bisa dinonaktifkan di Settings.")
+}
+
+func ubahOwnsTap(data string) bool {
+	return strings.HasPrefix(data, callbackUbah) ||
+		strings.HasPrefix(data, callbackCategory) || strings.HasPrefix(data, callbackCategoryPg) ||
+		data == callbackDateToday || data == callbackDateYesterday
 }
