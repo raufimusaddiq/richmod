@@ -115,6 +115,7 @@ type agentState struct {
 	MerchantLearningCount   int
 
 	Analytics *analyticscore.Session
+	CardRefs  map[string]string
 
 	FreshEvidenceDocuments []string
 

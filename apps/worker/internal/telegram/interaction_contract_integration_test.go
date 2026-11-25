@@ -340,7 +340,7 @@ func (h *contractHarness) deliverOne(jobID, kind string, raw []byte) {
 			if payload.SettledCard {
 				mustAgentTest(h.t, h.p.markCardSettled(h.ctx, payload.ReviewRequestID, payload.ChatID, messageID))
 			}
-			mustAgentTest(h.t, h.p.BindReviewMessage(h.ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text))
+			mustAgentTest(h.t, h.p.BindReviewMessageAs(h.ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text, payload.AssistantShown))
 		}
 		h.remember(messageID, payload.Text, payload.ReplyMarkup)
 	case "EDIT_TELEGRAM_MESSAGE":

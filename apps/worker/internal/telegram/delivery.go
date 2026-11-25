@@ -52,7 +52,7 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 				return err
 			}
 		}
-		if err := p.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text); err != nil {
+		if err := p.BindReviewMessageAs(ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text, payload.AssistantShown); err != nil {
 			return err
 		}
 	}

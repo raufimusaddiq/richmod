@@ -24,7 +24,7 @@ const (
 var agentReadTools = map[string]struct{}{
 	"query_spending": {}, "query_cashflow": {}, "query_savings": {},
 	"query_wealth": {}, "list_wealth_accounts": {}, "search_transactions": {},
-	"list_review_items": {}, "get_evidence_context": {}, "get_transaction_details": {},
+	"list_review_items": {}, "get_evidence_context": {}, "get_transaction_details": {}, toolShowReviewCard: {},
 }
 
 func init() {
@@ -115,6 +115,8 @@ func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string)
 			return nil, fmt.Errorf("target_ref must be a transaction ref copied from context or results, like a1b2c3d4_p1r1_tx1")
 		}
 		return remarshal(args), nil
+	case toolShowReviewCard:
+		return validateShowCardArgs(call)
 	case "dispute_evidence_link":
 		if _, err := decodeAgentArgsRaw[struct{}](call); err != nil {
 			return nil, err
