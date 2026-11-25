@@ -16,7 +16,7 @@ var missingNames = map[string]bool{"amount_idr": true, "transaction_at": true, "
 
 func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	if call.Name != "emit_bank_transaction" {
-		return Extraction{}, fmt.Errorf("unexpected bank email tool")
+		return Extraction{}, fmt.Errorf("unexpected tool, want emit_bank_transaction")
 	}
 	var raw struct {
 		Kind          string            `json:"kind"`
@@ -52,75 +52,75 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	for _, name := range []string{"kind", "direction", "channel", "amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "missing_fields", "confidence"} {
 		value, ok := fields[name]
 		if !ok || string(value) == "null" && name != "direction" && name != "channel" && name != "amount_idr" && name != "transaction_at" && name != "merchant" && name != "counterparty" && name != "reference" && name != "description" {
-			return Extraction{}, fmt.Errorf("missing required field %s", name)
+			return Extraction{}, fmt.Errorf("missing or null required field %s", name)
 		}
 	}
 	if raw.Kind != "TRANSACTION" && raw.Kind != "NON_TRANSACTION" && raw.Kind != "UNKNOWN" {
-		return Extraction{}, fmt.Errorf("invalid bank email kind")
+		return Extraction{}, fmt.Errorf("invalid kind, want TRANSACTION, NON_TRANSACTION or UNKNOWN")
 	}
 	if raw.Direction != nil && !oneOf(*raw.Direction, "OUTGOING", "INCOMING", "INTERNAL", "UNKNOWN") {
-		return Extraction{}, fmt.Errorf("invalid bank email direction")
+		return Extraction{}, fmt.Errorf("invalid direction, want OUTGOING, INCOMING, INTERNAL, UNKNOWN or null")
 	}
 	if raw.Channel != nil && !oneOf(*raw.Channel, "DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "TRANSFER", "ATM", "BANK_FEE", "INTERNAL_TRANSFER", "RDN", "OTHER", "UNKNOWN") {
-		return Extraction{}, fmt.Errorf("invalid bank email channel")
+		return Extraction{}, fmt.Errorf("invalid channel, want one of the schema channel values or null")
 	}
 	if raw.AmountIDR != nil {
 		if *raw.AmountIDR == "" || strings.Trim(*raw.AmountIDR, "0123456789") != "" {
-			return Extraction{}, fmt.Errorf("amount must be a whole IDR integer")
+			return Extraction{}, fmt.Errorf("invalid amount_idr, want digits only such as 1250000")
 		}
 		if !reviewdomain.ValidBankAmountIDR(*raw.AmountIDR) {
-			return Extraction{}, fmt.Errorf("amount must be a positive IDR integer")
+			return Extraction{}, fmt.Errorf("invalid amount_idr, want a positive whole IDR amount")
 		}
 	}
 	var at *time.Time
 	if raw.TransactionAt != nil {
 		parsed, err := parseStrictBankRFC3339(*raw.TransactionAt)
 		if err != nil {
-			return Extraction{}, fmt.Errorf("invalid transaction time")
+			return Extraction{}, fmt.Errorf("invalid transaction_at, want RFC3339 with offset such as 2026-08-28T14:05:00+07:00")
 		}
 		at = &parsed
 	}
 	for name, value := range map[string]*string{"merchant": raw.Merchant, "counterparty": raw.Counterparty, "reference": raw.Reference, "description": raw.Description} {
 		if value != nil && len([]rune(*value)) > 500 {
-			return Extraction{}, fmt.Errorf("%s is too long", name)
+			return Extraction{}, fmt.Errorf("%s is longer than 500 characters", name)
 		}
 	}
 	var categorySlug *string
 	if raw.CategorySlug != nil {
 		trimmed := strings.TrimSpace(*raw.CategorySlug)
 		if trimmed == "" || len([]rune(trimmed)) > 160 {
-			return Extraction{}, fmt.Errorf("invalid category_slug")
+			return Extraction{}, fmt.Errorf("invalid category_slug, want a slug from allowed_categories or null")
 		}
 		categorySlug = &trimmed
 	}
 	if len(raw.MissingFields) > 8 {
-		return Extraction{}, fmt.Errorf("too many missing fields")
+		return Extraction{}, fmt.Errorf("missing_fields has %d entries, want at most 8", len(raw.MissingFields))
 	}
 	seen := map[string]bool{}
 	for _, name := range raw.MissingFields {
 		if !missingNames[name] || seen[name] {
-			return Extraction{}, fmt.Errorf("invalid missing field")
+			return Extraction{}, fmt.Errorf("invalid or repeated missing_fields entry")
 		}
 		seen[name] = true
 	}
 	if raw.Confidence < 0 || raw.Confidence > 1 {
-		return Extraction{}, fmt.Errorf("invalid confidence")
+		return Extraction{}, fmt.Errorf("invalid confidence %v, want 0 to 1", raw.Confidence)
 	}
 	if raw.Review != nil {
 		if len([]rune(strings.TrimSpace(raw.Review.Summary))) == 0 || len([]rune(raw.Review.Summary)) > 500 {
-			return Extraction{}, fmt.Errorf("invalid review summary")
+			return Extraction{}, fmt.Errorf("invalid review.summary, want 1 to 500 characters")
 		}
 		seen = map[string]bool{}
 		for _, name := range raw.Review.MissingFields {
 			if !missingNames[name] || seen[name] {
-				return Extraction{}, fmt.Errorf("invalid review missing field")
+				return Extraction{}, fmt.Errorf("invalid or repeated review.missingFields entry")
 			}
 			seen[name] = true
 		}
 		seen = map[string]bool{}
 		for _, action := range raw.Review.SuggestedActions {
 			if !oneOf(action, "USE_EMAIL_RECEIVED_AT", "ENTER_TRANSACTION_TIME", "IGNORE") || seen[action] {
-				return Extraction{}, fmt.Errorf("invalid review suggested action")
+				return Extraction{}, fmt.Errorf("invalid or repeated review.suggestedActions entry")
 			}
 			seen[action] = true
 		}

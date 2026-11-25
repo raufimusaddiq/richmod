@@ -34,7 +34,7 @@ func TestBankTimeRepairReceivesExactSchemaFailure(t *testing.T) {
 	if got.TransactionAt == nil {
 		t.Fatal("a repaired valid timestamp must be accepted")
 	}
-	if !strings.Contains(g.repairPS, "invalid transaction time") {
+	if !strings.Contains(g.repairPS, "invalid transaction_at") {
 		t.Fatalf("repair prompt must carry the exact validation failure, got %q", g.repairPS)
 	}
 }
