@@ -1549,6 +1549,13 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 			h.wantSalary("", "", "", 0)
 			h.wantItemActive()
 		}},
+		{"first payslip without a date: a pay date older than the window is refused", first, nil, func(h *contractHarness) {
+			h.tapLabel("Gaji utama")
+			h.reply("1/1/2020")
+			h.wantCard("Tanggal itu terlalu lama untuk slip ini.", "Tanggal pembayarannya kapan?")
+			h.wantSalary("", "", "", 0)
+			h.wantItemActive()
+		}},
 		{"first payslip without a date: Tanggal lain keeps the card and asks for the date", first, nil, func(h *contractHarness) {
 			h.tapLabel("Gaji utama")
 			before, _, _ := h.current()

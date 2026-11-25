@@ -12,7 +12,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-const dateForwardDays = 31
+const (
+	dateForwardDays   = 31
+	payDateMaxAgeDays = 400
+)
 
 const (
 	salaryAsk         = "Slip gaji ini dicatat sebagai apa?"
@@ -23,6 +26,7 @@ const (
 	dateHint          = "Pilih di bawah, atau ketik tanggalnya."
 	dateOtherHint     = "Ketik tanggalnya, misalnya 3 Okt atau 25/9."
 	futureDateAck     = "Tanggal itu belum terjadi."
+	staleDateAck      = "Tanggal itu terlalu lama untuk slip ini."
 	salaryInvalidAck  = "Pilihan itu tidak berlaku untuk slip ini."
 	salaryPolicyAck   = "✅ Jenis gaji disimpan."
 	salaryEvidenceKey = "salary_classification"
@@ -43,10 +47,6 @@ var salaryOptions = []salaryOption{
 
 func payslipReviewType(reviewType string) bool {
 	return reviewType == "PAYSLIP_CONFIRMATION" || reviewType == "MISSING_PAY_DATE"
-}
-
-func engineOwnsPayslip(decision reviewdec.Decision) bool {
-	return true
 }
 
 func derivePayslipStep(step Step, decision reviewdec.Decision, reviewType string) Step {
@@ -359,6 +359,9 @@ func (p *Processor) applyDateText(ctx context.Context, tx pgx.Tx, householdID, s
 	}
 	if date.After(jakartaMidnight(now)) {
 		return stepOutcome{Step: step.WithAck(futureDateAck)}, nil
+	}
+	if date.Before(jakartaMidnight(now).AddDate(0, 0, -payDateMaxAgeDays)) {
+		return stepOutcome{Step: step.WithAck(staleDateAck)}, nil
 	}
 	return p.finishPayDate(ctx, tx, householdID, sourceEventID, review, step, date)
 }

@@ -33,6 +33,7 @@ var kinds = []Kind{
 		WhyID:    "Alokasi sisa saldo adalah keputusan keluarga, jadi tidak ditebak.",
 		Telegram: true,
 		Inbox:    []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "WEALTH_OBSERVATION_CONFIRMATION", Class: ClassEvidenceGap,

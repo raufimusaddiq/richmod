@@ -181,7 +181,7 @@ func engineOwnsTransfer(decision reviewdec.Decision, subject reviewSubject) bool
 
 func engineOwnsDecision(decision reviewdec.Decision, reviewType string, subject reviewSubject) bool {
 	if payslipReviewType(reviewType) {
-		return engineOwnsPayslip(decision)
+		return true
 	}
 	if reviewType == cycleReviewType {
 		return true
