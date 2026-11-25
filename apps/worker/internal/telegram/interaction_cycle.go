@@ -414,6 +414,15 @@ func (p *Processor) commitSplitAmount(ctx context.Context, tx pgx.Tx, householdI
 	if split.Pending == "" || amount.Sign() <= 0 || amount.Cmp(remaining) > 0 {
 		return stepOutcome{Step: step.WithAck("Jumlahnya harus lebih dari nol dan tidak lebih dari sisa " + rupiah(remaining) + ".")}, nil
 	}
+	if amount.Cmp(remaining) < 0 {
+		others, err := cycleAccountCandidates(ctx, tx, householdID, append(split.usedIDs(), split.Pending))
+		if err != nil {
+			return stepOutcome{}, err
+		}
+		if len(others) == 0 {
+			return stepOutcome{Step: step.WithAck("Ini akun terakhir, jadi harus menampung seluruh sisa " + rupiah(remaining) + ".")}, nil
+		}
+	}
 	split.Allocations = append(split.Allocations, cycleSplitAllocation{AccountID: split.Pending, Amount: amount.String()})
 	split.Pending = ""
 	if amount.Cmp(remaining) == 0 {

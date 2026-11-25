@@ -12,6 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
+const dateForwardDays = 31
+
 const (
 	salaryAsk         = "Slip gaji ini dicatat sebagai apa?"
 	payDateAsk        = "Tanggal pembayarannya kapan?"
@@ -345,7 +347,7 @@ func (p *Processor) applyDateTap(ctx context.Context, tx pgx.Tx, householdID, so
 }
 
 func (p *Processor) applyDateText(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, now time.Time, review engineReview, step Step, text string) (stepOutcome, error) {
-	date, ok := parseDateValue(text, now, 0)
+	date, ok := parseDateValue(text, now, dateForwardDays)
 	if !ok {
 		return reask(step, unusableAnswerAck), nil
 	}

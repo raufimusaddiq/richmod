@@ -1515,19 +1515,19 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 			h.wantResolution("SET_PAY_DATE")
 			h.wantModelCalls(0)
 		}},
-		{"first payslip without a date: a typed 25/9 is the pay date", first, nil, func(h *contractHarness) {
+		{"first payslip without a date: a typed 1/1 is the pay date", first, nil, func(h *contractHarness) {
 			h.tapLabel("Gaji utama")
-			h.reply("25/9")
-			h.wantCard(payslipDoneSalaryPrefix + "25 Sep.")
-			h.wantSalary("CONFIRMED", "8500000", "09-25", 1)
+			h.reply("1/1")
+			h.wantCard(payslipDoneSalaryPrefix + "1 Jan.")
+			h.wantSalary("CONFIRMED", "8500000", "01-01", 1)
 			h.wantAnswered("TAP", "REPLY")
 			h.wantModelCalls(0)
 		}},
 		{"first payslip without a date: the date as a thread reply", first, nil, func(h *contractHarness) {
 			h.tapLabel("Pemasukan biasa")
-			h.threadReply("25/9")
+			h.threadReply("1/1")
 			h.wantCard("✅ Pemasukan tercatat · Rp8.500.000")
-			h.wantSalary("CONFIRMED", "8500000", "09-25", 1)
+			h.wantSalary("CONFIRMED", "8500000", "01-01", 1)
 			h.wantAnswered("TAP", "THREAD_REPLY")
 		}},
 		{"first payslip without a date: a future date is refused and the step is shown again", first, nil, func(h *contractHarness) {
@@ -1540,6 +1540,14 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 			h.plain("25/12/2099")
 			h.wantCard("Tanggal itu belum terjadi.", "Tanggal pembayarannya kapan?")
 			h.wantSalary("", "", "", 0)
+		}},
+		{"first payslip without a date: a year-less date in the next days is refused, never moved to last year", first, nil, func(h *contractHarness) {
+			h.tapLabel("Gaji utama")
+			tomorrow := time.Now().In(jakartaLocation()).AddDate(0, 0, 1)
+			h.reply(tomorrow.Format("2") + " " + strings.ToLower(contractMonths[tomorrow.Month()-1]))
+			h.wantCard("Tanggal itu belum terjadi.", "Tanggal pembayarannya kapan?")
+			h.wantSalary("", "", "", 0)
+			h.wantItemActive()
 		}},
 		{"first payslip without a date: Tanggal lain keeps the card and asks for the date", first, nil, func(h *contractHarness) {
 			h.tapLabel("Gaji utama")
@@ -1595,9 +1603,9 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 			h.wantResolution("SET_PAY_DATE")
 		}},
 		{"pay date only: a plain date binds to the single waiting date card", first, []contractOption{withPrimarySalary()}, func(h *contractHarness) {
-			h.plain("25/9")
-			h.wantCard(payslipDoneSalaryPrefix + "25 Sep.")
-			h.wantSalary("CONFIRMED", "8500000", "09-25", 1)
+			h.plain("1/1")
+			h.wantCard(payslipDoneSalaryPrefix + "1 Jan.")
+			h.wantSalary("CONFIRMED", "8500000", "01-01", 1)
 			h.wantAnswered("PLAIN")
 			h.wantAssistantCalls(0)
 		}},
@@ -1606,7 +1614,7 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 			first := h.reviewID
 			h.project(secondItem)
 			h.reviewID = first
-			h.chat("25/9")
+			h.chat("1/1")
 			h.wantAssistantCalls(0)
 			h.wantSalary("", "", "", 0)
 			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'text' LIKE 'Ada beberapa kartu%' AND (payload_json->>'chat_id')::bigint=$1`, 1, h.f.chatID)
@@ -1724,6 +1732,17 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 			h.wantItemActive()
 			h.reply("700000")
 			h.wantCard("✅ Sisa Rp1.200.000 dialokasikan ke 2 akun")
+			h.wantAllocations("Reksa Contoh 700000", "Tabungan Contoh 500000")
+		}},
+		{"the last unused account must take the whole remainder", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
+			h.tapLabel("Bagi ke beberapa akun")
+			h.tapLabel("Tabungan Contoh")
+			h.reply("500rb")
+			h.tapLabel("Reksa Contoh")
+			h.reply("100rb")
+			h.wantCard("Ini akun terakhir, jadi harus menampung seluruh sisa Rp700.000.", "Berapa ke Reksa Contoh?")
+			h.wantAllocations()
+			h.tapLabel("Semua sisa")
 			h.wantAllocations("Reksa Contoh 700000", "Tabungan Contoh 500000")
 		}},
 		{"Batal mid-split clears it and returns to the first step", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
