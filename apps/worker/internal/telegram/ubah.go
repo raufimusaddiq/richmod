@@ -256,7 +256,7 @@ func (p *Processor) processUbahTap(ctx context.Context, sourceEventID, household
 	}
 	var userID string
 	if err := tx.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, query.From.ID, householdID).Scan(&userID); err != nil || userID != state.UserID {
-		return finish("")
+		return finish(ubahGoneAck)
 	}
 	if state.Closed || !p.now().Before(state.Until) {
 		if state.Closed {
@@ -331,6 +331,9 @@ func (p *Processor) processUbahTap(ctx context.Context, sourceEventID, household
 		case errors.Is(err, reviewdomain.ErrCorrectionNotAllowed):
 			_ = sp.Rollback(ctx)
 			return finish(ubahGoneAck)
+		case errors.Is(err, reviewdomain.ErrCorrectionEmpty):
+			_ = sp.Rollback(ctx)
+			return finish(choiceStaleAck)
 		case err != nil:
 			_ = sp.Rollback(ctx)
 			return true, err

@@ -100,6 +100,30 @@ func TestABurstOfQueuedCardsEditsTheLiveCardPositionOnce(t *testing.T) {
 	}
 }
 
+func TestPositionEditLeavesACardWithAnUnknownKeyboardAlone(t *testing.T) {
+	t.Parallel()
+	f := seedDeliveryFixture(t)
+	first := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	bot, fake := messageBot(t, 4201)
+	send := f.sends(t, first, f.chatA)[0]
+	mustAgentTest(t, f.processor.DeliverSend(f.ctx, bot, send.JobID, f.householdID, send.Payload))
+	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_message SET delivered_markup=NULL WHERE review_request_id=$1`, first)
+	mustAgentTest(t, err)
+	f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	jobs := f.positionRefreshJobs(t, f.chatA)
+	if len(jobs) != 1 {
+		t.Fatalf("position edits queued = %d", len(jobs))
+	}
+	edit, err := DecodeEditPayload(json.RawMessage(jobs[0].Payload.Text))
+	mustAgentTest(t, err)
+	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, jobs[0].JobID, f.householdID, edit))
+	for _, call := range fake.recorded() {
+		if call.Method == "editMessageText" {
+			t.Fatalf("a card delivered before the keyboard was recorded lost its buttons: %+v", call.Body)
+		}
+	}
+}
+
 func TestOtherCopiesSayWhoFinishedTheCardAndWhere(t *testing.T) {
 	t.Parallel()
 	f := seedDeliveryFixture(t)

@@ -54,23 +54,16 @@ func (p *Processor) cardPositionLine(ctx context.Context, chatID int64, reviewRe
 }
 
 func (p *Processor) recordReviewCardMarkup(ctx context.Context, chatID, messageID int64, markup *InlineKeyboardMarkup) {
-	var encoded []byte
+	encoded := []byte(`{"inline_keyboard":[]}`)
 	if markup != nil && len(markup.InlineKeyboard) > 0 {
 		var err error
 		if encoded, err = json.Marshal(markup); err != nil {
 			return
 		}
 	}
-	if _, err := p.pool.Exec(ctx, `UPDATE review_request_message SET delivered_markup=$3::jsonb WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, chatID, messageID, nullableJSON(encoded)); err != nil {
+	if _, err := p.pool.Exec(ctx, `UPDATE review_request_message SET delivered_markup=$3::jsonb WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, chatID, messageID, string(encoded)); err != nil {
 		slog.Default().Warn("record Telegram review card markup failed", "error", err)
 	}
-}
-
-func nullableJSON(encoded []byte) any {
-	if len(encoded) == 0 {
-		return nil
-	}
-	return string(encoded)
 }
 
 func (p *Processor) refreshCardPosition(ctx context.Context, bot *Bot, payload EditPayload) error {
@@ -91,7 +84,7 @@ func (p *Processor) refreshCardPosition(ctx context.Context, bot *Bot, payload E
 	if err != nil {
 		return fmt.Errorf("load Telegram review card for position refresh: %w", err)
 	}
-	if text == "" || settled {
+	if text == "" || settled || len(rawMarkup) == 0 {
 		return nil
 	}
 	line, err := p.cardPositionLine(ctx, payload.ChatID, payload.ReviewRequestID)
@@ -99,12 +92,11 @@ func (p *Processor) refreshCardPosition(ctx context.Context, bot *Bot, payload E
 		return err
 	}
 	edit := EditPayload{ChatID: payload.ChatID, MessageID: payload.MessageID, Text: withPositionLine(text, line)}
-	if len(rawMarkup) > 0 {
-		var markup InlineKeyboardMarkup
-		if err := json.Unmarshal(rawMarkup, &markup); err == nil {
-			edit.ReplyMarkup = &markup
-		}
+	var markup InlineKeyboardMarkup
+	if err := json.Unmarshal(rawMarkup, &markup); err != nil {
+		return nil
 	}
+	edit.ReplyMarkup = &markup
 	switch err := bot.Edit(ctx, edit); {
 	case err == nil, editNotModified(err), editFinished(err):
 		return nil
