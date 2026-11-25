@@ -586,7 +586,7 @@ func reconciliationAmount(ctx context.Context, tx pgx.Tx, householdID, itemID st
 	var amount string
 	err := tx.QueryRow(ctx, `SELECT round(trc.amount_idr)::text FROM review_item ri
 		JOIN transfer_reconciliation_case trc ON trc.household_id=ri.household_id AND trc.status='OPEN'
-		  AND ((ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id))
+		  AND ri.financial_email_observation_id IS NULL AND trc.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id
 		WHERE ri.id=$1 AND ri.household_id=$2`, itemID, householdID).Scan(&amount)
 	return amount, err
 }
