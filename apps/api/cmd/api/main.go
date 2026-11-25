@@ -222,6 +222,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/insights", authHandler.RequireSession(http.HandlerFunc(insightHandler.List)))
 	mux.Handle("POST /api/v1/insights/generate", insightGenerateLimiter.Handler(authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate))))
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
+	mux.Handle("GET /api/v1/operations/interaction-weekly", authHandler.RequireSession(http.HandlerFunc(operationsHandler.InteractionWeekly)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
 	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
 	apiHandler := securityHeaders(httpmw.RequestID(httpmw.AccessLog(logger, httpmw.SameOrigin(cfg.WebOrigin, mux))))
