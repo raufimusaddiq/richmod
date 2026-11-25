@@ -113,7 +113,6 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	return decision
 }
 
-
 func screenshotMissingFacts(categoryKnown, dateKnown bool) []string {
 	missing := make([]string, 0, 2)
 	if !categoryKnown {
