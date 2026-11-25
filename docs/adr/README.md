@@ -1302,7 +1302,7 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 
 **Reason:** the API and worker held the same key and bucket as the restic repository, so code that reached the attachment bucket could delete every backup; the only fresher-than-nightly guarantee before a schema migration was that timer; movable action tags can change under a workflow.
 
-**Consequence:** `OSS_*` can be restricted to the attachments prefix once the owner sets the `BACKUP_S3_*` variables (documented in the production deployment runbook) while unset backup variables keep today's behaviour; a failed pre-migration backup aborts the deploy; CI and release workflows update actions deliberately instead of tracking tags.
+**Consequence:** `OSS_*` can be restricted to the attachments prefix once the owner sets the `BACKUP_S3_*` variables (documented in the production deployment runbook) while unset backup variables keep today's behaviour; a failed pre-migration backup aborts the deploy; CI and release workflows update actions deliberately instead of tracking tags. Amendment (2026-11-25): `restic check` runs right after `backup` and before `forget --prune`. On the object store a listing can still show index files a prune deleted seconds earlier, so a check right after the prune failed the 2026-11-25 deploy with "key does not exist" while the repository was intact (a later check found no errors).
 
 ## ADR-128: Household merchant memory wins over the screenshot model category
 *Accepted · 2026-11-25*

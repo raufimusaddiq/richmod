@@ -63,6 +63,7 @@ grep '^backup ' "$work/log.args" > "$work/second"
 cmp -s "$work/first" "$work/second" || fail "consecutive backups must use the same host and paths: $(cat "$work/first") vs $(cat "$work/second")"
 grep -q -- '--host family-finance' "$work/first" || fail "backup must pin its host"
 grep '^forget ' "$work/log.args" | grep -q -- '--group-by tags' || fail "forget must group by tags"
+[ "$(grep -xE 'backup|check|forget' "$work/log" | tr '\n' ' ')" = "backup check forget " ] || fail "the repository must be checked before forget prunes it: $(tr '\n' ' ' < "$work/log")"
 
 flock "$work/tmp/family-finance-backup.lock" sleep 3 &
 holder=$!
