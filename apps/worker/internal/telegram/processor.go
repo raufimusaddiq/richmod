@@ -209,11 +209,6 @@ func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, househo
 		return true, p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 	}
 	if update.CallbackQuery.Data == "review:reprocess" || update.CallbackQuery.Data == "review:ignore" {
-		if update.CallbackQuery.Data == "review:ignore" {
-			if handled, err := p.ignoreBankReview(ctx, sourceEventID, householdID, update); handled {
-				return true, err
-			}
-		}
 		if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return true, err
 		}
@@ -228,12 +223,6 @@ func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, househo
 		if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return true, err
 		}
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:bankpage:") {
-		return true, p.processBankAccountPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:bank:") {
-		return true, p.processBankAccountCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 	}
 	if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
 		return true, p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)

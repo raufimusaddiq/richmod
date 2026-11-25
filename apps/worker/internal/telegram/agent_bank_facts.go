@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
@@ -13,35 +12,24 @@ import (
 func (p *Processor) agentResolveBoundBankFacts(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, binding *agentReviewBinding) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	action, _ := args["action"].(string)
-	amountIDR, _ := args["amount_idr"].(string)
-	transactionAt, _ := args["transaction_at"].(string)
-	if action == "COMPLETE_BANK_FACTS" {
-		at, err := time.Parse(time.RFC3339, transactionAt)
-		if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil || err != nil {
-			result.Status = "MISSING_BANK_FACTS"
-			result.Review = map[string]any{"required": true, "missing_fields": []string{"amount_idr", "transaction_at"}, "format": "transaction_at as RFC3339 with offset"}
-			return result, true, nil
-		}
-		transactionAt = at.Format(time.RFC3339)
-	} else if action != "IGNORE" {
+	if action != "IGNORE" {
 		result.Status = "UNSUPPORTED_REVIEW_ACTION"
 		return result, true, nil
 	}
-
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return result, true, err
 	}
 	defer tx.Rollback(ctx)
-	var bankSourceID, userID string
-	err = tx.QueryRow(ctx, `SELECT ri.source_event_id::text,ti.user_id::text
+	var userID string
+	err = tx.QueryRow(ctx, `SELECT ti.user_id::text
 		FROM review_item ri
 		JOIN review_request r ON r.review_item_id=ri.id AND r.id=$3::uuid
 		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=ri.household_id AND ti.active
 		JOIN household_member hm ON hm.household_id=ri.household_id AND hm.user_id=ti.user_id AND hm.active
 		WHERE ri.id=$1::uuid AND ri.household_id=$2 AND r.status='OPEN' AND ri.status IN ('OPEN','PENDING_SEND')
 		  AND ri.review_type='UNKNOWN_BANK_TEMPLATE' AND ri.transaction_id IS NULL
-		FOR UPDATE OF ri`, binding.TargetID, state.HouseholdID, binding.ReviewRequestID, state.Update.Message.From.ID).Scan(&bankSourceID, &userID)
+		FOR UPDATE OF ri`, binding.TargetID, state.HouseholdID, binding.ReviewRequestID, state.Update.Message.From.ID).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
@@ -49,43 +37,14 @@ func (p *Processor) agentResolveBoundBankFacts(ctx context.Context, state *agent
 	if err != nil {
 		return result, true, err
 	}
-	command := reviewdomain.BankFactCommand{HouseholdID: state.HouseholdID, UserID: userID, ReviewItemID: binding.TargetID, SourceEventID: bankSourceID, AmountIDR: amountIDR, TransactionAt: transactionAt}
-
-	if action == "IGNORE" {
-		if err = reviewdomain.IgnoreBankReview(ctx, tx, command, "TELEGRAM"); err != nil {
-			if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) {
-				result.Status = "STALE_REVIEW_BINDING"
-				return result, true, nil
-			}
-			return result, true, err
+	if err = reviewdomain.IgnoreBankReview(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: state.HouseholdID, UserID: userID, ReviewItemID: binding.TargetID}, "TELEGRAM"); err != nil {
+		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
 		}
-		result.Mutation = map[string]any{"action": "BANK_REVIEW_IGNORED"}
-	} else {
-		if err = enqueueBankFactsCompletion(ctx, tx, command, state.Update.Message.Chat.ID); err != nil {
-			switch {
-			case errors.Is(err, reviewdomain.ErrBankReviewUnavailable), errors.Is(err, reviewdomain.ErrAlreadyResolved):
-				result.Status = "STALE_REVIEW_BINDING"
-				return result, true, nil
-			case errors.Is(err, reviewdomain.ErrBankSourceUnlinked):
-				accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, state.HouseholdID, binding.TargetID, bankSourceID, 0)
-				if listErr != nil {
-					return result, true, listErr
-				}
-				_ = tx.Rollback(ctx)
-				if len(accounts) == 0 {
-					result.Status = "BANK_ACCOUNT_UNAVAILABLE"
-					return result, true, nil
-				}
-				if err = p.offerBankAccountChooser(ctx, state.SourceEventID, state.HouseholdID, binding.TargetID, accounts, amountIDR, transactionAt, state.Update); err != nil {
-					return result, true, err
-				}
-				result.Status = "BANK_ACCOUNT_REQUIRED"
-				return result, true, nil
-			}
-			return result, true, err
-		}
-		result.Mutation = map[string]any{"action": "BANK_FACTS_QUEUED", "amount_idr": amountIDR}
+		return result, true, err
 	}
+	result.Mutation = map[string]any{"action": "BANK_REVIEW_IGNORED"}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
 		return result, true, err
 	}
@@ -93,8 +52,5 @@ func (p *Processor) agentResolveBoundBankFacts(ctx context.Context, state *agent
 		return result, true, err
 	}
 	result.Status = "RESOLVED"
-	if action == "COMPLETE_BANK_FACTS" {
-		result.Status = "QUEUED"
-	}
 	return result, true, nil
 }

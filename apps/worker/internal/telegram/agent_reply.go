@@ -264,11 +264,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return merchantLearningQuestion, true
 	}
 	if result.Status == "RESIDUAL_FACTS_REQUIRED" {
-		if missing, ok := missingFields(result.Review); ok {
-			if message := reviewNeedsFactsMessage(missing); message != "" {
-				return message, true
-			}
-		}
 		return reviewStillNeedsDetailsMessage, true
 	}
 	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
@@ -283,8 +278,6 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		switch action {
 		case "TRANSACTION_RECORDED":
 			return transactionRecordedMessage(result), true
-		case "BANK_FACTS_QUEUED":
-			return bankFactsQueuedMessage, true
 		case "BANK_REVIEW_IGNORED":
 			return "Bukti email bank diabaikan.", true
 		case "DUPLICATE_MERGED":
@@ -347,11 +340,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 			return "Tinjauan sudah selesai tanpa mencatatnya sebagai transaksi aktif.", true
 		case "REVIEW_DETAIL_SAVED":
 			if result.Status == "NEEDS_REVIEW" {
-				if missing, ok := missingFields(result.Review); ok {
-					if message := reviewNeedsFactsMessage(missing); message != "" {
-						return message, true
-					}
-				}
+				return reviewStillNeedsDetailsMessage, true
 			}
 			return "Detail tinjauan sudah diperbarui.", true
 		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":

@@ -47,7 +47,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	decision := `{"version":1,"reasonCode":"MISSING_PAY_DATE","decisionClass":"HUMAN_POLICY_CHOICE","interactionMode":"POLICY_CHOICE","knownFacts":{},"missingFacts":["transaction_at","salary_classification"],"allowedActions":["SET_PAY_DATE","PRIMARY_SALARY","ORDINARY_INCOME","IGNORE"],"decisionSource":"DETERMINISTIC"}`
 	var contract reviewdec.Decision
 	must(json.Unmarshal([]byte(decision), &contract))
-	initialState, _, mode := renderReviewPresentation(contract, "MISSING_PAY_DATE", "Synthetic payslip")
+	initialState, _, mode := renderReviewPresentation(contract, "MISSING_PAY_DATE", "Synthetic payslip", reviewSubject{})
 	if initialState != "AWAITING_DETAIL" || mode != "step" {
 		t.Fatalf("policy must precede date: state=%s mode=%s", initialState, mode)
 	}

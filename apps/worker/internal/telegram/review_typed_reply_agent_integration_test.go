@@ -90,45 +90,6 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 	}
 }
 
-func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
-	t.Parallel()
-	for _, mode := range typedReplyModes {
-		t.Run(mode.name, func(t *testing.T) {
-			ctx := context.Background()
-			f := newAgentIntegrationFixture(t, "typed-bank")
-			var accountID, listenerID, bankSourceID, itemID, reviewID string
-			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Rekening','BANK','FULL_LEDGER') RETURNING id", f.householdID).Scan(&accountID))
-			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) VALUES($1,'Bank','notifikasi@bank.test',$2,$3) RETURNING id", f.householdID, accountID, f.userID).Scan(&listenerID))
-			mustAgentTest(t, f.pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id", f.householdID, fmt.Sprintf("typed-bank-%d", testsupport.UniqueStamp()), []byte("bank")).Scan(&bankSourceID))
-			_, err := f.pool.Exec(ctx, "INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'IMAP','v1','{}'::jsonb,'VALID')", bankSourceID, listenerID)
-			mustAgentTest(t, err)
-			decision, _ := reviewdec.Preset("UNKNOWN_BANK_TEMPLATE", "source_event", bankSourceID)
-			encoded, err := json.Marshal(decision)
-			mustAgentTest(t, err)
-			tx, err := f.pool.Begin(ctx)
-			mustAgentTest(t, err)
-			mustAgentTest(t, tx.QueryRow(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN',$3::jsonb) RETURNING id", f.householdID, bankSourceID, string(encoded)).Scan(&itemID))
-			mustAgentTest(t, ProjectReviewItem(ctx, tx, f.householdID, itemID, 0, "", f.chatID))
-			mustAgentTest(t, tx.QueryRow(ctx, "SELECT id FROM review_request WHERE review_item_id=$1", itemID).Scan(&reviewID))
-			mustAgentTest(t, tx.Commit(ctx))
-
-			p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
-			sendTypedReviewReply(t, ctx, f, p, reviewID, "54rb tadi siang 13.45", mode.reply)
-
-			var payload string
-			mustAgentTest(t, f.pool.QueryRow(ctx, "SELECT COALESCE(max(payload_json::text),'') FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1", itemID).Scan(&payload))
-			if !strings.Contains(payload, `"amount_idr": "54000"`) || !strings.Contains(payload, "2026-09-23T13:45:00+07:00") {
-				t.Fatalf("bank facts were not queued for completion: %q", payload)
-			}
-			var itemStatus string
-			mustAgentTest(t, f.pool.QueryRow(ctx, "SELECT status FROM review_item WHERE id=$1", itemID).Scan(&itemStatus))
-			if itemStatus != "OPEN" {
-				t.Fatalf("the completion job owns resolution; item=%s", itemStatus)
-			}
-		})
-	}
-}
-
 func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 	t.Parallel()
 	for _, mode := range typedReplyModes {

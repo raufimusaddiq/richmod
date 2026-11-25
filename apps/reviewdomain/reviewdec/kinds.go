@@ -78,7 +78,7 @@ var kinds = []Kind{
 		WhyID:    "Format bukti bank ini belum bisa dipetakan ke jenis transaksi.",
 		Telegram: true,
 		Inbox:    []string{"COMPLETE_BANK_FACTS", "IGNORE"},
-		Agent:    []string{"COMPLETE_BANK_FACTS", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "PAYSLIP_CONFIRMATION", Class: ClassHumanPolicyChoice,
@@ -111,7 +111,7 @@ var kinds = []Kind{
 		Choices:  transactionDateChoices,
 		WhyID:    "Tanggal transaksi tidak tertulis di bukti.",
 		Telegram: true,
-		Agent:    []string{"CONFIRM", "SET_TRANSACTION_DATE", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "TRANSACTION_FACTS_MISSING", Class: ClassEvidenceGap,
@@ -122,7 +122,7 @@ var kinds = []Kind{
 		Choices:  transactionDateChoices,
 		WhyID:    "Bukti tidak menunjukkan kategori dan tanggal transaksi.",
 		Telegram: true,
-		Agent:    []string{"CONFIRM", "SET_TRANSACTION_DATE", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "TRANSFER_CLASSIFICATION", Class: ClassEvidenceGap,
@@ -184,6 +184,7 @@ var kinds = []Kind{
 		Why:      "the transaction purpose is not supported strongly enough to classify",
 		WhyID:    "Tujuan transaksi belum cukup jelas.",
 		Telegram: true,
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "MANUAL_CORRECTION", Class: ClassCorrectionConfirmation,
@@ -224,7 +225,7 @@ var kinds = []Kind{
 	},
 
 	{
-		Reason: "MISSING_AMOUNT", Inbox: []string{"SET_AMOUNT", "IGNORE"},
+		Reason: "MISSING_AMOUNT", Inbox: []string{"SET_AMOUNT", "IGNORE"}, Agent: []string{"IGNORE"},
 		Telegram: true, TelegramActions: []string{"SET_AMOUNT", "IGNORE"},
 		WhyID: "Nominal tidak terlihat di bukti.",
 	},

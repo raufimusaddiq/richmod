@@ -46,6 +46,7 @@ type engineReview struct {
 	CycleCaseID   string
 	MerchantID    string
 	UserID        string
+	ChatID        int64
 	Unexpired     bool
 	Decision      reviewdec.Decision
 	Subject       reviewSubject
@@ -68,6 +69,10 @@ func (e engineReview) live() bool {
 		return e.ProposalState == "NEEDS_REVIEW"
 	case e.ReviewType == cycleReviewType:
 		return e.CycleCaseID != ""
+	case e.ReviewType == bankReviewType:
+		return e.Subject.Bank != nil && !e.Subject.Bank.Queued
+	case e.ReviewType == missingAmountReviewType:
+		return e.ProposalState == "NEEDS_REVIEW"
 	}
 	return e.TxStatus == "NEEDS_REVIEW" || (e.TransactionID == "" && e.Subject.Reconciliation)
 }
@@ -148,6 +153,16 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 			}
 		}
 	}
+	switch e.ReviewType {
+	case bankReviewType:
+		if step, err = p.bankStep(ctx, tx, e, step); err != nil {
+			return Step{}, false, err
+		}
+	case missingAmountReviewType:
+		if step, err = p.proposalAmountStep(ctx, tx, e, step); err != nil {
+			return Step{}, false, err
+		}
+	}
 	step.ReadOnly = e.ReadOnly
 	if err := step.loadRows(ctx, tx, e.RequestID, 0); err != nil {
 		return Step{}, false, err
@@ -156,7 +171,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 }
 
 func engineNavigation(data string) bool {
-	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg, callbackCyclePg} {
+	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg, callbackCyclePg, callbackBankPg} {
 		if strings.HasPrefix(data, prefix) {
 			return true
 		}
@@ -192,6 +207,10 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 	}
 	if err != nil {
 		return false, err
+	}
+	review.ChatID = update.Message.Chat.ID
+	if review.ChatID == 0 && update.CallbackQuery != nil {
+		review.ChatID = update.CallbackQuery.Message.Chat.ID
 	}
 	step, owned, err := p.currentStep(ctx, tx, householdID, review)
 	if err != nil || !owned {
@@ -256,6 +275,14 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 		return p.applySalaryText(ctx, tx, householdID, sourceEventID, update, review, step, in.Text)
 	case factCycle, factSplitAcct, factSplitAmount:
 		return p.applyCycleText(ctx, tx, householdID, sourceEventID, review, step, in.Text, in.Targeted)
+	case factAmount:
+		return p.applyAmountText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
+	case factBankAccount:
+		return p.applyBankAccountText(ctx, tx, householdID, review, step, in.Text)
+	case factProposalIncome:
+		return p.applyProposalIncomeText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
+	case factPurpose:
+		return p.applyPurposeText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
 	}
 	return reask(step, unusableAnswerAck), nil
 }
@@ -266,6 +293,14 @@ func (p *Processor) applyTap(ctx context.Context, tx pgx.Tx, householdID, source
 		return p.applySalaryTap(ctx, tx, householdID, sourceEventID, review, step, data)
 	case review.ReviewType == cycleReviewType:
 		return p.applyCycleTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	case review.ReviewType == bankReviewType:
+		return p.applyBankTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	case review.ReviewType == missingAmountReviewType:
+		return p.applyProposalAmountTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	case step.Fact == factDate && data != callbackIgnore:
+		return p.applyDateTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	case step.Fact == factPurpose && data != callbackIgnore:
+		return reask(step, choiceStaleAck), nil
 	}
 	if data != callbackIgnore {
 		if outcome, handled, err := p.applyTransferTap(ctx, tx, householdID, sourceEventID, review, step, data); handled || err != nil {
@@ -363,14 +398,14 @@ func (p *Processor) applyMerchant(ctx context.Context, tx pgx.Tx, householdID, s
 		}
 	}
 	review.Decision = withoutMissingFact(review.Decision, "merchant")
-	next, ok, err := p.nextAfterMerchant(ctx, tx, householdID, review, value)
+	next, ok, err := p.nextAfterFact(ctx, tx, householdID, review, "✅ "+value+" disimpan.")
 	if err != nil || !ok {
 		return stepOutcome{}, err
 	}
 	return stepOutcome{Step: next, Changed: true}, nil
 }
 
-func (p *Processor) nextAfterMerchant(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, merchant string) (Step, bool, error) {
+func (p *Processor) nextAfterFact(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, ack string) (Step, bool, error) {
 	facts, err := transactionReviewSummary(ctx, tx, householdID, review.TransactionID)
 	if err != nil {
 		return Step{}, false, err
@@ -385,13 +420,13 @@ func (p *Processor) nextAfterMerchant(ctx context.Context, tx pgx.Tx, householdI
 	if !ok {
 		return Step{}, false, fmt.Errorf("review %s has no step after the merchant", review.RequestID)
 	}
-	if err := step.loadCategoryRows(ctx, tx, review.RequestID, 0); err != nil {
+	if err := step.loadRows(ctx, tx, review.RequestID, 0); err != nil {
 		return Step{}, false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.RequestID, step.State); err != nil {
 		return Step{}, false, err
 	}
-	step = step.WithAck("✅ " + merchant + " disimpan.")
+	step = step.WithAck(ack)
 	return step.executable(cardActions(review.Decision, review.ReviewType)), true, nil
 }
 

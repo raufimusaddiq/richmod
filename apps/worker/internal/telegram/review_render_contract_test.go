@@ -18,7 +18,7 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s is active producer coverage with no ReviewDecision preset", reviewType)
 		}
-		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
+		_, _, mode := renderReviewPresentation(decision, reviewType, "context", reviewSubject{})
 		if mode == "" {
 			t.Fatalf("%s produced no markup mode", reviewType)
 		}
@@ -34,18 +34,18 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
 		decision, _ := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
-		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
+		_, _, mode := renderReviewPresentation(decision, reviewType, "context", reviewSubject{})
 		if !reviewMarkupModeHandled(mode) {
 			t.Fatalf("%s rendered mode %q with no creation markup case", reviewType, mode)
 		}
 	}
 }
 
-func TestTransactionDatePromptKeepsItsSupportedFormat(t *testing.T) {
+func TestTransactionDatePromptAsksOneThingWithoutAFormat(t *testing.T) {
 	decision, _ := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "00000000-0000-0000-0000-000000000000")
-	_, message, _ := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "")
-	if !strings.Contains(message, "YYYY-MM-DD") {
-		t.Fatalf("transaction date prompt does not match its parser: %q", message)
+	_, message, mode := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "", reviewSubject{TransactionType: "EXPENSE"})
+	if mode != "step" || !strings.Contains(message, transactionDateAsk) || strings.Contains(message, "YYYY-MM-DD") || strings.Contains(message, "Balas pesan ini") {
+		t.Fatalf("transaction date prompt: mode=%s %q", mode, message)
 	}
 }
 
@@ -73,6 +73,7 @@ func telegramReviewLanes() map[string]bool {
 	telegramLanes["MERGE_EXISTING"] = true
 	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
 	telegramLanes["SET_TRANSACTION_DATE"] = true
+	telegramLanes["COMPLETE_BANK_FACTS"] = true
 	telegramLanes["SET_AMOUNT"] = true
 	for _, action := range []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING", "SET_PAY_DATE", "HOUSEHOLD_POLICY", "PRIMARY_SALARY", "ORDINARY_INCOME"} {
 		telegramLanes[action] = true
@@ -156,7 +157,7 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		if !ok {
 			continue
 		}
-		state, message, mode := renderReviewPresentation(decision, reviewType, "bespoke prompt")
+		state, message, mode := renderReviewPresentation(decision, reviewType, "bespoke prompt", reviewSubject{})
 		if state == "" || mode == "" {
 			t.Fatalf("%s lost its state/markup with a supplied prompt", reviewType)
 		}
@@ -200,32 +201,9 @@ func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
 	}
 }
 
-func TestBankFactsReplyParserAndCapability(t *testing.T) {
+func TestBankFactsCapability(t *testing.T) {
 	if !TelegramCompletableReviewType("UNKNOWN_BANK_TEMPLATE") {
 		t.Fatal("UNKNOWN_BANK_TEMPLATE must be completable from Telegram")
-	}
-	for _, text := range []string{
-		"54000 2026-09-23T13:45:00+07:00",
-		"2026-09-23T13:45:00+07:00 Rp54000",
-	} {
-		amount, at := parseBankFactsReply(text)
-		if amount != "54000" || at != "2026-09-23T13:45:00+07:00" {
-			t.Fatalf("parse %q = %q,%q", text, amount, at)
-		}
-	}
-	if amount, at := parseBankFactsReply("lihat nanti ya"); amount != "" || at != "" {
-		t.Fatalf("non-fact reply parsed as %q,%q", amount, at)
-	}
-	for _, text := range []string{
-		"54,5 2026-09-23T13:45:00+07:00",
-		"12.500,50 2026-09-23T13:45:00+07:00",
-		"-54000 2026-09-23T13:45:00+07:00",
-		"0 2026-09-23T13:45:00+07:00",
-		"999999999999999999999 2026-09-23T13:45:00+07:00",
-	} {
-		if amount, _ := parseBankFactsReply(text); amount != "" {
-			t.Fatalf("separator amount %q parsed as %q, want rejection", text, amount)
-		}
 	}
 }
 
@@ -234,11 +212,11 @@ func TestEmptySummaryCardShowsItsTitleOnce(t *testing.T) {
 	if !ok {
 		t.Fatal("no preset")
 	}
-	state, message, _ := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "")
+	state, message, _ := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "", reviewSubject{TransactionType: "EXPENSE"})
 	if state != "AWAITING_DATE" {
 		t.Fatalf("state=%s", state)
 	}
-	if got := strings.Count(message, promptTitle(decision)); got != 1 {
+	if got := strings.Count(message, "🟡 "+transactionDateAsk); got != 1 {
 		t.Fatalf("title appears %d times in %q", got, message)
 	}
 }

@@ -387,7 +387,8 @@ func yesNoReshowCard(cards []agentReviewBinding) (agentReviewBinding, bool) {
 	switch step, ok := stepForBinding(cards[0]); {
 	case !ok:
 		return agentReviewBinding{}, false
-	case step.Fact == factSalary, step.Fact == factDate, cycleFact(step.Fact):
+	case step.Fact == factSalary, step.Fact == factDate, cycleFact(step.Fact),
+		step.Fact == factAmount, step.Fact == factBankAccount, step.Fact == factProposalIncome, step.Fact == factPurpose:
 		return cards[0], true
 	}
 	return agentReviewBinding{}, false

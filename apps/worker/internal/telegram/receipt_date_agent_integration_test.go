@@ -141,12 +141,12 @@ func TestReceiptReviewCardNamesItsTransaction(t *testing.T) {
 
 	var text string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id' IN (SELECT id::text FROM review_request WHERE review_item_id=$1)`, itemID).Scan(&text))
-	for _, want := range []string{"Nominal: Rp34.000", "Merchant: Indomaret", "YYYY-MM-DD"} {
+	for _, want := range []string{"Nominal: Rp34.000", "Merchant: Indomaret", "ketik tanggalnya"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("card %q is missing %q", text, want)
 		}
 	}
-	if got := strings.Count(text, "Tanggal transaksi belum ada"); got != 1 {
+	if got := strings.Count(text, "Transaksi ini terjadi tanggal berapa?"); got != 1 {
 		t.Fatalf("title appears %d times in %q", got, text)
 	}
 }

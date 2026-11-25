@@ -319,7 +319,7 @@ func (p *Processor) applyCycleText(ctx context.Context, tx pgx.Tx, householdID, 
 		return reask(step, unusableAnswerAck), nil
 	}
 	if step.Fact == factSplitAmount {
-		amount, ok := parseSplitAmount(text)
+		amount, ok := parseAmountText(text)
 		if !ok {
 			return reask(step, splitAmountBadAck), nil
 		}
@@ -341,55 +341,6 @@ func (p *Processor) applyCycleText(ctx context.Context, tx pgx.Tx, householdID, 
 		return reask(step, "Aku belum menemukan satu akun yang cocok dengan “"+clean(hint, 40)+"”."), nil
 	}
 	return p.chooseCycleAccount(ctx, tx, householdID, sourceEventID, review, step, id)
-}
-
-func parseSplitAmount(text string) (*big.Int, bool) {
-	fields := strings.Fields(strings.ToLower(strings.TrimSpace(text)))
-	if len(fields) > 1 && (fields[0] == "rp" || fields[0] == "rp.") {
-		fields = fields[1:]
-	}
-	if len(fields) == 0 || len(fields) > 2 {
-		return nil, false
-	}
-	match := amountToken.FindStringSubmatch(fields[0])
-	if match == nil {
-		return nil, false
-	}
-	digits, unit := match[1], amountUnits[match[2]]
-	if len(fields) == 2 {
-		external, known := amountUnits[fields[1]]
-		if !known || unit != "" {
-			return nil, false
-		}
-		unit = external
-	}
-	multiplier := int64(1)
-	switch unit {
-	case "":
-		if strings.ContainsAny(digits, ".,") && !amountThousands.MatchString(digits) {
-			return nil, false
-		}
-		digits = strings.NewReplacer(".", "", ",", "").Replace(digits)
-	case "rb":
-		multiplier = 1_000
-	case "jt":
-		multiplier = 1_000_000
-	}
-	if unit != "" {
-		if strings.Count(digits, ".")+strings.Count(digits, ",") > 1 {
-			return nil, false
-		}
-		digits = strings.Replace(digits, ",", ".", 1)
-	}
-	number, ok := new(big.Rat).SetString(digits)
-	if !ok {
-		return nil, false
-	}
-	number.Mul(number, big.NewRat(multiplier, 1))
-	if !number.IsInt() || number.Sign() <= 0 {
-		return nil, false
-	}
-	return new(big.Int).Set(number.Num()), true
 }
 
 func (p *Processor) chooseCycleAccount(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, accountID string) (stepOutcome, error) {

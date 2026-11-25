@@ -36,6 +36,11 @@ const (
 	factCycle       factKind = "cycle"
 	factSplitAcct   factKind = "splitaccount"
 	factSplitAmount factKind = "splitamount"
+
+	factAmount         factKind = "amount"
+	factBankAccount    factKind = "bankaccount"
+	factProposalIncome factKind = "proposalincome"
+	factPurpose        factKind = "purpose"
 )
 
 const transferReviewType = "TRANSFER_CLASSIFICATION"
@@ -70,6 +75,9 @@ const (
 	callbackDateToday       = "review:date:today"
 	callbackDateYesterday   = "review:date:yesterday"
 	callbackDateOther       = "review:date:other"
+	callbackDateEmail       = "review:date:email"
+	callbackBankAccount     = "review:bank:"
+	callbackBankPg          = "review:bankpage:"
 	callbackLeave           = "review:leave"
 	callbackCycleMissing    = "review:cycmissing"
 	callbackCycleSplit      = "review:cycsplit"
@@ -131,8 +139,12 @@ func (s Step) AnswerKind() cardAnswerKind {
 		return cardAnswerAccount
 	case factDate:
 		return cardAnswerDate
-	case factSplitAmount:
+	case factSplitAmount, factAmount:
 		return cardAnswerAmount
+	case factProposalIncome:
+		return cardAnswerConfirm
+	case factPurpose:
+		return cardAnswerDetail
 	}
 	return cardAnswerNone
 }
@@ -155,7 +167,8 @@ func engineReviewType(reviewType string) bool {
 }
 
 func engineOwnedType(reviewType string) bool {
-	return engineReviewType(reviewType) || transferReview(reviewType) || payslipReviewType(reviewType) || reviewType == cycleReviewType
+	return engineReviewType(reviewType) || transferReview(reviewType) || payslipReviewType(reviewType) || reviewType == cycleReviewType ||
+		reviewType == bankReviewType || reviewType == missingAmountReviewType || factsReviewType(reviewType)
 }
 
 func transferReview(reviewType string) bool {
@@ -185,6 +198,15 @@ func engineOwnsDecision(decision reviewdec.Decision, reviewType string, subject 
 	}
 	if reviewType == cycleReviewType {
 		return true
+	}
+	if reviewType == bankReviewType {
+		return subject.Bank != nil && (subject.Bank.AmountIDR == "" || subject.Bank.TransactionAt == "")
+	}
+	if reviewType == missingAmountReviewType {
+		return contains(decision.MissingFacts, "amount")
+	}
+	if factsReviewType(reviewType) {
+		return engineOwnsFacts(decision, subject)
 	}
 	if transferReview(reviewType) {
 		return engineOwnsTransfer(decision, subject)
@@ -220,11 +242,23 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 	if reviewType == cycleReviewType {
 		return deriveCycleStep(step, subject), true
 	}
+	if reviewType == bankReviewType {
+		return deriveBankStep(step, decision, subject), true
+	}
+	if reviewType == missingAmountReviewType {
+		return deriveMissingAmountStep(step, decision), true
+	}
 	if transferReview(reviewType) {
 		return deriveTransferStep(step, decision, subject), true
 	}
-	if subject.transactionType(decision) == "INCOME" {
+	if subject.transactionType(decision) == "INCOME" && !factsReviewType(reviewType) {
 		return incomeConfirmStep(step), true
+	}
+	if contains(decision.MissingFacts, "transaction_at") {
+		return dateStepFrom(step, transactionDateAsk, cardActions(decision, reviewType)), true
+	}
+	if contains(decision.MissingFacts, "transaction_semantics") {
+		return purposeStepFrom(step, cardActions(decision, reviewType)), true
 	}
 	if contains(decision.MissingFacts, "merchant") {
 		step.Kind, step.Fact, step.State = stepFact, factMerchant, "AWAITING_MERCHANT"
@@ -245,6 +279,9 @@ func stepForBinding(card agentReviewBinding) (Step, bool) {
 	if step, ok := subjectStepForBinding(card); ok {
 		return step, true
 	}
+	if step, ok := factsStepForBinding(card); ok {
+		return step, true
+	}
 	if card.Kind != "TRANSACTION" || !engineOwnedType(card.ReviewType) {
 		return Step{}, false
 	}
@@ -257,12 +294,56 @@ func stepForBinding(card agentReviewBinding) (Step, bool) {
 	switch {
 	case card.ConversationState == "AWAITING_MERCHANT_DECISION":
 		return Step{Kind: stepConfirm, Fact: factRemember}, true
+	case card.ConversationState == "AWAITING_DATE":
+		return Step{Kind: stepFact, Fact: factDate}, true
+	case card.ReviewType == "UNKNOWN_PURPOSE" && card.ConversationState != "AWAITING_CATEGORY" && card.ConversationState != "AWAITING_MERCHANT":
+		return Step{Kind: stepFact, Fact: factPurpose}, true
 	case card.ConversationState == "AWAITING_MERCHANT", card.ReviewType == "UNKNOWN_MERCHANT" && card.MerchantID == "":
 		return Step{Kind: stepFact, Fact: factMerchant}, true
 	case card.ConversationState == "AWAITING_CATEGORY":
 		return Step{Kind: stepChoice, Fact: factCategory}, true
 	}
 	return Step{}, false
+}
+
+func factsStepForBinding(card agentReviewBinding) (Step, bool) {
+	switch {
+	case card.Kind == "BANK_FACTS" && card.ReviewType == bankReviewType:
+		switch card.ConversationState {
+		case "AWAITING_DATE":
+			return Step{Kind: stepFact, Fact: factDate}, true
+		case "AWAITING_BANK_ACCOUNT":
+			return Step{Kind: stepChoice, Fact: factBankAccount}, true
+		}
+		return Step{Kind: stepFact, Fact: factAmount}, true
+	case card.Kind == cardKindProposal && card.ReviewType == missingAmountReviewType:
+		if card.ConversationState == "AWAITING_CONFIRMATION" {
+			return Step{Kind: stepChoice, Fact: factProposalIncome}, true
+		}
+		return Step{Kind: stepFact, Fact: factAmount}, true
+	}
+	return Step{}, false
+}
+
+func engineOwnsFacts(decision reviewdec.Decision, subject reviewSubject) bool {
+	if decision.InteractionMode == reviewdec.ModeConflictResolution || (decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true) {
+		return false
+	}
+	switch subject.transactionType(decision) {
+	case "EXPENSE", "INCOME":
+	case "TRANSFER":
+		return len(decision.MissingFacts) == 1 && decision.MissingFacts[0] == "transaction_at"
+	default:
+		return false
+	}
+	for _, fact := range decision.MissingFacts {
+		switch fact {
+		case "transaction_at", "transaction_semantics", "merchant", "category":
+		default:
+			return false
+		}
+	}
+	return len(decision.MissingFacts) > 0
 }
 
 func rememberStep(facts, merchant, category string) Step {
