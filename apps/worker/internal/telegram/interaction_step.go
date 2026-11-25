@@ -329,7 +329,12 @@ func stepForBinding(card agentReviewBinding) (Step, bool) {
 	if transferReview(card.ReviewType) {
 		return transferStepForState(card.ConversationState), true
 	}
+	if step, ok := transactionEvidenceStep(card); ok {
+		return step, true
+	}
 	switch {
+	case card.ConversationState == "AWAITING_INVESTMENT_ACCOUNT":
+		return Step{Kind: stepChoice, Fact: factInvest}, true
 	case card.ConversationState == "AWAITING_MERCHANT_DECISION":
 		return Step{Kind: stepConfirm, Fact: factRemember}, true
 	case card.ConversationState == "AWAITING_DATE":
@@ -340,6 +345,21 @@ func stepForBinding(card agentReviewBinding) (Step, bool) {
 		return Step{Kind: stepFact, Fact: factMerchant}, true
 	case card.ConversationState == "AWAITING_CATEGORY":
 		return Step{Kind: stepChoice, Fact: factCategory}, true
+	}
+	return Step{}, false
+}
+
+func transactionEvidenceStep(card agentReviewBinding) (Step, bool) {
+	if card.ConversationState != "AWAITING_DETAIL" && card.ConversationState != "AWAITING_CONFIRMATION" {
+		return Step{}, false
+	}
+	switch card.ReviewType {
+	case "MANUAL_CORRECTION":
+		return Step{Kind: stepChoice, Fact: factCorrection}, true
+	case "RECEIPT_MISMATCH":
+		return Step{Kind: stepChoice, Fact: factQuality}, true
+	case "CONFLICTING_EVIDENCE":
+		return Step{Kind: stepChoice, Fact: factDuplicate}, true
 	}
 	return Step{}, false
 }

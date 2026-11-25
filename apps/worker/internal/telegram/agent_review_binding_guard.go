@@ -3,14 +3,14 @@ package telegram
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, state *agentState, binding *agentReviewBinding, expectedKind string) (bool, error) {
-	if binding == nil || binding.Kind != expectedKind || binding.TargetID == "" || binding.ReviewRequestID == "" {
+const wealthObservationBindingKind = "WEALTH_OBSERVATION"
+
+func (p *Processor) lockWealthObservationBindingTx(ctx context.Context, tx pgx.Tx, state *agentState, binding *agentReviewBinding) (bool, error) {
+	if binding == nil || binding.Kind != wealthObservationBindingKind || binding.TargetID == "" || binding.ReviewRequestID == "" {
 		return false, nil
 	}
 	messageID := binding.TelegramMessageID
@@ -25,42 +25,19 @@ func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, sta
 			}
 		}
 	}
-
 	var lockedID string
-	var err error
-	switch expectedKind {
-	case "TRANSFER_RECONCILIATION":
-		err = tx.QueryRow(ctx, `
-			SELECT r.id::text
-			FROM review_request r
-			JOIN review_item ri ON ri.id=r.review_item_id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			JOIN transfer_reconciliation_case trc ON (
-				(ri.source_event_id IS NOT NULL AND trc.source_event_id=ri.source_event_id)
-				OR (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id)
-			)
-			WHERE r.id=$1 AND r.household_id=$2 AND r.status='OPEN'
-			  AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN')
-			  AND trc.id=$3 AND trc.household_id=$2 AND trc.status='OPEN'
-			  AND rr.telegram_chat_id=$4
-			  AND ($5::bigint=0 OR rr.telegram_message_id=$5)
-			FOR UPDATE OF r,ri,rr,trc`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
-	case "WEALTH_OBSERVATION":
-		err = tx.QueryRow(ctx, `
-			SELECT r.id::text
-			FROM review_request r
-			JOIN review_item ri ON ri.id=r.review_item_id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id
-			WHERE r.id=$1 AND r.household_id=$2 AND r.status='OPEN'
-			  AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN')
-			  AND wo.id=$3 AND wo.household_id=$2 AND wo.status='PENDING'
-			  AND rr.telegram_chat_id=$4
-			  AND ($5::bigint=0 OR rr.telegram_message_id=$5)
-			FOR UPDATE OF r,ri,rr,wo`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
-	default:
-		return false, fmt.Errorf("unsupported bound review kind %q", expectedKind)
-	}
+	err := tx.QueryRow(ctx, `
+		SELECT r.id::text
+		FROM review_request r
+		JOIN review_item ri ON ri.id=r.review_item_id
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id
+		WHERE r.id=$1 AND r.household_id=$2 AND r.status='OPEN'
+		  AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN')
+		  AND wo.id=$3 AND wo.household_id=$2 AND wo.status='PENDING'
+		  AND rr.telegram_chat_id=$4
+		  AND ($5::bigint=0 OR rr.telegram_message_id=$5)
+		FOR UPDATE OF r,ri,rr,wo`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -83,7 +60,7 @@ func (p *Processor) replyBoundToReviewCard(ctx context.Context, state *agentStat
 }
 
 func (p *Processor) loadBoundWealthObservationTx(ctx context.Context, tx pgx.Tx, state *agentState, binding *agentReviewBinding) (resolved, institution, hint, originalSource string, valid bool, err error) {
-	valid, err = p.lockAgentReviewBindingTx(ctx, tx, state, binding, "WEALTH_OBSERVATION")
+	valid, err = p.lockWealthObservationBindingTx(ctx, tx, state, binding)
 	if err != nil || !valid {
 		return "", "", "", "", valid, err
 	}
@@ -110,49 +87,4 @@ func resolveAgentBoundReviewRequestTx(ctx context.Context, tx pgx.Tx, binding *a
 	}
 	_, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, binding.ReviewRequestID)
 	return err
-}
-
-func (p *Processor) agentDismissBoundTransferReconciliation(ctx context.Context, state *agentState, callID string, binding *agentReviewBinding) (agentToolResult, bool, error) {
-	result := agentToolResult{CallID: callID, Tool: "resolve_review", Class: agentToolSideEffect}
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return result, true, err
-	}
-	defer tx.Rollback(ctx)
-	valid, err := p.lockAgentReviewBindingTx(ctx, tx, state, binding, "TRANSFER_RECONCILIATION")
-	if err != nil {
-		return result, true, err
-	}
-	if !valid {
-		result.Status = "STALE_REVIEW_BINDING"
-		return result, true, nil
-	}
-	var originalSource, amount, purpose, itemID string
-	if err = tx.QueryRow(ctx, `SELECT source_event_id::text,amount_idr::text,proposed_purpose FROM transfer_reconciliation_case WHERE id=$1 AND household_id=$2 AND status='OPEN' FOR UPDATE`, binding.TargetID, state.HouseholdID).Scan(&originalSource, &amount, &purpose); err != nil {
-		return result, true, err
-	}
-	if err = tx.QueryRow(ctx, `SELECT review_item_id::text FROM review_request WHERE id=$1 AND household_id=$2`, binding.ReviewRequestID, state.HouseholdID).Scan(&itemID); err != nil {
-		return result, true, err
-	}
-	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
-		return result, true, err
-	}
-	if _, err = reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{HouseholdID: state.HouseholdID, ActorUserID: userID, ReviewItemID: itemID, CaseID: binding.TargetID, Action: "IGNORE", ActorType: "TELEGRAM"}); err != nil {
-		return result, true, err
-	}
-	if state.SourceEventID != originalSource {
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil {
-			return result, true, err
-		}
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'DISMISS_TRANSFER_RECONCILIATION','transfer_reconciliation_case',$3,jsonb_build_object('review_request_id',$4::uuid,'resolution','IGNORE','agent_sprint',1))`, state.HouseholdID, userID, binding.TargetID, binding.ReviewRequestID); err != nil {
-		return result, true, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return result, true, err
-	}
-	result.Status = "RESOLVED"
-	result.Mutation = map[string]any{"action": "TRANSFER_RECONCILIATION_IGNORED", "resolution": "IGNORE", "amount_idr": amount, "purpose": purpose}
-	return result, true, nil
 }

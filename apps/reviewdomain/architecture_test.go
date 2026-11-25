@@ -12,9 +12,7 @@ const (
 	apiReviewHandler = "../api/internal/review/handler.go"
 	apiReviewCanon   = "../api/internal/review/canonical.go"
 	telegramReview   = "../worker/internal/telegram/review*.go"
-	agentMutations   = "../worker/internal/telegram/agent_review_mutations.go"
-	agentBound       = "../worker/internal/telegram/agent_bound_mutations.go"
-	agentAssetBuy    = "../worker/internal/telegram/agent_wealth_asset_purchase_tx.go"
+	agentAssetBuy    = "../worker/internal/telegram/agent_asset_purchase.go"
 )
 
 type adapterRule struct {
@@ -69,14 +67,14 @@ func TestSurfacesDelegateFinancialMutationsToReviewdomain(t *testing.T) {
 		},
 		{
 			name:      "transfer reconciliation",
-			paths:     []string{apiReviewCanon, agentMutations, "../worker/internal/telegram/agent_review_binding_guard.go"},
+			paths:     []string{apiReviewCanon, "../worker/internal/telegram/interaction_transfer.go"},
 			callsAny:  []string{"reviewdomain.ReconcileTransfer"},
 			forbidden: []string{"UPDATE transfer_reconciliation_case"},
 		},
 		{
 			name:      "salary recording",
-			paths:     []string{telegramReview, agentMutations},
-			callsAny:  []string{"RecordSalaryEvent("},
+			paths:     []string{telegramReview, "../worker/internal/telegram/interaction_salary.go"},
+			callsAny:  []string{"ResolvePayslipProposal("},
 			forbidden: []string{"INSERT INTO salary_event", "INSERT INTO salary_source"},
 		},
 		{
@@ -99,7 +97,7 @@ func TestSurfacesDelegateFinancialMutationsToReviewdomain(t *testing.T) {
 		},
 		{
 			name:      "document promotion",
-			paths:     []string{telegramReview, agentMutations},
+			paths:     []string{telegramReview, "../worker/internal/telegram/interaction_engine.go"},
 			callsAny:  []string{"PromoteEvidenceDocuments"},
 			forbidden: []string{"UPDATE document d SET status='EXTRACTED'"},
 		},
@@ -111,19 +109,19 @@ func TestSurfacesDelegateFinancialMutationsToReviewdomain(t *testing.T) {
 		},
 		{
 			name:      "cycle residual",
-			paths:     []string{apiReviewCanon, agentMutations},
+			paths:     []string{apiReviewCanon, "../worker/internal/telegram/interaction_cycle.go"},
 			callsAny:  []string{"ApplyCycleResidual"},
 			forbidden: []string{"INSERT INTO cycle_residual_allocation", "UPDATE cycle_residual_case SET basis_income_idr"},
 		},
 		{
 			name:      "wealth observation",
-			paths:     []string{apiReviewCanon, agentBound, agentAssetBuy},
+			paths:     []string{apiReviewCanon, agentAssetBuy},
 			callsAny:  []string{"DismissWealthObservation", "ResolveWealthObservation"},
 			forbidden: []string{"UPDATE wealth_observation SET status='DISMISSED'", "UPDATE wealth_observation SET resolved_wealth_account_id"},
 		},
 		{
 			name:      "wealth reclassification",
-			paths:     []string{agentBound, agentAssetBuy},
+			paths:     []string{agentAssetBuy},
 			callsAny:  []string{"ReclassifyWealthEvidence"},
 			forbidden: []string{"document_type='TRANSACTION_HISTORY_SCREENSHOT'"},
 		},

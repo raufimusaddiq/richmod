@@ -78,7 +78,7 @@ func TestValidateAgentCallSetEnforcesReadBudget(t *testing.T) {
 }
 
 func TestValidateAgentCallSetRejectsToolNotAvailableInCurrentState(t *testing.T) {
-	state := &agentState{Tools: AgentFinanceTools([]string{"dining"}, false, false, false, "", false, false, "")}
+	state := &agentState{Tools: AgentFinanceTools([]string{"dining"}, false, false)}
 	call := gateway.ToolCall{Name: "confirm_pending_action", Arguments: json.RawMessage(`{}`)}
 	if _, err := validateAgentCallSet([]gateway.ToolCall{call}, state, defaultAgentLimits); err == nil {
 		t.Fatal("server-unavailable tool must be rejected even if the model returns it")
@@ -86,7 +86,7 @@ func TestValidateAgentCallSetRejectsToolNotAvailableInCurrentState(t *testing.T)
 }
 
 func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t *testing.T) {
-	tools := AgentFinanceTools([]string{"dining"}, false, false, false, "", false, false, "")
+	tools := AgentFinanceTools([]string{"dining"}, false, false)
 	seen := map[string]bool{}
 	for _, tool := range tools {
 		seen[tool.Name] = true
@@ -102,7 +102,7 @@ func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t
 			t.Fatalf("%s should have been merged away", gone)
 		}
 	}
-	encoded, _ := json.Marshal(AgentFinanceTools([]string{"dining", "groceries"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION"))
+	encoded, _ := json.Marshal(AgentFinanceTools([]string{"dining", "groceries"}, true, true))
 	if strings.Contains(string(encoded), "groceries") {
 		t.Fatalf("a tool schema repeats the category list: %s", encoded)
 	}
@@ -119,7 +119,7 @@ func TestEveryAgentSideEffectHasExactlyOneConversationalExecutor(t *testing.T) {
 }
 
 func TestSpecializedFreeTextSideEffectsUseStructuredAgentExecutors(t *testing.T) {
-	for _, name := range []string{"record_transfer", "resolve_review", "resolve_salary_choice", "resolve_merchant_learning"} {
+	for _, name := range []string{"record_transfer", toolProposeAssetPurchase} {
 		if !isAgentSpecializedSideEffect(name) {
 			t.Fatalf("%s must use a structured conversational executor", name)
 		}
@@ -138,9 +138,7 @@ func TestSpecializedFreeTextSideEffectsUseStructuredAgentExecutors(t *testing.T)
 func TestSpecializedMutationFallbacksAreSpecific(t *testing.T) {
 	cases := []agentToolResult{
 		{Status: "CONFIRMED", Mutation: map[string]any{"action": "TRANSFER_RECORDED", "amount_idr": "83000"}},
-		{Status: "RESOLVED", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}},
-		{Status: "PRIMARY", Mutation: map[string]any{"action": "SALARY_CHOICE_RESOLVED", "choice": "PRIMARY"}},
-		{Status: "CONFIRMED", Mutation: map[string]any{"action": "MERCHANT_LEARNING_RESOLVED", "remember": true}},
+		{Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": assetPurchaseStagedAction, "amount_idr": "5000000", "account": "Jago", "wealth_account": "Bibit", "transaction_at": "2026-01-02T03:04:05+07:00"}},
 	}
 	for _, tc := range cases {
 		got := agentMutationFallback(tc)
@@ -158,15 +156,8 @@ func TestAgentFinalStatusPreservationContract(t *testing.T) {
 	}
 }
 
-func TestMerchantDecisionReplyAsksTheQuestionAndRefusalsAreNotSideEffects(t *testing.T) {
-	asked, ok := agentMutationReply(agentToolResult{Status: "AWAITING_MERCHANT_DECISION", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}})
-	if !ok || asked != merchantLearningQuestion {
-		t.Fatalf("merchant decision must ask whether to remember, got %q ok=%v", asked, ok)
-	}
-	if isNonMutatingRefusal(agentToolResult{Status: "AWAITING_MERCHANT_DECISION", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}}) {
-		t.Fatal("a confirmed review must count as a side effect")
-	}
-	for _, status := range []string{"TRANSFER_PURPOSE_REQUIRED", "ALLOCATION_TOTAL_MISMATCH", "INCOMPATIBLE_WEALTH_ACCOUNT", "MISSING_ASSET_PURCHASE_FACTS", "TOO_MANY_CANDIDATES", "WEALTH_ACCOUNT_AMBIGUOUS"} {
+func TestRefusalsAreNotSideEffects(t *testing.T) {
+	for _, status := range []string{"TRANSFER_PURPOSE_REQUIRED", "INCOMPATIBLE_WEALTH_ACCOUNT", "TOO_MANY_CANDIDATES", "WEALTH_ACCOUNT_AMBIGUOUS"} {
 		result := agentToolResult{Status: status}
 		if !isNonMutatingRefusal(result) {
 			t.Fatalf("%s must not count as a side effect", status)
@@ -186,41 +177,5 @@ func TestFinanceRequestsAreNotBoundAsCardDetailAnswers(t *testing.T) {
 	}
 	if !isDetailAnswer("Warung Bu Siti", now) {
 		t.Fatal("a plain merchant name must still bind to an UNKNOWN_MERCHANT card")
-	}
-}
-
-func TestResolveReviewActionMustBeAllowedForBoundReviewType(t *testing.T) {
-	call := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"COMPLETE_BANK_FACTS","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":"1000","transaction_at":"2026-01-02T03:04:05+07:00","allocations":[]}`)}
-	if _, err := validateAgentToolCall(call, "UNKNOWN_MERCHANT", "TRANSACTION"); err == nil {
-		t.Fatal("COMPLETE_BANK_FACTS must be rejected for a review type that does not allow it")
-	}
-	if _, err := validateAgentToolCall(call, "UNKNOWN_BANK_TEMPLATE", "TRANSACTION"); err == nil {
-		t.Fatal("COMPLETE_BANK_FACTS is a card step now and must not be an assistant action")
-	}
-	ignore := gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"IGNORE","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[]}`)}
-	if _, err := validateAgentToolCall(ignore, "UNKNOWN_BANK_TEMPLATE", "BANK_FACTS"); err != nil {
-		t.Fatalf("IGNORE stays an assistant action for a bank-facts review: %v", err)
-	}
-	if _, err := validateAgentToolCall(ignore, "", ""); err != nil {
-		t.Fatalf("unbound validation keeps the global action set: %v", err)
-	}
-}
-
-func TestResolveReviewActionValidationFollowsReviewMode(t *testing.T) {
-	arguments := func(action string) gateway.ToolCall {
-		return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"action":"` + action + `","candidate_ref":null,"source_account_hint":null,"wealth_account_hint":null,"category_slug":null,"merchant":null,"description":null,"pay_date":null,"amount_idr":null,"transaction_at":null,"allocations":[]}`)}
-	}
-	for _, tc := range []struct{ action, reviewType, mode string }{
-		{"SET_WEALTH_ACCOUNT", "WEALTH_OBSERVATION_CONFIRMATION", "WEALTH_OBSERVATION"},
-		{"RECORD_ASSET_PURCHASE", "WEALTH_OBSERVATION_CONFIRMATION", "WEALTH_OBSERVATION"},
-		{"MERGE_EXISTING", "TRANSFER_CLASSIFICATION", "TRANSFER_RECONCILIATION"},
-		{"CONFIRM_NEW_TRANSFER", "CONFLICTING_EVIDENCE", "TRANSFER_RECONCILIATION"},
-	} {
-		if _, err := validateAgentToolCall(arguments(tc.action), tc.reviewType, tc.mode); err != nil {
-			t.Fatalf("%s must pass for mode %s: %v", tc.action, tc.mode, err)
-		}
-	}
-	if _, err := validateAgentToolCall(arguments("SET_WEALTH_ACCOUNT"), "UNKNOWN_MERCHANT", "TRANSACTION"); err == nil {
-		t.Fatal("a wealth action must be rejected for a transaction review")
 	}
 }

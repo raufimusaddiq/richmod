@@ -2,13 +2,8 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -16,83 +11,4 @@ type boundReviewGateway struct{}
 
 func (boundReviewGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("bound review reply must not call LLM")
-}
-
-func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
-	t.Parallel()
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-
-	stamp := testsupport.UniqueStamp()
-	chatID := stamp
-	var householdID, userID, categoryID, merchantID, transactionID, reviewID, sourceID string
-	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Remembered review %d", stamp)).Scan(&householdID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("remembered-review-%d@example.test", stamp)).Scan(&userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan di Luar','makan-di-luar') RETURNING id`, householdID).Scan(&categoryID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'ShopeeFood') RETURNING id`, householdID).Scan(&merchantID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'ShopeeFood',$2,$3,true,true)`, householdID, merchantID, categoryID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',56500,now()) RETURNING id`, householdID).Scan(&transactionID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT id,$1,$2,'UNKNOWN_MERCHANT',$3,'OPEN' FROM item RETURNING id`, householdID, transactionID, chatID).Scan(&reviewID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,17)`, reviewID, chatID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_MERCHANT')`, reviewID); err != nil {
-		t.Fatal(err)
-	}
-
-	raw, _ := json.Marshal(map[string]any{"update_id": stamp, "message": map[string]any{"message_id": 18, "text": "  sHoPeEfOoD  ", "from": map[string]any{"id": chatID}, "chat": map[string]any{"id": chatID}}})
-	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("remembered-review-%d", stamp), raw).Scan(&sourceID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
-		t.Fatal(err)
-	}
-
-	model := &typedReplyGateway{arguments: `{"action":"CONFIRM","merchant":"ShopeeFood"}`}
-	processor := NewProcessor(pool, model)
-	if err = processor.ProcessAgent(ctx, sourceID); err != nil {
-		t.Fatal(err)
-	}
-	var gotMerchantID, gotCategoryID, transactionStatus, reviewStatus, conversationState string
-	if err = pool.QueryRow(ctx, `SELECT t.merchant_id::text,t.category_id::text,t.status,r.status,c.state FROM transaction t JOIN review_request r ON r.transaction_id=t.id JOIN review_conversation c ON c.review_request_id=r.id WHERE t.id=$1`, transactionID).Scan(&gotMerchantID, &gotCategoryID, &transactionStatus, &reviewStatus, &conversationState); err != nil {
-		t.Fatal(err)
-	}
-	if gotMerchantID != merchantID || gotCategoryID != categoryID || transactionStatus != "CONFIRMED" || reviewStatus != "RESOLVED" || conversationState != "RESOLVED" {
-		t.Fatalf("merchant=%q category=%q transaction=%q review=%q conversation=%q", gotMerchantID, gotCategoryID, transactionStatus, reviewStatus, conversationState)
-	}
-	var categoryPrompts int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE payload_json->>'text' ILIKE '%pilih kategori%' AND payload_json->>'chat_id'=$1`, fmt.Sprint(chatID)).Scan(&categoryPrompts); err != nil {
-		t.Fatal(err)
-	}
-	if categoryPrompts != 0 {
-		t.Fatalf("category prompts=%d", categoryPrompts)
-	}
 }

@@ -13,18 +13,12 @@ import (
 )
 
 type agentContextState struct {
-	Conversation        []PublicTurn
-	HasPendingAction    bool
-	PendingAction       map[string]any
-	HasPendingBatch     bool
-	PendingBatch        []map[string]any
-	HasSalaryChoice     bool
-	HasMerchantLearning bool
-	ActiveReview        any
-	ActiveReviewCount   int
-	ReviewType          string
-	ReviewMode          string
-	RecentTransactions  []map[string]any
+	Conversation       []PublicTurn
+	HasPendingAction   bool
+	PendingAction      map[string]any
+	HasPendingBatch    bool
+	PendingBatch       []map[string]any
+	RecentTransactions []map[string]any
 }
 
 func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (agentContextState, error) {
@@ -53,10 +47,6 @@ func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sour
 		state.PendingBatch = pendingBatch
 	}
 
-	state.HasSalaryChoice, err = p.hasPendingSalaryChoice(ctx, householdID, update)
-	if err != nil {
-		return state, err
-	}
 	state.RecentTransactions, err = p.recentAgentTransactions(ctx, householdID, sourceEventID, update)
 	if err != nil {
 		return state, err
@@ -195,10 +185,6 @@ func buildAgentTurnContext(text string, now time.Time, categories []string, cont
 		"allowed_category_slugs":   categories,
 		"pending_action":           contextState.PendingAction,
 		"pending_batch":            contextState.PendingBatch,
-		"active_review_count":      contextState.ActiveReviewCount,
-		"active_review":            contextState.ActiveReview,
-		"has_salary_choice":        contextState.HasSalaryChoice,
-		"has_merchant_learning":    contextState.HasMerchantLearning,
 	}
 }
 

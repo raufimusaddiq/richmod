@@ -1,19 +1,6 @@
 package reviewdec
 
-import (
-	"slices"
-	"testing"
-)
-
-func TestAllAgentActionsKeepsClosedVocabulary(t *testing.T) {
-	want := []string{"CONFIRM", "IGNORE", "PRIMARY_SALARY", "ORDINARY_INCOME", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE"}
-	got := AllAgentActions()
-	slices.Sort(want)
-	slices.Sort(got)
-	if !slices.Equal(got, want) {
-		t.Fatalf("agent action vocabulary changed:\n got  %v\n want %v", got, want)
-	}
-}
+import "testing"
 
 func TestKindReasonsAreUniqueAndLookupsDoNotAlias(t *testing.T) {
 	seen := map[string]bool{}
@@ -23,9 +10,8 @@ func TestKindReasonsAreUniqueAndLookupsDoNotAlias(t *testing.T) {
 		}
 		seen[kind.Reason] = true
 	}
-	AgentActions("POSSIBLE_DUPLICATE")[0] = "X"
 	InboxActions("PAYSLIP_CONFIRMATION")[0] = "X"
-	if AgentActions("POSSIBLE_DUPLICATE")[0] != "MERGE_EXISTING" || InboxActions("PAYSLIP_CONFIRMATION")[0] != "PRIMARY_SALARY" {
+	if InboxActions("PAYSLIP_CONFIRMATION")[0] != "PRIMARY_SALARY" {
 		t.Fatal("lookup returned a slice aliasing the kind table")
 	}
 	decision, _ := Preset("POSSIBLE_DUPLICATE", "transaction", "t")

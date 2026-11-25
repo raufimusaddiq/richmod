@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/plainlabel"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/plainlabel"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
@@ -82,6 +84,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return p.askWhichCard(ctx, householdID, sourceEventID, update, resolved.Candidates, resolved.Answer)
 	case interactionAnswerOrNew:
 		return p.askAnswerOrNew(ctx, householdID, sourceEventID, update)
+	case interactionMerchantLearning:
+		input := engineInput{Text: text, Targeted: true}
+		if handled, err := p.runStepEngine(ctx, householdID, sourceEventID, update, resolved.Card, input); handled || err != nil {
+			return err
+		}
 	case interactionCardStep:
 		p.recordInteraction(ctx, householdID, sourceEventID, resolved.Card.ReviewItemID, interactionAnswered, resolved.Source)
 		input := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || resolved.Bound || interactionOverride(parserName) == interactionParserAnswer}
@@ -122,94 +129,65 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 
 	explicitReply := update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0
-	merchantBinding, merchantCount, err := p.loadAgentMerchantLearningBinding(ctx, householdID, update)
-	if err != nil {
-		return err
-	}
-	if !explicitReply && merchantBinding != nil && (!isYesNoAnswer(text) || contextState.HasPendingAction || contextState.HasPendingBatch) {
-		merchantBinding, merchantCount = nil, 0
-	}
 	var reviewBinding *agentReviewBinding
-	var reviewPublic any
-	reviewCount := 0
-	var openCards []map[string]any
-	var cardRefs map[string]string
+	var waiting []agentReviewBinding
 	if explicitReply {
-		if resolved.Kind == interactionCardStep && merchantBinding == nil && resolved.Card.Binding != nil {
-			reviewBinding = resolved.Card.Binding
-			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
-		}
-	} else {
-		cardRefs, openCards = showableCardRefs(resolved.OpenCards)
 		if resolved.Kind == interactionCardStep && resolved.Card.Binding != nil {
 			reviewBinding = resolved.Card.Binding
-			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 		}
-		if reviewBinding == nil {
-			reviewCount = len(resolved.OpenCards)
+	} else {
+		waiting = resolved.OpenCards
+		if resolved.Kind == interactionCardStep && resolved.Card.Binding != nil {
+			reviewBinding = resolved.Card.Binding
 		}
 	}
 
-	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
+	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, explicitReply)
 	if evidenceErr != nil {
 		slog.Default().Warn("bind turn evidence failed", "household_id", householdID, "source_event_id", sourceEventID, "error", evidenceErr)
 		evidence, evidenceReview = nil, nil
 	}
 	if reviewBinding == nil && evidenceReview != nil {
 		reviewBinding = evidenceReview
-		reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 	}
+	if reviewBinding != nil && !slices.ContainsFunc(waiting, func(card agentReviewBinding) bool { return card.ReviewRequestID == reviewBinding.ReviewRequestID }) {
+		waiting = append([]agentReviewBinding{*reviewBinding}, waiting...)
+	}
+	cardRefs, openCards := showableCardRefs(waiting)
 	var recentEvidence []map[string]any
 	recentCandidates, recentErr := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
 	if recentErr != nil {
 		slog.Default().Warn("load recent evidence candidates failed", "household_id", householdID, "source_event_id", sourceEventID, "error", recentErr)
 	}
 	freshDocuments := freshEvidenceDocuments(recentCandidates)
-	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
-		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
+	if evidence == nil && !explicitReply && reviewBinding == nil &&
+		!contextState.HasPendingAction && !contextState.HasPendingBatch {
 		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
 	}
 
-	contextState.ActiveReview = reviewPublic
-	contextState.ActiveReviewCount = reviewCount
-	contextState.ReviewType, contextState.ReviewMode = "", ""
-	if bound, ok := reviewPublic.(map[string]any); ok {
-		contextState.ReviewType, _ = bound["review_type"].(string)
-		contextState.ReviewMode, _ = bound["review_mode"].(string)
-	}
-	contextState.HasMerchantLearning = merchantBinding != nil && merchantCount == 1
-
 	now := p.turnTime(update)
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
-	generalTools := agentFinanceTools(
-		categories,
-		contextState.HasPendingAction,
-		contextState.HasPendingBatch,
-		reviewBinding != nil,
-		contextState.ReviewType,
-		contextState.HasSalaryChoice,
-		contextState.HasMerchantLearning,
-		contextState.ReviewMode,
-	)
+	generalTools := agentFinanceTools(categories, contextState.HasPendingAction, contextState.HasPendingBatch)
 	if evidence == nil && len(recentEvidence) == 0 {
 		generalTools = withoutTool(generalTools, "get_evidence_context")
 	}
 	if len(cardRefs) > 0 {
 		generalTools = append(generalTools, showReviewCardTool())
 	}
+	if assetPurchaseOffered(reviewBinding) {
+		generalTools = append(generalTools, proposeAssetPurchaseTool())
+	}
 	tools, workflowScope := generalTools, agentWorkflowGeneral
 	if explicitReply {
-		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
+		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding)
 		if workflowScope == agentWorkflowExplicitUnbound && evidence == nil {
 			tools, workflowScope = generalTools, agentWorkflowGeneral
 		}
 	}
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
-	focusReviewArguments(tools, reviewBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
-	turnContext["merchant_learning_count"] = merchantCount
 	markRepeatedQuestion(turnContext, repeatedQuestion)
 	if len(openCards) > 0 {
 		turnContext["open_review_cards"] = plainOpenCards(openCards)
@@ -220,9 +198,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if len(recentEvidence) > 0 {
 		turnContext["recent_evidence"] = recentEvidence
 		turnContext["evidence_ambiguous"] = true
-	}
-	if merchantBinding != nil {
-		turnContext["merchant_learning"] = map[string]any{"merchant": untrustedField(merchantBinding.Merchant), "category": untrustedField(merchantBinding.Category)}
 	}
 	state := &agentState{
 		SourceEventID:          sourceEventID,
@@ -235,22 +210,14 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		TurnContext:            turnContext,
 		HasPendingAction:       contextState.HasPendingAction,
 		HasPendingBatch:        contextState.HasPendingBatch,
-		HasSalaryChoice:        contextState.HasSalaryChoice,
-		ReviewType:             contextState.ReviewType,
-		ReviewMode:             contextState.ReviewMode,
 		Analytics:              analyticscore.NewSession(p.pool, householdID, now, sourceEventID),
 		CardRefs:               cardRefs,
 		FreshEvidenceDocuments: freshDocuments,
 		ReceivedAt:             receivedAt,
 		activity:               new(atomic.Int32),
 	}
-	if workflowScope == agentWorkflowExactReview || (!explicitReply && reviewBinding != nil) {
+	if assetPurchaseOffered(reviewBinding) {
 		state.ReviewBinding = reviewBinding
-		state.ReviewBindingCount = reviewCount
-	}
-	if workflowScope == agentWorkflowExactMerchant || (!explicitReply && merchantBinding != nil) {
-		state.MerchantLearningBinding = merchantBinding
-		state.MerchantLearningCount = merchantCount
 	}
 
 	agentGateway, ok := p.gateway.(conversationalGateway)
@@ -397,7 +364,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			var synthesize bool
 			switch {
 			case isAgentSpecializedSideEffect(call.Call.Name):
-				result, synthesize, err = p.executeAgentSpecializedSideEffectStrict(ctx, state, call.Call, call.Args)
+				result, synthesize, err = p.executeAgentSpecializedSideEffect(ctx, state, call.Call, call.Args)
 			case isAgentCoreSideEffect(call.Call.Name):
 				result, synthesize, err = p.executeAgentSideEffect(ctx, state, call.Call, call.Args, response.Metadata)
 			default:
@@ -505,7 +472,7 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		if !ok {
 			return agentCallPlan{}, fmt.Errorf("unknown agent tool %q", call.Name)
 		}
-		args, err := validateAgentToolCall(call, state.ReviewType, state.ReviewMode)
+		args, err := validateAgentToolCall(call)
 		if err != nil {
 			if argumentErr == nil {
 				argumentErr = &agentArgumentsError{Call: call, Err: err}
@@ -671,9 +638,7 @@ func (p *Processor) finishAgentReply(ctx context.Context, state *agentState, mes
 	if err := finalizeAgentSource(ctx, tx, state.HouseholdID, state.SourceEventID, "telegram-conversational-agent"); err != nil {
 		return err
 	}
-	if reviewID := pendingMerchantLearningReviewID(state.History); reviewID != "" {
-		err = enqueueMerchantLearningQuestion(ctx, tx, reviewID, state.Update, message, merchantLearningMarkup())
-	} else if markup := agentPendingMarkup(state.History); markup != nil {
+	if markup := agentPendingMarkup(state.History); markup != nil {
 		err = enqueueReplyMarkup(ctx, tx, state.Update, message, markup)
 	} else {
 		err = enqueueReply(ctx, tx, state.Update, message)

@@ -6,11 +6,9 @@ import (
 	"io"
 	"math/big"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -35,9 +33,8 @@ func init() {
 
 var agentSideEffectTools = map[string]struct{}{
 	"record_transaction": {}, "record_transaction_batch": {}, "record_transfer": {},
-	"propose_transaction_correction": {}, "resolve_review": {}, "resolve_salary_choice": {},
-	"resolve_merchant_learning": {}, "confirm_pending_action": {}, "cancel_pending_action": {},
-	"pending_batch_decision": {}, "dispute_evidence_link": {},
+	"propose_transaction_correction": {}, "confirm_pending_action": {}, "cancel_pending_action": {},
+	"pending_batch_decision": {}, "dispute_evidence_link": {}, toolProposeAssetPurchase: {},
 }
 
 func agentToolClassFor(name string) (agentToolClass, bool) {
@@ -61,19 +58,15 @@ func readOnlyAgentTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition
 	return readOnly
 }
 
-func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
-	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
+func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch bool) []gateway.ToolDefinition {
+	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch)
 }
 
-func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
-	base := NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
+func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch bool) []gateway.ToolDefinition {
+	base := NativeFinanceTools(categories, hasPendingAction, hasPendingBatch)
 	tools := make([]gateway.ToolDefinition, 0, len(base)+4)
-	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == cycleReviewType)
 	for _, tool := range base {
 		if tool.Name == "ask_clarification" || tool.Name == "finance_help" || tool.Name == "finance_out_of_scope" {
-			continue
-		}
-		if cycleResidual && tool.Name == "resolve_review" {
 			continue
 		}
 		if _, ok := agentToolClassFor(tool.Name); ok {
@@ -104,7 +97,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	return tools
 }
 
-func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string) (map[string]any, error) {
+func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 	switch call.Name {
 	case "get_transaction_details":
 		args, err := decodeAgentArgsRaw[transactionDetailsArgs](call)
@@ -117,6 +110,8 @@ func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string)
 		return remarshal(args), nil
 	case toolShowReviewCard:
 		return validateShowCardArgs(call)
+	case toolProposeAssetPurchase:
+		return validateProposeAssetPurchase(call)
 	case "dispute_evidence_link":
 		if _, err := decodeAgentArgsRaw[struct{}](call); err != nil {
 			return nil, err
@@ -149,24 +144,6 @@ func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string)
 			return nil, fmt.Errorf("action must be CONFIRM, CANCEL or UPDATE")
 		}
 		return remarshal(args), nil
-	case "resolve_review":
-		args, err := decodeAgentArgsRaw[agentResolveReviewArgs](call)
-		if err != nil {
-			return nil, err
-		}
-		if !containsAgentReviewAction(args.Action, reviewType, reviewMode) {
-			return nil, fmt.Errorf("action must be one of %s, got %q", strings.Join(allowedAgentReviewActions(reviewType, reviewMode), ", "), args.Action)
-		}
-		for _, allocation := range args.Allocations {
-			if strings.TrimSpace(allocation.WealthAccountHint) == "" {
-				return nil, fmt.Errorf("each allocation needs wealth_account_hint, a Wealth Account name from list_wealth_accounts")
-			}
-			amount, ok := new(big.Int).SetString(allocation.AmountIDR, 10)
-			if !ok || amount.Sign() <= 0 || amount.String() != allocation.AmountIDR {
-				return nil, fmt.Errorf("allocation amount_idr must be a positive whole rupiah number without separators, e.g. 250000")
-			}
-		}
-		return remarshal(args), nil
 	default:
 		return ValidateNativeToolCall(call)
 	}
@@ -187,37 +164,6 @@ type pendingBatchDecisionArgs struct {
 }
 
 var batchItemRefPattern = regexp.MustCompile(`^batch_(10|[1-9])$`)
-
-type agentResidualAllocationInput struct {
-	WealthAccountHint string  `json:"wealth_account_hint"`
-	AmountIDR         string  `json:"amount_idr"`
-	Note              *string `json:"note"`
-}
-
-type agentResolveReviewArgs struct {
-	Action        string                         `json:"action"`
-	CandidateRef  *string                        `json:"candidate_ref"`
-	SourceHint    *string                        `json:"source_account_hint"`
-	WealthHint    *string                        `json:"wealth_account_hint"`
-	CategorySlug  *string                        `json:"category_slug"`
-	Merchant      *string                        `json:"merchant"`
-	Description   *string                        `json:"description"`
-	PayDate       *string                        `json:"pay_date"`
-	AmountIDR     *string                        `json:"amount_idr"`
-	TransactionAt *string                        `json:"transaction_at"`
-	Allocations   []agentResidualAllocationInput `json:"allocations"`
-}
-
-func containsAgentReviewAction(action, reviewType, reviewMode string) bool {
-	return slices.Contains(allowedAgentReviewActions(reviewType, reviewMode), action)
-}
-
-func allowedAgentReviewActions(reviewType, reviewMode string) []string {
-	if reviewType != "" || reviewMode != "" {
-		return reviewActionEnum(reviewType, reviewMode)
-	}
-	return reviewdec.AllAgentActions()
-}
 
 func decodeAgentArgsRaw[T any](call gateway.ToolCall) (T, error) {
 	var zero T

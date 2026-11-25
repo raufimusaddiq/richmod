@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
+func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch bool) []gateway.ToolDefinition {
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
 	localTime := map[string]any{"type": []string{"string", "null"}, "description": "Exact local HH:MM (24-hour), or PAGI, SIANG, SORE, MALAM when the user named a time of day. Null when no time was stated."}
@@ -46,26 +45,10 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	if hasPendingAction {
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_action", Description: "Confirm the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_action", Description: "Cancel the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
-	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionEnum(reviewType, reviewMode)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": amountSchema(true), "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_hint": stringType, "amount_idr": amountSchema(false), "note": nullString}, []string{"wealth_account_hint", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
-	}
-	if hasSalaryChoice {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
-	}
-	if hasMerchantLearning {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_merchant_learning", Description: "Confirm whether to remember this merchant category rule.", Parameters: objectSchema(map[string]any{"remember": map[string]any{"type": "boolean"}}, []string{"remember"})})
-	}
 	for _, tool := range analyticscore.Tools() {
 		tools = append(tools, gateway.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	return tools
-}
-
-func reviewActionEnum(reviewType, reviewMode string) []string {
-	if reviewMode == "WEALTH_OBSERVATION" || reviewMode == "TRANSFER_RECONCILIATION" {
-		return reviewdec.AgentActions(reviewMode)
-	}
-	return reviewdec.AgentActions(reviewType)
 }
 
 var periodNames = []string{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM"}
@@ -141,12 +124,6 @@ func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
 		target = &outOfScopeArgs{}
 	case "propose_transaction_correction":
 		target = &correctionArgs{}
-	case "resolve_review":
-		target = &resolveReviewArgs{}
-	case "resolve_salary_choice":
-		target = &salaryChoiceArgs{}
-	case "resolve_merchant_learning":
-		target = &merchantLearningArgs{}
 	default:
 		return nil, fmt.Errorf("unregistered finance tool %q", call.Name)
 	}
@@ -202,18 +179,6 @@ func decodeNativeArgs(call gateway.ToolCall, target any) (map[string]any, error)
 		return remarshal(out), err
 	case *correctionArgs:
 		out, err := gateway.DecodeToolArguments[correctionArgs](call, call.Name)
-		*v = out
-		return remarshal(out), err
-	case *resolveReviewArgs:
-		out, err := gateway.DecodeToolArguments[resolveReviewArgs](call, call.Name)
-		*v = out
-		return remarshal(out), err
-	case *salaryChoiceArgs:
-		out, err := gateway.DecodeToolArguments[salaryChoiceArgs](call, call.Name)
-		*v = out
-		return remarshal(out), err
-	case *merchantLearningArgs:
-		out, err := gateway.DecodeToolArguments[merchantLearningArgs](call, call.Name)
 		*v = out
 		return remarshal(out), err
 	}
@@ -293,29 +258,6 @@ type correctionArgs struct {
 	DateReference *string `json:"date_reference"`
 	ExplicitDate  *string `json:"explicit_date"`
 	LocalTime     *string `json:"local_time"`
-}
-type resolveReviewArgs struct {
-	Action        string  `json:"action"`
-	CandidateRef  *string `json:"candidate_ref"`
-	SourceHint    *string `json:"source_account_hint"`
-	WealthHint    *string `json:"wealth_account_hint"`
-	CategorySlug  *string `json:"category_slug"`
-	Merchant      *string `json:"merchant"`
-	Description   *string `json:"description"`
-	PayDate       *string `json:"pay_date"`
-	AmountIDR     *string `json:"amount_idr"`
-	TransactionAt *string `json:"transaction_at"`
-	Allocations   []struct {
-		WealthAccountHint string  `json:"wealth_account_hint"`
-		AmountIDR         string  `json:"amount_idr"`
-		Note              *string `json:"note"`
-	} `json:"allocations"`
-}
-type salaryChoiceArgs struct {
-	Choice string `json:"choice"`
-}
-type merchantLearningArgs struct {
-	Remember bool `json:"remember"`
 }
 
 func validateCreate(v createArgs) error {
@@ -446,14 +388,6 @@ func validateTypedArgs(value any) error {
 			if err := validateDateFields(*v.DateReference, v.ExplicitDate, v.LocalTime); err != nil {
 				return err
 			}
-		}
-	case *resolveReviewArgs:
-		if !slices.Contains(reviewdec.AllAgentActions(), v.Action) {
-			return fmt.Errorf("action must be one of the resolve_review action enum values, got %q", v.Action)
-		}
-	case *salaryChoiceArgs:
-		if v.Choice != "PRIMARY" && v.Choice != "ORDINARY" && v.Choice != "IGNORE" {
-			return fmt.Errorf("choice must be PRIMARY, ORDINARY or IGNORE")
 		}
 	}
 	return nil

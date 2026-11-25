@@ -15,7 +15,7 @@ import (
 
 func isAgentSpecializedSideEffect(name string) bool {
 	switch name {
-	case "record_transfer", "resolve_review", "resolve_salary_choice", "resolve_merchant_learning":
+	case "record_transfer", toolProposeAssetPurchase:
 		return true
 	default:
 		return false
@@ -24,12 +24,10 @@ func isAgentSpecializedSideEffect(name string) bool {
 
 func (p *Processor) executeAgentSpecializedSideEffect(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	switch call.Name {
-	case "resolve_review":
-		return p.agentResolveBoundReview(ctx, state, call, args)
 	case "record_transfer":
 		return p.agentRecordTransfer(ctx, state, call, args)
-	case "resolve_salary_choice":
-		return p.agentResolveSalaryChoice(ctx, state, call, args)
+	case toolProposeAssetPurchase:
+		return p.agentProposeAssetPurchase(ctx, state, call, args)
 	default:
 		return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}, true, fmt.Errorf("unsupported specialized side effect %q", call.Name)
 	}
@@ -246,77 +244,6 @@ func (p *Processor) agentStageTransferReview(ctx context.Context, state *agentSt
 	result.Status = "NEEDS_REVIEW"
 	result.Mutation = map[string]any{"action": "TRANSFER_RECONCILIATION_STAGED", "amount_idr": intent.amount, "purpose": intent.purpose}
 	result.Review = map[string]any{"required": true, "review_type": "TRANSFER_RECONCILIATION", "reason": reason, "candidate_refs": candidateRefs}
-	return result, true, nil
-}
-
-func (p *Processor) agentResolveSalaryChoice(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
-	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
-	choice, _ := args["choice"].(string)
-	if choice != "PRIMARY" && choice != "ORDINARY" && choice != "IGNORE" {
-		result.Status = "INVALID_CHOICE"
-		return result, true, nil
-	}
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return result, true, err
-	}
-	defer tx.Rollback(ctx)
-	var pendingID, transactionID, employer, period, payDate string
-	err = tx.QueryRow(ctx, `SELECT id,transaction_id,employer,payroll_period::text,pay_date::text FROM salary_pending_choice WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID).Scan(&pendingID, &transactionID, &employer, &period, &payDate)
-	if errors.Is(err, pgx.ErrNoRows) {
-		result.Status = "NO_PENDING_SALARY_CHOICE"
-		return result, true, nil
-	}
-	if err != nil {
-		return result, true, err
-	}
-	resolvedStatus := choice
-	if choice == "IGNORE" {
-		if protected, perr := reviewdomain.ActiveMergeTarget(ctx, tx, state.HouseholdID, transactionID); perr != nil {
-			return result, true, perr
-		} else if protected {
-			result.Status = "MERGE_TARGET_ACTIVE"
-			return result, true, nil
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',updated_at=now() WHERE id=$1 AND household_id=$2`, transactionID, state.HouseholdID); err != nil {
-			return result, true, reviewdomain.MergeTargetError(err)
-		}
-		resolvedStatus = "IGNORED"
-		if _, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE id=$1`, pendingID); err != nil {
-			return result, true, err
-		}
-	} else {
-		normalized := strings.ToLower(strings.Join(strings.Fields(employer), " "))
-		if choice == "PRIMARY" {
-			if _, err = tx.Exec(ctx, `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND is_primary`, state.HouseholdID); err != nil {
-				return result, true, err
-			}
-		}
-		var salarySourceID string
-		if err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,is_primary=excluded.is_primary,updated_at=now() RETURNING id`, state.HouseholdID, employer, normalized, choice == "PRIMARY").Scan(&salarySourceID); err != nil {
-			return result, true, err
-		}
-		var salaryEventID string
-		if err = tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 AND t.household_id=$2 ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id,pay_date=EXCLUDED.pay_date,net_pay=EXCLUDED.net_pay,source_event_id=EXCLUDED.source_event_id,status='CONFIRMED' RETURNING id`, salarySourceID, state.HouseholdID, period, payDate, state.SourceEventID, transactionID).Scan(&salaryEventID); err != nil {
-			return result, true, err
-		}
-		if choice == "PRIMARY" {
-			if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, state.HouseholdID, salaryEventID); err != nil {
-				return result, true, err
-			}
-		}
-		if _, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, pendingID, choice); err != nil {
-			return result, true, err
-		}
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
-		return result, true, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return result, true, err
-	}
-	result.Status = resolvedStatus
-	result.Mutation = map[string]any{"action": "SALARY_CHOICE_RESOLVED", "choice": choice, "employer": employer, "payroll_period": period, "pay_date": payDate}
 	return result, true, nil
 }
 

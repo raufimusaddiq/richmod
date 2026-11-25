@@ -59,26 +59,8 @@ func (g *ir04AgentGateway) AgentTurn(_ context.Context, _ string, request gatewa
 	return gateway.AgentResponse{}, errors.New("record_transaction was not exposed")
 }
 
-type prdReviewGateway struct{ calls int }
-
-func (*prdReviewGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	return gateway.ToolCall{}, gateway.Metadata{}, nil
-}
-
-func (g *prdReviewGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
-	g.calls++
-	if g.calls == 1 {
-		for _, tool := range request.Tools {
-			if tool.Name == "resolve_review" {
-				return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "prd-review", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","category_slug":"food-drink"}`)}}}, nil
-			}
-		}
-	}
-	return gateway.AgentResponse{Text: "Tinjauan selesai."}, nil
-}
-
 func TestTelegramOrdinaryTurnExposesFullAgentCatalog(t *testing.T) {
-	tools, scope := applyAgentWorkflowToolPolicy(agentFinanceTools(nil, false, false, false, "", false, false, ""), telegramUpdate{}, nil, nil)
+	tools, scope := applyAgentWorkflowToolPolicy(agentFinanceTools(nil, false, false), telegramUpdate{}, nil)
 	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s, want general agent workflow", scope)
 	}
@@ -209,7 +191,7 @@ func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	}
 }
 
-func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
+func TestTelegramT3ExactCategoryReplyResolvesBoundReviewThroughTheEngine(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -221,6 +203,7 @@ func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink') RETURNING id`, f.householdID).Scan(&categoryID))
 	firstReview, firstTransaction := createAgentTransactionReview(t, ctx, f, "70000", 101)
 	_, secondTransaction := createAgentTransactionReview(t, ctx, f, "90000", 202)
+	requireCategoryStep(t, ctx, f, firstReview)
 	f.update.Message.Text = "makanan"
 	f.update.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
@@ -229,9 +212,13 @@ func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
 	mustAgentTest(t, err)
-	processor := NewProcessor(f.pool, &prdReviewGateway{})
+	model := &scriptedPicker{script: []string{"food-drink"}}
+	processor := NewProcessor(f.pool, model)
 	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
+	}
+	if model.agentCalls != 0 {
+		t.Fatalf("the assistant ran for a typed answer to a card: %d model calls", model.agentCalls)
 	}
 	var firstStatus, secondStatus, category string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status,category_id::text FROM transaction WHERE id=$1`, firstTransaction).Scan(&firstStatus, &category))

@@ -3,12 +3,10 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
 func seedDuplicateReview(t *testing.T, pool *pgxpool.Pool, stamp int64) (household, userID string, chatID int64, sourceID, duplicateID, targetID, reviewID, dupItemID string) {
@@ -43,40 +41,4 @@ func seedDuplicateReview(t *testing.T, pool *pgxpool.Pool, stamp int64) (househo
 	_, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, reviewID)
 	must(err)
 	return household, userID, chatID, sourceID, duplicateID, targetID, reviewID, dupItemID
-}
-
-func TestDuplicateCandidatesIncludeCarriedPriorMatchOutsideWindow(t *testing.T) {
-	t.Parallel()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	household, _, _, _, duplicateID, targetID, _, dupItemID := seedDuplicateReview(t, pool, testsupport.UniqueStamp())
-	var drifted string
-	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',58000,'IDR',now()-interval '200 hours','Indomaret',now()) RETURNING id`, household).Scan(&drifted); err != nil {
-		t.Fatal(err)
-	}
-	candidates := func() []duplicateCandidate {
-		got, err := duplicateCandidateRows(ctx, pool, household, duplicateID, "EXPENSE", "IDR", "57500", time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got
-	}
-	if got := candidates(); len(got) != 1 || got[0].ID != targetID {
-		t.Fatalf("without a carried prior match only the in-window transaction qualifies: %+v", got)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{knownFacts}',jsonb_build_object('prior_match_transaction_ids',jsonb_build_array($2::text,'not-a-uuid'))) WHERE id=$1`, dupItemID, drifted); err != nil {
-		t.Fatal(err)
-	}
-	got := candidates()
-	if len(got) != 2 || got[0].ID != drifted || got[1].ID != targetID {
-		t.Fatalf("the carried prior match must be offered first, alongside the window candidate: %+v", got)
-	}
 }

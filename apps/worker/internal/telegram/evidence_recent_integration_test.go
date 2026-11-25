@@ -168,7 +168,7 @@ func TestGetEvidenceContextToolIsAReadOnlyOpaqueRefLookup(t *testing.T) {
 		t.Fatalf("class=%s known=%v, want READ", class, known)
 	}
 	found := false
-	for _, tool := range readOnlyAgentTools(NativeFinanceTools(nil, false, false, false, "", false, false, "")) {
+	for _, tool := range readOnlyAgentTools(NativeFinanceTools(nil, false, false)) {
 		found = found || tool.Name == "get_evidence_context"
 	}
 	if !found {
