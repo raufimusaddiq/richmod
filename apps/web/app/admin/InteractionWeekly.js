@@ -72,12 +72,14 @@ const rangeText = (w) => {
   return `${fmt.format(new Date(w.start))} – ${fmt.format(new Date(new Date(w.end).getTime() - 1))}`;
 };
 
+const validShape = (value) => (value?.current && value?.previous && Array.isArray(value.notYetMeasurable) ? value : null);
+
 export default function InteractionWeekly() {
   const [state, setState] = useState({ loading: true, data: null, status: 0 });
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/v1/operations/interaction-weekly", { signal: controller.signal })
-      .then(async (response) => setState({ loading: false, data: response.ok ? await response.json() : null, status: response.status }))
+      .then(async (response) => setState({ loading: false, data: response.ok ? validShape(await response.json()) : null, status: response.status }))
       .catch((err) => {
         if (err?.name !== "AbortError") setState({ loading: false, data: null, status: 0 });
       });
