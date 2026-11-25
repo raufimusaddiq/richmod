@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
@@ -190,5 +191,58 @@ func TestPayslipConflictingSalaryEventRoutesToReviewInsteadOfFailing(t *testing.
 	}
 	if reviews != 1 || incomes != 1 || documentStatus != "NEEDS_REVIEW" {
 		t.Fatalf("reviews=%d incomes=%d document=%s", reviews, incomes, documentStatus)
+	}
+}
+
+func TestHeldPayslipWithPrimarySalaryCanBeRecordedAsSalary(t *testing.T) {
+	t.Parallel()
+	f := seedScreenshotFixture(t, "SAVR07 held payslip")
+	ctx := context.Background()
+	var user, primaryID string
+	if err := f.pool.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE household_id=$1`, f.householdID).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'PT Contoh','pt contoh',true) RETURNING id::text`, f.householdID, user).Scan(&primaryID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='PAYSLIP' WHERE id=$1`, f.documentID); err != nil {
+		t.Fatal(err)
+	}
+	date, gross := "2026-09-25", "10000000"
+	slip := payslipExtraction{Period: "2026-09", Employer: "PT Contoh", GrossPay: &gross, NetPay: "8500000", Currency: "IDR", PayDate: &date, Confidence: .97}
+	at, parsedPeriod, arithmetic, err := validatePayslip(slip, payslipTestReceived)
+	if err != nil || arithmetic || payslipAutoConfirmable(slip, arithmetic) {
+		t.Fatalf("slip must be held for arithmetic: err=%v arithmetic=%t", err, arithmetic)
+	}
+	if err := (&Processor{pool: f.pool}).persistPayslip(ctx, f.documentID, f.householdID, f.sourceID, slip, "test-model", at, parsedPeriod.Format("2006-01"), false, arithmetic); err != nil {
+		t.Fatal(err)
+	}
+	var itemID, proposalID string
+	var actions []string
+	if err := f.pool.QueryRow(ctx, `SELECT id::text,proposal_id::text,ARRAY(SELECT jsonb_array_elements_text(decision->'allowedActions')) FROM review_item WHERE document_id=$1`, f.documentID).Scan(&itemID, &proposalID, &actions); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(actions, "HOUSEHOLD_POLICY") {
+		t.Fatalf("held payslip with a primary salary must offer recording it as salary: %v", actions)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: f.householdID, UserID: user, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: f.sourceID, DocumentID: f.documentID, Action: "HOUSEHOLD_POLICY", Choice: "HOUSEHOLD_POLICY"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var events, jobs int
+	if err := f.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM salary_event WHERE household_id=$1 AND salary_source_id=$2::uuid AND payroll_period='2026-09-01' AND status='CONFIRMED'),
+		(SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'household_id'=$1::text)`, f.householdID, primaryID).Scan(&events, &jobs); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 || jobs != 1 {
+		t.Fatalf("salary not recorded on the primary source: events=%d residual jobs=%d", events, jobs)
 	}
 }

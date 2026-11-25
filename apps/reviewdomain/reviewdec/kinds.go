@@ -88,7 +88,7 @@ var kinds = []Kind{
 		Why:      "the first salary from a source is a human policy choice",
 		WhyID:    "Gaji pertama dari sumber ini perlu dipilih jenisnya.",
 		Telegram: true,
-		Inbox:    []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"},
+		Inbox:    []string{"PRIMARY_SALARY", "HOUSEHOLD_POLICY", "ORDINARY_INCOME", "IGNORE"},
 		Agent:    []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"},
 	},
 	{
@@ -341,6 +341,10 @@ var whyTranslations = map[string]string{
 	"the household disputes a previous screenshot link; explicit human button confirmation is required":    "Tautan screenshot sebelumnya dibantah, jadi perlu konfirmasi lewat tombol.",
 	"the provider email points to a different funding account than the canonical account already selected": "Email menunjuk rekening sumber yang berbeda dari yang sudah dipilih.",
 	"pay date is absent and the first salary source requires household classification":                     "Tanggal pembayaran tidak ada dan jenis gaji pertama perlu dipilih.",
+	"a salary for this payroll period is already recorded with different facts":                            "Gaji untuk periode ini sudah tercatat dengan angka berbeda.",
+	"the payslip was not read confidently enough to record automatically":                                  "Slip gaji belum terbaca cukup yakin untuk dicatat otomatis.",
+	"the payslip's gross pay, allowances and deductions do not add up to net pay":                          "Gaji kotor, tunjangan, dan potongan di slip tidak cocok dengan gaji bersih.",
+	"the payslip needs confirmation before it is recorded as salary":                                       "Slip gaji perlu dikonfirmasi sebelum dicatat sebagai gaji.",
 }
 
 func WhyLine(decision Decision) string {

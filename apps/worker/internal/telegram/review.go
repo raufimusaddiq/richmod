@@ -719,6 +719,9 @@ func salaryPolicyMarkup(actions []string) *InlineKeyboardMarkup {
 	if contains(actions, "PRIMARY_SALARY") {
 		buttons = append(buttons, InlineKeyboardButton{Text: "Gaji utama", CallbackData: "review:salary:primary"})
 	}
+	if contains(actions, "HOUSEHOLD_POLICY") {
+		buttons = append(buttons, InlineKeyboardButton{Text: "Catat sebagai gaji", CallbackData: "review:salary:household"})
+	}
 	if contains(actions, "ORDINARY_INCOME") {
 		buttons = append(buttons, InlineKeyboardButton{Text: "Pemasukan biasa", CallbackData: "review:salary:ordinary"})
 	}

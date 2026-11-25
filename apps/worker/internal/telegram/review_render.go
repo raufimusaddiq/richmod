@@ -121,6 +121,9 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
 		card.Mode, card.Title = "salary", "🧾 Ini gaji utama atau pemasukan biasa?"
 		card.Instruction = "Pilih jenis pemasukan di bawah."
+	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "HOUSEHOLD_POLICY"):
+		card.Mode, card.Title = "salary", "🧾 Catat slip gaji ini sebagai gaji?"
+		card.Instruction = "Pilih Catat sebagai gaji untuk memulai siklus gaji baru, atau Pemasukan biasa bila ini bukan gaji."
 	case contains(decision.MissingFacts, "wealth_account"):
 		card.Mode, card.Title = "transfer", "🟡 Akun kekayaan perlu diganti"
 		card.Instruction = "Pilih kembali akun kekayaan aktif untuk jenis transfer yang sudah dipilih."

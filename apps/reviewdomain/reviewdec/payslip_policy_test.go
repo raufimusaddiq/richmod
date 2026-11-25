@@ -21,8 +21,10 @@ func TestPayslipPolicy(t *testing.T) {
 		t.Fatalf("policy change did not refresh a stored decision: %+v", back)
 	}
 	confirm, _ := Preset("PAYSLIP_CONFIRMATION", "proposal", "id")
-	if got := PayslipPolicy(confirm, "PAYSLIP_CONFIRMATION", true); !reflect.DeepEqual(got.AllowedActions, []string{"ORDINARY_INCOME", "IGNORE"}) {
-		t.Fatalf("primary-known confirmation: %v", got.AllowedActions)
+	held := confirm
+	held.Provenance = map[string]any{"arithmeticOK": false, "extractionBelowAutoConfirmFloor": false}
+	if got := PayslipPolicy(held, "PAYSLIP_CONFIRMATION", true); !reflect.DeepEqual(got.AllowedActions, []string{"HOUSEHOLD_POLICY", "ORDINARY_INCOME", "IGNORE"}) || got.WhyNotAuto != "the payslip's gross pay, allowances and deductions do not add up to net pay" || WhyLine(got) == "" {
+		t.Fatalf("primary-known confirmation must offer recording as salary and name why it was held: %+v", got)
 	}
 	if got := PayslipPolicy(confirm, "PAYSLIP_CONFIRMATION", false); !reflect.DeepEqual(got.AllowedActions, confirm.AllowedActions) {
 		t.Fatalf("first-salary confirmation changed: %v", got.AllowedActions)

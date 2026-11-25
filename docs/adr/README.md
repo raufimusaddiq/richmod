@@ -1265,7 +1265,7 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 
 **Reason:** the repair pass could "fix" the very facts that made an invoice or payslip unsafe, so validated output no longer reflected the printed document; a dateless receipt skipped duplicate detection entirely.
 
-**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane.
+**Consequence:** unpaid invoices fail without repair or review, arithmetically inconsistent payslips with a gross pay become reviews, and dateless receipt duplicates become reviews instead of silent new expenses; answering "not a duplicate" still requires a chosen transaction date through the MISSING_TRANSACTION_DATE lane. Amendment (2026-11-25): when the household already has a primary salary, a held payslip review offers `HOUSEHOLD_POLICY` ("Catat sebagai gaji", the same choice the auto path records), `ORDINARY_INCOME` and `IGNORE`, and names why it was held (conflicting period, low read confidence or arithmetic). It previously removed `PRIMARY_SALARY` without adding `HOUSEHOLD_POLICY`, so a held payslip could only be accepted as ordinary income and its salary event, and with it the new salary cycle, was lost.
 
 ## ADR-124: Voiding a salary detaches its cycle, and unmerging retains evidence
 

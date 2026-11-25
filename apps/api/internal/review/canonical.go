@@ -468,7 +468,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	} else if in.Action == "IGNORE" {
 		err = reviewdomain.IgnoreReviewItem(r.Context(), tx, reviewdomain.IgnoreCommand{HouseholdID: household, ActorUserID: p.UserID, ActorType: "USER", ReviewItemID: r.PathValue("id"), Values: in.Values})
 		payslipResolved = err == nil
-	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
+	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "HOUSEHOLD_POLICY" || in.Action == "ORDINARY_INCOME") {
 		_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, in.Action, in.Action, nil)
 		payslipResolved = err == nil
 	} else if kind == "MISSING_PAY_DATE" && in.Action == "SET_PAY_DATE" {
