@@ -115,12 +115,6 @@ func Value(value any) any {
 			out[index] = Value(item)
 		}
 		return out
-	case []map[string]any:
-		out := make([]map[string]any, len(typed))
-		for index, item := range typed {
-			out[index] = Value(item).(map[string]any)
-		}
-		return out
 	}
 	return value
 }

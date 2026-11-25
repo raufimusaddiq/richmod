@@ -33,7 +33,6 @@ var (
 	emptySlotPattern = regexp.MustCompile(`\w[ \t]+[.,!?](?:\s|$)|<nil>|%[sdv]\b|\{\{|\}\}|\$\{|\bundefined\b|\bnull\b|\[\s*\]|\{\s*\}`)
 	loneMarkPattern  = regexp.MustCompile(`^[\s\p{P}\p{Sm}]+$`)
 	htmlTagPattern   = regexp.MustCompile(`</?[a-zA-Z][a-zA-Z0-9]*[^>]*>`)
-	sentenceSplit    = regexp.MustCompile(`(?m)([^.!?\n]*[.!?]+(?:\s|$)|[^\n]+(?:\n|$))`)
 	danglingTail     = regexp.MustCompile(`(?i)(?:\b(?:dan|atau|yang|dengan|untuk|ke|di|dari|perlu|karena|seperti|and|or|the|to|of|with|for)|[,:;(\-])\s*$`)
 )
 
