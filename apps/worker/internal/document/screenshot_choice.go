@@ -52,7 +52,7 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	if len(row.PriorMatchIDs) > 0 {
 		known["prior_match_transaction_ids"] = row.PriorMatchIDs
 	}
-	categoryKnown := row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict
+	categoryKnown := row.CategoryDecided && row.CategoryID != nil
 	if categoryKnown && row.CategorySlug != "" {
 		known["category"] = row.CategorySlug
 	}
@@ -63,7 +63,6 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		ReasonCode:      reviewType,
 		KnownFacts:      known,
 		Provenance:      map[string]any{"pipeline": "transaction-screenshot", "document_row": index},
-		Conflicting:     screenshotCategoryConflict(row),
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
 		DecisionSource:  reviewdec.SourceGenerativeExtraction,
 		PolicyVersion:   ScreenshotRowCategoryPolicyVersion,
@@ -98,14 +97,7 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		decision.WhyNotAuto = "evidence cannot separate income from an own-account or household transfer on a screenshot row"
 	case "POSSIBLE_DUPLICATE":
 	default:
-		if row.CategoryConflict {
-			decision.DecisionClass, decision.InteractionMode = reviewdec.ClassEvidenceConflict, reviewdec.ModeConflictResolution
-			decision.WhyNotAuto = "the image and household merchant memory named different categories"
-		}
 		decision.MissingFacts = screenshotMissingFacts(categoryKnown, row.DateKnown)
-		if row.CategoryConflict && row.DateKnown {
-			decision.MissingFacts = []string{"category"}
-		}
 	}
 	if reviewType == "TRANSFER_CLASSIFICATION" || reviewType == "POSSIBLE_DUPLICATE" {
 		if row.Type == "EXPENSE" && !categoryKnown {
@@ -119,16 +111,6 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		}
 	}
 	return decision
-}
-
-func screenshotCategoryConflict(row validatedScreenshotRow) map[string][]reviewdec.EvidenceValue {
-	if !row.CategoryConflict || row.CategorySlug == "" || row.ConflictSlug == "" {
-		return nil
-	}
-	return map[string][]reviewdec.EvidenceValue{"category": {
-		{Value: row.CategorySlug, Evidence: "household merchant memory"},
-		{Value: row.ConflictSlug, Evidence: "image extraction"},
-	}}
 }
 
 func screenshotMissingFacts(categoryKnown, dateKnown bool) []string {
@@ -149,7 +131,7 @@ func screenshotReviewReason(row validatedScreenshotRow, possibleDuplicate bool) 
 	if row.Type == "INCOME" {
 		return "TRANSFER_CLASSIFICATION"
 	}
-	categoryKnown := row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict
+	categoryKnown := row.CategoryDecided && row.CategoryID != nil
 	switch {
 	case !categoryKnown && !row.DateKnown:
 		return "TRANSACTION_FACTS_MISSING"

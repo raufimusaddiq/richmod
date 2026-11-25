@@ -55,9 +55,7 @@ type validatedScreenshotRow struct {
 	DateKnown          bool
 	CategoryID         *string
 	CategorySlug       string
-	ConflictSlug       string
 	CategoryDecided    bool
-	CategoryConflict   bool
 	CategoryFromMemory bool
 	MerchantID         *string
 	Candidates         []matchCandidate
@@ -66,7 +64,12 @@ type validatedScreenshotRow struct {
 }
 
 func (row validatedScreenshotRow) autoConfirmable() bool {
-	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown && row.confidentEnough()
+	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && row.DateKnown && row.confidentEnough()
+}
+
+func (row *validatedScreenshotRow) applyMerchantMemory(match merchantmemory.Match, slug string) {
+	row.CategoryID, row.CategoryDecided, row.CategorySlug = &match.CategoryID, true, slug
+	row.CategoryFromMemory, row.MerchantID = true, &match.MerchantID
 }
 
 func (row validatedScreenshotRow) confidentEnough() bool {
@@ -207,13 +210,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		if match == nil {
 			continue
 		}
-		if rows[index].CategoryID != nil && *rows[index].CategoryID != match.CategoryID {
-			rows[index].CategoryConflict = true
-			rows[index].ConflictSlug = rows[index].CategorySlug
-		}
-		rows[index].CategoryID, rows[index].CategoryDecided = &match.CategoryID, true
-		rows[index].CategorySlug = slugByID[match.CategoryID]
-		rows[index].CategoryFromMemory, rows[index].MerchantID = true, &match.MerchantID
+		rows[index].applyMerchantMemory(*match, slugByID[match.CategoryID])
 	}
 	usedMatches := make(map[string]bool)
 	for index := range rows {
@@ -414,10 +411,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		}
 		if row.Matched != nil {
 			var proposalID string
-			var mergedCategory *string
-			if !row.CategoryConflict {
-				mergedCategory = row.CategoryID
-			}
+			mergedCategory := row.CategoryID
 			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),$15,NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric) || $14::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score, screenshotIdentityMetadata(row), mergedCategory).Scan(&proposalID); err != nil {
 				return err
 			}
