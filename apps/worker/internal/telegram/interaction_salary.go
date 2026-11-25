@@ -246,10 +246,10 @@ func (p *Processor) chooseSalary(ctx context.Context, tx pgx.Tx, householdID, so
 		HouseholdID: householdID, UserID: review.UserID, ReviewItemID: review.ItemID, ProposalID: refs.ProposalID,
 		SourceEventID: refs.SourceEventID, DocumentID: refs.DocumentID, ActorType: "TELEGRAM", Action: choice, Choice: choice,
 	})
-	return p.finishPayslip(ctx, tx, sp, sourceEventID, review, step, result, err, salaryEvidenceKey)
+	return p.finishPayslip(ctx, tx, sp, householdID, sourceEventID, review, step, result, err, salaryEvidenceKey)
 }
 
-func (p *Processor) finishPayslip(ctx context.Context, tx, sp pgx.Tx, sourceEventID string, review engineReview, step Step, result reviewdomain.PayslipResult, resolveErr error, field string) (stepOutcome, error) {
+func (p *Processor) finishPayslip(ctx context.Context, tx, sp pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, result reviewdomain.PayslipResult, resolveErr error, field string) (stepOutcome, error) {
 	if errors.Is(resolveErr, reviewdomain.ErrPayslipReviewInvalid) {
 		_ = sp.Rollback(ctx)
 		return reask(step, salaryInvalidAck), nil
@@ -274,12 +274,21 @@ func (p *Processor) finishPayslip(ctx context.Context, tx, sp pgx.Tx, sourceEven
 	if err := tx.QueryRow(ctx, `SELECT round(amount)::text,transaction_at FROM transaction WHERE id=$1`, result.TransactionID).Scan(&amount, &at); err != nil {
 		return stepOutcome{}, err
 	}
-	return stepOutcome{Step: payslipDoneStep(result.Choice, amount, at), Settled: true, Changed: true}, nil
+	startsCycle := false
+	if result.Choice != "ORDINARY_INCOME" {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.transaction_id=$1 AND se.household_id=$2 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary)`, result.TransactionID, householdID).Scan(&startsCycle); err != nil {
+			return stepOutcome{}, err
+		}
+	}
+	return stepOutcome{Step: payslipDoneStep(result.Choice, amount, at, startsCycle), Settled: true, Changed: true}, nil
 }
 
-func payslipDoneStep(choice, amount string, at time.Time) Step {
+func payslipDoneStep(choice, amount string, at time.Time, startsCycle bool) Step {
 	if choice == "ORDINARY_INCOME" {
 		return Step{Kind: stepDone, Ack: "✅ Pemasukan tercatat · Rp" + FormatIDR(amount)}
+	}
+	if !startsCycle {
+		return Step{Kind: stepDone, Ack: "✅ Gaji tercatat · Rp" + FormatIDR(amount) + "."}
 	}
 	local := at.In(jakartaLocation())
 	return Step{Kind: stepDone, Ack: "✅ Gaji tercatat · Rp" + FormatIDR(amount) + ". Siklus baru mulai " + reviewdomain.FormatIndonesianShortDate(local) + "."}
@@ -360,7 +369,7 @@ func (p *Processor) finishPayDate(ctx context.Context, tx pgx.Tx, householdID, s
 		SourceEventID: refs.SourceEventID, DocumentID: refs.DocumentID, ActorType: "TELEGRAM", Action: "SET_PAY_DATE",
 		Choice: knownSalaryChoice(review.Decision), PayDate: &date,
 	})
-	return p.finishPayslip(ctx, tx, sp, sourceEventID, review, step, result, resolveErr, dateEvidenceKey)
+	return p.finishPayslip(ctx, tx, sp, householdID, sourceEventID, review, step, result, resolveErr, dateEvidenceKey)
 }
 
 func payslipItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID, proposalID string) (string, bool, error) {

@@ -45,25 +45,26 @@ func (g *scriptedPicker) AgentTurn(context.Context, string, gateway.AgentRequest
 }
 
 type contractHarness struct {
-	t           *testing.T
-	ctx         context.Context
-	f           agentIntegrationFixture
-	p           *Processor
-	picker      *scriptedPicker
-	kind        string
-	txType      string
-	reconcile   bool
-	mergeSource string
-	chatB       int64
-	reviewID    string
-	txID        string
-	itemID      string
-	imageID     string
-	caseID      string
-	primary     bool
-	checked     map[string]bool
-	markups     map[int64][]string
-	texts       map[int64]string
+	t            *testing.T
+	ctx          context.Context
+	f            agentIntegrationFixture
+	p            *Processor
+	picker       *scriptedPicker
+	kind         string
+	txType       string
+	reconcile    bool
+	mergeSource  string
+	chatB        int64
+	reviewID     string
+	txID         string
+	itemID       string
+	imageID      string
+	caseID       string
+	primary      bool
+	otherPrimary bool
+	checked      map[string]bool
+	markups      map[int64][]string
+	texts        map[int64]string
 }
 
 type contractOption func(*contractHarness)
@@ -1215,6 +1216,10 @@ const (
 	payslipDoneSalaryPrefix = "✅ Gaji tercatat · Rp8.500.000. Siklus baru mulai "
 )
 
+func withOtherPrimaryEmployer() contractOption {
+	return func(h *contractHarness) { h.otherPrimary = true }
+}
+
 func withPrimarySalary() contractOption {
 	return func(h *contractHarness) { h.primary = true }
 }
@@ -1244,7 +1249,11 @@ func (h *contractHarness) seedPayslip(label string) (itemID, imageID string) {
 		decision = payslipDateOnlyDecision
 	}
 	if h.primary {
-		h.exec(`INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'PT Contoh','pt contoh',true) ON CONFLICT DO NOTHING`, h.f.householdID, h.f.userID)
+		employer := "PT Contoh"
+		if h.otherPrimary {
+			employer = "PT Lain"
+		}
+		h.exec(`INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,lower($3),true) ON CONFLICT DO NOTHING`, h.f.householdID, h.f.userID, employer)
 	}
 	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,$5,'OPEN',$6::jsonb) RETURNING id`, h.f.householdID, proposal, imageID, document, reviewType, decision).Scan(&itemID))
 	return itemID, imageID
@@ -1404,6 +1413,15 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 			h.wantResolution("HOUSEHOLD_POLICY")
 			h.wantModelCalls(0)
 			h.wantAnswered("TAP")
+		}},
+		{"held payslip: a slip from an employer that is not the primary source records salary without claiming a cycle", held, []contractOption{withOtherPrimaryEmployer()}, func(h *contractHarness) {
+			h.tapLabel("Catat sebagai gaji")
+			h.wantCard("✅ Gaji tercatat · Rp8.500.000.")
+			if _, text, _ := h.current(); strings.Contains(text, "Siklus baru") {
+				t.Fatalf("a cycle was claimed for a non-primary source: %q", text)
+			}
+			h.wantSalary("CONFIRMED", "8500000", "", 1)
+			h.wantJobs(`SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'household_id'=$1`, 0, h.f.householdID)
 		}},
 		{"held payslip: Pemasukan biasa records plain income", held, nil, func(h *contractHarness) {
 			h.tapLabel("Pemasukan biasa")

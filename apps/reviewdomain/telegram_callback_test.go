@@ -48,3 +48,14 @@ func TestEverySampleIsValidAndUnsafeCallbacksAreRejected(t *testing.T) {
 		t.Errorf("callback over Telegram's 64-byte limit was accepted: %d bytes", len(long))
 	}
 }
+
+func TestStampedAccountCallbacksSurviveLargeListVersions(t *testing.T) {
+	for _, data := range []string{"review:acct:10003", "review:invest:10003", "review:cyc:10003", "review:cyc:123456003"} {
+		if !ValidTelegramCallback(data) {
+			t.Errorf("stamped account callback %q was rejected", data)
+		}
+	}
+	if ValidTelegramCallback("review:cyc:") || ValidTelegramCallback("review:cyc:../x") {
+		t.Error("malformed account callback was accepted")
+	}
+}
