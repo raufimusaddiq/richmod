@@ -70,11 +70,11 @@ type interactionResult struct {
 type messageStop string
 
 const (
-	stopNothing         messageStop = ""
-	stopLiveCard        messageStop = "LIVE_CARD"
-	stopClosedCard      messageStop = "CLOSED_CARD"
+	stopNothing          messageStop = ""
+	stopLiveCard         messageStop = "LIVE_CARD"
+	stopClosedCard       messageStop = "CLOSED_CARD"
 	stopMerchantLearning messageStop = "MERCHANT_LEARNING"
-	stopEvidence        messageStop = "EVIDENCE"
+	stopEvidence         messageStop = "EVIDENCE"
 )
 
 type classifiedMessage struct {
