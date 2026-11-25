@@ -35,6 +35,10 @@ func withMissingFacts(facts ...string) contractOption {
 	return func(h *contractHarness) { h.missingFacts = facts }
 }
 
+func withKnownBankFacts() contractOption {
+	return func(h *contractHarness) { h.knownAmount, h.knownTime = true, true }
+}
+
 func (h *contractHarness) openBank() {
 	h.t.Helper()
 	stamp := testsupport.UniqueStamp()
@@ -60,6 +64,9 @@ func (h *contractHarness) openBank() {
 	output := `{"kind":"OTHER"}`
 	if h.knownAmount {
 		output = `{"kind":"TRANSACTION","amount_idr":"54000"}`
+	}
+	if h.knownTime {
+		output = `{"kind":"UNKNOWN","amount_idr":"54000","transaction_at":"2026-11-25T08:07:00Z"}`
 	}
 	h.exec(`INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','v1',$3::jsonb,'VALID')`, source, listener, output)
 	decision, _ := reviewdec.Preset(bankKind, "source_event", source)
@@ -224,6 +231,13 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.wantCard("Nominal: Rp54.000", "Transaksinya terjadi kapan?")
 			h.tapLabel("Hari ini")
 			h.wantBankQueued(1, "54000")
+		}},
+		{"an email whose amount and time are both read only asks to record it", bankKind, []contractOption{withKnownBankFacts()}, func(h *contractHarness) {
+			h.wantCard("Nominal: Rp54.000", "Waktu: 25 Nov 15:07", "Catat transaksi ini?")
+			h.wantButtons("Catat", "Abaikan")
+			h.plain("ya")
+			h.wantBankQueued(1, "54000")
+			h.wantCard("✅ Diterima: Rp54.000, 25 Nov 15:07.")
 		}},
 		{"an email not linked to an account asks for the account before it queues", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
 			h.reply("54rb")

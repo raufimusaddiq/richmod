@@ -142,37 +142,46 @@ func (p *Processor) applyPurposeText(ctx context.Context, tx pgx.Tx, householdID
 	if !ok {
 		return reask(step, unusableAnswerAck), nil
 	}
-	tag, err := tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, review.TransactionID, value, householdID)
+	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return stepOutcome{}, err
 	}
+	tag, err := sp.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, review.TransactionID, value, householdID)
+	if err != nil {
+		_ = sp.Rollback(ctx)
+		return stepOutcome{}, err
+	}
 	if tag.RowsAffected() != 1 {
+		_ = sp.Rollback(ctx)
 		return staleTap(step), nil
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET description=$2,updated_at=now() WHERE household_id=$3 AND id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.TransactionID, value, householdID); err != nil {
+	if _, err := sp.Exec(ctx, `UPDATE transaction_proposal SET description=$2,updated_at=now() WHERE household_id=$3 AND id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.TransactionID, value, householdID); err != nil {
+		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
 	}
-	if err := p.recordFactAnswer(ctx, tx, householdID, sourceEventID, review, "description", value); err != nil {
+	if err := p.recordFactAnswer(ctx, sp, householdID, sourceEventID, review, "description", value); err != nil {
+		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}',COALESCE(decision->'missingFacts','[]'::jsonb)-'transaction_semantics'),updated_at=now() WHERE id=$1 AND household_id=$2`, review.ItemID, householdID); err != nil {
+	if _, err := sp.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}',COALESCE(decision->'missingFacts','[]'::jsonb)-'transaction_semantics'),updated_at=now() WHERE id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, review.ItemID, householdID); err != nil {
+		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
 	}
 	review.Decision = withoutMissingFact(review.Decision, "transaction_semantics")
 	var categorized bool
-	if err := tx.QueryRow(ctx, `SELECT type<>'EXPENSE' OR category_id IS NOT NULL FROM transaction WHERE id=$1 AND household_id=$2`, review.TransactionID, householdID).Scan(&categorized); err != nil {
+	if err := sp.QueryRow(ctx, `SELECT type<>'EXPENSE' OR category_id IS NOT NULL FROM transaction WHERE id=$1 AND household_id=$2`, review.TransactionID, householdID).Scan(&categorized); err != nil {
+		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
 	}
 	if !categorized || len(review.Decision.MissingFacts) > 0 {
+		if err := sp.Commit(ctx); err != nil {
+			return stepOutcome{}, err
+		}
 		next, ok, err := p.nextAfterFact(ctx, tx, householdID, review, "✅ Tujuannya disimpan.")
 		if err != nil || !ok {
 			return stepOutcome{}, err
 		}
 		return stepOutcome{Step: next, Changed: true}, nil
-	}
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		return stepOutcome{}, err
 	}
 	_, err = reviewdomain.ConfirmTransactionReview(ctx, sp, reviewdomain.ConfirmCommand{
 		HouseholdID: householdID, ActorUserID: review.UserID, TransactionID: review.TransactionID,

@@ -66,6 +66,7 @@ type contractHarness struct {
 	largeLeftover bool
 	unlinked      bool
 	knownAmount   bool
+	knownTime     bool
 	missingFacts  []string
 	categorized   bool
 	checked       map[string]bool

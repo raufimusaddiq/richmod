@@ -277,6 +277,11 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 		return p.applyCycleText(ctx, tx, householdID, sourceEventID, review, step, in.Text, in.Targeted)
 	case factAmount:
 		return p.applyAmountText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
+	case factBankConfirm:
+		if confirm, ok := rememberAnswer(in.Text); ok && confirm {
+			return p.applyBankTap(ctx, tx, householdID, sourceEventID, review, step, callbackConfirm)
+		}
+		return reask(step, unusableAnswerAck), nil
 	case factBankAccount:
 		return p.applyBankAccountText(ctx, tx, householdID, review, step, in.Text, in.Targeted)
 	case factProposalIncome:

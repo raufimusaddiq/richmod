@@ -16,6 +16,8 @@ import (
 const (
 	bankReviewType     = "UNKNOWN_BANK_TEMPLATE"
 	bankTimeAsk        = "Transaksinya terjadi kapan?"
+	bankConfirmAsk     = "Catat transaksi ini?"
+	bankConfirmHint    = "Nominal dan waktunya sudah terbaca dari email. Pilih di bawah."
 	bankAccountAsk     = "Email ini untuk rekening yang mana?"
 	bankAccountHint    = "Pilih di bawah, atau ketik nama rekeningnya."
 	bankNoAccountsHint = "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan dulu di aplikasi."
@@ -88,8 +90,7 @@ func bankMomentLabel(value string) string {
 	if err != nil {
 		return ""
 	}
-	local := at.In(jakartaLocation())
-	return reviewdomain.FormatIndonesianShortDate(local) + " " + local.Format("15:04")
+	return bankInstantLabel(at)
 }
 
 func bankFacts(b bankSubject, pending bankPending) string {
@@ -122,12 +123,23 @@ func bankStepFor(base Step, b bankSubject, pending bankPending, actions []string
 		}
 		return dateStepFrom(base, bankTimeAsk, actions, extra...)
 	}
-	base.Kind, base.Fact, base.State, base.Back = stepChoice, factBankAccount, "AWAITING_BANK_ACCOUNT", false
-	base.Ask, base.Hint = bankAccountAsk, bankAccountHint
+	base.Back = false
 	base.Rows = nil
-	if contains(actions, "IGNORE") {
-		base.Rows = [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: callbackIgnore}}}
+	if b.Unlinked {
+		base.Kind, base.Fact, base.State = stepChoice, factBankAccount, "AWAITING_BANK_ACCOUNT"
+		base.Ask, base.Hint = bankAccountAsk, bankAccountHint
+		if contains(actions, "IGNORE") {
+			base.Rows = [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: callbackIgnore}}}
+		}
+		return base
 	}
+	base.Kind, base.Fact, base.State = stepChoice, factBankConfirm, "AWAITING_CONFIRMATION"
+	base.Ask, base.Hint = bankConfirmAsk, bankConfirmHint
+	buttons := []InlineKeyboardButton{{Text: "Catat", CallbackData: callbackConfirm}}
+	if contains(actions, "IGNORE") {
+		buttons = append(buttons, InlineKeyboardButton{Text: "Abaikan", CallbackData: callbackIgnore})
+	}
+	base.Rows = pairRows(buttons)
 	return base
 }
 
@@ -295,6 +307,12 @@ func (p *Processor) applyBankTap(ctx context.Context, tx pgx.Tx, householdID, so
 		return p.ignoreBank(ctx, tx, householdID, review, step)
 	case step.Fact == factDate:
 		return p.applyDateTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	case step.Fact == factBankConfirm && data == callbackConfirm:
+		pending, err := loadBankPending(ctx, tx, review.RequestID)
+		if err != nil {
+			return stepOutcome{}, err
+		}
+		return p.bankAdvance(ctx, tx, householdID, review, step, pending, "")
 	case step.Fact == factBankAccount && strings.HasPrefix(data, callbackBankAccount):
 		return p.chooseBankAccount(ctx, tx, householdID, review, step, strings.TrimPrefix(data, callbackBankAccount))
 	}

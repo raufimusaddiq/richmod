@@ -41,6 +41,7 @@ const (
 	factBankAccount    factKind = "bankaccount"
 	factProposalIncome factKind = "proposalincome"
 	factPurpose        factKind = "purpose"
+	factBankConfirm    factKind = "bankconfirm"
 )
 
 const transferReviewType = "TRANSFER_CLASSIFICATION"
@@ -141,7 +142,7 @@ func (s Step) AnswerKind() cardAnswerKind {
 		return cardAnswerDate
 	case factSplitAmount, factAmount:
 		return cardAnswerAmount
-	case factProposalIncome:
+	case factProposalIncome, factBankConfirm:
 		return cardAnswerConfirm
 	case factPurpose:
 		return cardAnswerDetail
@@ -200,7 +201,7 @@ func engineOwnsDecision(decision reviewdec.Decision, reviewType string, subject 
 		return true
 	}
 	if reviewType == bankReviewType {
-		return subject.Bank != nil && (subject.Bank.AmountIDR == "" || subject.Bank.TransactionAt == "")
+		return subject.Bank != nil
 	}
 	if reviewType == missingAmountReviewType {
 		return contains(decision.MissingFacts, "amount")
@@ -314,6 +315,8 @@ func factsStepForBinding(card agentReviewBinding) (Step, bool) {
 			return Step{Kind: stepFact, Fact: factDate}, true
 		case "AWAITING_BANK_ACCOUNT":
 			return Step{Kind: stepChoice, Fact: factBankAccount}, true
+		case "AWAITING_CONFIRMATION":
+			return Step{Kind: stepChoice, Fact: factBankConfirm}, true
 		}
 		return Step{Kind: stepFact, Fact: factAmount}, true
 	case card.Kind == cardKindProposal && card.ReviewType == missingAmountReviewType:
