@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const documentMoneyRule = `Money: whole IDR digits only, no "Rp", separators, decimals or leading zeros; "Rp15.000,00" becomes "15000". Use null when an amount is not printed; never invent or zero-fill it.`
+const documentMoneyRule = `Money: whole IDR digits only, no "Rp", separators, decimals or leading zeros; "Rp15.000,00" becomes "15000". Never invent or zero-fill an amount; use null only for an amount field that allows null and is not printed.`
 
 const documentDateRule = `Dates are day-first (03/11/2026 is 3 November 2026) and may use Indonesian months: Januari, Februari, Maret, April, Mei, Juni, Juli, Agustus (Agu, Agt), September, Oktober (Okt), November, Desember (Des).`
 
