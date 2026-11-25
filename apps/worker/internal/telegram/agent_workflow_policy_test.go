@@ -119,26 +119,11 @@ func TestImplicitMerchantBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
 	}
 }
 
-func TestCycleResidualToolUsesWealthHintsNotUUIDs(t *testing.T) {
+func TestCycleResidualCardGivesTheAssistantNoMutationTool(t *testing.T) {
 	tools := AgentFinanceTools(nil, false, false, true, "CYCLE_RESIDUAL_ALLOCATION", false, false, "CYCLE_RESIDUAL")
-	var resolve *gateway.ToolDefinition
-	for i := range tools {
-		if tools[i].Name == "resolve_review" {
-			resolve = &tools[i]
-			break
+	for _, tool := range tools {
+		if tool.Name == "resolve_review" {
+			t.Fatalf("the assistant can still answer a cycle residual card with %s", tool.Name)
 		}
-	}
-	if resolve == nil {
-		t.Fatal("resolve_review missing for cycle residual")
-	}
-	properties, _ := resolve.Parameters["properties"].(map[string]any)
-	allocations, _ := properties["allocations"].(map[string]any)
-	items, _ := allocations["items"].(map[string]any)
-	itemProperties, _ := items["properties"].(map[string]any)
-	if _, ok := itemProperties["wealth_account_hint"]; !ok {
-		t.Fatalf("cycle residual allocation missing wealth_account_hint: %#v", itemProperties)
-	}
-	if _, ok := itemProperties["wealth_account_id"]; ok {
-		t.Fatalf("cycle residual exposed canonical wealth_account_id: %#v", itemProperties)
 	}
 }

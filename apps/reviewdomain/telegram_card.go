@@ -24,25 +24,25 @@ func whyPart(why string) string {
 	return "Alasan: " + strings.TrimSpace(why)
 }
 
-const CycleResidualCardTitle = "🧾 Sisa salary cycle belum dialokasikan"
+const CycleResidualCardInstruction = "Pilih di bawah, atau ketik nama akunnya."
 
-const CycleResidualCardInstruction = CycleResidualCardReplyInstruction + " Pilih Biarkan saja jika sisa ini memang tidak dialokasikan."
-
-const CycleResidualCardReplyInstruction = "Balas pesan ini (Reply) untuk mengalokasikan sisa ke akun kekayaan, atau sebutkan transaksi yang belum tercatat."
-
-func CycleResidualCardFacts(cycleStart, cycleEnd time.Time, residual string) string {
+func CycleResidualQuestion(cycleStart, cycleEnd time.Time, residual string) string {
 	last := cycleEnd.AddDate(0, 0, -1)
-	return "Periode: " + FormatIndonesianDate(cycleStart) + " – " + FormatIndonesianDate(last) + "\nSisa: Rp" + FormatRupiah(residual)
+	return "Sisa siklus " + FormatIndonesianShortDate(cycleStart) + "–" + FormatIndonesianShortDate(last) + ": Rp" + FormatRupiah(residual) + ". Mau dialokasikan ke mana?"
 }
 
 func CycleResidualCardText(cycleStart, cycleEnd time.Time, residual string) string {
-	return TelegramCardText(CycleResidualCardTitle, CycleResidualCardFacts(cycleStart, cycleEnd, residual), reviewdec.WhyLine(reviewdec.Decision{ReasonCode: "CYCLE_RESIDUAL_ALLOCATION"}), CycleResidualCardInstruction)
+	return TelegramCardText("🟡 "+CycleResidualQuestion(cycleStart, cycleEnd, residual), "", reviewdec.WhyLine(reviewdec.Decision{ReasonCode: "CYCLE_RESIDUAL_ALLOCATION"}), CycleResidualCardInstruction)
 }
 
 var indonesianMonths = [...]string{"Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"}
 
 func FormatIndonesianDate(value time.Time) string {
 	return value.Format("2") + " " + indonesianMonths[value.Month()-1] + " " + value.Format("2006")
+}
+
+func FormatIndonesianShortDate(value time.Time) string {
+	return value.Format("2") + " " + indonesianMonths[value.Month()-1]
 }
 
 func FormatRupiah(value string) string {

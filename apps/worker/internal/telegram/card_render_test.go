@@ -60,24 +60,31 @@ func TestUnknownMerchantCardIsCoherent(t *testing.T) {
 }
 
 func TestCardOmitsButtonsTheKindCannotExecute(t *testing.T) {
-	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", "c")
-	card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{})
-	markup, err := reviewCardMarkup(context.Background(), nil, "", "CYCLE_RESIDUAL_ALLOCATION", decision, card, reviewSubject{})
-	if err != nil {
-		t.Fatal(err)
+	rows := [][]InlineKeyboardButton{
+		{{Text: "Akun", CallbackData: callbackCycle + "1000"}},
+		{{Text: "Bagi", CallbackData: callbackCycleSplit}},
+		{{Text: "Biarkan saja", CallbackData: callbackLeave}},
+		{{Text: "Ada transaksi", CallbackData: callbackCycleMissing}},
 	}
-	if markup == nil || len(markup.InlineKeyboard) != 1 || markup.InlineKeyboard[0][0].CallbackData != "review:leave" {
-		t.Fatalf("cycle markup=%#v", markup)
+	kept := Step{Kind: stepChoice, Fact: factCycle, Rows: rows}.executable([]string{"ALLOCATE_RETAINED_BALANCE"})
+	if len(kept.Rows) != 2 || kept.Rows[1][0].CallbackData != callbackCycleSplit {
+		t.Fatalf("a cycle card offered buttons its contract cannot execute: %#v", kept.Rows)
 	}
-	decision.AllowedActions = []string{"ALLOCATE_RETAINED_BALANCE"}
-	if markup, _ = reviewCardMarkup(context.Background(), nil, "", "CYCLE_RESIDUAL_ALLOCATION", decision, card, reviewSubject{}); markup != nil {
-		t.Fatalf("a cycle card without LEAVE_UNALLOCATED offered %#v", markup)
+	kept = Step{Kind: stepChoice, Fact: factCycle, Rows: rows}.executable([]string{"LEAVE_UNALLOCATED"})
+	if len(kept.Rows) != 1 || kept.Rows[0][0].CallbackData != callbackLeave {
+		t.Fatalf("a cycle card without allocation offered %#v", kept.Rows)
 	}
 	reply, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "p")
 	reply.AllowedActions = []string{"SET_PAY_DATE"}
-	card = buildReviewCard(reply, "MISSING_PAY_DATE", "", reviewSubject{})
-	if markup, _ = reviewCardMarkup(context.Background(), nil, "", "MISSING_PAY_DATE", reply, card, reviewSubject{}); markup != nil {
-		t.Fatalf("a contract without IGNORE still offered Abaikan: %#v", markup)
+	reply.MissingFacts = []string{"transaction_at"}
+	step, ok := deriveStep(reply, "MISSING_PAY_DATE", "", reviewSubject{})
+	if !ok || step.Fact != factDate {
+		t.Fatalf("a pay date review did not derive a date step: %#v", step)
+	}
+	for _, button := range step.buttons() {
+		if button.CallbackData == callbackIgnore {
+			t.Fatalf("a contract without IGNORE still offered Abaikan: %#v", step.Rows)
+		}
 	}
 }
 
@@ -151,13 +158,11 @@ func TestCardDateAnswerRejectsNormalizedLeapDay(t *testing.T) {
 	}
 }
 
-func TestCycleInstructionNamesOnlyItsButtons(t *testing.T) {
-	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", "c")
-	if card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{}); !strings.Contains(card.Instruction, "Biarkan saja") {
-		t.Fatalf("instruction=%q", card.Instruction)
-	}
-	decision.AllowedActions = []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING"}
-	if card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{}); strings.Contains(card.Instruction, "Biarkan") {
-		t.Fatalf("instruction names an absent button: %q", card.Instruction)
+func TestPayslipWithADisputedEvidenceLinkStillGetsAStepCardWithoutAReplyPrompt(t *testing.T) {
+	decision, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "p")
+	decision.Provenance = map[string]any{"evidence_link_dispute": true}
+	step, ok := deriveStep(decision, "MISSING_PAY_DATE", "", reviewSubject{})
+	if !ok || strings.Contains(step.Text(), "Balas pesan ini") || len(step.buttons()) != 1 || step.buttons()[0].CallbackData != callbackIgnore {
+		t.Fatalf("ok=%v step=%q buttons=%#v", ok, step.Text(), step.buttons())
 	}
 }

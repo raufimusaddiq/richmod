@@ -154,6 +154,8 @@ func (s *Step) loadRows(ctx context.Context, tx pgx.Tx, reviewID string, page in
 		if len(s.Rows) == 0 {
 			return s.loadReconciliationRows(ctx, tx, reviewID)
 		}
+	case factCycle, factSplitAcct, factSplitAmount:
+		return s.loadCycleRows(ctx, tx, reviewID, page)
 	}
 	return nil
 }
@@ -199,6 +201,23 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 	if err != nil {
 		return err
 	}
+	prefix, pagePrefix := callbackAccount, callbackAccountPg
+	empty := noAssetAccountsHint
+	if s.Fact == factInvest {
+		prefix, pagePrefix, empty = callbackInvest, callbackInvestPg, noInvestAccountsHint
+	}
+	if err := s.loadStampedAccounts(ctx, tx, reviewID, choices, page, prefix, pagePrefix, empty); err != nil {
+		return err
+	}
+	tail := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: callbackIgnore}}
+	if s.Back {
+		tail = append([]InlineKeyboardButton{{Text: "Kembali", CallbackData: callbackBack}}, tail...)
+	}
+	s.Rows = append(s.Rows, tail)
+	return nil
+}
+
+func (s *Step) loadStampedAccounts(ctx context.Context, tx pgx.Tx, reviewID string, choices []accountChoice, page int, prefix, pagePrefix, empty string) error {
 	ids := make([]string, 0, len(choices))
 	for _, choice := range choices {
 		ids = append(ids, choice.ID)
@@ -222,11 +241,6 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 		}
 	}
 	stamp := version * accountStampBase
-	prefix, pagePrefix := callbackAccount, callbackAccountPg
-	empty := noAssetAccountsHint
-	if s.Fact == factInvest {
-		prefix, pagePrefix, empty = callbackInvest, callbackInvestPg, noInvestAccountsHint
-	}
 	s.Page = clampChooserPage(page, len(choices), chooserPageSize)
 	s.Hint = accountHint
 	if len(choices) == 0 {
@@ -243,12 +257,34 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 	if pager := pagerRow(s.Page, len(choices), chooserPageSize, pagePrefix); len(pager) > 0 {
 		s.Rows = append(s.Rows, pager)
 	}
-	tail := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: callbackIgnore}}
-	if s.Back {
-		tail = append([]InlineKeyboardButton{{Text: "Kembali", CallbackData: callbackBack}}, tail...)
-	}
-	s.Rows = append(s.Rows, tail)
 	return nil
+}
+
+func resolveStampedAccount(ctx context.Context, tx pgx.Tx, reviewID, data, prefix string, current []accountChoice) (string, bool, error) {
+	number, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
+	if !strings.HasPrefix(data, prefix) || err != nil || number < 0 {
+		return "", false, nil
+	}
+	index, stamp := number%accountStampBase, number/accountStampBase
+	var raw []byte
+	var version int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&raw, &version); err != nil {
+		return "", false, err
+	}
+	var stored []string
+	if stamp != version || json.Unmarshal(raw, &stored) != nil || index >= len(stored) || !accountListed(current, stored[index]) {
+		return "", false, nil
+	}
+	return stored[index], true, nil
+}
+
+func accountFromText(ctx context.Context, tx pgx.Tx, householdID, hint string, targeted bool, choices []accountChoice) (string, bool, error) {
+	if targeted {
+		id, err := resolveUniqueWealthHint(ctx, tx, householdID, hint)
+		return id, err == nil && accountListed(choices, id), nil
+	}
+	exact, ok := exactAccountMatch(hint, choices)
+	return exact.ID, ok, nil
 }
 
 func (p *Processor) baseStep(ctx context.Context, tx pgx.Tx, householdID string, review engineReview) (Step, error) {
@@ -309,10 +345,12 @@ func (p *Processor) applyTransferTap(ctx context.Context, tx pgx.Tx, householdID
 	var outcome stepOutcome
 	var err error
 	switch {
-	case data == callbackBack && step.Back:
+	case data == callbackBack && step.Back && stepOffers(step, data):
 		outcome, err = p.backToFirstStep(ctx, tx, householdID, review)
-	case data == callbackAsset && assetEntryAllowed(review, step):
+	case data == callbackAsset && assetEntryAllowed(review, step) && stepOffers(step, data):
 		outcome, err = p.enterAccountStep(ctx, tx, householdID, review, factAsset)
+	case data == callbackBack || data == callbackAsset:
+		outcome = reask(step, transferInvalidAck)
 	case step.Fact == factIncome:
 		outcome, err = p.applyIncomeConfirm(ctx, tx, householdID, sourceEventID, review, step, data)
 	case step.Fact == factTransfer:
@@ -376,34 +414,19 @@ func (p *Processor) applyAccountTap(ctx context.Context, tx pgx.Tx, householdID,
 		}
 		return stepOutcome{Step: step.executable(cardActions(review.Decision, review.ReviewType))}, nil
 	}
-	number, err := strconv.Atoi(strings.TrimPrefix(data, prefix))
-	if !strings.HasPrefix(data, prefix) || err != nil || number < 0 {
-		return reask(step, accountStaleAck), nil
-	}
-	index, stamp := number%accountStampBase, number/accountStampBase
-	var raw []byte
-	var version int
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, review.RequestID).Scan(&raw, &version); err != nil {
-		return stepOutcome{}, err
-	}
-	if stamp != version {
-		return reask(step, accountStaleAck), nil
-	}
-	var stored []string
-	if json.Unmarshal(raw, &stored) != nil || index >= len(stored) {
-		return reask(step, accountStaleAck), nil
-	}
 	current, err := accountCandidates(ctx, tx, householdID, step.Fact)
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	if !accountListed(current, stored[index]) {
+	id, ok, err := resolveStampedAccount(ctx, tx, review.RequestID, data, prefix, current)
+	if err != nil {
+		return stepOutcome{}, err
+	}
+	if !ok {
 		return reask(step, accountStaleAck), nil
 	}
-	return p.finishAccount(ctx, tx, householdID, sourceEventID, review, step, stored[index])
+	return p.finishAccount(ctx, tx, householdID, sourceEventID, review, step, id)
 }
-
-var errNoExactAccount = errors.New("no listed account has exactly this name")
 
 func exactAccountMatch(text string, choices []accountChoice) (accountChoice, bool) {
 	value := stripAnswerFiller(text)
@@ -439,16 +462,11 @@ func (p *Processor) applyAccountText(ctx context.Context, tx pgx.Tx, householdID
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	var id string
-	var resolveErr error
-	if targeted {
-		id, resolveErr = resolveUniqueWealthHint(ctx, tx, householdID, hint)
-	} else if exact, ok := exactAccountMatch(hint, choices); ok {
-		id = exact.ID
-	} else {
-		resolveErr = errNoExactAccount
+	id, ok, err := accountFromText(ctx, tx, householdID, hint, targeted, choices)
+	if err != nil {
+		return stepOutcome{}, err
 	}
-	if resolveErr != nil || !accountListed(choices, id) {
+	if !ok {
 		return reask(step, "Aku belum menemukan satu akun yang cocok dengan “"+clean(hint, 40)+"”."), nil
 	}
 	return p.finishAccount(ctx, tx, householdID, sourceEventID, review, step, id)

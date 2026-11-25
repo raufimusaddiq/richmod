@@ -65,6 +65,7 @@ type interactionResult struct {
 	Answer     typedCardAnswer
 	ButtonData string
 	Unmatched  bool
+	Bound      bool
 }
 
 type messageStop string
@@ -106,7 +107,7 @@ func navigationCallback(data string) bool {
 	case "review:edit", "review:merchant", "review:description", "review:category":
 		return true
 	}
-	for _, prefix := range []string{"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:"} {
+	for _, prefix := range []string{"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:", "review:cycpage:"} {
 		if strings.HasPrefix(data, prefix) {
 			return true
 		}
@@ -278,6 +279,11 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 		if err != nil {
 			return result, err
 		}
+		if card, ok := yesNoReshowCard(cards); ok && !blocked {
+			result = p.cardStepResult(result, update, card, sourcePlain, "")
+			result.Bound = true
+			return result, nil
+		}
 		if _, typed := singleTypedCard(cards); !typed && !blocked {
 			if card, ok, err := p.rememberCard(ctx, householdID, update.Message.Chat.ID); err != nil {
 				return result, err
@@ -372,6 +378,19 @@ func (p *Processor) cardStepResult(result interactionResult, update telegramUpda
 	}
 	result.Kind, result.Source, result.Card, result.Update, result.ButtonData = interactionCardStep, source, step, update, data
 	return result
+}
+
+func yesNoReshowCard(cards []agentReviewBinding) (agentReviewBinding, bool) {
+	if len(cards) != 1 {
+		return agentReviewBinding{}, false
+	}
+	switch step, ok := stepForBinding(cards[0]); {
+	case !ok:
+		return agentReviewBinding{}, false
+	case step.Fact == factSalary, step.Fact == factDate, cycleFact(step.Fact):
+		return cards[0], true
+	}
+	return agentReviewBinding{}, false
 }
 
 func singleTypedCard(cards []agentReviewBinding) (agentReviewBinding, bool) {
@@ -493,13 +512,23 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 	return buttons, nil
 }
 
+func accountListKey(card agentReviewBinding) string {
+	if card.Kind == "CYCLE_RESIDUAL" {
+		return "CYCLE:" + card.ReviewRequestID
+	}
+	return card.ConversationState
+}
+
 func (p *Processor) waitingAccounts(ctx context.Context, householdID string, cards []agentReviewBinding) (map[string][]accountChoice, error) {
 	facts := map[string]factKind{"AWAITING_ASSET_WEALTH": factAsset, "AWAITING_INVESTMENT_ACCOUNT": factInvest}
 	out := map[string][]accountChoice{}
 	var tx pgx.Tx
 	for _, card := range cards {
+		key := accountListKey(card)
+		step, cycle := stepForBinding(card)
+		cycle = cycle && card.Kind == "CYCLE_RESIDUAL" && (step.Fact == factCycle || step.Fact == factSplitAcct)
 		fact, waiting := facts[card.ConversationState]
-		if !waiting || out[card.ConversationState] != nil {
+		if (!waiting && !cycle) || out[key] != nil {
 			continue
 		}
 		if tx == nil {
@@ -509,11 +538,17 @@ func (p *Processor) waitingAccounts(ctx context.Context, householdID string, car
 			}
 			defer tx.Rollback(ctx)
 		}
-		choices, err := accountCandidates(ctx, tx, householdID, fact)
+		var choices []accountChoice
+		var err error
+		if cycle {
+			choices, err = p.cycleCandidatesFor(ctx, tx, householdID, card.ReviewRequestID, step.Fact)
+		} else {
+			choices, err = accountCandidates(ctx, tx, householdID, fact)
+		}
 		if err != nil {
 			return nil, err
 		}
-		out[card.ConversationState] = append([]accountChoice{}, choices...)
+		out[key] = append([]accountChoice{}, choices...)
 	}
 	return out, nil
 }

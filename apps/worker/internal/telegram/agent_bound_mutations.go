@@ -28,19 +28,6 @@ func (p *Processor) agentResolveBoundReview(ctx context.Context, state *agentSta
 		return p.agentResolveBoundTransferReconciliation(ctx, state, call, args, state.ReviewBinding)
 	case "WEALTH_OBSERVATION":
 		return p.agentResolveBoundWealthObservation(ctx, state, call, args, state.ReviewBinding)
-	case "CYCLE_RESIDUAL":
-		bound := *state
-		if state.ReviewBinding.TelegramMessageID != 0 {
-			bound.Update.Message.ReplyToMessage = &struct {
-				MessageID int64 `json:"message_id"`
-			}{MessageID: state.ReviewBinding.TelegramMessageID}
-		}
-		action, _ := args["action"].(string)
-		handled, result, err := p.agentResolveResidual(ctx, &bound, call, action, args)
-		if !handled && err == nil {
-			result.Status = "STALE_REVIEW_BINDING"
-		}
-		return result, true, err
 	default:
 		return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect, Status: "STALE_REVIEW_BINDING"}, true, nil
 	}

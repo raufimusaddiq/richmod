@@ -3,81 +3,10 @@ package telegram
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
-
-func (p *Processor) agentResolveBoundResidualWithHints(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
-	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
-	binding := state.ReviewBinding
-	if binding == nil || binding.Kind != "CYCLE_RESIDUAL" || binding.TargetID == "" || binding.ReviewRequestID == "" {
-		result.Status = "STALE_REVIEW_BINDING"
-		return result, true, nil
-	}
-	if binding.TelegramMessageID == 0 {
-		result.Status = "STALE_REVIEW_BINDING"
-		return result, true, nil
-	}
-
-	action, _ := args["action"].(string)
-	translated := make(map[string]any, len(args))
-	for key, value := range args {
-		translated[key] = value
-	}
-	if action == "ALLOCATE_RETAINED_BALANCE" {
-		raw, ok := args["allocations"].([]any)
-		if !ok || len(raw) == 0 {
-			result.Status = "MISSING_ALLOCATIONS"
-			return result, true, nil
-		}
-		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-		if err != nil {
-			return result, true, err
-		}
-		defer tx.Rollback(ctx)
-		resolved := make([]map[string]any, 0, len(raw))
-		seen := map[string]struct{}{}
-		for _, rawAllocation := range raw {
-			allocation, ok := rawAllocation.(map[string]any)
-			if !ok {
-				return result, true, fmt.Errorf("invalid residual allocation")
-			}
-			hint, _ := allocation["wealth_account_hint"].(string)
-			amount, _ := allocation["amount_idr"].(string)
-			note, _ := allocation["note"].(string)
-			if strings.TrimSpace(hint) == "" {
-				result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
-				return result, true, nil
-			}
-			id, resolveErr := resolveUniqueWealthHint(ctx, tx, state.HouseholdID, hint)
-			if resolveErr != nil {
-				result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
-				result.Facts = map[string]any{"wealth_account_hint": clean(hint, 160)}
-				return result, true, nil
-			}
-			if _, duplicate := seen[id]; duplicate {
-				result.Status = "DUPLICATE_WEALTH_ACCOUNT"
-				return result, true, nil
-			}
-			seen[id] = struct{}{}
-			resolved = append(resolved, map[string]any{"wealth_account_id": id, "amount_idr": amount, "note": note})
-		}
-		translated["allocations"] = resolved
-	}
-
-	bound := *state
-	bound.Update.Message.ReplyToMessage = &struct {
-		MessageID int64 `json:"message_id"`
-	}{MessageID: binding.TelegramMessageID}
-	handled, result, err := p.agentResolveResidual(ctx, &bound, call, action, translated)
-	if !handled && err == nil {
-		result.Status = "STALE_REVIEW_BINDING"
-	}
-	return result, true, err
-}
 
 func (p *Processor) agentResolveBoundMerchantLearningStrict(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}

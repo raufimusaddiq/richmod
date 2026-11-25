@@ -30,6 +30,7 @@ type reviewSubject struct {
 	TransactionType string
 	Purpose         string
 	Reconciliation  bool
+	Cycle           *cycleSubject
 }
 
 func (s reviewSubject) transactionType(decision reviewdec.Decision) string {
@@ -44,13 +45,20 @@ func (s reviewSubject) transactionType(decision reviewdec.Decision) string {
 
 func loadReviewSubject(ctx context.Context, tx pgx.Tx, reviewID string) (reviewSubject, error) {
 	var subject reviewSubject
+	var cycle cycleSubject
+	var hasCycle bool
 	err := tx.QueryRow(ctx, `SELECT COALESCE(t.type,''),COALESCE(t.purpose,''),
-		ri.transaction_id IS NULL AND EXISTS(SELECT 1 FROM transfer_reconciliation_case trc WHERE trc.household_id=ri.household_id AND trc.status='OPEN' AND ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id AND trc.financial_email_observation_id IS NULL)
+		ri.transaction_id IS NULL AND EXISTS(SELECT 1 FROM transfer_reconciliation_case trc WHERE trc.household_id=ri.household_id AND trc.status='OPEN' AND ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id AND trc.financial_email_observation_id IS NULL),
+		crc.id IS NOT NULL,COALESCE(crc.cycle_start,'0001-01-01'),COALESCE(crc.cycle_end,'0001-01-01'),COALESCE(crc.basis_residual_idr::text,'')
 		FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
 		LEFT JOIN transaction t ON t.id=COALESCE(r.transaction_id,ri.transaction_id) AND t.household_id=r.household_id
-		WHERE r.id=$1`, reviewID).Scan(&subject.TransactionType, &subject.Purpose, &subject.Reconciliation)
+		LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id AND crc.household_id=r.household_id
+		WHERE r.id=$1`, reviewID).Scan(&subject.TransactionType, &subject.Purpose, &subject.Reconciliation, &hasCycle, &cycle.Start, &cycle.End, &cycle.Residual)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return reviewSubject{}, nil
+	}
+	if hasCycle {
+		subject.Cycle = &cycle
 	}
 	return subject, err
 }
@@ -79,6 +87,9 @@ func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, req
 	}
 	markup, err := reviewCardMarkup(ctx, tx, request, reason, decision, card, subject)
 	if err != nil {
+		return err
+	}
+	if card, err = loadedStepCard(ctx, tx, request, reason, summary, decision, subject, card); err != nil {
 		return err
 	}
 	if markup == nil {
@@ -121,15 +132,9 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
 		card.Mode, card.Title = "financial_email", promptTitle(decision)
 		card.Instruction = "Pilih rekening untuk bukti email ini."
-	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
-		card.Mode, card.Title = "salary", "🧾 Ini gaji utama atau pemasukan biasa?"
-		card.Instruction = "Pilih jenis pemasukan di bawah."
-	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "HOUSEHOLD_POLICY"):
-		card.Mode, card.Title = "salary", "🧾 Catat slip gaji ini sebagai gaji?"
-		card.Instruction = "Pilih Catat sebagai gaji untuk memulai siklus gaji baru, atau Pemasukan biasa bila ini bukan gaji."
 	case contains(decision.MissingFacts, "transaction_at"):
 		card.State, card.Mode, card.Title = "AWAITING_DATE", "reply", promptTitle(decision)
-		card.Instruction = dateInstruction(decision)
+		card.Instruction = dateInstruction()
 	case isCategoryOnly(decision):
 		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "category", "🟡 Kategori belum pasti"
 		card.Instruction = "Pilih kategori di bawah, atau balas pesan ini (Reply) dengan tujuan pengeluaran."
@@ -139,12 +144,6 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	case contains(decision.MissingFacts, "merchant"):
 		card.State, card.Mode, card.Title = "AWAITING_MERCHANT", "reply", "🟡 Nama merchant belum ada"
 		card.Instruction = "Balas pesan ini (Reply) dengan nama merchant."
-	case decision.ReasonCode == "CYCLE_RESIDUAL_ALLOCATION":
-		card.Mode, card.Title = "cycle", reviewdomain.CycleResidualCardTitle
-		card.Instruction = reviewdomain.CycleResidualCardReplyInstruction
-		if contains(cardActions(decision, reviewType), "LEAVE_UNALLOCATED") {
-			card.Instruction = reviewdomain.CycleResidualCardInstruction
-		}
 	case contains(decision.MissingFacts, "wealth_snapshot_confirmation"):
 		card.Mode, card.Title = "reply", "🟡 Akun kekayaan belum pasti"
 		card.Instruction = "Balas pesan ini (Reply) dengan nama akun kekayaan yang benar."
@@ -184,20 +183,11 @@ var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
 	"reply": func(_ context.Context, _ pgx.Tx, _, reviewType string, decision reviewdec.Decision, card reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
 		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
 	},
-	"cycle": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, actions []string) (*InlineKeyboardMarkup, error) {
-		if contains(actions, "LEAVE_UNALLOCATED") {
-			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Biarkan saja", CallbackData: "review:leave"}}}}, nil
-		}
-		return nil, nil
-	},
 	"duplicate": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, decision reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
 		if decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true {
 			return evidenceDisputeMarkup(), nil
 		}
 		return projectDuplicateChoices(ctx, tx, reviewID)
-	},
-	"salary": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, actions []string) (*InlineKeyboardMarkup, error) {
-		return salaryPolicyMarkup(actions), nil
 	},
 	"document": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
 		return documentReviewMarkup(), nil
@@ -231,7 +221,7 @@ func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType strin
 	if err != nil {
 		return nil, err
 	}
-	if markup == nil && card.Mode != "cycle" {
+	if markup == nil {
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{ignore}}
 	}
 	return keepExecutableButtons(markup, actions), nil
@@ -326,12 +316,7 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	case transactionID != "":
 		return transactionReviewSummary(ctx, tx, householdID, transactionID)
 	case residualCase != "":
-		var start, end time.Time
-		var residual string
-		if err := tx.QueryRow(ctx, `SELECT cycle_start,cycle_end,basis_residual_idr::text FROM cycle_residual_case WHERE id=$1 AND household_id=$2`, residualCase, householdID).Scan(&start, &end, &residual); err != nil {
-			return "", ignoreNoRows(err)
-		}
-		return reviewdomain.CycleResidualCardFacts(start, end, residual), nil
+		return "", nil
 	case wealthObservation != "":
 		var institution, hint, value string
 		var observed *time.Time
@@ -344,6 +329,9 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		}
 		return strings.Join(lines, "\n"), nil
 	case proposalID != "":
+		if summary, ok, err := payslipItemSummary(ctx, tx, householdID, itemID, proposalID); ok || err != nil {
+			return summary, err
+		}
 		var merchant string
 		var at time.Time
 		if err := tx.QueryRow(ctx, `SELECT COALESCE(NULLIF(merchant_raw,''),NULLIF(counterparty_raw,''),NULLIF(description,''),''),transaction_at FROM transaction_proposal WHERE id=$1 AND household_id=$2`, proposalID, householdID).Scan(&merchant, &at); err != nil {
@@ -402,12 +390,7 @@ func requiresBoundReply(decision reviewdec.Decision) bool {
 func promptTitle(decision reviewdec.Decision) string {
 	for _, fact := range decision.MissingFacts {
 		switch fact {
-		case "salary_classification":
-			return "🟡 Ini termasuk jenis gaji apa?"
 		case "transaction_at":
-			if decision.ReasonCode == "MISSING_PAY_DATE" {
-				return "🟡 Tanggal pembayaran belum ada"
-			}
 			return "🟡 Tanggal transaksi belum ada"
 		case "transaction_semantics":
 			return "🟡 Perlu detail transaksi"
@@ -422,10 +405,7 @@ func promptTitle(decision reviewdec.Decision) string {
 	return unknownReviewPrompt
 }
 
-func dateInstruction(decision reviewdec.Decision) string {
-	if decision.ReasonCode == "MISSING_PAY_DATE" {
-		return "Balas pesan ini (Reply) dengan tanggal pembayaran. Contoh: 25 September 2026, 25/9, atau kemarin."
-	}
+func dateInstruction() string {
 	return "Balas pesan ini (Reply) dengan tanggal transaksi (YYYY-MM-DD)."
 }
 
@@ -434,7 +414,7 @@ func replyInstruction(decision reviewdec.Decision) string {
 		return "Pilih catatan yang ingin digabung, atau pilih Catat sebagai baru di bawah."
 	}
 	if contains(decision.MissingFacts, "transaction_at") {
-		return dateInstruction(decision)
+		return dateInstruction()
 	}
 	if contains(decision.MissingFacts, "correction_details") {
 		return "Balas pesan ini (Reply) dengan koreksi untuk transaksi ini."

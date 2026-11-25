@@ -9,25 +9,9 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
-func cardActionCallback(data string) bool {
-	return data == "review:leave"
-}
-
-func (p *Processor) processCardActionCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
-	return p.processCycleLeaveCallback(ctx, sourceEventID, householdID, update)
-}
-
 type boundCardItem struct {
 	RequestID, ItemID, UserID, ReviewType string
 	Decision                              []byte
-}
-
-func (item boundCardItem) allows(action string) bool {
-	var stored struct {
-		AllowedActions []string `json:"allowedActions"`
-	}
-	_ = json.Unmarshal(item.Decision, &stored)
-	return contains(stored.AllowedActions, action)
 }
 
 func bindOpenCardItem(ctx context.Context, tx pgx.Tx, householdID string, update telegramUpdate, messageID int64) (boundCardItem, error) {
@@ -79,55 +63,6 @@ func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, ho
 		return err
 	}
 	if err := enqueueReply(ctx, tx, update, "Diabaikan. Buktinya tetap tersimpan, tidak ada transaksi yang dicatat."); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	item, err := bindOpenCardItem(ctx, tx, householdID, update, update.Message.MessageID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
-		return err
-	}
-	var caseID string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(cycle_residual_case_id::text,'') FROM review_item WHERE id=$1 AND household_id=$2`, item.ItemID, householdID).Scan(&caseID); err != nil {
-		return err
-	}
-	if caseID == "" || !item.allows("LEAVE_UNALLOCATED") {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	outcome, err := reviewdomain.ApplyCycleResidual(ctx, tx, reviewdomain.CycleResidualCommand{
-		HouseholdID: householdID, CaseID: caseID, ReviewItemID: item.ItemID, RequestID: item.RequestID,
-		Action: "LEAVE_UNALLOCATED", ActorUserID: item.UserID,
-	})
-	if errors.Is(err, reviewdomain.ErrCycleCaseNotFound) {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CYCLE_RESIDUAL_LEAVE_UNALLOCATED','cycle_residual_case',$3,jsonb_build_object('residual_idr',$4::text,'outcome',$5::text))`, householdID, item.UserID, caseID, outcome.Residual, string(outcome.Outcome)); err != nil {
-		return err
-	}
-	if err := markCallbackProcessed(ctx, tx, sourceEventID); err != nil {
-		return err
-	}
-	message := "✅ Sisa salary cycle dibiarkan tidak dialokasikan."
-	switch outcome.Outcome {
-	case reviewdomain.CycleStaleRefreshed:
-		message = "Sisa salary cycle berubah menjadi Rp" + FormatIDR(outcome.Residual) + ". Kartunya sudah diperbarui; pilih lagi."
-	case reviewdomain.CycleStaleNotApplicable:
-		message = "Sisa salary cycle sudah tidak ada lagi. Tinjauan ditutup."
-	}
-	if err := enqueueReply(ctx, tx, update, message); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

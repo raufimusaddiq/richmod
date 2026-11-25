@@ -83,7 +83,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return p.askAnswerOrNew(ctx, householdID, sourceEventID, update)
 	case interactionCardStep:
 		p.recordInteraction(ctx, householdID, sourceEventID, resolved.Card.ReviewItemID, interactionAnswered, resolved.Source)
-		input := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || interactionOverride(parserName) == interactionParserAnswer}
+		input := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || resolved.Bound || interactionOverride(parserName) == interactionParserAnswer}
 		if resolved.ButtonData != "" {
 			input = engineInput{Tap: resolved.ButtonData, Targeted: true}
 		}
@@ -103,6 +103,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
 		if err != nil {
 			return err
+		}
+		if target.Message.ReplyToMessage.MessageID != update.Message.ReplyToMessage.MessageID {
+			if handled, err := p.answerRedirectedPayslip(ctx, householdID, sourceEventID, target, text); handled || err != nil {
+				return err
+			}
 		}
 		proposalReview, err := p.repliesToProposalReview(ctx, householdID, target)
 		if err != nil {

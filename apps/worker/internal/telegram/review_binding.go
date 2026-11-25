@@ -232,7 +232,7 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		return err
 	}
 	card := buildReviewCard(decision, reviewType, message, subject)
-	state, reviewMessage := card.State, card.Text()
+	state := card.State
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
@@ -240,6 +240,10 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	if err != nil {
 		return err
 	}
+	if card, err = loadedStepCard(ctx, tx, reviewID, reviewType, message, decision, subject, card); err != nil {
+		return err
+	}
+	reviewMessage := card.Text()
 	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
 		FROM telegram_identity ti
 		JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active

@@ -244,7 +244,7 @@ func TestIgnoreExecutesForNonTransactionKinds(t *testing.T) {
 		}
 		var text, markup, request string
 		f.row(`SELECT payload_json->>'text',payload_json->'reply_markup'::text,payload_json->>'review_request_id' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id' IN (SELECT id::text FROM review_request WHERE review_item_id=$1)`, []any{&text, &markup, &request}, item)
-		if !strings.Contains(text, "Sisa: Rp1.250.000") || !strings.Contains(text, "Periode: 25 Agu 2026 – 24 Sep 2026") || !strings.Contains(text, "Alasan: ") || strings.Contains(markup, "review:ignore") || !strings.Contains(markup, "review:leave") {
+		if !strings.Contains(text, "Sisa siklus 25 Agu–24 Sep: Rp1.250.000") || !strings.Contains(text, "Alasan: ") || strings.Contains(text, "Balas pesan ini") || strings.Contains(markup, "review:ignore") || !strings.Contains(markup, "review:leave") {
 			t.Fatalf("cycle card: %q %s", text, markup)
 		}
 		f.exec(`UPDATE review_request_recipient SET telegram_message_id=33 WHERE review_request_id=$1`, request)

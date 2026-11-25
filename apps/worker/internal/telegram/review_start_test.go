@@ -25,7 +25,7 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 		{
 			name: "salary classification offers bounded choices", reviewType: "PAYSLIP_CONFIRMATION",
 			decision:  reviewdec.Decision{MissingFacts: []string{"salary_classification"}, AllowedActions: []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}},
-			wantState: "AWAITING_DETAIL", context: "Slip gaji", wantMode: "salary",
+			wantState: "AWAITING_DETAIL", context: "Slip gaji", wantMode: "step",
 		},
 		{
 			name: "category only is a bounded chooser", reviewType: "UNKNOWN_MERCHANT",

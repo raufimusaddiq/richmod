@@ -74,6 +74,9 @@ func telegramReviewLanes() map[string]bool {
 	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
 	telegramLanes["SET_TRANSACTION_DATE"] = true
 	telegramLanes["SET_AMOUNT"] = true
+	for _, action := range []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING", "SET_PAY_DATE", "HOUSEHOLD_POLICY", "PRIMARY_SALARY", "ORDINARY_INCOME"} {
+		telegramLanes[action] = true
+	}
 	for _, action := range []string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE"} {
 		telegramLanes[action] = true
 	}
@@ -172,14 +175,10 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 			wantMode = "receipt_quality"
 		case decision.ReasonCode == "FINANCIAL_EMAIL_FACTS":
 			wantMode = "financial_email_facts"
-		case decision.ReasonCode == "CYCLE_RESIDUAL_ALLOCATION":
-			wantMode = "cycle"
 		case isCategoryOnly(decision):
 			wantMode = "category"
 		case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 			wantMode = "duplicate"
-		case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
-			wantMode = "salary"
 		}
 		if mode != wantMode {
 			t.Fatalf("%s rendered mode %q with a supplied prompt, want %q", reviewType, mode, wantMode)

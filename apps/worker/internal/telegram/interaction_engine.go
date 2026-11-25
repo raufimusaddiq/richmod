@@ -41,6 +41,9 @@ type engineReview struct {
 	ItemStatus    string
 	TxStatus      string
 	TxType        string
+	ProposalID    string
+	ProposalState string
+	CycleCaseID   string
 	MerchantID    string
 	UserID        string
 	Unexpired     bool
@@ -58,7 +61,15 @@ type stepOutcome struct {
 
 func (e engineReview) live() bool {
 	open := e.RequestStatus == "OPEN" && e.Unexpired && (e.ItemStatus == "OPEN" || e.ItemStatus == "PENDING_SEND")
-	return open && (e.TxStatus == "NEEDS_REVIEW" || (e.TransactionID == "" && e.Subject.Reconciliation))
+	switch {
+	case !open:
+		return false
+	case payslipReviewType(e.ReviewType):
+		return e.ProposalState == "NEEDS_REVIEW"
+	case e.ReviewType == cycleReviewType:
+		return e.CycleCaseID != ""
+	}
+	return e.TxStatus == "NEEDS_REVIEW" || (e.TransactionID == "" && e.Subject.Reconciliation)
 }
 
 func (e engineReview) rememberPending() bool {
@@ -73,15 +84,17 @@ func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequest
 	var e engineReview
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),r.status,ri.status,
-			COALESCE(t.status,''),COALESCE(t.type,''),COALESCE(t.merchant_id::text,''),COALESCE(ri.decision,'{}'::jsonb),ti.user_id::text,r.expires_at>now()
+			COALESCE(t.status,''),COALESCE(t.type,''),COALESCE(t.merchant_id::text,''),COALESCE(ri.decision,'{}'::jsonb),ti.user_id::text,r.expires_at>now(),
+			COALESCE(tp.id::text,''),COALESCE(tp.proposal_status,''),COALESCE(ri.cycle_residual_case_id::text,'')
 		FROM review_request r
 		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
 		JOIN telegram_identity ti ON ti.telegram_user_id=$3 AND ti.household_id=r.household_id AND ti.active
 		LEFT JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
+		LEFT JOIN transaction_proposal tp ON tp.id=ri.proposal_id AND tp.household_id=r.household_id
 		LEFT JOIN review_conversation c ON c.review_request_id=r.id
 		WHERE r.id=$1 AND r.household_id=$2
 		`+lockClause, reviewRequestID, householdID, telegramUserID).
-		Scan(&e.RequestID, &e.ItemID, &e.TransactionID, &e.ReviewType, &e.State, &e.RequestStatus, &e.ItemStatus, &e.TxStatus, &e.TxType, &e.MerchantID, &raw, &e.UserID, &e.Unexpired)
+		Scan(&e.RequestID, &e.ItemID, &e.TransactionID, &e.ReviewType, &e.State, &e.RequestStatus, &e.ItemStatus, &e.TxStatus, &e.TxType, &e.MerchantID, &raw, &e.UserID, &e.Unexpired, &e.ProposalID, &e.ProposalState, &e.CycleCaseID)
 	if err != nil {
 		return e, err
 	}
@@ -128,6 +141,12 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 		if transferReview(e.ReviewType) {
 			step = categoryStepFrom(step, step.Fact == factTransfer)
 		}
+	case "AWAITING_CYCLE_ACCOUNT", "AWAITING_CYCLE_AMOUNT":
+		if e.ReviewType == cycleReviewType {
+			if step, err = p.cycleSplitStep(ctx, tx, householdID, e, step); err != nil {
+				return Step{}, false, err
+			}
+		}
 	}
 	step.ReadOnly = e.ReadOnly
 	if err := step.loadRows(ctx, tx, e.RequestID, 0); err != nil {
@@ -137,7 +156,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 }
 
 func engineNavigation(data string) bool {
-	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg} {
+	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg, callbackCyclePg} {
 		if strings.HasPrefix(data, prefix) {
 			return true
 		}
@@ -233,11 +252,21 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 			return reask(step, unusableAnswerAck), nil
 		}
 		return p.applyRemember(ctx, tx, householdID, sourceEventID, review, remember)
+	case factSalary, factDate:
+		return p.applySalaryText(ctx, tx, householdID, sourceEventID, update, review, step, in.Text)
+	case factCycle, factSplitAcct, factSplitAmount:
+		return p.applyCycleText(ctx, tx, householdID, sourceEventID, review, step, in.Text, in.Targeted)
 	}
 	return reask(step, unusableAnswerAck), nil
 }
 
 func (p *Processor) applyTap(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, data string) (stepOutcome, error) {
+	switch {
+	case payslipReviewType(review.ReviewType):
+		return p.applySalaryTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	case review.ReviewType == cycleReviewType:
+		return p.applyCycleTap(ctx, tx, householdID, sourceEventID, review, step, data)
+	}
 	if data != callbackIgnore {
 		if outcome, handled, err := p.applyTransferTap(ctx, tx, householdID, sourceEventID, review, step, data); handled || err != nil {
 			return outcome, err
@@ -641,7 +670,7 @@ func (p *Processor) ProcessCardAnswer(ctx context.Context, sourceEventID string)
 			return false, err
 		}
 		if resolved.Kind == interactionCardStep {
-			in := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || interactionOverride(parserName) == interactionParserAnswer}
+			in := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || resolved.Bound || interactionOverride(parserName) == interactionParserAnswer}
 			if resolved.ButtonData != "" {
 				in = engineInput{Tap: resolved.ButtonData, Targeted: true}
 			}

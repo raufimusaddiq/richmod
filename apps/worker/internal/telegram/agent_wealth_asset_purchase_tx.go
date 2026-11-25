@@ -238,8 +238,6 @@ func (p *Processor) executeAgentSpecializedSideEffectStrict(ctx context.Context,
 	}
 	if call.Name == "resolve_review" && state.ReviewBinding != nil {
 		switch state.ReviewBinding.Kind {
-		case "CYCLE_RESIDUAL":
-			return p.agentResolveBoundResidualWithHints(ctx, state, call, args)
 		case "WEALTH_OBSERVATION":
 			action, _ := args["action"].(string)
 			if action == "RECORD_ASSET_PURCHASE" {

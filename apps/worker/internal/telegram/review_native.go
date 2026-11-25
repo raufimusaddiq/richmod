@@ -42,12 +42,6 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 	return result, nil
 }
 
-type residualAllocation struct {
-	WealthAccountID string `json:"wealth_account_id"`
-	AmountIDR       string `json:"amount_idr"`
-	Note            string `json:"note"`
-}
-
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description, date string) (field, value string, required bool) {
 	if state == "AWAITING_MERCHANT" || (reviewType == "UNKNOWN_MERCHANT" && merchantID == "" && strings.TrimSpace(merchant) != "") {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
