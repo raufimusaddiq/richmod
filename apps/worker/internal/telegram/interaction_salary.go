@@ -218,7 +218,7 @@ func (p *Processor) chooseSalary(ctx context.Context, tx pgx.Tx, householdID, so
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	if contains(review.Decision.MissingFacts, "transaction_at") {
+	if review.ReviewType == "MISSING_PAY_DATE" && contains(review.Decision.MissingFacts, "transaction_at") {
 		err = reviewdomain.SetPayslipPolicy(ctx, sp, reviewdomain.PayslipPolicyCommand{
 			HouseholdID: householdID, UserID: review.UserID, ActorType: "TELEGRAM", ReviewItemID: review.ItemID,
 			ProposalID: refs.ProposalID, SourceEventID: refs.SourceEventID, DocumentID: refs.DocumentID,

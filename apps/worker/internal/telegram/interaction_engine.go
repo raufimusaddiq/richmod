@@ -143,7 +143,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 		}
 	case "AWAITING_CYCLE_ACCOUNT", "AWAITING_CYCLE_AMOUNT":
 		if e.ReviewType == cycleReviewType {
-			if step, err = p.cycleSplitStep(ctx, tx, e, step); err != nil {
+			if step, err = p.cycleSplitStep(ctx, tx, householdID, e, step); err != nil {
 				return Step{}, false, err
 			}
 		}

@@ -147,8 +147,8 @@ func saveCycleSplit(ctx context.Context, tx pgx.Tx, requestID, state string, spl
 	return err
 }
 
-func accountNames(ctx context.Context, tx pgx.Tx, ids []string) (map[string]string, error) {
-	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE id::text=ANY($1::text[])`, ids)
+func accountNames(ctx context.Context, tx pgx.Tx, householdID string, ids []string) (map[string]string, error) {
+	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND id::text=ANY($2::text[])`, householdID, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func accountNames(ctx context.Context, tx pgx.Tx, ids []string) (map[string]stri
 
 func rupiah(value *big.Int) string { return "Rp" + FormatIDR(value.String()) }
 
-func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, e engineReview, base Step) (Step, error) {
+func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, householdID string, e engineReview, base Step) (Step, error) {
 	if e.Subject.Cycle == nil {
 		return base, nil
 	}
@@ -175,7 +175,7 @@ func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, e engineRevie
 		return Step{}, err
 	}
 	ids := append(split.usedIDs(), split.Pending)
-	names, err := accountNames(ctx, tx, ids)
+	names, err := accountNames(ctx, tx, householdID, ids)
 	if err != nil {
 		return Step{}, err
 	}
@@ -465,7 +465,7 @@ func (p *Processor) applyCycleAllocations(ctx context.Context, tx pgx.Tx, househ
 	for _, allocation := range allocations {
 		ids = append(ids, allocation.WealthAccountID)
 	}
-	names, err := accountNames(ctx, tx, ids)
+	names, err := accountNames(ctx, tx, householdID, ids)
 	if err != nil {
 		return stepOutcome{}, err
 	}
