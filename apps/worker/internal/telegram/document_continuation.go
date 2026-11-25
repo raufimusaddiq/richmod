@@ -34,7 +34,7 @@ func ContinueDocumentCard(ctx context.Context, tx pgx.Tx, documentID, text strin
 		return true, nil
 	}
 	_, _, copies, err := loadCardCopies(ctx, tx, card.ItemID)
-	if err != nil {
+	if err != nil || len(copies) == 0 {
 		return false, err
 	}
 	for _, copy := range copies {

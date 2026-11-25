@@ -522,7 +522,10 @@ func digitsOnly(value string) bool {
 func entityFromText(ctx context.Context, tx pgx.Tx, householdID, hint string, targeted bool, choices []accountChoice, resolve func(context.Context, pgx.Tx, string, string) (string, error)) (string, bool, error) {
 	if targeted {
 		id, err := resolve(ctx, tx, householdID, hint)
-		return id, err == nil && id != "" && accountListed(choices, id), nil
+		if err != nil {
+			return "", false, err
+		}
+		return id, id != "" && accountListed(choices, id), nil
 	}
 	exact, ok := exactAccountMatch(hint, choices)
 	return exact.ID, ok, nil

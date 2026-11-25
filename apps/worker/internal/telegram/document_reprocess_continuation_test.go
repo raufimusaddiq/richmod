@@ -125,3 +125,21 @@ func TestReprocessedDocumentThatCannotBeReadAgainSaysSoOnTheCard(t *testing.T) {
 		t.Fatalf("the card says %q", got)
 	}
 }
+
+func TestReprocessedDocumentWithoutALiveCardFallsBackToTheNotice(t *testing.T) {
+	t.Parallel()
+	p := newPipe(t)
+	u, _, message := p.unreadableUpload()
+	if _, err := p.press("review:reprocess", message, p.tgUser); err != nil {
+		t.Fatal(err)
+	}
+	p.exec(`UPDATE review_request_recipient SET delivery_status='EXPIRED' WHERE telegram_message_id=$1 AND telegram_chat_id=$2`, message, p.chat)
+	sendsBefore := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat)
+
+	p.gw.extraction = p.readableExtraction("food-and-drink")
+	p.must(p.docs.ProcessScreenshot(p.ctx, u.document))
+
+	if after := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%1 transaksi ditemukan%'`, p.chat); after != 1 {
+		t.Fatalf("with no live card the result must still reach the user as the summary, got %d (sends before %d)", after, sendsBefore)
+	}
+}
