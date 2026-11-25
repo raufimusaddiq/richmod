@@ -43,6 +43,9 @@ func TestCategoryOnlyReviewCategoryPagerRerenders(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan')`, householdID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) SELECT $1,'Kategori '||n,'kategori-'||n FROM generate_series(1,10) n`, householdID); err != nil {
+		t.Fatal(err)
+	}
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',21000,now()) RETURNING id`, householdID).Scan(&transactionID))
 	decision := `{"version":1,"reasonCode":"UNKNOWN_MERCHANT","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"boundedChoices":[],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}`
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN',$3::jsonb) RETURNING id`, householdID, transactionID, decision).Scan(&itemID))

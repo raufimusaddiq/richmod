@@ -94,6 +94,9 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 }
 
 func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) reviewCard {
+	if step, ok := deriveStep(decision, reviewType, facts, subject); ok {
+		return stepRenderCard(step)
+	}
 	card := reviewCard{State: "AWAITING_DETAIL", Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
 	kind := subject.transactionType(decision)
 	switch {
@@ -198,6 +201,9 @@ func cardActions(decision reviewdec.Decision, reviewType string) []string {
 type reviewMarkupBuilder func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, card reviewCard, subject reviewSubject, actions []string) (*InlineKeyboardMarkup, error)
 
 var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
+	"step": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, decision reviewdec.Decision, _ reviewCard, subject reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
+		return stepMarkup(ctx, tx, reviewID, reviewType, decision, subject)
+	},
 	"category": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
 		return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0), nil
 	},

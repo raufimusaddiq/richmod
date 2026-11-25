@@ -162,11 +162,15 @@ func TestReplyChainStopsAtAMerchantLearningQuestionAndNeverStealsIt(t *testing.T
 	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "resolver-merchant-learning")
-	createMerchantLearningReview(t, ctx, f, 301, "resolvera")
+	learningID, _ := createMerchantLearningReview(t, ctx, f, 301, "resolvera")
+	_, err := f.pool.Exec(ctx, `UPDATE review_request SET review_type='UNKNOWN_PURPOSE' WHERE id=$1`, learningID)
+	mustAgentTest(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE review_item SET review_type='UNKNOWN_PURPOSE' WHERE id=(SELECT review_item_id FROM review_request WHERE id=$1)`, learningID)
+	mustAgentTest(t, err)
 	createMerchantReview(t, ctx, f, "70000", 501)
 	seedBotMessage(t, ctx, f, "Catatan tambahan.", 301, 302)
 	model := &capturingGateway{}
-	_, err := sendText(t, ctx, f, NewProcessor(f.pool, model), "ya", 302)
+	_, err = sendText(t, ctx, f, NewProcessor(f.pool, model), "ya", 302)
 	mustAgentTest(t, err)
 	if len(model.requests) == 0 || model.toolNames(0)["resolve_review"] {
 		t.Fatal("a reply chained to a merchant-learning question bound to a review card")

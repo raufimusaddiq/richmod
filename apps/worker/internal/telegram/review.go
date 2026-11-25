@@ -684,17 +684,27 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
-	if err := reviewdomain.RejectTransactionReview(ctx, tx, reviewdomain.RejectCommand{
-		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
-		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
-		Action: "TELEGRAM_REJECTED",
-	}); err != nil {
+	if err := rejectReviewTx(ctx, tx, householdID, userID, sourceEventID, reviewID, transactionID, reviewType); err != nil {
 		if errors.Is(err, reviewdomain.ErrMergeTargetActive) {
 			if rerr := tx.Rollback(ctx); rerr != nil {
 				return rerr
 			}
 			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan atau diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi.")
 		}
+		return err
+	}
+	if err := enqueueReply(ctx, tx, update, "Diabaikan, transaksi tidak dicatat."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func rejectReviewTx(ctx context.Context, tx pgx.Tx, householdID, userID, sourceEventID, reviewID, transactionID, reviewType string) error {
+	if err := reviewdomain.RejectTransactionReview(ctx, tx, reviewdomain.RejectCommand{
+		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
+		Action: "TELEGRAM_REJECTED",
+	}); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
@@ -709,10 +719,7 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REJECT_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'reason','telegram_ignore','review_type',$5::text))`, householdID, userID, transactionID, reviewID, reviewType); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Diabaikan, transaksi tidak dicatat."); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func TelegramCompletableReviewType(reviewType string) bool {
@@ -875,74 +882,98 @@ func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page
 	return markup
 }
 
-func categoryChooserMarkupErr(ctx context.Context, tx pgx.Tx, reviewID string, page int) (*InlineKeyboardMarkup, error) {
+type categoryPage struct {
+	History       []merchantCategoryChoice
+	Items         []categoryChoice
+	Page          int
+	HasNext       bool
+	AssetPurchase bool
+}
+
+func loadCategoryPage(ctx context.Context, tx pgx.Tx, reviewID string, page int) (categoryPage, error) {
 	var transactionType string
 	_ = tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType)
 	if page < 0 {
 		page = 0
 	}
-	history := merchantCategoryHistory(ctx, tx, reviewID)
-	historyIDs := make([]string, 0, len(history))
-	historyRow := make([]InlineKeyboardButton, 0, len(history))
-	for _, choice := range history {
+	out := categoryPage{Page: page, AssetPurchase: transactionType == "EXPENSE", History: merchantCategoryHistory(ctx, tx, reviewID)}
+	historyIDs := make([]string, 0, len(out.History))
+	for _, choice := range out.History {
 		historyIDs = append(historyIDs, choice.ID)
-		label := choice.Name
-		if choice.Suggested {
-			label = "⭐ " + label
-		}
-		historyRow = append(historyRow, InlineKeyboardButton{Text: clean(label, 30), CallbackData: "review:cat:" + choice.ID})
 	}
-	rows, err := tx.Query(ctx, `SELECT c.id,c.name FROM category c JOIN review_request r ON r.household_id=c.household_id WHERE r.id=$1 AND c.active AND NOT (c.id=ANY($3::uuid[])) ORDER BY c.sort_order,c.name,c.id LIMIT 9 OFFSET $2`, reviewID, page*8, historyIDs)
+	rows, err := tx.Query(ctx, `SELECT c.id,c.name,c.slug FROM category c JOIN review_request r ON r.household_id=c.household_id WHERE r.id=$1 AND c.active AND NOT (c.id=ANY($3::uuid[])) ORDER BY c.sort_order,c.name,c.id LIMIT 9 OFFSET $2`, reviewID, page*8, historyIDs)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	defer rows.Close()
-	var buttons []InlineKeyboardButton
 	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil, err
+		var choice categoryChoice
+		if err := rows.Scan(&choice.ID, &choice.Name, &choice.Slug); err != nil {
+			return out, err
 		}
-		buttons = append(buttons, InlineKeyboardButton{Text: clean(name, 30), CallbackData: "review:cat:" + id})
+		out.Items = append(out.Items, choice)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return out, err
 	}
-	hasNext := len(buttons) > 8
-	if hasNext {
-		buttons = buttons[:8]
+	if out.HasNext = len(out.Items) > 8; out.HasNext {
+		out.Items = out.Items[:8]
 	}
-	assetPurchase := transactionType == "EXPENSE"
-	if len(buttons) == 0 && len(historyRow) == 0 && !assetPurchase {
-		return nil, nil
-	}
+	return out, nil
+}
+
+func (c categoryPage) empty() bool {
+	return len(c.Items) == 0 && len(c.History) == 0 && !c.AssetPurchase
+}
+
+func (c categoryPage) keyboard() [][]InlineKeyboardButton {
 	var keyboard [][]InlineKeyboardButton
-	if page == 0 && len(historyRow) > 0 {
-		keyboard = append(keyboard, historyRow)
+	if c.Page == 0 && len(c.History) > 0 {
+		row := make([]InlineKeyboardButton, 0, len(c.History))
+		for _, choice := range c.History {
+			label := choice.Name
+			if choice.Suggested {
+				label = "⭐ " + label
+			}
+			row = append(row, InlineKeyboardButton{Text: clean(label, 30), CallbackData: "review:cat:" + choice.ID})
+		}
+		keyboard = append(keyboard, row)
+	}
+	buttons := make([]InlineKeyboardButton, 0, len(c.Items))
+	for _, choice := range c.Items {
+		buttons = append(buttons, InlineKeyboardButton{Text: clean(choice.Name, 30), CallbackData: "review:cat:" + choice.ID})
 	}
 	for len(buttons) > 0 {
-		take := 2
-		if len(buttons) < take {
-			take = len(buttons)
-		}
+		take := min(2, len(buttons))
 		keyboard = append(keyboard, buttons[:take])
 		buttons = buttons[take:]
 	}
 	navigation := []InlineKeyboardButton{}
-	if page > 0 {
-		navigation = append(navigation, InlineKeyboardButton{Text: "Sebelumnya", CallbackData: fmt.Sprintf("review:catpage:%d", page-1)})
+	if c.Page > 0 {
+		navigation = append(navigation, InlineKeyboardButton{Text: "Sebelumnya", CallbackData: fmt.Sprintf("review:catpage:%d", c.Page-1)})
 	}
-	if hasNext {
-		navigation = append(navigation, InlineKeyboardButton{Text: "Berikutnya", CallbackData: fmt.Sprintf("review:catpage:%d", page+1)})
+	if c.HasNext {
+		navigation = append(navigation, InlineKeyboardButton{Text: "Berikutnya", CallbackData: fmt.Sprintf("review:catpage:%d", c.Page+1)})
 	}
 	if len(navigation) > 0 {
 		keyboard = append(keyboard, navigation)
 	}
+	return keyboard
+}
+
+func categoryChooserMarkupErr(ctx context.Context, tx pgx.Tx, reviewID string, page int) (*InlineKeyboardMarkup, error) {
+	chooser, err := loadCategoryPage(ctx, tx, reviewID, page)
+	if err != nil {
+		return nil, err
+	}
+	if chooser.empty() {
+		return nil, nil
+	}
 	detailText, detailCallback := "Ubah detail", "review:edit"
-	if assetPurchase {
+	if chooser.AssetPurchase {
 		detailText, detailCallback = "Beli aset", "review:asset"
 	}
-	keyboard = append(keyboard, []InlineKeyboardButton{{Text: detailText, CallbackData: detailCallback}, {Text: "Abaikan", CallbackData: "review:ignore"}})
+	keyboard := append(chooser.keyboard(), []InlineKeyboardButton{{Text: detailText, CallbackData: detailCallback}, {Text: "Abaikan", CallbackData: "review:ignore"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}, nil
 }
 

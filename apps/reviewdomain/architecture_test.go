@@ -49,7 +49,7 @@ func TestSurfacesDelegateFinancialMutationsToReviewdomain(t *testing.T) {
 		{
 			name:      "reject telegram",
 			paths:     []string{telegramReview},
-			section:   [2]string{"func (p *Processor) rejectBoundReview(", "\nfunc "},
+			section:   [2]string{"func rejectReviewTx(", "\nfunc "},
 			callsAny:  []string{"reviewdomain.RejectTransactionReview"},
 			forbidden: []string{"SET status='CANCELLED'", "proposal_status='REJECTED'"},
 		},

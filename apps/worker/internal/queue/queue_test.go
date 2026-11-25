@@ -153,7 +153,7 @@ func TestDeterministicJobsNeverShareALaneWithModelCalls(t *testing.T) {
 			t.Errorf("%s must not share a lane with deterministic work: %s", jobType, lane)
 		}
 	}
-	for _, jobType := range []string{"PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "COMPLETE_BANK_REVIEW"} {
+	for _, jobType := range []string{"PROCESS_TELEGRAM_CALLBACK", "PROCESS_TELEGRAM_CARD_ANSWER", "SEND_TELEGRAM_MESSAGE", "COMPLETE_BANK_REVIEW"} {
 		if got := classifyLane(jobType); got != "INTERACTIVE" {
 			t.Errorf("%s lane = %s", jobType, got)
 		}

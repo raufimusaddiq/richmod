@@ -47,7 +47,7 @@ func TestUnknownMerchantCardIsCoherent(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := card.Text()
-	want := "🟡 Nama merchant belum ada\n\nNominal: Rp25.000\n\nAlasan: Belum ada kategori tersimpan untuk merchant ini.\n\nBalas pesan ini (Reply) dengan nama merchant. Jika ini pembelian aset, pilih Beli aset."
+	want := "🟡 Ini bayar ke mana?\n\nNominal: Rp25.000\n\nAlasan: Belum ada kategori tersimpan untuk merchant ini.\n\nKetik nama toko atau merchant-nya."
 	if text != want {
 		t.Fatalf("card=\n%s\nwant\n%s", text, want)
 	}

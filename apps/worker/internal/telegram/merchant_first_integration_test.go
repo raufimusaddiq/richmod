@@ -9,23 +9,13 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-type merchantReplyGateway struct {
-	calls int
-}
+type merchantReplyGateway struct{}
 
 func (*merchantReplyGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	panic("merchant reply must use the active agent path")
+	panic("the merchant step saves typed text without a model")
 }
 
-func (g *merchantReplyGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
-	g.calls++
-	if g.calls == 1 {
-		return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "merchant-reply", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","merchant":"New Cafe"}`)}}}, nil
-	}
-	return gateway.AgentResponse{Text: "Merchant disimpan. Pilih kategori."}, nil
-}
-
-func TestMerchantFirstActiveAgentReply(t *testing.T) {
+func TestMerchantFirstStepReply(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"remembered", "legacy-card", "unknown", "inactive-category", "unconfirmed-alias", "other-household"} {
 		t.Run(mode, func(t *testing.T) {
@@ -60,7 +50,7 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 			var prompt string
 			var markup string
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text',COALESCE(payload_json->>'reply_markup','') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1 LIMIT 1`, reviewID).Scan(&prompt, &markup))
-			if !strings.Contains(prompt, "nama merchant") {
+			if !strings.Contains(prompt, "bayar ke mana") {
 				t.Fatalf("initial prompt=%q", prompt)
 			}
 			if !strings.Contains(markup, "review:asset") || !strings.Contains(markup, "Beli aset") || !strings.Contains(markup, "review:ignore") {

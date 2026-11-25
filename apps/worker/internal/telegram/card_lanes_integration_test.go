@@ -112,7 +112,7 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 
 	f.tap(17, "review:cat:"+category, "🟡 Kategori belum pasti")
 	text, markup := f.lastEdit(17)
-	if !strings.HasPrefix(text, "✅ Dicatat: Galon Isi Ulang") || !strings.Contains(text, "Nominal: Rp23.000") || !strings.Contains(text, "Tins Mart") || !strings.Contains(markup, "review:remember") || !strings.Contains(markup, "review:once") {
+	if !strings.HasPrefix(text, "✅ Dicatat: Galon Isi Ulang.") || !strings.Contains(text, "Nominal: Rp23.000") || !strings.Contains(text, "Tins Mart") || !strings.Contains(markup, "Ya, ingat") || !strings.Contains(markup, "review:remember") || !strings.Contains(markup, "review:once") {
 		t.Fatalf("card after tap: %q %s", text, markup)
 	}
 	if pending := f.count(`SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND status='PENDING' AND payload_json->>'review_request_id'=$1`, request); pending != 0 {
@@ -121,7 +121,7 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 
 	f.tap(17, "review:remember", text)
 	text, markup = f.lastEdit(17)
-	if !strings.HasPrefix(text, "✅ Dicatat: Galon Isi Ulang") || !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(markup, "review:") {
+	if !strings.HasPrefix(text, "✅ Tersimpan: Tins Mart · Galon Isi Ulang") || !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(markup, "review:") {
 		t.Fatalf("card after remember: %q %s", text, markup)
 	}
 	if sends := f.sendsToChat(); sends != sendsBefore {
@@ -415,7 +415,7 @@ func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 81, "card")
 	f.tap(81, "review:cat:"+galon, "card")
 	text, markup := f.lastEdit(81)
-	if !strings.HasPrefix(text, "✅ Dicatat: Galon Isi Ulang") || strings.Contains(markup, "review:remember") || strings.Contains(text, "?") {
+	if !strings.HasPrefix(text, "✅ Tersimpan: Tins Mart · Galon Isi Ulang") || strings.Contains(markup, "review:remember") || strings.Contains(text, "?") {
 		t.Fatalf("multi-category merchant card: %q %s", text, markup)
 	}
 	var state string

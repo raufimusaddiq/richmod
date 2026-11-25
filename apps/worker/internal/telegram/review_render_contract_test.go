@@ -162,6 +162,8 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		}
 		wantMode := "reply"
 		switch {
+		case engineOwnsDecision(decision, reviewType, reviewSubject{}):
+			wantMode = "step"
 		case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 			wantMode = "document"
 		case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):

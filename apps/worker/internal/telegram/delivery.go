@@ -47,6 +47,11 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 		}
 	}
 	if payload.ReviewRequestID != "" {
+		if payload.SettledCard {
+			if err := p.markCardSettled(ctx, payload.ReviewRequestID, payload.ChatID, messageID); err != nil {
+				return err
+			}
+		}
 		if err := p.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text); err != nil {
 			return err
 		}
@@ -60,6 +65,14 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 		if err := p.BindEvidenceMessage(ctx, payload.ChatID, messageID, payload.BindDocumentID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (p *Processor) markCardSettled(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
+	_, err := p.pool.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{card_outcomes}',COALESCE(context_json->'card_outcomes','{}'::jsonb)||jsonb_build_object($2::text,GREATEST(COALESCE((context_json->'card_outcomes'->>$2)::int,0),1))),updated_at=now() WHERE review_request_id=$1`, reviewRequestID, cardOutcomeKey(chatID, messageID))
+	if err != nil {
+		return fmt.Errorf("mark Telegram review card settled: %w", err)
 	}
 	return nil
 }

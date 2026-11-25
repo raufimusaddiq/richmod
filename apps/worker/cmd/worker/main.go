@@ -358,7 +358,7 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 
 func terminalStep(job queue.Job, cause error, processor *telegram.Processor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor) func(context.Context, pgx.Tx) error {
 	switch job.Type {
-	case "PROCESS_TELEGRAM_TEXT":
+	case "PROCESS_TELEGRAM_TEXT", "PROCESS_TELEGRAM_CARD_ANSWER":
 		id := ""
 		if payload, err := telegram.DecodeProcessPayload(job.Payload); err == nil {
 			id = payload.SourceEventID
@@ -477,6 +477,8 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
 		budget = telegram.TextJobBudget
+	case "PROCESS_TELEGRAM_CARD_ANSWER":
+		budget = telegram.CardAnswerJobBudget
 	case "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		budget = 45 * time.Second
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":
@@ -508,6 +510,16 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		if err := processor.ProcessAgent(ctx, payload.SourceEventID); err != nil {
+			return err
+		}
+		return processor.EnsureSourceEventFinal(ctx, payload.SourceEventID)
+	case "PROCESS_TELEGRAM_CARD_ANSWER":
+		payload, err := telegram.DecodeProcessPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		handedOff, err := processor.ProcessCardAnswer(ctx, payload.SourceEventID)
+		if err != nil || handedOff {
 			return err
 		}
 		return processor.EnsureSourceEventFinal(ctx, payload.SourceEventID)
