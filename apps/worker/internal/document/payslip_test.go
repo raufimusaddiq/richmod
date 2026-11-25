@@ -174,4 +174,29 @@ func TestPayslipArithmeticMismatchIsNotAutoConfirmed(t *testing.T) {
 	if payslipAutoConfirmable(value, arithmeticOK) {
 		t.Fatal("an arithmetically inconsistent payslip must not auto-confirm")
 	}
+	if payslipNeedsSalaryMatch(value) {
+		t.Fatal("a payslip whose arithmetic was checked and failed must never be rescued by a salary match")
+	}
+}
+
+func TestPayslipSalaryMatchOnlyForUncheckableLayouts(t *testing.T) {
+	date, gross := "2026-09-25", "9000000"
+	other := []moneyLine{{Name: "Saldo dompet", Amount: "400000"}}
+	for _, test := range []struct {
+		name  string
+		value payslipExtraction
+		want  bool
+	}{
+		{"other components make arithmetic uncheckable", payslipExtraction{GrossPay: &gross, OtherComponents: other, PayDate: &date, Confidence: .97}, true},
+		{"checkable layout keeps the arithmetic gate", payslipExtraction{GrossPay: &gross, PayDate: &date, Confidence: .97}, false},
+		{"absent gross already auto-confirms", payslipExtraction{OtherComponents: other, PayDate: &date, Confidence: .97}, false},
+		{"below the confidence floor", payslipExtraction{GrossPay: &gross, OtherComponents: other, PayDate: &date, Confidence: .84}, false},
+		{"missing pay date", payslipExtraction{GrossPay: &gross, OtherComponents: other, Confidence: .97}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := payslipNeedsSalaryMatch(test.value); got != test.want {
+				t.Fatalf("needs salary match=%v want %v", got, test.want)
+			}
+		})
+	}
 }
