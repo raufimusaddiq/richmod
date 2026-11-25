@@ -533,7 +533,7 @@ func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
 	}
 	var text, markup string
 	f.row(`SELECT payload_json->>'text',payload_json->'reply_markup'::text FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id' IN (SELECT id::text FROM review_request WHERE review_item_id=$1)`, []any{&text, &markup}, item)
-	if !strings.Contains(text, "Pilih Penghasilan") || !strings.Contains(markup, "review:income") || !strings.Contains(markup, "review:own") || strings.Contains(markup, "review:confirm") {
+	if !strings.Contains(text, "Ini untuk apa?") || !strings.Contains(markup, "review:income") || !strings.Contains(markup, "review:own") || strings.Contains(markup, "review:confirm") {
 		t.Fatalf("incoming transfer card: %q %s", text, markup)
 	}
 }

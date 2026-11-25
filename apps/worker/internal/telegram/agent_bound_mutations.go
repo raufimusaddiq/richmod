@@ -90,8 +90,6 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 	payDate, _ := args["pay_date"].(string)
 	amountIDR, _ := args["amount_idr"].(string)
 	transactionAt, _ := args["transaction_at"].(string)
-	wealthHint, _ := args["wealth_account_hint"].(string)
-
 	switch action {
 	case "PRIMARY_SALARY", "ORDINARY_INCOME":
 		choice := "PRIMARY"
@@ -109,27 +107,6 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 			return result, true, nil
 		}
 		return p.agentRejectTransactionReview(ctx, state, call, *review)
-	case "OWN_ACCOUNT_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "OWN_ACCOUNT", "", "")
-	case "HOUSEHOLD_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "HOUSEHOLD_ACCOUNT", "", "")
-	case "INVESTMENT_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "INVESTMENT_ACCOUNT", "", "")
-	case "ASSET_PURCHASE":
-		if strings.TrimSpace(wealthHint) == "" {
-			result.Status = "MISSING_WEALTH_ACCOUNT"
-			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"wealth_account_hint"}}
-			return result, true, nil
-		}
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "ASSET_PURCHASE", wealthHint, "")
-	case "EXPENSE":
-		categoryID, err := p.agentCategoryID(ctx, state.HouseholdID, categorySlug)
-		if err != nil || categoryID == "" {
-			result.Status = "MISSING_CATEGORY"
-			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"category_slug"}}
-			return result, true, nil
-		}
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
 	case "SET_PAY_DATE", "SET_TRANSACTION_DATE":
 		if strings.TrimSpace(payDate) == "" {
 			payDate = transactionAt

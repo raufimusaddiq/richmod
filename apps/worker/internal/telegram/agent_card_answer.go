@@ -24,6 +24,7 @@ const (
 	cardAnswerAmount   cardAnswerKind = "amount_idr"
 	cardAnswerDetail   cardAnswerKind = "detail"
 	cardAnswerConfirm  cardAnswerKind = "confirmation"
+	cardAnswerAccount  cardAnswerKind = "account"
 )
 
 const cardKindProposal = "PROPOSAL"
@@ -471,7 +472,7 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 			_, _ = p.pool.Exec(context.WithoutCancel(ctx), `UPDATE telegram_pending_card_choice SET status='PENDING',resolved_at=NULL WHERE id=$1 AND status='RESOLVED'`, choiceID)
 		}
 	}()
-	if engineReviewType(binding.ReviewType) && field == string(cardAnswerCategory) {
+	if engineOwnedType(binding.ReviewType) && field == string(cardAnswerCategory) {
 		asTyped := update
 		asTyped.CallbackQuery = nil
 		card := interactionCard{ReviewRequestID: binding.ReviewRequestID, ReviewItemID: binding.ReviewItemID, ReviewType: binding.ReviewType, ChatID: update.Message.Chat.ID, MessageID: cardMessageID}

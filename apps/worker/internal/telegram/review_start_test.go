@@ -48,11 +48,6 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 			wantState: "AWAITING_DETAIL", context: "Nominal: Rp18.502", wantMode: "reply",
 		},
 		{
-			name: "transfer relationship gets the transfer chooser", reviewType: "TRANSFER_CLASSIFICATION",
-			decision:  reviewdec.Decision{MissingFacts: []string{"transfer_relationship"}, AllowedActions: []string{"CLASSIFY_TRANSFER", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
-			wantState: "AWAITING_DETAIL", context: "rincian transfer", wantMode: "transfer",
-		},
-		{
 			name: "duplicate conflict offers duplicate intents", reviewType: "POSSIBLE_DUPLICATE",
 			decision:  reviewdec.Decision{MissingFacts: []string{"duplicate_relationship"}, AllowedActions: []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
 			wantState: "AWAITING_DETAIL", context: "candidate exists", wantMode: "duplicate",

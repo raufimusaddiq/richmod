@@ -115,16 +115,6 @@ func TestRejectBoundReviewRefusesActiveMergeTarget(t *testing.T) {
 	f.refusedReply()
 }
 
-func TestTransferIgnoreRefusesActiveMergeTarget(t *testing.T) {
-	t.Parallel()
-	f := newMergeTargetFixture(t, "UNCLASSIFIED", "TRANSFER_CLASSIFICATION")
-	if err := NewProcessor(f.pool, nil).resolveTransferReview(f.ctx, f.replySource, f.household, f.request, f.target, f.update, "UNCLASSIFIED", "VOIDED", "IGNORE", "Transfer disimpan sebagai diabaikan.", ""); err != nil {
-		t.Fatalf("a refusal is a reply, not a failed job: %v", err)
-	}
-	f.untouched()
-	f.refusedReply()
-}
-
 func TestAgentRejectRefusesActiveMergeTargetWithToolStatus(t *testing.T) {
 	t.Parallel()
 	f := newMergeTargetFixture(t, "EXPENSE", "AMBIGUOUS_CATEGORY")

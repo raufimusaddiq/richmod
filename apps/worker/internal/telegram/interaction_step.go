@@ -25,7 +25,14 @@ const (
 	factMerchant factKind = "merchant"
 	factCategory factKind = "category"
 	factRemember factKind = "remember"
+	factTransfer factKind = "transfer"
+	factAsset    factKind = "asset"
+	factInvest   factKind = "invest"
+	factRefresh  factKind = "refresh"
+	factIncome   factKind = "income"
 )
+
+const transferReviewType = "TRANSFER_CLASSIFICATION"
 
 const categoryHint = "Pilih di bawah, atau ketik nama kategorinya."
 
@@ -36,6 +43,20 @@ const (
 	callbackOnce       = "review:once"
 	callbackCategory   = "review:cat:"
 	callbackCategoryPg = "review:catpage:"
+	callbackExpense    = "review:expense"
+	callbackOwn        = "review:own"
+	callbackHousehold  = "review:household"
+	callbackInvestment = "review:investment"
+	callbackIncome     = "review:income"
+	callbackBack       = "review:back"
+	callbackConfirm    = "review:confirm"
+	callbackChange     = "review:change"
+	callbackAccount    = "review:acct:"
+	callbackAccountPg  = "review:acctpage:"
+	callbackInvest     = "review:invest:"
+	callbackInvestPg   = "review:investpage:"
+	callbackMerge      = "review:xfer:merge:"
+	callbackNewXfer    = "review:xfer:new"
 )
 
 type Step struct {
@@ -48,6 +69,8 @@ type Step struct {
 	Facts string
 	Why   string
 	Page  int
+	Back  bool
+	Raw   string
 	Rows  [][]InlineKeyboardButton
 }
 
@@ -62,6 +85,9 @@ func (s Step) Title() string {
 }
 
 func (s Step) Text() string {
+	if s.Raw != "" {
+		return s.Raw
+	}
 	return reviewdomain.TelegramCardText(s.Title(), s.Facts, s.Why, s.Hint)
 }
 
@@ -80,6 +106,8 @@ func (s Step) AnswerKind() cardAnswerKind {
 		return cardAnswerCategory
 	case factRemember:
 		return cardAnswerConfirm
+	case factAsset, factInvest:
+		return cardAnswerAccount
 	}
 	return cardAnswerNone
 }
@@ -101,12 +129,42 @@ func engineReviewType(reviewType string) bool {
 	return reviewType == "UNKNOWN_MERCHANT" || reviewType == "AMBIGUOUS_CATEGORY"
 }
 
+func engineOwnedType(reviewType string) bool {
+	return engineReviewType(reviewType) || transferReview(reviewType)
+}
+
+func transferReview(reviewType string) bool {
+	return reviewType == transferReviewType || reviewType == "POSSIBLE_DUPLICATE"
+}
+
+func engineOwnsTransfer(decision reviewdec.Decision, subject reviewSubject) bool {
+	if decision.ReasonCode == "MISSING_AMOUNT" || (decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true) {
+		return false
+	}
+	if !contains(decision.MissingFacts, "transfer_relationship") && !contains(decision.MissingFacts, "wealth_account") {
+		return false
+	}
+	if subject.Reconciliation {
+		return contains(decision.MissingFacts, "transfer_relationship")
+	}
+	switch subject.transactionType(decision) {
+	case "EXPENSE", "INCOME", "TRANSFER", "UNCLASSIFIED":
+		return true
+	}
+	return false
+}
+
 func engineOwnsDecision(decision reviewdec.Decision, reviewType string, subject reviewSubject) bool {
+	if transferReview(reviewType) {
+		return engineOwnsTransfer(decision, subject)
+	}
 	if !engineReviewType(reviewType) || len(decision.MissingFacts) == 0 {
 		return false
 	}
 	switch subject.transactionType(decision) {
-	case "INCOME", "TRANSFER", "UNCLASSIFIED":
+	case "INCOME":
+		return isCategoryOnly(decision)
+	case "TRANSFER", "UNCLASSIFIED":
 		return false
 	}
 	if decision.InteractionMode == reviewdec.ModeConflictResolution || (decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true) {
@@ -125,6 +183,12 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 		return Step{}, false
 	}
 	step := Step{Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
+	if transferReview(reviewType) {
+		return deriveTransferStep(step, decision, subject), true
+	}
+	if subject.transactionType(decision) == "INCOME" {
+		return incomeConfirmStep(step), true
+	}
 	if contains(decision.MissingFacts, "merchant") {
 		step.Kind, step.Fact, step.State = stepFact, factMerchant, "AWAITING_MERCHANT"
 		step.Ask, step.Hint = "Ini bayar ke mana?", "Ketik nama toko atau merchant-nya."
@@ -141,8 +205,14 @@ func deriveStep(decision reviewdec.Decision, reviewType, facts string, subject r
 }
 
 func stepForBinding(card agentReviewBinding) (Step, bool) {
-	if card.Kind != "TRANSACTION" || !engineReviewType(card.ReviewType) {
+	if card.Kind != "TRANSACTION" || !engineOwnedType(card.ReviewType) {
 		return Step{}, false
+	}
+	if card.ConversationState == "AWAITING_ASSET_WEALTH" {
+		return Step{Kind: stepChoice, Fact: factAsset}, true
+	}
+	if transferReview(card.ReviewType) {
+		return transferStepForState(card.ConversationState), true
 	}
 	switch {
 	case card.ConversationState == "AWAITING_MERCHANT_DECISION":
@@ -203,6 +273,9 @@ func (s *Step) loadCategoryRows(ctx context.Context, tx pgx.Tx, reviewID string,
 	if chooser.AssetPurchase {
 		tail = []InlineKeyboardButton{{Text: "Beli aset", CallbackData: callbackAsset}, tail[0]}
 	}
+	if s.Back {
+		tail = append([]InlineKeyboardButton{{Text: "Kembali", CallbackData: callbackBack}}, tail...)
+	}
 	s.Rows = append(chooser.keyboard(), tail)
 	return nil
 }
@@ -228,10 +301,8 @@ func stepMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, dec
 	if !ok {
 		return nil, fmt.Errorf("review %s is not a step card", reviewType)
 	}
-	if step.Fact == factCategory {
-		if err := step.loadCategoryRows(ctx, tx, reviewID, 0); err != nil {
-			return nil, err
-		}
+	if err := step.loadRows(ctx, tx, reviewID, 0); err != nil {
+		return nil, err
 	}
 	return step.executable(cardActions(decision, reviewType)).Markup(), nil
 }

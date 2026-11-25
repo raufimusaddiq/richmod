@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
@@ -65,7 +66,10 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 
 			tx, err := pool.Begin(ctx)
 			must(err)
-			markup := reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0)
+			var parsed reviewdec.Decision
+			must(json.Unmarshal([]byte(decision), &parsed))
+			markup, err := stepMarkup(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", parsed, reviewSubject{TransactionType: "INCOME"})
+			must(err)
 			must(tx.Rollback(ctx))
 			encoded, _ := json.Marshal(markup)
 			for _, want := range []string{"review:income", "review:own", "review:household", "review:ignore"} {

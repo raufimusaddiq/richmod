@@ -28,6 +28,7 @@ func (c reviewCard) Text() string {
 
 type reviewSubject struct {
 	TransactionType string
+	Purpose         string
 	Reconciliation  bool
 }
 
@@ -43,11 +44,11 @@ func (s reviewSubject) transactionType(decision reviewdec.Decision) string {
 
 func loadReviewSubject(ctx context.Context, tx pgx.Tx, reviewID string) (reviewSubject, error) {
 	var subject reviewSubject
-	err := tx.QueryRow(ctx, `SELECT COALESCE(t.type,''),
+	err := tx.QueryRow(ctx, `SELECT COALESCE(t.type,''),COALESCE(t.purpose,''),
 		ri.transaction_id IS NULL AND EXISTS(SELECT 1 FROM transfer_reconciliation_case trc WHERE trc.household_id=ri.household_id AND trc.status='OPEN' AND ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id AND trc.financial_email_observation_id IS NULL)
 		FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
 		LEFT JOIN transaction t ON t.id=COALESCE(r.transaction_id,ri.transaction_id) AND t.household_id=r.household_id
-		WHERE r.id=$1`, reviewID).Scan(&subject.TransactionType, &subject.Reconciliation)
+		WHERE r.id=$1`, reviewID).Scan(&subject.TransactionType, &subject.Purpose, &subject.Reconciliation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return reviewSubject{}, nil
 	}
@@ -98,7 +99,6 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 		return stepRenderCard(step)
 	}
 	card := reviewCard{State: "AWAITING_DETAIL", Facts: strings.TrimSpace(facts), Why: reviewdec.WhyLine(decision)}
-	kind := subject.transactionType(decision)
 	switch {
 	case decision.ReasonCode == "MISSING_AMOUNT":
 		card.Mode, card.Title = "reply", "🟡 Nominal transaksi belum terbaca"
@@ -127,30 +127,18 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "HOUSEHOLD_POLICY"):
 		card.Mode, card.Title = "salary", "🧾 Catat slip gaji ini sebagai gaji?"
 		card.Instruction = "Pilih Catat sebagai gaji untuk memulai siklus gaji baru, atau Pemasukan biasa bila ini bukan gaji."
-	case contains(decision.MissingFacts, "wealth_account"):
-		card.Mode, card.Title = "transfer", "🟡 Akun kekayaan perlu diganti"
-		card.Instruction = "Pilih kembali akun kekayaan aktif untuk jenis transfer yang sudah dipilih."
 	case contains(decision.MissingFacts, "transaction_at"):
 		card.State, card.Mode, card.Title = "AWAITING_DATE", "reply", promptTitle(decision)
 		card.Instruction = dateInstruction(decision)
-	case isCategoryOnly(decision) && kind == "INCOME":
-		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "income", "🟡 Pemasukan perlu dicek"
-		card.Instruction = "Pilih Benar jika ini penghasilan, atau Ubah jika ini transfer."
 	case isCategoryOnly(decision):
 		card.State, card.Mode, card.Title = "AWAITING_CATEGORY", "category", "🟡 Kategori belum pasti"
 		card.Instruction = "Pilih kategori di bawah, atau balas pesan ini (Reply) dengan tujuan pengeluaran."
-	case contains(decision.MissingFacts, "transfer_relationship"):
-		card.Mode, card.Title = "transfer", "🟡 Jenis transfer belum pasti"
-		card.Instruction = transferInstruction(kind, subject.Reconciliation)
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		card.Mode, card.Title = "duplicate", promptTitle(decision)
 		card.Instruction = replyInstruction(decision)
 	case contains(decision.MissingFacts, "merchant"):
 		card.State, card.Mode, card.Title = "AWAITING_MERCHANT", "reply", "🟡 Nama merchant belum ada"
 		card.Instruction = "Balas pesan ini (Reply) dengan nama merchant."
-		if merchantAssetOption(decision, reviewType) {
-			card.Instruction += " Jika ini pembelian aset, pilih Beli aset."
-		}
 	case decision.ReasonCode == "CYCLE_RESIDUAL_ALLOCATION":
 		card.Mode, card.Title = "cycle", reviewdomain.CycleResidualCardTitle
 		card.Instruction = reviewdomain.CycleResidualCardReplyInstruction
@@ -173,20 +161,6 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 	return card
 }
 
-func transferInstruction(transactionType string, reconciliation bool) string {
-	switch {
-	case reconciliation:
-		return "Pilih catatan yang sama untuk digabung, atau Catat transfer baru."
-	case transactionType == "INCOME":
-		return "Pilih Penghasilan jika ini pemasukan, atau Rekening sendiri/Household jika ini dana milik sendiri."
-	case transactionType == "EXPENSE":
-		return "Pilih Pengeluaran atau Beli aset."
-	case transactionType == "TRANSFER":
-		return "Pilih akun tujuan di bawah."
-	}
-	return "Pilih jenis transfer di bawah, atau balas pesan ini (Reply) dengan tujuan transfer."
-}
-
 func merchantAssetOption(decision reviewdec.Decision, reviewType string) bool {
 	return reviewType == "UNKNOWN_MERCHANT" && decision.Subject.Type == "transaction"
 }
@@ -207,21 +181,8 @@ var reviewMarkupBuilders = map[string]reviewMarkupBuilder{
 	"category": func(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
 		return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0), nil
 	},
-	"income": func(context.Context, pgx.Tx, string, string, reviewdec.Decision, reviewCard, reviewSubject, []string) (*InlineKeyboardMarkup, error) {
-		return incomeConfirmMarkup(), nil
-	},
-	"transfer": func(ctx context.Context, tx pgx.Tx, reviewID, _ string, _ reviewdec.Decision, _ reviewCard, subject reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		if subject.Reconciliation {
-			return transferReconciliationMarkup(ctx, tx, reviewID)
-		}
-		return reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0), nil
-	},
 	"reply": func(_ context.Context, _ pgx.Tx, _, reviewType string, decision reviewdec.Decision, card reviewCard, _ reviewSubject, _ []string) (*InlineKeyboardMarkup, error) {
-		row := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
-		if card.State == "AWAITING_MERCHANT" && merchantAssetOption(decision, reviewType) {
-			row = []InlineKeyboardButton{{Text: "Beli aset", CallbackData: "review:asset"}, row[0]}
-		}
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{row}}, nil
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}, nil
 	},
 	"cycle": func(_ context.Context, _ pgx.Tx, _, _ string, _ reviewdec.Decision, _ reviewCard, _ reviewSubject, actions []string) (*InlineKeyboardMarkup, error) {
 		if contains(actions, "LEAVE_UNALLOCATED") {
@@ -298,14 +259,6 @@ func keepExecutableButtons(markup *InlineKeyboardMarkup, actions []string) *Inli
 		return nil
 	}
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
-}
-
-func incomeConfirmMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Benar", CallbackData: "review:confirm"}, {Text: "Ubah", CallbackData: "review:change"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-}
-
-func incomeClassificationMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Penghasilan", CallbackData: "review:income"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 }
 
 func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID string) (*InlineKeyboardMarkup, error) {

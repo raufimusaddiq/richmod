@@ -132,7 +132,7 @@ var kinds = []Kind{
 		Why:      "the transfer relationship is ambiguous, so the household must classify it",
 		WhyID:    "Jenis transfer tidak bisa dipastikan dari bukti.",
 		Telegram: true,
-		Agent:    []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"},
+		Agent:    []string{"IGNORE"},
 	},
 	{
 		Reason: "FINANCIAL_EMAIL_RESOLUTION", Class: ClassEvidenceGap,
@@ -164,7 +164,7 @@ var kinds = []Kind{
 		WhyID:    "Nama merchant tidak ada di bukti.",
 		Telegram: true,
 		KnownNil: []string{"merchant"},
-		Agent:    []string{"CONFIRM", "ASSET_PURCHASE", "IGNORE"},
+		Agent:    []string{"CONFIRM", "IGNORE"},
 	},
 	{
 		Reason: "AMBIGUOUS_CATEGORY", Class: ClassEvidenceGap,
@@ -174,7 +174,7 @@ var kinds = []Kind{
 		Why:      "the category is not supported strongly enough to confirm",
 		WhyID:    "Kategorinya belum cukup pasti untuk dicatat otomatis.",
 		Telegram: true,
-		Agent:    []string{"CONFIRM", "ASSET_PURCHASE", "IGNORE"},
+		Agent:    []string{"CONFIRM", "IGNORE"},
 	},
 	{
 		Reason: "UNKNOWN_PURPOSE", Class: ClassEvidenceGap,

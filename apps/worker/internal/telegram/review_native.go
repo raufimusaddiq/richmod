@@ -74,58 +74,6 @@ func validReviewTimestamp(value string) bool {
 	return err == nil && !parsed.IsZero() && parsed.Format(time.RFC3339) != ""
 }
 
-func (p *Processor) offerCategoryChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, reviewType string, update telegramUpdate) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	markup, err := categoryChooserMarkupErr(ctx, tx, reviewID, 0)
-	if err != nil {
-		return err
-	}
-	if markup == nil {
-		if err = enqueueReply(ctx, tx, update, "Belum ada kategori aktif yang bisa dipilih."); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-		return err
-	}
-	text := categoryPageText(ctx, tx, householdID, reviewID, 0)
-	if update.CallbackQuery != nil {
-		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, text, markup)
-	} else {
-		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, text, markup)
-	}
-	if err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (p *Processor) continueReview(ctx context.Context, sourceEventID, reviewID, transactionID string, update telegramUpdate, message string) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,metadata_json) VALUES ($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-		return err
-	}
-	if err := enqueueReviewMessage(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, message); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
 func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {

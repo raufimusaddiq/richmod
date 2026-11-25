@@ -4,27 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func cardActionCallback(data string) bool {
-	return data == "review:confirm" || data == "review:change" || data == "review:leave" || data == "review:xfer:new" || strings.HasPrefix(data, "review:xfer:merge:")
+	return data == "review:leave"
 }
 
 func (p *Processor) processCardActionCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
-	switch {
-	case data == "review:confirm" || data == "review:change":
-		return p.processIncomeConfirmCallback(ctx, sourceEventID, householdID, update, data == "review:confirm")
-	case data == "review:leave":
-		return p.processCycleLeaveCallback(ctx, sourceEventID, householdID, update)
-	default:
-		return p.processTransferReconciliationCallback(ctx, sourceEventID, householdID, update, data)
-	}
+	return p.processCycleLeaveCallback(ctx, sourceEventID, householdID, update)
 }
 
 type boundCardItem struct {
@@ -94,54 +84,6 @@ func (p *Processor) ignoreBoundReviewItem(ctx context.Context, sourceEventID, ho
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, confirm bool) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	item, err := bindOpenCardItem(ctx, tx, householdID, update, update.Message.MessageID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
-		return err
-	}
-	var transactionID string
-	err = tx.QueryRow(ctx, `SELECT t.id::text FROM review_request r JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id WHERE r.id=$1 AND t.status='NEEDS_REVIEW' AND t.type='INCOME'`, item.RequestID).Scan(&transactionID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
-		return err
-	}
-	reviewID, reviewType, decisionJSON := item.RequestID, item.ReviewType, item.Decision
-	if confirm {
-		if err := tx.Rollback(ctx); err != nil {
-			return err
-		}
-		return p.confirmIncomeTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
-	}
-	facts, err := transactionReviewSummary(ctx, tx, householdID, transactionID)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_DETAIL',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-		return err
-	}
-	if err := markCallbackProcessed(ctx, tx, sourceEventID); err != nil {
-		return err
-	}
-	text := reviewdomain.TelegramCardText("🟡 Pemasukan atau transfer?", facts, "", "Pilih Penghasilan jika ini pemasukan, atau Rekening sendiri/Household jika ini dana milik sendiri.")
-	var decision reviewdec.Decision
-	_ = json.Unmarshal(decisionJSON, &decision)
-	markup := keepExecutableButtons(incomeClassificationMarkup(), cardActions(decision, reviewType))
-	if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, text, markup); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
 func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -184,52 +126,6 @@ func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID
 		message = "Sisa salary cycle berubah menjadi Rp" + FormatIDR(outcome.Residual) + ". Kartunya sudah diperbarui; pilih lagi."
 	case reviewdomain.CycleStaleNotApplicable:
 		message = "Sisa salary cycle sudah tidak ada lagi. Tinjauan ditutup."
-	}
-	if err := enqueueReply(ctx, tx, update, message); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (p *Processor) processTransferReconciliationCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	item, err := bindOpenCardItem(ctx, tx, householdID, update, update.Message.MessageID)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && item.ReviewType != "TRANSFER_CLASSIFICATION") {
-		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-	}
-	if err != nil {
-		return err
-	}
-	command := reviewdomain.TransferReconciliationCommand{HouseholdID: householdID, ActorUserID: item.UserID, ReviewItemID: item.ItemID, Action: "CONFIRM_NEW_TRANSFER", ActorType: "TELEGRAM"}
-	message := "✅ Transfer baru sudah dicatat."
-	if strings.HasPrefix(data, "review:xfer:merge:") {
-		index, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:xfer:merge:"))
-		if parseErr != nil || index < 0 || index > 9 {
-			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-		}
-		var raw []byte
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'transfer_candidates','[]'::jsonb) FROM review_conversation WHERE review_request_id=$1`, item.RequestID).Scan(&raw); err != nil {
-			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-		}
-		var candidates []string
-		if json.Unmarshal(raw, &candidates) != nil || index >= len(candidates) {
-			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-		}
-		command.Action, command.CandidateID = "MERGE_EXISTING", candidates[index]
-		message = "✅ Transfer sudah digabung dengan catatan yang ada."
-	}
-	if _, err := reviewdomain.ReconcileTransfer(ctx, tx, command); err != nil {
-		if errors.Is(err, reviewdomain.ErrTransferCaseUnavailable) {
-			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
-		}
-		return err
-	}
-	if err := markCallbackProcessed(ctx, tx, sourceEventID); err != nil {
-		return err
 	}
 	if err := enqueueReply(ctx, tx, update, message); err != nil {
 		return err

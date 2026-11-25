@@ -77,11 +77,11 @@ func TestTelegramDateRecoversDeactivatedPartialClassificationCandidate(t *testin
 					mustAgentTest(t, p.ProcessAgent(ctx, source))
 				} else {
 					var offered bool
-					mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM job WHERE payload_json::text LIKE '%'||$1||'%')`, "review:invest:"+replacement).Scan(&offered))
+					mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json::text LIKE '%'||$1||'%')`, "review:invest:0").Scan(&offered))
 					if !offered {
 						t.Fatal("replacement account was not offered")
 					}
-					callback = "review:invest:" + replacement
+					callback = "review:invest:0"
 				}
 			} else {
 				mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Synthetic replacement category','replacement') RETURNING id`, f.householdID).Scan(&replacement))
@@ -107,7 +107,11 @@ func TestTypedAssetClassificationRetainsDateResidual(t *testing.T) {
 	f, transaction, _, request := seedAttributionReview(t, "UNCLASSIFIED", "TRANSFER_CLASSIFICATION", false)
 	var account string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Synthetic asset','ASSET','GOLD','OTHER') RETURNING id`, f.householdID).Scan(&account))
-	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"ASSET_PURCHASE","wealth_account_hint":"Synthetic asset"}`})
+	p := NewProcessor(f.pool, nil)
+	mustAgentTest(t, p.BindReviewMessage(ctx, request, f.chatID, 99, ""))
+	tap, err := json.Marshal(callbackUpdate(f.chatID, 99, "review:asset"))
+	mustAgentTest(t, err)
+	mustAgentTest(t, p.Process(ctx, f.seedSourceEvent(ctx, t, "asset-step", tap)))
 	sendTypedReviewReply(t, ctx, f, p, request, "Synthetic asset", true)
 	var status, kind, relationship string
 	var missingDate bool

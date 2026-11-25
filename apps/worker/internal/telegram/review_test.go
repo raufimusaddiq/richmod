@@ -61,17 +61,6 @@ func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
 	}
 }
 
-func TestReviewRequiresFactFailsClosedForInvalidContract(t *testing.T) {
-	for _, raw := range []string{"null", "not-json", "{}"} {
-		if !reviewRequiresFact(raw, "merchant") {
-			t.Fatalf("reviewRequiresFact(%q) = false; malformed contracts must preserve the requirement", raw)
-		}
-	}
-	if reviewRequiresFact(`["category"]`, "merchant") {
-		t.Fatal("category-only decision unexpectedly requires merchant")
-	}
-}
-
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}
 	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", time.Now(), []categoryChoice{
@@ -130,15 +119,6 @@ func TestAssistantRangeLabelUsesInclusiveJakartaDates(t *testing.T) {
 func TestFormatIDRSupportsNegativeCashflow(t *testing.T) {
 	if got := FormatIDR("-125000"); got != "-125.000" {
 		t.Fatalf("formatted=%q", got)
-	}
-}
-
-func TestTransferReviewCallbacksMapDirectlyToCanonicalActions(t *testing.T) {
-	tests := map[string]string{"review:own": "OWN_ACCOUNT", "review:household": "HOUSEHOLD_ACCOUNT", "review:investment": "INVESTMENT_ACCOUNT", "review:ignore": "IGNORE", "review:expense": "EXPENSE", "review:asset": "ASSET_PURCHASE", "review:unknown": ""}
-	for callback, want := range tests {
-		if got := transferReviewCallbackAction(callback); got != want {
-			t.Fatalf("%q = %q, want %q", callback, got, want)
-		}
 	}
 }
 
