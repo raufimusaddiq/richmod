@@ -16,18 +16,18 @@ var telegramCallbackExact = map[string]struct{}{
 	"review:category": {}, "review:ignore": {}, "review:reprocess": {},
 	"review:quality:confirm": {}, "review:salary:primary": {}, "review:salary:household": {}, "review:salary:ordinary": {},
 	"review:dup:new": {}, "review:dispute:confirm": {}, "review:dispute:reject": {},
-	"review:leave": {}, "review:xfer:new": {}, "interaction:answer": {}, "interaction:new": {},
+	"review:leave": {}, "review:xfer:new": {}, "review:back": {}, "interaction:answer": {}, "interaction:new": {},
 	"pending:action:yes": {}, "pending:action:no": {}, "pending:batch:yes": {}, "pending:batch:no": {},
 }
 
 var telegramCallbackTokenPrefixes = []string{
 	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:", "pending:card:",
 	"review:cat:", "review:category:", "review:fe:account:", "review:fe:wealth:",
-	"review:invest:", "review:bank:",
+	"review:invest:", "review:acct:", "review:bank:",
 }
 
 var telegramCallbackNumberPrefixes = []string{
-	"review:catpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
+	"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
 	"review:dup:merge:", "review:xfer:merge:",
 }
 

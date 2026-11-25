@@ -34,9 +34,6 @@ func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
 }
 
 func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
-	if got := reviewdec.AgentActions("TRANSFER_CLASSIFICATION"); len(got) != 6 {
-		t.Fatalf("transfer actions=%v", got)
-	}
 	if got := reviewdec.AgentActions("PAYSLIP_CONFIRMATION"); len(got) != 3 {
 		t.Fatalf("payslip actions=%v", got)
 	}
@@ -57,7 +54,7 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 	if got := reviewdec.AgentActions("WEALTH_OBSERVATION"); strings.Join(got, ",") != "SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("wealth actions=%v", got)
 	}
-	if got := reviewdec.AgentActions("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,ASSET_PURCHASE,IGNORE" {
+	if got := reviewdec.AgentActions("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,IGNORE" {
 		t.Fatalf("expense review actions=%v", got)
 	}
 	for _, tool := range NativeFinanceTools(nil, false, false, true, "WEALTH_OBSERVATION", false, false, "WEALTH_OBSERVATION") {

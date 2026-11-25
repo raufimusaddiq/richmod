@@ -22,8 +22,8 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 		if mode == "" {
 			t.Fatalf("%s produced no markup mode", reviewType)
 		}
-		if contains(decision.MissingFacts, "transfer_relationship") && mode != "transfer" {
-			t.Fatalf("%s transfer decision rendered as %q, want the transfer chooser", reviewType, mode)
+		if card := buildReviewCard(decision, reviewType, "context", reviewSubject{TransactionType: "UNCLASSIFIED"}); reviewType == "TRANSFER_CLASSIFICATION" && card.Mode != "step" {
+			t.Fatalf("%s transfer decision rendered as %q, want the step engine card", reviewType, card.Mode)
 		}
 		if mode == "category" && !isCategoryOnly(decision) {
 			t.Fatalf("%s rendered as a category chooser without a category-only decision", reviewType)
@@ -176,8 +176,6 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 			wantMode = "cycle"
 		case isCategoryOnly(decision):
 			wantMode = "category"
-		case contains(decision.MissingFacts, "transfer_relationship"):
-			wantMode = "transfer"
 		case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 			wantMode = "duplicate"
 		case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
@@ -298,35 +296,6 @@ func TestDuplicateChooserPaginatesWithGlobalIndices(t *testing.T) {
 		t.Fatalf("page 1 global merge callbacks = %+v", page1.InlineKeyboard[:3])
 	}
 	if len(page1.InlineKeyboard[3]) != 1 || page1.InlineKeyboard[3][0].CallbackData != "review:duppage:0" {
-		t.Fatalf("page 1 pager = %+v", page1.InlineKeyboard[3])
-	}
-}
-
-func TestInvestmentChooserPaginatesBeyondEightItems(t *testing.T) {
-	page0Choices := make([]investmentAccountChoice, 8)
-	for i := range page0Choices {
-		page0Choices[i] = investmentAccountChoice{ID: fmt.Sprintf("inv-%d", i), Name: fmt.Sprintf("Invest %d", i)}
-	}
-	page0 := investmentChoicesMarkup(page0Choices, 0, 11)
-	if len(page0.InlineKeyboard) != 9 {
-		t.Fatalf("page 0 rows = %d, want 9 (8 accounts + pager)", len(page0.InlineKeyboard))
-	}
-	if len(page0.InlineKeyboard[8]) != 1 || page0.InlineKeyboard[8][0].CallbackData != "review:investpage:1" {
-		t.Fatalf("page 0 pager = %+v", page0.InlineKeyboard[8])
-	}
-	page1Choices := []investmentAccountChoice{
-		{ID: "inv-8", Name: "Invest 8"},
-		{ID: "inv-9", Name: "Invest 9"},
-		{ID: "inv-10", Name: "Invest 10"},
-	}
-	page1 := investmentChoicesMarkup(page1Choices, 1, 11)
-	if len(page1.InlineKeyboard) != 4 {
-		t.Fatalf("page 1 rows = %d, want 4 (3 accounts + pager)", len(page1.InlineKeyboard))
-	}
-	if page1.InlineKeyboard[2][0].CallbackData != "review:invest:inv-10" {
-		t.Fatalf("page 1 last account = %+v", page1.InlineKeyboard[2])
-	}
-	if len(page1.InlineKeyboard[3]) != 1 || page1.InlineKeyboard[3][0].CallbackData != "review:investpage:0" {
 		t.Fatalf("page 1 pager = %+v", page1.InlineKeyboard[3])
 	}
 }

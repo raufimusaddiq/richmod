@@ -24,6 +24,7 @@ const (
 	cardAnswerAmount   cardAnswerKind = "amount_idr"
 	cardAnswerDetail   cardAnswerKind = "detail"
 	cardAnswerConfirm  cardAnswerKind = "confirmation"
+	cardAnswerAccount  cardAnswerKind = "account"
 )
 
 const cardKindProposal = "PROPOSAL"
@@ -196,7 +197,7 @@ func (p *Processor) categoryNames(ctx context.Context, householdID string) (map[
 	return names, rows.Err()
 }
 
-func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories map[string]string, now time.Time) ([]agentReviewBinding, typedCardAnswer) {
+func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories map[string]string, accounts map[string][]accountChoice, now time.Time) ([]agentReviewBinding, typedCardAnswer) {
 	var matched []agentReviewBinding
 	var answer typedCardAnswer
 	var detailCards []agentReviewBinding
@@ -206,6 +207,10 @@ func matchTypedCardAnswer(text string, cards []agentReviewBinding, categories ma
 		switch kind {
 		case cardAnswerCategory:
 			value, ok = parseCategoryAnswer(text, categories)
+		case cardAnswerAccount:
+			if choice, exact := exactAccountMatch(text, accounts[card.ConversationState]); exact {
+				value, ok = normalizeAnswer(choice.Name), true
+			}
 		case cardAnswerDate:
 			if parsed, valid := parseDateValue(text, now, 0); valid {
 				value, ok = parsed.Format("2006-01-02"), true
@@ -471,7 +476,7 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 			_, _ = p.pool.Exec(context.WithoutCancel(ctx), `UPDATE telegram_pending_card_choice SET status='PENDING',resolved_at=NULL WHERE id=$1 AND status='RESOLVED'`, choiceID)
 		}
 	}()
-	if engineReviewType(binding.ReviewType) && field == string(cardAnswerCategory) {
+	if engineOwnedType(binding.ReviewType) && field == string(cardAnswerCategory) {
 		asTyped := update
 		asTyped.CallbackQuery = nil
 		card := interactionCard{ReviewRequestID: binding.ReviewRequestID, ReviewItemID: binding.ReviewItemID, ReviewType: binding.ReviewType, ChatID: update.Message.Chat.ID, MessageID: cardMessageID}

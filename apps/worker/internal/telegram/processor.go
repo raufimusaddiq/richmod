@@ -238,12 +238,6 @@ func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, househo
 	if strings.HasPrefix(update.CallbackQuery.Data, "review:duppage:") {
 		return true, p.processDuplicatePageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:investpage:") {
-		return true, p.processInvestmentPageCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-	}
-	if strings.HasPrefix(update.CallbackQuery.Data, "review:invest:") {
-		return true, p.processInvestmentCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
-	}
 	if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
 		if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return true, err
@@ -255,12 +249,6 @@ func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, househo
 	if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
 		if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return true, err
-		}
-		switch update.CallbackQuery.Data {
-		case "review:expense", "review:own", "review:household", "review:asset", "review:investment", "review:income":
-			if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
-				return true, err
-			}
 		}
 	}
 	return false, nil

@@ -66,7 +66,7 @@ func TestMerchantFirstStepReply(t *testing.T) {
 				mustAgentTest(t, p.Process(ctx, f.seedSourceEvent(ctx, t, "asset-callback", assetRaw)))
 				var assetState string
 				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&assetState))
-				if assetState != "AWAITING_CONFIRMATION" {
+				if assetState != "AWAITING_ASSET_WEALTH" {
 					t.Fatalf("Beli aset must ask for the Wealth Account, state=%s", assetState)
 				}
 				return

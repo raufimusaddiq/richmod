@@ -281,63 +281,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		}
 		return true, tx.Commit(ctx)
 	}
-	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
-	var missingFactsJSON *string
-	var expired bool
-	err = p.pool.QueryRow(ctx, `
-		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now(),
-		       ri.decision->'missingFacts'
-		FROM review_request r
-		JOIN review_conversation c ON c.review_request_id=r.id
-		JOIN transaction t ON t.id=r.transaction_id
-		LEFT JOIN review_item ri ON ri.id=r.review_item_id
-		JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`,
-		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).
-		Scan(&reviewID, &transactionID, &reviewState, &reviewType, &transactionType, &requestStatus, &transactionStatus, &expired, &missingFactsJSON)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return true, fmt.Errorf("bind Telegram review reply: %w", err)
-	}
-	if update.CallbackQuery == nil {
-		return false, nil
-	}
-	if requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah ditutup. Tidak ada transaksi baru yang dibuat.")
-	}
-	if expired {
-		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tombol tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk melanjutkan.")
-	}
-	incomeChoice := transactionType == "INCOME" && (update.CallbackQuery.Data == "review:income" || update.CallbackQuery.Data == "review:own" || update.CallbackQuery.Data == "review:household")
-	if !incomeChoice && (missingFactsJSON == nil || !(reviewRequiresFact(*missingFactsJSON, "transfer_relationship") || reviewRequiresFact(*missingFactsJSON, "wealth_account"))) {
-		return false, nil
-	}
-	if update.CallbackQuery.Data == "review:asset" {
-		return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
-	}
-	if transferReviewCallbackAction(update.CallbackQuery.Data) == "" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Pilihan ini tidak tersedia. Tinjauan masih terbuka.")
-	}
-	return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
-}
-
-func reviewRequiresFact(raw string, fact string) bool {
-	if strings.TrimSpace(raw) == "null" {
-		return true
-	}
-	var facts []string
-	if err := json.Unmarshal([]byte(raw), &facts); err != nil {
-		return true
-	}
-	for _, value := range facts {
-		if value == fact {
-			return true
-		}
-	}
-	return false
+	return false, nil
 }
 
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
@@ -348,7 +292,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		return true, p.processCardActionCallback(ctx, sourceEventID, householdID, update, data)
 	}
 	duplicateMerge := strings.HasPrefix(data, "review:dup:merge:")
-	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" && data != "review:quality:confirm" {
+	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:ignore" && data != "review:quality:confirm" {
 		return false, nil
 	}
 	if data == "review:ignore" {
@@ -496,12 +440,6 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		}
 		return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
 	}
-	if data == "review:asset" {
-		if err = tx.Commit(ctx); err != nil {
-			return true, err
-		}
-		return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
-	}
 	var message string
 	var markup *InlineKeyboardMarkup
 	state := "AWAITING_DETAIL"
@@ -626,9 +564,6 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
-	}
-	if reviewType == "TRANSFER_CLASSIFICATION" && transactionType == "UNCLASSIFIED" {
-		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "EXPENSE", "CONFIRMED", "EXPENSE", "✅ Dicatat sebagai pengeluaran.", validCategory)
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, validCategory, update, reviewExtraction{Confidence: 1})
 }
@@ -779,29 +714,6 @@ func enqueueMerchantLearningQuestion(ctx context.Context, tx pgx.Tx, reviewID st
 }
 
 func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {
-	if reviewType == "TRANSFER_CLASSIFICATION" {
-		var kind, purpose string
-		if tx.QueryRow(ctx, `SELECT t.type,t.purpose FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind, &purpose) != nil {
-			return nil
-		}
-		switch kind {
-		case "TRANSFER":
-			choice := InlineKeyboardButton{Text: "Pilih akun pembelian aset", CallbackData: "review:asset"}
-			if purpose == "INVESTMENT_CONTRIBUTION" {
-				choice = InlineKeyboardButton{Text: "Pilih akun investasi", CallbackData: "review:investment"}
-			}
-			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{choice}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-		case "EXPENSE":
-			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-		case "INCOME":
-			return incomeClassificationMarkup()
-		}
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Kontribusi investasi", CallbackData: "review:investment"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
-	}
-	var transactionType string
-	if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType) == nil && transactionType == "INCOME" {
-		return incomeConfirmMarkup()
-	}
 	return categoryChooserMarkup(ctx, tx, reviewID, page)
 }
 
@@ -969,11 +881,7 @@ func categoryChooserMarkupErr(ctx context.Context, tx pgx.Tx, reviewID string, p
 	if chooser.empty() {
 		return nil, nil
 	}
-	detailText, detailCallback := "Ubah detail", "review:edit"
-	if chooser.AssetPurchase {
-		detailText, detailCallback = "Beli aset", "review:asset"
-	}
-	keyboard := append(chooser.keyboard(), []InlineKeyboardButton{{Text: detailText, CallbackData: detailCallback}, {Text: "Abaikan", CallbackData: "review:ignore"}})
+	keyboard := append(chooser.keyboard(), []InlineKeyboardButton{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}, nil
 }
 

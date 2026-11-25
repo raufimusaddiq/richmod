@@ -84,12 +84,12 @@ func TestCardOmitsButtonsTheKindCannotExecute(t *testing.T) {
 func TestIncomeCategoryReviewRendersTheIncomeQuestion(t *testing.T) {
 	decision, _ := reviewdec.Preset("AMBIGUOUS_CATEGORY", "transaction", "t")
 	card := buildReviewCard(decision, "AMBIGUOUS_CATEGORY", "Nominal: Rp750.000", reviewSubject{TransactionType: "INCOME"})
-	if card.Mode != "income" || !strings.Contains(card.Instruction, "Benar") || strings.Contains(card.Text(), "kategori di bawah") {
+	if card.Mode != "step" || !strings.Contains(card.Instruction, "Benar") || strings.Contains(card.Text(), "kategori di bawah") {
 		t.Fatalf("income card=%#v", card)
 	}
-	markup := incomeConfirmMarkup()
-	if markup.InlineKeyboard[0][0].CallbackData != "review:confirm" || markup.InlineKeyboard[0][1].CallbackData != "review:change" {
-		t.Fatalf("income markup=%#v", markup)
+	step, _ := deriveStep(decision, "AMBIGUOUS_CATEGORY", "", reviewSubject{TransactionType: "INCOME"})
+	if step.Rows[0][0].CallbackData != callbackConfirm || step.Rows[0][1].CallbackData != callbackChange {
+		t.Fatalf("income step=%#v", step)
 	}
 }
 

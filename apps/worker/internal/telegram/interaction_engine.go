@@ -31,6 +31,7 @@ type engineInput struct {
 }
 
 type engineReview struct {
+	ReadOnly      bool
 	RequestID     string
 	ItemID        string
 	TransactionID string
@@ -56,14 +57,19 @@ type stepOutcome struct {
 }
 
 func (e engineReview) live() bool {
-	return e.RequestStatus == "OPEN" && e.Unexpired && (e.ItemStatus == "OPEN" || e.ItemStatus == "PENDING_SEND") && e.TxStatus == "NEEDS_REVIEW"
+	open := e.RequestStatus == "OPEN" && e.Unexpired && (e.ItemStatus == "OPEN" || e.ItemStatus == "PENDING_SEND")
+	return open && (e.TxStatus == "NEEDS_REVIEW" || (e.TransactionID == "" && e.Subject.Reconciliation))
 }
 
 func (e engineReview) rememberPending() bool {
 	return e.State == "AWAITING_MERCHANT_DECISION" && e.TxStatus == "CONFIRMED" && engineReviewType(e.ReviewType)
 }
 
-func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequestID string, telegramUserID int64) (engineReview, error) {
+func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequestID string, telegramUserID int64, lock bool) (engineReview, error) {
+	lockClause := ""
+	if lock {
+		lockClause = "FOR UPDATE OF r,ri"
+	}
 	var e engineReview
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),r.status,ri.status,
@@ -74,7 +80,7 @@ func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequest
 		LEFT JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
 		LEFT JOIN review_conversation c ON c.review_request_id=r.id
 		WHERE r.id=$1 AND r.household_id=$2
-		FOR UPDATE OF r,ri`, reviewRequestID, householdID, telegramUserID).
+		`+lockClause, reviewRequestID, householdID, telegramUserID).
 		Scan(&e.RequestID, &e.ItemID, &e.TransactionID, &e.ReviewType, &e.State, &e.RequestStatus, &e.ItemStatus, &e.TxStatus, &e.TxType, &e.MerchantID, &raw, &e.UserID, &e.Unexpired)
 	if err != nil {
 		return e, err
@@ -82,7 +88,9 @@ func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequest
 	if err := json.Unmarshal(raw, &e.Decision); err != nil {
 		return e, err
 	}
-	e.Subject = reviewSubject{TransactionType: e.TxType}
+	if e.Subject, err = loadReviewSubject(ctx, tx, e.RequestID); err != nil {
+		return e, err
+	}
 	return e, nil
 }
 
@@ -97,7 +105,7 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 	case !e.live():
 		return Step{}, false, nil
 	}
-	facts, err := transactionReviewSummary(ctx, tx, householdID, e.TransactionID)
+	facts, err := reviewItemSummary(ctx, tx, householdID, e.ItemID)
 	if err != nil {
 		return Step{}, false, err
 	}
@@ -105,16 +113,40 @@ func (p *Processor) currentStep(ctx context.Context, tx pgx.Tx, householdID stri
 	if !ok {
 		return Step{}, false, nil
 	}
-	if step.Fact == factCategory {
-		if err := step.loadCategoryRows(ctx, tx, e.RequestID, 0); err != nil {
-			return Step{}, false, err
+	switch e.State {
+	case "AWAITING_DETAIL":
+		if step.Fact == factIncome {
+			step = incomeChoiceStep(step)
 		}
+	case "AWAITING_ASSET_WEALTH":
+		step = accountStepFrom(step, factAsset, step.Fact != factAsset && step.Fact != factInvest)
+	case "AWAITING_INVESTMENT_ACCOUNT":
+		if transferReview(e.ReviewType) {
+			step = accountStepFrom(step, factInvest, step.Fact != factAsset && step.Fact != factInvest)
+		}
+	case "AWAITING_CATEGORY":
+		if transferReview(e.ReviewType) {
+			step = categoryStepFrom(step, step.Fact == factTransfer)
+		}
+	}
+	step.ReadOnly = e.ReadOnly
+	if err := step.loadRows(ctx, tx, e.RequestID, 0); err != nil {
+		return Step{}, false, err
 	}
 	return step.executable(cardActions(e.Decision, e.ReviewType)), true, nil
 }
 
+func engineNavigation(data string) bool {
+	for _, prefix := range []string{callbackCategoryPg, callbackAccountPg, callbackInvestPg} {
+		if strings.HasPrefix(data, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, card interactionCard, in engineInput) (bool, error) {
-	if card.ReviewRequestID == "" || !engineReviewType(card.ReviewType) || in.Tap == callbackAsset || (navigationCallback(in.Tap) && !strings.HasPrefix(in.Tap, callbackCategoryPg)) {
+	if card.ReviewRequestID == "" || !engineOwnedType(card.ReviewType) || (navigationCallback(in.Tap) && !engineNavigation(in.Tap)) {
 		return false, nil
 	}
 	peeked, owned, err := p.peekStep(ctx, householdID, card.ReviewRequestID, update.Message.From.ID)
@@ -135,7 +167,7 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	review, err := loadEngineReview(ctx, tx, householdID, card.ReviewRequestID, update.Message.From.ID)
+	review, err := loadEngineReview(ctx, tx, householdID, card.ReviewRequestID, update.Message.From.ID, true)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -193,6 +225,8 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 			return reask(step, unusableAnswerAck), nil
 		}
 		return p.applyCategory(ctx, tx, householdID, sourceEventID, review, step, picked)
+	case factAsset, factInvest:
+		return p.applyAccountText(ctx, tx, householdID, sourceEventID, review, step, in.Text, in.Targeted)
 	case factRemember:
 		remember, ok := rememberAnswer(in.Text)
 		if !ok {
@@ -204,6 +238,11 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 }
 
 func (p *Processor) applyTap(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, data string) (stepOutcome, error) {
+	if data != callbackIgnore {
+		if outcome, handled, err := p.applyTransferTap(ctx, tx, householdID, sourceEventID, review, step, data); handled || err != nil {
+			return outcome, err
+		}
+	}
 	switch {
 	case data == callbackIgnore && step.Fact != factRemember:
 		return p.applyIgnore(ctx, tx, householdID, sourceEventID, review, step)
@@ -237,6 +276,9 @@ func (p *Processor) categoryPage(ctx context.Context, tx pgx.Tx, review engineRe
 }
 
 func (p *Processor) applyIgnore(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step) (stepOutcome, error) {
+	if review.TransactionID == "" {
+		return p.applyIgnoreReconciliation(ctx, tx, householdID, review, step)
+	}
 	outcome, err := confirmedCardOutcome(ctx, tx, householdID, review.TransactionID)
 	if err != nil {
 		return stepOutcome{}, err
@@ -349,9 +391,18 @@ func (p *Processor) applyCategory(ctx context.Context, tx pgx.Tx, householdID, s
 		}
 		return reask(step, categoryInactiveAck), nil
 	}
+	if transferReview(review.ReviewType) && review.TxType == "UNCLASSIFIED" {
+		return p.classifyTransfer(ctx, tx, householdID, sourceEventID, review, step, "EXPENSE", "", categoryID)
+	}
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return stepOutcome{}, err
+	}
+	if transferReview(review.ReviewType) {
+		if _, err := reviewdomain.ApplyTransactionReviewFacts(ctx, sp, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: review.TransactionID, CategoryID: categoryID, Relationship: "EXPENSE"}); err != nil {
+			_ = sp.Rollback(ctx)
+			return stepOutcome{}, err
+		}
 	}
 	confirmed, err := reviewdomain.ConfirmTransactionReview(ctx, sp, reviewdomain.ConfirmCommand{
 		HouseholdID: householdID, ActorUserID: review.UserID, TransactionID: review.TransactionID,
@@ -373,7 +424,7 @@ func (p *Processor) applyCategory(ctx context.Context, tx pgx.Tx, householdID, s
 	}
 	askRemember, err := finishConfirmedReview(ctx, sp, confirmedReview{
 		HouseholdID: householdID, UserID: review.UserID, ReviewID: review.RequestID, TransactionID: review.TransactionID,
-		CategoryID: categoryID, SourceEventID: sourceEventID, MerchantID: confirmed.MerchantID, Confidence: 1, OfferLearning: true,
+		CategoryID: categoryID, SourceEventID: sourceEventID, MerchantID: confirmed.MerchantID, Confidence: 1, OfferLearning: !transferReview(review.ReviewType),
 	})
 	if err != nil {
 		_ = sp.Rollback(ctx)
@@ -518,13 +569,14 @@ func (p *Processor) peekStep(ctx context.Context, householdID, reviewRequestID s
 		return Step{}, false, err
 	}
 	defer tx.Rollback(ctx)
-	review, err := loadEngineReview(ctx, tx, householdID, reviewRequestID, telegramUserID)
+	review, err := loadEngineReview(ctx, tx, householdID, reviewRequestID, telegramUserID, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Step{}, false, nil
 	}
 	if err != nil {
 		return Step{}, false, err
 	}
+	review.ReadOnly = true
 	return p.currentStep(ctx, tx, householdID, review)
 }
 

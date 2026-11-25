@@ -106,7 +106,7 @@ func navigationCallback(data string) bool {
 	case "review:edit", "review:merchant", "review:description", "review:category":
 		return true
 	}
-	for _, prefix := range []string{"review:catpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:"} {
+	for _, prefix := range []string{"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:"} {
 		if strings.HasPrefix(data, prefix) {
 			return true
 		}
@@ -297,7 +297,11 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 	if err != nil {
 		return result, err
 	}
-	matched, answer := matchTypedCardAnswer(text, cards, names, p.turnTime(update))
+	accounts, err := p.waitingAccounts(ctx, householdID, cards)
+	if err != nil {
+		return result, err
+	}
+	matched, answer := matchTypedCardAnswer(text, cards, names, accounts, p.turnTime(update))
 	switch {
 	case len(matched) == 1:
 		return p.cardStepResult(result, update, matched[0], sourcePlain, ""), nil
@@ -411,7 +415,7 @@ func (p *Processor) typedButtonLabel(ctx context.Context, householdID string, up
 	if text == "" || len([]rune(text)) > maxLabelTextRunes || strings.ContainsAny(text, "\n") {
 		return "", false
 	}
-	buttons, err := p.cardButtons(ctx, householdID, card.ReviewRequestID)
+	buttons, err := p.cardButtons(ctx, householdID, card.ReviewRequestID, update.Message.From.ID)
 	if err != nil {
 		slog.Default().Warn("load card buttons failed", "household_id", householdID, "review_request_id", card.ReviewRequestID, "error", err)
 		return "", false
@@ -442,7 +446,7 @@ func (p *Processor) labelledCard(ctx context.Context, householdID string, update
 	return found, data, count == 1
 }
 
-func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestID string) ([]InlineKeyboardButton, error) {
+func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestID string, telegramUserID int64) ([]InlineKeyboardButton, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -457,6 +461,17 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 	}
 	if state == "AWAITING_MERCHANT_DECISION" && engineReviewType(reviewType) {
 		return rememberStep("", "", "").buttons(), nil
+	}
+	if engineOwnedType(reviewType) {
+		review, err := loadEngineReview(ctx, tx, householdID, reviewRequestID, telegramUserID, false)
+		if err == nil {
+			review.ReadOnly = true
+			if step, owned, err := p.currentStep(ctx, tx, householdID, review); err != nil || owned {
+				return step.buttons(), err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
 	}
 	var decision reviewdec.Decision
 	if err := json.Unmarshal(raw, &decision); err != nil {
@@ -476,4 +491,29 @@ func (p *Processor) cardButtons(ctx context.Context, householdID, reviewRequestI
 		buttons = append(buttons, row...)
 	}
 	return buttons, nil
+}
+
+func (p *Processor) waitingAccounts(ctx context.Context, householdID string, cards []agentReviewBinding) (map[string][]accountChoice, error) {
+	facts := map[string]factKind{"AWAITING_ASSET_WEALTH": factAsset, "AWAITING_INVESTMENT_ACCOUNT": factInvest}
+	out := map[string][]accountChoice{}
+	var tx pgx.Tx
+	for _, card := range cards {
+		fact, waiting := facts[card.ConversationState]
+		if !waiting || out[card.ConversationState] != nil {
+			continue
+		}
+		if tx == nil {
+			var err error
+			if tx, err = p.pool.Begin(ctx); err != nil {
+				return nil, err
+			}
+			defer tx.Rollback(ctx)
+		}
+		choices, err := accountCandidates(ctx, tx, householdID, fact)
+		if err != nil {
+			return nil, err
+		}
+		out[card.ConversationState] = append([]accountChoice{}, choices...)
+	}
+	return out, nil
 }

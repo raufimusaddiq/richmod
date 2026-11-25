@@ -62,15 +62,8 @@ func TestSurfacesDelegateFinancialMutationsToReviewdomain(t *testing.T) {
 		},
 		{
 			name:      "transfer classification telegram",
-			paths:     []string{"../worker/internal/telegram/review_transfer.go"},
-			section:   [2]string{"func (p *Processor) resolveTransferReviewTx(", "\nfunc "},
-			callsAny:  []string{"reviewdomain.ClassifyTransferReview"},
-			forbidden: []string{"UPDATE transaction SET type=", "proposal_status="},
-		},
-		{
-			name:      "transfer classification agent",
-			paths:     []string{agentMutations},
-			section:   [2]string{"func (p *Processor) agentResolveTransferClassification(", "\nfunc "},
+			paths:     []string{"../worker/internal/telegram/interaction_transfer.go"},
+			section:   [2]string{"func (p *Processor) classifyTransfer(", "\nfunc "},
 			callsAny:  []string{"reviewdomain.ClassifyTransferReview"},
 			forbidden: []string{"UPDATE transaction SET type=", "proposal_status="},
 		},
