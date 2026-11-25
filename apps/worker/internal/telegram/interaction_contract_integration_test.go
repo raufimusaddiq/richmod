@@ -1160,6 +1160,13 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 			h.wantCard("Pilihan itu sudah tidak berlaku.", "Beli aset ke akun mana?")
 			h.wantType("UNCLASSIFIED", "NEEDS_REVIEW")
 		}},
+		{"an account typed by name after the list changed still lands", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
+			h.tapLabel("Beli aset")
+			h.exec(`INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Aaa Lain','ASSET','GOLD','OTHER')`, h.f.householdID)
+			h.reply("Emas")
+			h.wantCard("✅ Tersimpan: Beli aset · Emas · Rp25.000")
+			h.wantTransfer("TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Emas")
+		}},
 		{"a stale account tap is answered with the step, not guessed", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
 			h.tapLabel("Beli aset")
 			h.tap("review:acct:7")

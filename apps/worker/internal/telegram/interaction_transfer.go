@@ -319,8 +319,6 @@ func (p *Processor) applyTransferTap(ctx context.Context, tx pgx.Tx, householdID
 		outcome, err = p.applyTransferChoice(ctx, tx, householdID, sourceEventID, review, step, data)
 	case step.Fact == factAsset || step.Fact == factInvest:
 		outcome, err = p.applyAccountTap(ctx, tx, householdID, sourceEventID, review, step, data)
-	case step.Fact == factCategory && data == callbackAsset:
-		return reask(step, transferInvalidAck), true, nil
 	default:
 		return stepOutcome{}, false, nil
 	}
@@ -535,9 +533,6 @@ func (p *Processor) classifyTransfer(ctx context.Context, tx pgx.Tx, householdID
 	label, detail := transferLabels[classification], ""
 	if classification == "EXPENSE" {
 		label = ""
-		if result.CategoryID == "" {
-			return stepOutcome{Step: transferDoneStep(label, detail, amount), Settled: true, Changed: true}, nil
-		}
 		if err := tx.QueryRow(ctx, `SELECT COALESCE(name,'') FROM category WHERE id=NULLIF($1,'')::uuid`, result.CategoryID).Scan(&detail); err != nil {
 			return stepOutcome{}, err
 		}
