@@ -23,11 +23,11 @@ var telegramCallbackExact = map[string]struct{}{
 var telegramCallbackTokenPrefixes = []string{
 	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:", "pending:card:",
 	"review:cat:", "review:category:", "review:fe:account:", "review:fe:wealth:",
-	"review:invest:", "review:bank:",
+	"review:invest:", "review:acct:", "review:bank:",
 }
 
 var telegramCallbackNumberPrefixes = []string{
-	"review:catpage:", "review:acct:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
+	"review:catpage:", "review:acctpage:", "review:fepage:", "review:bankpage:", "review:duppage:", "review:investpage:",
 	"review:dup:merge:", "review:xfer:merge:",
 }
 

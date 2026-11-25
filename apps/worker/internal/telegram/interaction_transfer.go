@@ -221,7 +221,7 @@ func (s *Step) loadAccountRows(ctx context.Context, tx pgx.Tx, reviewID string, 
 			}
 		}
 	}
-	stamp := version % 10 * accountStampBase
+	stamp := version * accountStampBase
 	prefix, pagePrefix := callbackAccount, callbackAccountPg
 	empty := noAssetAccountsHint
 	if s.Fact == factInvest {
@@ -388,7 +388,7 @@ func (p *Processor) applyAccountTap(ctx context.Context, tx pgx.Tx, householdID,
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->'account_candidates','[]'::jsonb),COALESCE((context_json->>'account_version')::int,0) FROM review_conversation WHERE review_request_id=$1`, review.RequestID).Scan(&raw, &version); err != nil {
 		return stepOutcome{}, err
 	}
-	if stamp != version%10 {
+	if stamp != version {
 		return reask(step, accountStaleAck), nil
 	}
 	var stored []string
