@@ -208,7 +208,7 @@ func (p *Processor) classifyMessage(ctx context.Context, householdID string, cha
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2
 		  AND (rr.telegram_message_id=$3 OR rr.merchant_learning_message_id=$3
 		       OR EXISTS(SELECT 1 FROM review_request_message m WHERE m.recipient_id=rr.id AND m.telegram_chat_id=$2 AND m.telegram_message_id=$3))
-		ORDER BY (rr.telegram_message_id=$3) DESC,r.created_at DESC LIMIT 1`, householdID, chatID, messageID).
+		ORDER BY (rr.telegram_message_id=$3) DESC,(r.status='OPEN' AND ri.status IN ('OPEN','PENDING_SEND')) DESC,r.created_at DESC LIMIT 1`, householdID, chatID, messageID).
 		Scan(&card.ReviewRequestID, &card.ReviewItemID, &card.ReviewType, &conversation, &requestStatus, &itemStatus, &current, &card.DeliveredText, &learningMessage)
 	switch {
 	case err == nil:

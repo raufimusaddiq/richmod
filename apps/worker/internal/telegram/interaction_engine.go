@@ -278,7 +278,7 @@ func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourc
 	case factAmount:
 		return p.applyAmountText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
 	case factBankAccount:
-		return p.applyBankAccountText(ctx, tx, householdID, review, step, in.Text)
+		return p.applyBankAccountText(ctx, tx, householdID, review, step, in.Text, in.Targeted)
 	case factProposalIncome:
 		return p.applyProposalIncomeText(ctx, tx, householdID, sourceEventID, review, step, in.Text)
 	case factPurpose:

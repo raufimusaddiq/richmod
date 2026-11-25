@@ -21,7 +21,6 @@ const (
 	bankNoAccountsHint = "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan dulu di aplikasi."
 	bankWhy            = "Aku belum bisa membaca isi email bank ini sendiri."
 	bankClosedAck      = "Kartu ini sudah berubah, jadi belum ada yang dicatat. Buka Kotak Tinjauan untuk melanjutkannya."
-	bankQueuedHint     = "Kalau masih ada yang perlu dilengkapi, kartunya menyusul."
 	bankAccountMissAck = "Aku belum menemukan satu rekening yang cocok."
 )
 
@@ -271,7 +270,7 @@ func (p *Processor) completeBank(ctx context.Context, tx pgx.Tx, householdID str
 	if err := sp.Commit(ctx); err != nil {
 		return stepOutcome{}, false, err
 	}
-	done := Step{Kind: stepDone, Ack: "✅ Diterima: Rp" + FormatIDR(amount) + ", " + bankMomentLabel(at) + ". Transaksinya sedang dicatat.", Hint: bankQueuedHint}
+	done := Step{Kind: stepDone, Ack: "✅ Diterima: Rp" + FormatIDR(amount) + ", " + bankMomentLabel(at) + ". Transaksinya sedang dicatat."}
 	if err := refreshSiblingCards(ctx, tx, review.RequestID, review.ChatID, done); err != nil {
 		return stepOutcome{}, false, err
 	}
@@ -302,7 +301,7 @@ func (p *Processor) applyBankTap(ctx context.Context, tx pgx.Tx, householdID, so
 	return reask(step, choiceStaleAck), nil
 }
 
-func (p *Processor) applyBankAccountText(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, text string) (stepOutcome, error) {
+func (p *Processor) applyBankAccountText(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, text string, targeted bool) (stepOutcome, error) {
 	choices, err := bankAccountChoices(ctx, tx, review.RequestID)
 	if err != nil {
 		return stepOutcome{}, err
@@ -311,11 +310,14 @@ func (p *Processor) applyBankAccountText(ctx context.Context, tx pgx.Tx, househo
 	var found []string
 	for _, choice := range choices {
 		name := normalizeAnswer(choice.Name)
-		if want != "" && (name == want || strings.Contains(name, want)) {
-			if name == want {
-				found = []string{choice.ID}
-				break
-			}
+		if want == "" {
+			continue
+		}
+		if name == want {
+			found = []string{choice.ID}
+			break
+		}
+		if targeted && strings.Contains(name, want) {
 			found = append(found, choice.ID)
 		}
 	}

@@ -243,6 +243,24 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.wantCard("✅ Diterima: Rp54.000,")
 			h.wantBankQueued(1, "54000")
 		}},
+		{"a reply may name the account by a unique part of its name", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
+			h.reply("54rb")
+			h.tapLabel("Hari ini")
+			h.reply("b")
+			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantBankQueued(1, "54000")
+		}},
+		{"an untargeted plain part of an account name binds nothing, an exact name does", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
+			h.reply("54rb")
+			h.tapLabel("Hari ini")
+			h.chat("b")
+			h.wantAssistantCalls(1)
+			h.wantCard("Email ini untuk rekening yang mana?")
+			h.wantBankQueued(0, "")
+			h.plain("rekening b")
+			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantBankQueued(1, "54000")
+		}},
 		{"an account that is not offered cannot be chosen", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
 			h.reply("54rb")
 			h.tapLabel("Hari ini")

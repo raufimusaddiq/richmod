@@ -59,8 +59,8 @@ func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 	if itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || conversationState != "RESOLVED" {
 		t.Fatalf("item=%s request=%s conversation=%s, want all RESOLVED", itemStatus, requestStatus, conversationState)
 	}
-	if retirements != 2 || notices != 1 {
-		t.Fatalf("retirements=%d notices=%d, want one retirement per delivered card and one outcome notice", retirements, notices)
+	if retirements != 2 || notices != 0 {
+		t.Fatalf("retirements=%d notices=%d, want one retirement per delivered card and no loose notice", retirements, notices)
 	}
 	var resolution string
 	var telegramAudits int
