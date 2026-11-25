@@ -70,7 +70,7 @@ func TestReprocessedDocumentFinishesOnTheSameCard(t *testing.T) {
 	if after := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat); after != sendsBefore {
 		t.Fatalf("the result came as %d loose message(s)", after-sendsBefore)
 	}
-	if p.n(`SELECT count(*) FROM review_conversation WHERE review_request_id=$1::uuid AND context_json->'reprocess'->>'continued'='true'`, request) != 1 {
+	if p.n(`SELECT count(*) FROM review_conversation WHERE review_request_id=$1::uuid AND context_json->'reprocess'->>'continued' IS NOT NULL`, request) != 1 {
 		t.Fatal("the reprocess was not marked as continued")
 	}
 	if p.confirmed() != 1 {
@@ -141,5 +141,27 @@ func TestReprocessedDocumentWithoutALiveCardFallsBackToTheNotice(t *testing.T) {
 
 	if after := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%1 transaksi ditemukan%'`, p.chat); after != 1 {
 		t.Fatalf("with no live card the result must still reach the user as the summary, got %d (sends before %d)", after, sendsBefore)
+	}
+}
+
+func TestALaterNoticeForAnAlreadyContinuedDocumentIsNotSwallowed(t *testing.T) {
+	t.Parallel()
+	p := newPipe(t)
+	u, request, message := p.unreadableUpload()
+	if _, err := p.press("review:reprocess", message, p.tgUser); err != nil {
+		t.Fatal(err)
+	}
+	p.gw.extraction = p.readableExtraction("food-and-drink")
+	p.must(p.docs.ProcessScreenshot(p.ctx, u.document))
+	if p.n(`SELECT count(*) FROM review_conversation WHERE review_request_id=$1::uuid AND context_json->'reprocess'->>'continued' IS NOT NULL`, request) != 1 {
+		t.Fatal("the first result did not take over the card")
+	}
+	tx, err := p.pool.Begin(p.ctx)
+	p.must(err)
+	handled, err := telegram.ContinueDocumentCard(p.ctx, tx, u.document, "Satu catatan lagi.")
+	p.must(err)
+	p.must(tx.Commit(p.ctx))
+	if handled {
+		t.Fatal("a notice from a later run was dropped because an earlier run had used the card")
 	}
 }

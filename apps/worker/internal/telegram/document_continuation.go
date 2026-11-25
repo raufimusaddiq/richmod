@@ -13,17 +13,18 @@ type reprocessingCard struct {
 }
 
 func markReprocessContinued(ctx context.Context, tx pgx.Tx, requestID string) error {
-	_, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{reprocess,continued}','true'::jsonb),updated_at=now() WHERE review_request_id=$1`, requestID)
+	_, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{reprocess,continued}',to_jsonb(now())),updated_at=now() WHERE review_request_id=$1`, requestID)
 	return err
 }
 
 func ContinueDocumentCard(ctx context.Context, tx pgx.Tx, documentID, text string) (bool, error) {
 	var card reprocessingCard
-	var continued bool
-	err := tx.QueryRow(ctx, `SELECT r.id::text,r.review_item_id::text,c.context_json->'reprocess'->>'continued' IS NOT NULL
+	var continued, sameRun bool
+	err := tx.QueryRow(ctx, `SELECT r.id::text,r.review_item_id::text,c.context_json->'reprocess'->>'continued' IS NOT NULL,
+			COALESCE((c.context_json->'reprocess'->>'continued')::timestamptz=now(),false)
 		FROM review_conversation c JOIN review_request r ON r.id=c.review_request_id
 		WHERE c.context_json ? 'reprocess' AND c.context_json->'reprocess'->>'document_id'=$1
-		ORDER BY (c.context_json->'reprocess'->>'continued' IS NULL) DESC,c.updated_at DESC LIMIT 1 FOR UPDATE OF c`, documentID).Scan(&card.RequestID, &card.ItemID, &continued)
+		ORDER BY (c.context_json->'reprocess'->>'continued' IS NULL) DESC,c.updated_at DESC LIMIT 1 FOR UPDATE OF c`, documentID).Scan(&card.RequestID, &card.ItemID, &continued, &sameRun)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -31,7 +32,7 @@ func ContinueDocumentCard(ctx context.Context, tx pgx.Tx, documentID, text strin
 		return false, err
 	}
 	if continued {
-		return true, nil
+		return sameRun, nil
 	}
 	_, _, copies, err := loadCardCopies(ctx, tx, card.ItemID)
 	if err != nil || len(copies) == 0 {
