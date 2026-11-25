@@ -906,7 +906,7 @@ Scope: how receipt and screenshot writes stay one canonical transaction per real
 - **Reprocess keeps proposal history**: `reprocessProposalKey` takes the next free key instead of overwriting earlier proposals. Proposals written before per-row keys existed use the key `primary`, which does not collide with `row-001`. (`reprocessProposalKey`)
 - **Identifier normalization is bounded and audited**: screenshot identifiers are observed evidence, so duplicate kinds and entries over `maxScreenshotIdentifiers` are dropped before validation so a harmless duplicate cannot fail a valid document. It never touches amount, type, direction, date or tenant, and bad syntax still fails validation. JSON Schema cannot express per-kind uniqueness, so the schema description states it in words and Go enforces it. One idempotent audit row per document and stage records row indexes, kind names and counts, never values. (`normalizeScreenshotIdentifiers`, `recordIdentifierNormalization`)
 - **A row without an amount is never duplicate-matched**: no amount means no safe match, so it becomes a `MISSING_AMOUNT` review and reconciliation runs after the user supplies the amount. (`screenshot.go`)
-- **A merged row keeps its category only if sources agree**: a validated category survives a merge into an existing transaction so a later dispute can reuse it, but a row whose independent sources disagree (`CategoryConflict`) keeps none. (`screenshot.go`)
+- **A merged row keeps its validated category**: a validated category survives a merge into an existing transaction so a later dispute can reuse it, and merchant memory replaces a disagreeing model category (ADR-128). (`screenshot.go`)
 
 ## ADR-094: Document intake: untrusted text, notices and review idempotency
 *Accepted · 2026-11-21*
@@ -1300,3 +1300,12 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Reason:** the API and worker held the same key and bucket as the restic repository, so code that reached the attachment bucket could delete every backup; the only fresher-than-nightly guarantee before a schema migration was that timer; movable action tags can change under a workflow.
 
 **Consequence:** `OSS_*` can be restricted to the attachments prefix once the owner sets the `BACKUP_S3_*` variables (documented in the production deployment runbook) while unset backup variables keep today's behaviour; a failed pre-migration backup aborts the deploy; CI and release workflows update actions deliberately instead of tracking tags.
+
+## ADR-128: Household merchant memory wins over the screenshot model category
+*Accepted · 2026-11-25*
+
+**Decision:** A transaction-screenshot row whose merchant hits household merchant memory takes the remembered category and merchant, exactly as receipts and bank email already do; a different model-selected category is no longer a category conflict, so the row auto-confirms under the other ADR-121 conditions and a merged row keeps the remembered category. This amends the screenshot row contract ("no conflict") and the merged-row rule.
+
+**Reason:** a remembered merchant is a category the household chose to apply automatically, while a model category is untrusted output whose quality varies with the gateway's model rotation; in production a remembered merchant (Kopi & Camilan) was sent to review because a model guessed Makanan & Minuman at 0.7.
+
+**Consequence:** merchants the household never remembered still need model category confidence of at least 0.85 or go to review; the `EVIDENCE_CONFLICT` category decision no longer appears for screenshots.

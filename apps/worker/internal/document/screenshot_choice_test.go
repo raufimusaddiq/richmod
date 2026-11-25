@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
 func unmatchedOutRow(amount string) validatedScreenshotRow {
@@ -36,8 +37,6 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 	}{
 		{"date only", "MISSING_TRANSACTION_DATE", validatedScreenshotRow{Type: "EXPENSE", CategoryID: ptr("food"), CategoryDecided: true, Value: screenshotRow{CategorySlug: ptr("food")}}, []string{"transaction_at"}},
 		{"category and date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE"}, []string{"category", "transaction_at"}},
-		{"category conflict and date", "AMBIGUOUS_CATEGORY", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryConflict: true}, []string{"category"}},
-		{"category conflict and missing date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE", CategoryConflict: true}, []string{"category", "transaction_at"}},
 		{"duplicate retains facts", "POSSIBLE_DUPLICATE", validatedScreenshotRow{Type: "EXPENSE"}, []string{"duplicate_relationship", "category", "transaction_at"}},
 		{"incoming retains date", "TRANSFER_CLASSIFICATION", validatedScreenshotRow{Type: "INCOME"}, []string{"transfer_relationship", "transaction_at"}},
 		{"missing amount only", "MISSING_AMOUNT", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryID: ptr("food"), CategoryDecided: true, Value: screenshotRow{CategorySlug: ptr("food")}}, []string{"amount"}},
@@ -73,11 +72,16 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 			row.DateKnown = false
 			return row
 		}(), false},
-		{"conflicting category sources", func() validatedScreenshotRow {
+		{"merchant memory overrides a disagreeing low-confidence model category", func() validatedScreenshotRow {
 			row := decided
-			row.CategoryConflict = true
+			modelCategory := "cat-meals"
+			row.CategoryID, row.CategorySlug, row.Value.CategoryConfidence = &modelCategory, "makanan-minuman", .7
+			row.applyMerchantMemory(merchantmemory.Match{MerchantID: "m-calorie", CategoryID: "cat-snacks"}, "kopi-camilan")
+			if *row.CategoryID != "cat-snacks" || row.CategorySlug != "kopi-camilan" {
+				t.Fatalf("memory did not win: %+v", row)
+			}
 			return row
-		}(), false},
+		}(), true},
 		{"extraction confidence at the floor", func() validatedScreenshotRow {
 			row := decided
 			row.Value.Confidence = .85
