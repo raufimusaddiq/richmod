@@ -205,6 +205,32 @@ func TestAssistantShowsWaitingCard(t *testing.T) {
 			h.tapLabel("Emas")
 			h.wantJobs(`SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=$2 AND payload_json->>'status'='RESOLVED'`, 1, h.chatB, messageB)
 		}},
+		{"an expired card with an open item is shown live and one tap finishes it", transfer, []contractOption{unclassified, withAssetAccounts("Emas")}, func(h *contractHarness) {
+			gw := h.assistant(`{"card_ref":"k1","step":"asset"}`)
+			gw.before = func() {
+				h.exec(`UPDATE review_request SET status='EXPIRED',expires_at=now()-interval '1 hour' WHERE id=$1`, h.reviewID)
+				h.exec(`UPDATE review_request_recipient SET delivery_status='EXPIRED',card_expires_at=now()-interval '1 hour' WHERE review_request_id=$1`, h.reviewID)
+			}
+			h.ask("mana kartunya tadi?")
+			if got := gw.outcome(h.t); got != "card_shown/hint_applied" {
+				h.t.Fatalf("tool outcome = %q", got)
+			}
+			h.tapLabel("Emas")
+			h.wantCard("✅ Tersimpan: Beli aset · Emas · Rp25.000")
+			h.wantTransfer("TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Emas")
+			h.wantAssistantAnswers(1)
+		}},
+		{"an expired card with an open item is shown live and a reply finishes it", transfer, []contractOption{unclassified, withAssetAccountAt("Emas", "Antam")}, func(h *contractHarness) {
+			gw := h.assistant(`{"card_ref":"k1","step":"asset"}`)
+			gw.before = func() {
+				h.exec(`UPDATE review_request SET status='EXPIRED',expires_at=now()-interval '1 hour' WHERE id=$1`, h.reviewID)
+				h.exec(`UPDATE review_request_recipient SET delivery_status='EXPIRED',card_expires_at=now()-interval '1 hour' WHERE review_request_id=$1`, h.reviewID)
+			}
+			h.ask("mana kartunya tadi?")
+			_ = gw
+			h.reply("Antam")
+			h.wantTransfer("TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Emas")
+		}},
 		{"an answer on an ordinary copy carries no assistant source", transfer, []contractOption{unclassified}, func(h *contractHarness) {
 			h.tapLabel("Ke rekening sendiri")
 			h.wantAnswered("TAP")

@@ -95,12 +95,22 @@ func (p *Processor) agentShowReviewCard(ctx context.Context, state *agentState, 
 		return result, err
 	}
 	review.ChatID = message.Chat.ID
-	var delivered bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2 AND telegram_message_id IS NOT NULL AND delivery_status='SENT')`, requestID, message.Chat.ID).Scan(&delivered); err != nil {
+	var recipientID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2 AND telegram_message_id IS NOT NULL AND delivery_status IN ('SENT','EXPIRED')`, requestID, message.Chat.ID).Scan(&recipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return showCardResult(result, "not_found", nil), nil
+	}
+	if err != nil {
 		return result, err
 	}
-	if !delivered {
-		return showCardResult(result, "not_found", nil), nil
+	if itemOpen := review.ItemStatus == "OPEN" || review.ItemStatus == "PENDING_SEND"; itemOpen && (review.RequestStatus == "EXPIRED" || (review.RequestStatus == "OPEN" && !review.Unexpired)) {
+		if err := renewShownProjection(ctx, tx, requestID, recipientID, message.Chat.ID); err != nil {
+			return result, err
+		}
+		if review, err = loadEngineReview(ctx, tx, state.HouseholdID, requestID, message.From.ID, true); err != nil {
+			return result, err
+		}
+		review.ChatID = message.Chat.ID
 	}
 	topic := plainlabel.Humanize(review.ReviewType)
 	if label, ok := plainlabel.Label(review.ReviewType); ok {
@@ -153,6 +163,20 @@ func (p *Processor) agentShowReviewCard(ctx context.Context, state *agentState, 
 		facts["step_hint"] = hintOutcome
 	}
 	return showCardResult(result, "card_shown", facts), nil
+}
+
+func renewShownProjection(ctx context.Context, tx pgx.Tx, requestID, recipientID string, chatID int64) error {
+	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, chatID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient rr SET delivery_status='SENT',card_expires_at=now()+interval '7 days'
+		FROM review_request r
+		WHERE rr.id=$1 AND r.id=rr.review_request_id AND rr.delivery_status IN ('EXPIRED','SENT')
+		  AND (rr.delivery_status='EXPIRED' OR r.status='EXPIRED' OR COALESCE(rr.card_expires_at,r.expires_at)<=now())`, recipientID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=GREATEST(expires_at,now()+interval '7 days') WHERE id=$1 AND (status='EXPIRED' OR expires_at<=now())`, requestID)
+	return err
 }
 
 func (p *Processor) navigateToHint(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, hint string) (Step, bool, error) {
