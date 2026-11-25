@@ -273,6 +273,16 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 			result.OpenCards = append(result.OpenCards, cards[index])
 		}
 	}
+	if override != interactionParserNew && text != "" && isYesNoAnswer(text) {
+		if _, typed := singleTypedCard(cards); !typed {
+			if card, ok, err := p.rememberCard(ctx, householdID, update.Message.Chat.ID); err != nil {
+				return result, err
+			} else if ok {
+				result.Kind, result.Source, result.Card, result.Update = interactionCardStep, sourcePlain, card, update
+				return result, nil
+			}
+		}
+	}
 	if override == interactionParserNew || len(cards) == 0 || text == "" {
 		return result, nil
 	}
@@ -301,6 +311,34 @@ func (p *Processor) resolvePlain(ctx context.Context, householdID string, update
 		result.Kind, result.Card = interactionAnswerOrNew, interactionCard{ReviewRequestID: single.ReviewRequestID, ReviewItemID: single.ReviewItemID}
 	}
 	return result, nil
+}
+
+func (p *Processor) rememberCard(ctx context.Context, householdID string, chatID int64) (interactionCard, bool, error) {
+	rows, err := p.pool.Query(ctx, `SELECT r.id::text,ri.id::text,ri.review_type,rr.telegram_message_id,COALESCE(rr.delivered_text,'')
+		FROM review_request r
+		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
+		JOIN review_conversation c ON c.review_request_id=r.id
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL
+		  AND c.state='AWAITING_MERCHANT_DECISION' AND ri.review_type IN ('UNKNOWN_MERCHANT','AMBIGUOUS_CATEGORY')
+		  AND c.updated_at>now()-interval '7 days'
+		LIMIT 2`, householdID, chatID)
+	if err != nil {
+		return interactionCard{}, false, err
+	}
+	defer rows.Close()
+	var found []interactionCard
+	for rows.Next() {
+		card := interactionCard{ChatID: chatID, State: "AWAITING_MERCHANT_DECISION"}
+		if err := rows.Scan(&card.ReviewRequestID, &card.ReviewItemID, &card.ReviewType, &card.MessageID, &card.DeliveredText); err != nil {
+			return interactionCard{}, false, err
+		}
+		found = append(found, card)
+	}
+	if err := rows.Err(); err != nil || len(found) != 1 {
+		return interactionCard{}, false, err
+	}
+	return found[0], true, nil
 }
 
 func (p *Processor) cardStepResult(result interactionResult, update telegramUpdate, card agentReviewBinding, source interactionSource, data string) interactionResult {

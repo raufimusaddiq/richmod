@@ -163,7 +163,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 			if !navigationCallback(update.CallbackQuery.Data) {
 				p.recordInteraction(ctx, householdID, sourceEventID, tapped.Card.ReviewItemID, interactionAnswered, sourceTap)
 			}
-			if handled, err := p.runStepEngine(ctx, householdID, sourceEventID, update, tapped.Card, engineInput{Tap: update.CallbackQuery.Data}); handled || err != nil {
+			if handled, err := p.runStepEngine(ctx, householdID, sourceEventID, update, tapped.Card, engineInput{Tap: update.CallbackQuery.Data, Targeted: true}); handled || err != nil {
 				return err
 			}
 		}

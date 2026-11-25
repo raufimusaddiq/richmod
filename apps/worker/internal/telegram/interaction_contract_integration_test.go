@@ -17,10 +17,11 @@ import (
 var contractStampOffset atomic.Int64
 
 type scriptedPicker struct {
-	script []string
-	err    error
-	tools  [][]gateway.ToolDefinition
-	inputs []any
+	agentCalls int
+	script     []string
+	err        error
+	tools      [][]gateway.ToolDefinition
+	inputs     []any
 }
 
 func (g *scriptedPicker) NativeToolCall(_ context.Context, _ string, _ string, input any, tools []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -35,6 +36,11 @@ func (g *scriptedPicker) NativeToolCall(_ context.Context, _ string, _ string, i
 	}
 	args, _ := json.Marshal(map[string]string{"option": option})
 	return gateway.ToolCall{Name: tools[0].Name, Arguments: args}, gateway.Metadata{}, nil
+}
+
+func (g *scriptedPicker) AgentTurn(context.Context, string, gateway.AgentRequest) (gateway.AgentResponse, error) {
+	g.agentCalls++
+	return gateway.AgentResponse{Text: "Baik."}, nil
 }
 
 type contractHarness struct {
@@ -313,6 +319,30 @@ func (h *contractHarness) plain(text string) {
 	h.deliver()
 }
 
+func (h *contractHarness) chat(text string) {
+	h.t.Helper()
+	h.audit()
+	_, err := sendText(h.t, h.ctx, h.f, h.p, text, 0)
+	mustAgentTest(h.t, err)
+	h.absorb()
+}
+
+func (h *contractHarness) wantAssistantCalls(count int) {
+	h.t.Helper()
+	if h.picker.agentCalls != count {
+		h.t.Fatalf("assistant calls = %d, want %d", h.picker.agentCalls, count)
+	}
+}
+
+func (h *contractHarness) wantTurns(user, assistant string) {
+	h.t.Helper()
+	var gotUser, gotAssistant string
+	mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `SELECT COALESCE(max(message_text) FILTER (WHERE role='USER'),''),COALESCE(max(message_text) FILTER (WHERE role='ASSISTANT'),'') FROM telegram_conversation_turn WHERE household_id=$1 AND telegram_chat_id=$2 AND public_context_json->>'step_engine'='true' AND message_text ILIKE ANY(ARRAY[$3,$4])`, h.f.householdID, h.f.chatID, user, "%"+assistant+"%").Scan(&gotUser, &gotAssistant))
+	if gotUser != user || !strings.Contains(gotAssistant, assistant) {
+		h.t.Fatalf("conversation turns = %q / %q, want %q / %q", gotUser, gotAssistant, user, assistant)
+	}
+}
+
 func (h *contractHarness) threadReply(text string) {
 	h.t.Helper()
 	messageID, _, _ := h.current()
@@ -439,6 +469,47 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantAlias(false)
 			h.wantModelCalls(0)
 			h.wantAnswered("REPLY", "TAP", "TAP")
+		}},
+		{"a typed answer and its card text are kept in the conversation memory", "UNKNOWN_MERCHANT", nil, func(h *contractHarness) {
+			h.reply("Warung Contoh")
+			h.wantTurns("Warung Contoh", "Masuk kategori apa?")
+		}},
+		{"a plain question while a merchant card waits goes to the assistant", "UNKNOWN_MERCHANT", nil, func(h *contractHarness) {
+			messageID, text, _ := h.current()
+			h.chat("berapa pengeluaranku minggu ini?")
+			h.wantAssistantCalls(1)
+			if after, afterText, _ := h.current(); after != messageID || afterText != text {
+				t.Fatalf("the card changed: %d %q", after, afterText)
+			}
+			h.wantTransaction("NEEDS_REVIEW", "", "")
+			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, 1, h.reviewID)
+		}},
+		{"a plain question while a category card waits goes to the assistant even if the check says NONE", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+			h.picker.script = []string{"NONE"}
+			messageID, text, _ := h.current()
+			h.chat("berapa pengeluaranku minggu ini?")
+			h.wantAssistantCalls(1)
+			if after, afterText, _ := h.current(); after != messageID || afterText != text {
+				t.Fatalf("the card changed: %d %q", after, afterText)
+			}
+			h.wantTransaction("NEEDS_REVIEW", "Toko Contoh", "")
+			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, 1, h.reviewID)
+		}},
+		{"a plain yes on the remember step answers the card", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+			h.tapLabel("Makan")
+			h.plain("ya")
+			h.wantCard("✅ Tersimpan: Toko Contoh · Makan · Rp25.000", "Diingat untuk Toko Contoh")
+			h.wantAlias(true)
+			h.wantAssistantCalls(0)
+			h.wantAnswered("TAP", "PLAIN")
+		}},
+		{"a thread reply to the remember step answers the card", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+			h.tapLabel("Makan")
+			h.threadReply("tidak")
+			h.wantCard("✅ Tersimpan: Toko Contoh · Makan · Rp25.000", "hanya dipakai untuk transaksi ini")
+			h.wantAlias(false)
+			h.wantAssistantCalls(0)
+			h.wantAnswered("TAP", "THREAD_REPLY")
 		}},
 		{"merchant typed as a plain message to the single waiting card", "UNKNOWN_MERCHANT", nil, func(h *contractHarness) {
 			h.plain("Warung Contoh")

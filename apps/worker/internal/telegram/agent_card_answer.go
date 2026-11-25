@@ -475,7 +475,7 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 		asTyped := update
 		asTyped.CallbackQuery = nil
 		card := interactionCard{ReviewRequestID: binding.ReviewRequestID, ReviewItemID: binding.ReviewItemID, ReviewType: binding.ReviewType, ChatID: update.Message.Chat.ID, MessageID: cardMessageID}
-		handled, err := p.runStepEngine(ctx, householdID, sourceEventID, asTyped, card, engineInput{CategorySlug: value})
+		handled, err := p.runStepEngine(ctx, householdID, sourceEventID, asTyped, card, engineInput{CategorySlug: value, Targeted: true})
 		if err != nil {
 			return true, err
 		}

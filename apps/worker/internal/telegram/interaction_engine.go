@@ -27,6 +27,7 @@ type engineInput struct {
 	Tap          string
 	Text         string
 	CategorySlug string
+	Targeted     bool
 }
 
 type engineReview struct {
@@ -152,7 +153,13 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name=$2,parser_version='1' WHERE id=$1`, sourceEventID, engineParser); err != nil {
 		return false, err
 	}
+	if outcome.Declined && in.Tap == "" && in.CategorySlug == "" && !in.Targeted {
+		return false, nil
+	}
 	if !outcome.Silent {
+		if err := p.remember(ctx, tx, householdID, sourceEventID, update, outcome); err != nil {
+			return false, err
+		}
 		if err := p.renderStep(ctx, tx, update, review.RequestID, outcome); err != nil {
 			return false, err
 		}
@@ -163,6 +170,15 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 		}
 	}
 	return true, tx.Commit(ctx)
+}
+
+func (p *Processor) remember(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, update telegramUpdate, outcome stepOutcome) error {
+	if text := strings.TrimSpace(update.Message.Text); text != "" {
+		if err := insertTurnTx(ctx, tx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"step_engine": true}); err != nil {
+			return err
+		}
+	}
+	return insertTurnTx(ctx, tx, householdID, sourceEventID, update, "ASSISTANT", outcome.Step.Text(), "", map[string]any{"step_engine": true})
 }
 
 func (p *Processor) applyStep(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, update telegramUpdate, review engineReview, step Step, in engineInput, picked string) (stepOutcome, error) {
@@ -570,9 +586,9 @@ func (p *Processor) ProcessCardAnswer(ctx context.Context, sourceEventID string)
 			return false, err
 		}
 		if resolved.Kind == interactionCardStep {
-			in := engineInput{Text: text}
+			in := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || interactionOverride(parserName) == interactionParserAnswer}
 			if resolved.ButtonData != "" {
-				in = engineInput{Tap: resolved.ButtonData}
+				in = engineInput{Tap: resolved.ButtonData, Targeted: true}
 			}
 			handled, err := p.runStepEngine(ctx, householdID, sourceEventID, resolved.Update, resolved.Card, in)
 			if err != nil {

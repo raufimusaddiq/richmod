@@ -83,9 +83,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return p.askAnswerOrNew(ctx, householdID, sourceEventID, update)
 	case interactionCardStep:
 		p.recordInteraction(ctx, householdID, sourceEventID, resolved.Card.ReviewItemID, interactionAnswered, resolved.Source)
-		input := engineInput{Text: text}
+		input := engineInput{Text: text, Targeted: resolved.Source != sourcePlain || interactionOverride(parserName) == interactionParserAnswer}
 		if resolved.ButtonData != "" {
-			input = engineInput{Tap: resolved.ButtonData}
+			input = engineInput{Tap: resolved.ButtonData, Targeted: true}
 		}
 		if handled, err := p.runStepEngine(ctx, householdID, sourceEventID, update, resolved.Card, input); handled || err != nil {
 			return err
