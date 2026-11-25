@@ -64,7 +64,11 @@ func (e engineReview) rememberPending() bool {
 	return e.State == "AWAITING_MERCHANT_DECISION" && e.TxStatus == "CONFIRMED" && engineReviewType(e.ReviewType)
 }
 
-func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequestID string, telegramUserID int64) (engineReview, error) {
+func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequestID string, telegramUserID int64, lock bool) (engineReview, error) {
+	lockClause := ""
+	if lock {
+		lockClause = "FOR UPDATE OF r,ri"
+	}
 	var e engineReview
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT r.id::text,ri.id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),r.status,ri.status,
@@ -75,7 +79,7 @@ func loadEngineReview(ctx context.Context, tx pgx.Tx, householdID, reviewRequest
 		LEFT JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
 		LEFT JOIN review_conversation c ON c.review_request_id=r.id
 		WHERE r.id=$1 AND r.household_id=$2
-		FOR UPDATE OF r,ri`, reviewRequestID, householdID, telegramUserID).
+		`+lockClause, reviewRequestID, householdID, telegramUserID).
 		Scan(&e.RequestID, &e.ItemID, &e.TransactionID, &e.ReviewType, &e.State, &e.RequestStatus, &e.ItemStatus, &e.TxStatus, &e.TxType, &e.MerchantID, &raw, &e.UserID, &e.Unexpired)
 	if err != nil {
 		return e, err
@@ -161,7 +165,7 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	review, err := loadEngineReview(ctx, tx, householdID, card.ReviewRequestID, update.Message.From.ID)
+	review, err := loadEngineReview(ctx, tx, householdID, card.ReviewRequestID, update.Message.From.ID, true)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -563,7 +567,7 @@ func (p *Processor) peekStep(ctx context.Context, householdID, reviewRequestID s
 		return Step{}, false, err
 	}
 	defer tx.Rollback(ctx)
-	review, err := loadEngineReview(ctx, tx, householdID, reviewRequestID, telegramUserID)
+	review, err := loadEngineReview(ctx, tx, householdID, reviewRequestID, telegramUserID, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Step{}, false, nil
 	}

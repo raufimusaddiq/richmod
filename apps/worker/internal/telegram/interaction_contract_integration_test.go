@@ -1068,6 +1068,11 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 			h.wantCard("✅ Tersimpan: Investasi · Dana 09 · Rp25.000")
 			h.wantTransfer("TRANSFER", "CONFIRMED", "INVESTMENT_CONTRIBUTION", "Dana 09")
 		}},
+		{"a savings transfer with a stale account points to the app instead of a dead end", transfer, []contractOption{withTransactionType("TRANSFER")}, func(h *contractHarness) {
+			h.wantCard("Ini untuk apa?", "Kotak Tinjauan")
+			h.wantButtons("Abaikan")
+			h.wantNoButton("Beli aset")
+		}},
 		{"Investasi with one linked account finishes without a question", transfer, []contractOption{unclassified, withInvestmentAccounts("Reksa Contoh", "Dana Contoh")}, func(h *contractHarness) {
 			var account string
 			mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `SELECT id FROM wealth_account WHERE household_id=$1 AND name='Dana Contoh'`, h.f.householdID).Scan(&account))

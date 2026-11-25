@@ -22,6 +22,7 @@ const (
 	accountIncompatibleAck = "Akun itu tidak cocok untuk pilihan ini."
 	transferInvalidAck     = "Pilihan itu tidak berlaku untuk transaksi ini."
 	ignoreNotAllowedAck    = "Tinjauan ini tidak bisa diabaikan."
+	relinkElsewhereHint    = "Akun transfer ini diganti lewat Kotak Tinjauan di aplikasi."
 	reconciliationHint     = "Pilih catatan yang sama untuk digabung, atau Catat transfer baru."
 )
 
@@ -84,11 +85,15 @@ func deriveTransferStep(step Step, decision reviewdec.Decision, subject reviewSu
 	}
 	kind := subject.transactionType(decision)
 	if kind == "TRANSFER" {
-		fact := factAsset
-		if subject.Purpose == "INVESTMENT_CONTRIBUTION" {
-			fact = factInvest
+		switch subject.Purpose {
+		case "INVESTMENT_CONTRIBUTION":
+			return accountStepFrom(step, factInvest, false)
+		case "ASSET_PURCHASE":
+			return accountStepFrom(step, factAsset, false)
 		}
-		return accountStepFrom(step, fact, false)
+		step.Hint = relinkElsewhereHint
+		step.Rows = [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: callbackIgnore}}}
+		return step
 	}
 	step.Hint = "Pilih di bawah."
 	step.Rows = transferChoiceRows(kind, classificationActions(cardActions(decision, transferReviewType)))
@@ -484,6 +489,9 @@ func (p *Processor) classifyTransfer(ctx context.Context, tx pgx.Tx, householdID
 	label, detail := transferLabels[classification], ""
 	if classification == "EXPENSE" {
 		label = ""
+		if result.CategoryID == "" {
+			return stepOutcome{Step: transferDoneStep(label, detail, amount), Settled: true, Changed: true}, nil
+		}
 		if err := tx.QueryRow(ctx, `SELECT COALESCE(name,'') FROM category WHERE id=NULLIF($1,'')::uuid`, result.CategoryID).Scan(&detail); err != nil {
 			return stepOutcome{}, err
 		}
