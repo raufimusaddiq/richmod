@@ -20,6 +20,9 @@ func PayslipPolicy(decision Decision, reason string, hasPrimary bool) Decision {
 		decision.WhyNotAuto = kindByReason["MISSING_PAY_DATE"].Why
 	case reason == "PAYSLIP_CONFIRMATION" && hasPrimary:
 		decision.AllowedActions = []string{"HOUSEHOLD_POLICY", "ORDINARY_INCOME", "IGNORE"}
+		if decision.Provenance["conflictingSalaryEvent"] == true {
+			decision.AllowedActions = []string{"ORDINARY_INCOME", "IGNORE"}
+		}
 		decision.WhyNotAuto = payslipHeldReason(decision.Provenance)
 	}
 	return decision
