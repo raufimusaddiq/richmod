@@ -302,13 +302,20 @@ func TestRepeatedInputWithinThreeMinutesIsRecorded(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "resolver-repeated")
-	p := NewProcessor(f.pool, &capturingGateway{})
+	model := &capturingGateway{}
+	p := NewProcessor(f.pool, model)
 	_, err := sendText(t, ctx, f, p, "Berapa total bulan ini", 0)
 	mustAgentTest(t, err)
 	wantInteraction(t, ctx, f, interactionRepeated)
+	if _, flagged := model.turnContext(t, 0)["repeated_question"]; flagged {
+		t.Fatal("a first question must not carry the repeated flag")
+	}
 	_, err = sendText(t, ctx, f, p, "  berapa  TOTAL bulan ini ", 0)
 	mustAgentTest(t, err)
 	wantInteraction(t, ctx, f, interactionRepeated, "")
+	if model.turnContext(t, 1)["repeated_question"] != true {
+		t.Fatal("the repeated question must reach the model context")
+	}
 }
 
 func TestReviewNeverRendersAnEmptyMissingFactsList(t *testing.T) {
