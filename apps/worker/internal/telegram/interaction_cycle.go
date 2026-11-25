@@ -174,7 +174,10 @@ func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, householdID s
 	if err != nil {
 		return Step{}, err
 	}
-	ids := append(split.usedIDs(), split.Pending)
+	ids := split.usedIDs()
+	if split.Pending != "" {
+		ids = append(ids, split.Pending)
+	}
 	names, err := accountNames(ctx, tx, householdID, ids)
 	if err != nil {
 		return Step{}, err
@@ -472,6 +475,10 @@ func (p *Processor) applyCycleAllocations(ctx context.Context, tx pgx.Tx, househ
 		return p.cycleStale(ctx, tx, householdID, review, result)
 	}
 	if _, err := sp.Exec(ctx, cycleResidualAuditSQL, householdID, review.UserID, "CYCLE_RESIDUAL_ALLOCATE_RETAINED_BALANCE", review.CycleCaseID, result.Residual); err != nil {
+		_ = sp.Rollback(ctx)
+		return stepOutcome{}, err
+	}
+	if _, err := sp.Exec(ctx, `UPDATE review_conversation SET context_json=context_json-'cycle_split' WHERE review_request_id=$1`, review.RequestID); err != nil {
 		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
 	}

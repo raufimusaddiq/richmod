@@ -17,6 +17,8 @@ const dateForwardDays = 31
 const (
 	salaryAsk         = "Slip gaji ini dicatat sebagai apa?"
 	payDateAsk        = "Tanggal pembayarannya kapan?"
+	payslipAppAsk     = "Slip gaji ini perlu dicek di aplikasi."
+	payslipAppHint    = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
 	salaryChoiceHint  = "Pilih di bawah."
 	dateHint          = "Pilih di bawah, atau ketik tanggalnya."
 	dateOtherHint     = "Ketik tanggalnya, misalnya 3 Okt atau 25/9."
@@ -44,14 +46,6 @@ func payslipReviewType(reviewType string) bool {
 }
 
 func engineOwnsPayslip(decision reviewdec.Decision) bool {
-	if len(decision.MissingFacts) == 0 || (decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true) {
-		return false
-	}
-	for _, fact := range decision.MissingFacts {
-		if fact != "transaction_at" && fact != "salary_classification" {
-			return false
-		}
-	}
 	return true
 }
 
@@ -63,7 +57,19 @@ func derivePayslipStep(step Step, decision reviewdec.Decision, reviewType string
 		step.Rows = salaryChoiceRows(actions)
 		return step
 	}
-	return dateStepFrom(step, payDateAsk, actions)
+	if contains(decision.MissingFacts, "transaction_at") && !payslipDisputed(decision) {
+		return dateStepFrom(step, payDateAsk, actions)
+	}
+	step.Kind, step.Fact, step.State = stepChoice, factSalary, "AWAITING_DETAIL"
+	step.Ask, step.Hint = payslipAppAsk, payslipAppHint
+	if contains(actions, "IGNORE") {
+		step.Rows = [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: callbackIgnore}}}
+	}
+	return step
+}
+
+func payslipDisputed(decision reviewdec.Decision) bool {
+	return decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true
 }
 
 func salaryChoiceRows(actions []string) [][]InlineKeyboardButton {
@@ -273,7 +279,7 @@ func (p *Processor) finishPayslip(ctx context.Context, tx, sp pgx.Tx, householdI
 	}
 	var amount string
 	var at time.Time
-	if err := tx.QueryRow(ctx, `SELECT round(amount)::text,transaction_at FROM transaction WHERE id=$1`, result.TransactionID).Scan(&amount, &at); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT round(amount)::text,transaction_at FROM transaction WHERE id=$1 AND household_id=$2`, result.TransactionID, householdID).Scan(&amount, &at); err != nil {
 		return stepOutcome{}, err
 	}
 	startsCycle := false

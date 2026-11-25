@@ -157,3 +157,12 @@ func TestCardDateAnswerRejectsNormalizedLeapDay(t *testing.T) {
 		t.Fatalf("29/2 on 2028-02-10 returned %s; want no date", got.Format("2006-01-02"))
 	}
 }
+
+func TestPayslipWithADisputedEvidenceLinkStillGetsAStepCardWithoutAReplyPrompt(t *testing.T) {
+	decision, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "p")
+	decision.Provenance = map[string]any{"evidence_link_dispute": true}
+	step, ok := deriveStep(decision, "MISSING_PAY_DATE", "", reviewSubject{})
+	if !ok || strings.Contains(step.Text(), "Balas pesan ini") || len(step.buttons()) != 1 || step.buttons()[0].CallbackData != callbackIgnore {
+		t.Fatalf("ok=%v step=%q buttons=%#v", ok, step.Text(), step.buttons())
+	}
+}
