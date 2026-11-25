@@ -89,7 +89,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	if cycleResidual {
 		allocation := objectSchema(map[string]any{
 			"wealth_account_hint": map[string]any{"type": "string", "description": "Human-readable Wealth Account name/institution hint. Never use a database UUID."},
-			"amount_idr":          map[string]any{"type": "string"},
+			"amount_idr":          amountSchema(false),
 			"note":                nullString,
 		}, []string{"wealth_account_hint", "amount_idr", "note"})
 		tools = append(tools, gateway.ToolDefinition{
@@ -121,7 +121,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 			Parameters: objectSchema(map[string]any{
 				"action":               map[string]any{"type": "string", "enum": []string{"CONFIRM", "CANCEL", "UPDATE"}},
 				"item_ref":             nullString,
-				"amount_idr":           nullString,
+				"amount_idr":           amountSchema(true),
 				"merchant":             nullString,
 				"category_slug":        categorySchema(),
 				"description":          nullString,
@@ -140,7 +140,7 @@ func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string)
 			return nil, err
 		}
 		if strings.TrimSpace(args.TargetRef) == "" || len(args.TargetRef) > 40 {
-			return nil, fmt.Errorf("invalid transaction reference")
+			return nil, fmt.Errorf("target_ref must be a transaction ref copied from context or results, like a1b2c3d4_p1r1_tx1")
 		}
 		return remarshal(args), nil
 	case "dispute_evidence_link":
@@ -181,15 +181,15 @@ func validateAgentToolCall(call gateway.ToolCall, reviewType, reviewMode string)
 			return nil, err
 		}
 		if !containsAgentReviewAction(args.Action, reviewType, reviewMode) {
-			return nil, fmt.Errorf("invalid review action")
+			return nil, fmt.Errorf("action must be one of %s, got %q", strings.Join(allowedAgentReviewActions(reviewType, reviewMode), ", "), args.Action)
 		}
 		for _, allocation := range args.Allocations {
 			if strings.TrimSpace(allocation.WealthAccountHint) == "" {
-				return nil, fmt.Errorf("missing wealth account hint")
+				return nil, fmt.Errorf("each allocation needs wealth_account_hint, a Wealth Account name from list_wealth_accounts")
 			}
 			amount, ok := new(big.Int).SetString(allocation.AmountIDR, 10)
 			if !ok || amount.Sign() <= 0 || amount.String() != allocation.AmountIDR {
-				return nil, fmt.Errorf("invalid residual allocation amount")
+				return nil, fmt.Errorf("allocation amount_idr must be a positive whole rupiah number without separators, e.g. 250000")
 			}
 		}
 		return remarshal(args), nil
@@ -235,11 +235,14 @@ type agentResolveReviewArgs struct {
 }
 
 func containsAgentReviewAction(action, reviewType, reviewMode string) bool {
-	allowed := reviewdec.AllAgentActions()
+	return slices.Contains(allowedAgentReviewActions(reviewType, reviewMode), action)
+}
+
+func allowedAgentReviewActions(reviewType, reviewMode string) []string {
 	if reviewType != "" || reviewMode != "" {
-		allowed = reviewActionEnum(reviewType, reviewMode)
+		return reviewActionEnum(reviewType, reviewMode)
 	}
-	return slices.Contains(allowed, action)
+	return reviewdec.AllAgentActions()
 }
 
 func decodeAgentArgsRaw[T any](call gateway.ToolCall) (T, error) {

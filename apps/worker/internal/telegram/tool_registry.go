@@ -17,34 +17,37 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
 	localTime := map[string]any{"type": []string{"string", "null"}, "description": "Exact local HH:MM (24-hour), or PAGI, SIANG, SORE, MALAM when the user named a time of day. Null when no time was stated."}
-	dateRef := map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}}
-	period := map[string]any{"type": "string", "enum": []string{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM"}}
+	dateRef := dateReferenceSchema()
+	period := periodSchema(false)
 	category := categorySchema()
 	_ = categories
-	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": stringType, "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "date_provenance": map[string]any{"type": []string{"string", "null"}, "enum": []any{"USER_STATED", "NOT_USER_STATED", nil}}, "explicit_date": nullString, "local_time": localTime, "ambiguous": map[string]any{"type": "boolean"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "date_provenance", "explicit_date", "local_time", "ambiguous", "confidence", "category_confidence"})
-	periodProps := map[string]any{"period": period, "from_date": nullString, "to_date": nullString}
+	confidence := func(subject string) map[string]any {
+		return map[string]any{"type": "number", "minimum": 0, "maximum": 1, "description": "Your confidence 0-1 in " + subject + "."}
+	}
+	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": amountSchema(false), "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "date_provenance": map[string]any{"type": []string{"string", "null"}, "enum": []any{"USER_STATED", "NOT_USER_STATED", nil}, "description": "USER_STATED when the user said the day or date; NOT_USER_STATED when you inferred it. Null exactly when date_reference is null."}, "explicit_date": explicitDateSchema(), "local_time": localTime, "ambiguous": map[string]any{"type": "boolean", "description": "true only when income vs expense or the amount is unclear; Go then sends it to review. An unclear category is not ambiguity: use category_slug null."}, "confidence": confidence("type and amount"), "category_confidence": confidence("category_slug, 0 when it is null")}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "date_provenance", "explicit_date", "local_time", "ambiguous", "confidence", "category_confidence"})
+	periodProps := map[string]any{"period": period, "from_date": customDateSchema("start"), "to_date": customDateSchema("end")}
 	tools := []gateway.ToolDefinition{
 		{Name: "record_transaction", Description: "Record one observed household IDR income or expense intent. For a clearly named purchased item or service, select the best matching allowed category. Preserve explicit past dates; use PAGI, SIANG, SORE, or MALAM for a named time of day. Go validates and persists.", Parameters: entry},
 		{Name: "record_transaction_batch", Description: "Stage 1-10 observed household IDR transactions for explicit confirmation.", Parameters: objectSchema(map[string]any{"items": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": entry}}, []string{"items"})},
 		{Name: "query_spending", Description: "Ask Go for deterministic confirmed net expense for a bounded period, with its breakdown by household category (largest first, up to 20). Use it for totals and for what the money went to; never infer totals yourself.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_cashflow", Description: "Ask Go for deterministic confirmed income, expense and net cash flow for a bounded period, plus the open review count and the largest expense counterparty.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
-		{Name: "record_transfer", Description: "Record an observed whole-IDR transfer between the household's own accounts, using human-readable account hints only. Supply amount, source, destination Wealth hint, and date/time; omit the destination hint for a plain transfer between two transaction accounts. Go resolves each hint uniquely inside this household, decides the canonical transfer purpose itself, reconciles existing canonical transactions, and never accepts or guesses database IDs.", Parameters: objectSchema(map[string]any{"amount_idr": stringType, "source_account_hint": stringType, "destination_wealth_account_hint": nullString, "date_reference": dateRef, "explicit_date": nullString, "local_time": nullString, "description": nullString}, []string{"amount_idr", "source_account_hint", "destination_wealth_account_hint", "date_reference", "explicit_date", "local_time", "description"})},
+		{Name: "record_transfer", Description: "Record an observed whole-IDR transfer between the household's own accounts, using human-readable account hints only. Supply amount, source, destination Wealth hint, and date/time; omit the destination hint for a plain transfer between two transaction accounts. Go resolves each hint uniquely inside this household, decides the canonical transfer purpose itself, reconciles existing canonical transactions, and never accepts or guesses database IDs.", Parameters: objectSchema(map[string]any{"amount_idr": amountSchema(false), "source_account_hint": stringType, "destination_wealth_account_hint": nullString, "date_reference": dateRef, "explicit_date": explicitDateSchema(), "local_time": localTime, "description": nullString}, []string{"amount_idr", "source_account_hint", "destination_wealth_account_hint", "date_reference", "explicit_date", "local_time", "description"})},
 		{Name: "query_savings", Description: "Ask Go for deterministic confirmed savings totals, using canonical savings purposes only.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_wealth", Description: "Ask Go for net worth from the latest complete Wealth Snapshot and its observed timestamp.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "list_wealth_accounts", Description: "Ask Go for active household Wealth Accounts.", Parameters: objectSchema(map[string]any{}, []string{})},
-		{Name: "search_transactions", Description: "Find household transactions in a bounded period, returned with opaque refs. search_text matches merchant, description or category; null lists all. order_by RECENT (default) is newest first over income/expense/refund; LARGEST is the biggest confirmed expenses/refunds first. limit 1-10.", Parameters: objectSchema(map[string]any{"period": period, "from_date": nullString, "to_date": nullString, "search_text": nullString, "order_by": map[string]any{"type": []string{"string", "null"}, "enum": []any{"RECENT", "LARGEST", nil}}, "limit": map[string]any{"type": []string{"integer", "null"}, "minimum": 1, "maximum": 10}}, []string{"period", "from_date", "to_date", "search_text", "order_by", "limit"})},
+		{Name: "search_transactions", Description: "Find household transactions in a bounded period, returned with opaque refs. search_text matches merchant, description or category and is required unless order_by is LARGEST; with LARGEST, null search_text lists the biggest confirmed expenses/refunds of the period. order_by RECENT (default) is newest first over income/expense/refund. limit 1-10.", Parameters: objectSchema(map[string]any{"period": period, "from_date": customDateSchema("start"), "to_date": customDateSchema("end"), "search_text": nullString, "order_by": map[string]any{"type": []string{"string", "null"}, "enum": []any{"RECENT", "LARGEST", nil}}, "limit": map[string]any{"type": []string{"integer", "null"}, "minimum": 1, "maximum": 10}}, []string{"period", "from_date", "to_date", "search_text", "order_by", "limit"})},
 		{Name: "list_review_items", Description: "List active household review items relevant to this Telegram user/chat.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "get_evidence_context", Description: "Read the current state of one receipt or document Richmod already showed you, by its opaque evidence_ref. Go returns its observed, canonical and workflow blocks. It changes no financial or review state; it only refreshes the ref's expiry. Use it before answering about a document whose state may have changed.", Parameters: objectSchema(map[string]any{"evidence_ref": stringType}, []string{"evidence_ref"})},
 		{Name: "ask_clarification", Description: "Ask for missing finance details without guessing.", Parameters: objectSchema(map[string]any{"topic": map[string]any{"type": "string", "enum": []string{"TRANSACTION", "PERIOD", "TARGET", "CATEGORY", "REVIEW"}}, "missing_fields": map[string]any{"type": "array", "items": stringType}}, []string{"topic", "missing_fields"})},
 		{Name: "finance_help", Description: "Show Richmod finance command examples.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "finance_out_of_scope", Description: "Reject unsupported non-finance or out-of-MVP requests.", Parameters: objectSchema(map[string]any{"reason": map[string]any{"type": "string", "enum": []string{"NON_FINANCE", "INVESTMENT_ACTION_UNSUPPORTED", "SYSTEM_REQUEST", "UNSUPPORTED_LANGUAGE"}}}, []string{"reason"})},
-		{Name: "propose_transaction_correction", Description: "Stage a correction of one recorded transaction for the user's button confirmation, using a target_ref from results or search criteria; Go resolves one target. Fields left null stay unchanged. amount_idr and merchant can change only a transaction the household entered itself (Telegram or web); for bank, provider or document-backed transactions Go answers SOURCE_EVIDENCE_FIXES_AMOUNT.", Parameters: objectSchema(map[string]any{"target_ref": nullString, "search_text": nullString, "period": period, "from_date": nullString, "to_date": nullString, "category_slug": category, "description": nullString, "amount_idr": nullString, "merchant": nullString, "date_reference": dateRef, "explicit_date": nullString, "local_time": localTime}, []string{"target_ref", "search_text", "period", "from_date", "to_date", "category_slug", "description", "amount_idr", "merchant", "date_reference", "explicit_date", "local_time"})},
+		{Name: "propose_transaction_correction", Description: "Stage a correction of one recorded transaction for the user's button confirmation. Pass target_ref from results or context (period then null), or search_text with a period; Go resolves one target. Fields left null stay unchanged. amount_idr and merchant can change only a transaction the household entered itself (Telegram or web); for bank, provider or document-backed transactions Go answers SOURCE_EVIDENCE_FIXES_AMOUNT.", Parameters: objectSchema(map[string]any{"target_ref": nullString, "search_text": nullString, "period": periodSchema(true), "from_date": customDateSchema("start"), "to_date": customDateSchema("end"), "category_slug": category, "description": nullString, "amount_idr": amountSchema(true), "merchant": nullString, "date_reference": dateRef, "explicit_date": explicitDateSchema(), "local_time": localTime}, []string{"target_ref", "search_text", "period", "from_date", "to_date", "category_slug", "description", "amount_idr", "merchant", "date_reference", "explicit_date", "local_time"})},
 	}
 	if hasPendingAction {
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_action", Description: "Confirm the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_action", Description: "Cancel the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
 	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionEnum(reviewType, reviewMode)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_hint": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_hint", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionEnum(reviewType, reviewMode)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": amountSchema(true), "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_hint": stringType, "amount_idr": amountSchema(false), "note": nullString}, []string{"wealth_account_hint", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
 	}
 	if hasSalaryChoice {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
@@ -63,6 +66,41 @@ func reviewActionEnum(reviewType, reviewMode string) []string {
 		return reviewdec.AgentActions(reviewMode)
 	}
 	return reviewdec.AgentActions(reviewType)
+}
+
+var periodNames = []string{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM"}
+
+const periodDescription = "THIS_WEEK/LAST_WEEK start Monday; THIS_MONTH/LAST_MONTH are calendar months; CURRENT_CYCLE/PREVIOUS_CYCLE are salary cycles; CUSTOM needs from_date and to_date."
+
+func periodSchema(nullable bool) map[string]any {
+	if !nullable {
+		return map[string]any{"type": "string", "enum": periodNames, "description": periodDescription}
+	}
+	values := make([]any, 0, len(periodNames)+1)
+	for _, name := range periodNames {
+		values = append(values, name)
+	}
+	return map[string]any{"type": []string{"string", "null"}, "enum": append(values, nil), "description": "Search window for search_text, null with target_ref. " + periodDescription}
+}
+
+func customDateSchema(edge string) map[string]any {
+	return map[string]any{"type": []string{"string", "null"}, "description": "Inclusive " + edge + " date YYYY-MM-DD, only with period CUSTOM; otherwise null."}
+}
+
+func amountSchema(nullable bool) map[string]any {
+	description := `Whole rupiah, digits only: "15rb" -> "15000", "1,5jt" -> "1500000", "Rp26.500" -> "26500".`
+	if nullable {
+		return map[string]any{"type": []string{"string", "null"}, "description": description + " Null when unchanged."}
+	}
+	return map[string]any{"type": "string", "description": description}
+}
+
+func dateReferenceSchema() map[string]any {
+	return map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}, "description": `TODAY ("hari ini"), YESTERDAY ("kemarin"), EXPLICIT for any other day ("2 hari lalu", "tgl 15") with explicit_date, or null when no day was stated.`}
+}
+
+func explicitDateSchema() map[string]any {
+	return map[string]any{"type": []string{"string", "null"}, "description": "YYYY-MM-DD resolved from turn_context.current_jakarta_datetime, only with date_reference EXPLICIT; otherwise null."}
 }
 
 func categorySchema() map[string]any {
@@ -333,7 +371,7 @@ func validateTypedArgs(value any) error {
 		return validateCreate(*v)
 	case *batchArgs:
 		if len(v.Items) < 1 || len(v.Items) > 10 {
-			return fmt.Errorf("batch size")
+			return fmt.Errorf("items must list 1-10 transactions, got %d", len(v.Items))
 		}
 		for _, item := range v.Items {
 			if err := validateCreate(item); err != nil {
@@ -342,23 +380,29 @@ func validateTypedArgs(value any) error {
 		}
 	case *periodArgs:
 		if !validPeriod(v.Period) {
-			return fmt.Errorf("period")
+			return periodError(v.Period)
 		}
 	case *transferArgs:
 		n, ok := new(big.Int).SetString(v.Amount, 10)
-		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "" && v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
-			return fmt.Errorf("transfer")
+		if !ok || n.Sign() <= 0 || n.String() != v.Amount {
+			return fmt.Errorf("amount_idr must be a positive whole rupiah number without separators, e.g. 25000")
+		}
+		if strings.TrimSpace(v.SourceAccountHint) == "" {
+			return fmt.Errorf("source_account_hint is required: the account name the money left, as the user said it")
+		}
+		if v.DateReference != "" && v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT" {
+			return fmt.Errorf("date_reference must be TODAY, YESTERDAY, EXPLICIT or null")
 		}
 		if err := validateDateFields(v.DateReference, v.ExplicitDate, v.LocalTime); err != nil {
 			return err
 		}
 	case *evidenceArgs:
 		if len(v.EvidenceRef) > 64 || !evidenceRefPattern.MatchString(v.EvidenceRef) {
-			return fmt.Errorf("evidence reference")
+			return fmt.Errorf("evidence_ref must be copied exactly from this turn's context, like a1b2c3d4_p1r1_ev1")
 		}
 	case *searchArgs:
 		if !validPeriod(v.Period) {
-			return fmt.Errorf("period")
+			return periodError(v.Period)
 		}
 		order := pointerValue(v.OrderBy)
 		if order != "" && order != "RECENT" && order != "LARGEST" {
@@ -372,18 +416,19 @@ func validateTypedArgs(value any) error {
 		}
 	case *clarifyArgs:
 		if strings.TrimSpace(v.Topic) == "" {
-			return fmt.Errorf("clarification")
+			return fmt.Errorf("topic must be TRANSACTION, PERIOD, TARGET, CATEGORY or REVIEW")
 		}
 	case *outOfScopeArgs:
 		if strings.TrimSpace(v.Reason) == "" {
-			return fmt.Errorf("reason")
+			return fmt.Errorf("reason must be NON_FINANCE, INVESTMENT_ACTION_UNSUPPORTED, SYSTEM_REQUEST or UNSUPPORTED_LANGUAGE")
 		}
 	case *correctionArgs:
-		if v.TargetRef == nil && strings.TrimSpace(pointerValue(v.SearchText)) == "" {
+		hasTarget := strings.TrimSpace(pointerValue(v.TargetRef)) != ""
+		if !hasTarget && strings.TrimSpace(pointerValue(v.SearchText)) == "" {
 			return fmt.Errorf("target_ref or search_text is required")
 		}
-		if !validPeriod(v.Period) {
-			return fmt.Errorf("period")
+		if (!hasTarget || v.Period != "") && !validPeriod(v.Period) {
+			return periodError(v.Period)
 		}
 		if v.CategorySlug == nil && v.Description == nil && v.DateReference == nil && v.Amount == nil && v.Merchant == nil {
 			return fmt.Errorf("name at least one change: category_slug, description, amount_idr, merchant or a date")
@@ -404,16 +449,20 @@ func validateTypedArgs(value any) error {
 		}
 	case *resolveReviewArgs:
 		if !slices.Contains(reviewdec.AllAgentActions(), v.Action) {
-			return fmt.Errorf("review action")
+			return fmt.Errorf("action must be one of the resolve_review action enum values, got %q", v.Action)
 		}
 	case *salaryChoiceArgs:
 		if v.Choice != "PRIMARY" && v.Choice != "ORDINARY" && v.Choice != "IGNORE" {
-			return fmt.Errorf("salary choice")
+			return fmt.Errorf("choice must be PRIMARY, ORDINARY or IGNORE")
 		}
 	}
 	return nil
 }
 
 func validPeriod(value string) bool {
-	return map[string]bool{"TODAY": true, "THIS_WEEK": true, "LAST_WEEK": true, "THIS_MONTH": true, "LAST_MONTH": true, "CURRENT_CYCLE": true, "PREVIOUS_CYCLE": true, "CUSTOM": true}[value]
+	return slices.Contains(periodNames, value)
+}
+
+func periodError(value string) error {
+	return fmt.Errorf("period must be one of %s, got %q", strings.Join(periodNames, ", "), value)
 }
