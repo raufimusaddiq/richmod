@@ -16,7 +16,7 @@ var missingNames = map[string]bool{"amount_idr": true, "transaction_at": true, "
 
 func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	if call.Name != "emit_bank_transaction" {
-		return Extraction{}, fmt.Errorf("unexpected tool %s, want emit_bank_transaction", shown(call.Name))
+		return Extraction{}, fmt.Errorf("unexpected tool, want emit_bank_transaction")
 	}
 	var raw struct {
 		Kind          string            `json:"kind"`
@@ -56,27 +56,27 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		}
 	}
 	if raw.Kind != "TRANSACTION" && raw.Kind != "NON_TRANSACTION" && raw.Kind != "UNKNOWN" {
-		return Extraction{}, fmt.Errorf("invalid kind %s, want TRANSACTION, NON_TRANSACTION or UNKNOWN", shown(raw.Kind))
+		return Extraction{}, fmt.Errorf("invalid kind, want TRANSACTION, NON_TRANSACTION or UNKNOWN")
 	}
 	if raw.Direction != nil && !oneOf(*raw.Direction, "OUTGOING", "INCOMING", "INTERNAL", "UNKNOWN") {
-		return Extraction{}, fmt.Errorf("invalid direction %s, want OUTGOING, INCOMING, INTERNAL, UNKNOWN or null", shown(*raw.Direction))
+		return Extraction{}, fmt.Errorf("invalid direction, want OUTGOING, INCOMING, INTERNAL, UNKNOWN or null")
 	}
 	if raw.Channel != nil && !oneOf(*raw.Channel, "DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "TRANSFER", "ATM", "BANK_FEE", "INTERNAL_TRANSFER", "RDN", "OTHER", "UNKNOWN") {
-		return Extraction{}, fmt.Errorf("invalid channel %s, want one of the schema channel values or null", shown(*raw.Channel))
+		return Extraction{}, fmt.Errorf("invalid channel, want one of the schema channel values or null")
 	}
 	if raw.AmountIDR != nil {
 		if *raw.AmountIDR == "" || strings.Trim(*raw.AmountIDR, "0123456789") != "" {
-			return Extraction{}, fmt.Errorf("invalid amount_idr %s, want digits only such as 1250000", shown(*raw.AmountIDR))
+			return Extraction{}, fmt.Errorf("invalid amount_idr, want digits only such as 1250000")
 		}
 		if !reviewdomain.ValidBankAmountIDR(*raw.AmountIDR) {
-			return Extraction{}, fmt.Errorf("invalid amount_idr %s, want a positive whole IDR amount", shown(*raw.AmountIDR))
+			return Extraction{}, fmt.Errorf("invalid amount_idr, want a positive whole IDR amount")
 		}
 	}
 	var at *time.Time
 	if raw.TransactionAt != nil {
 		parsed, err := parseStrictBankRFC3339(*raw.TransactionAt)
 		if err != nil {
-			return Extraction{}, fmt.Errorf("invalid transaction_at %s, want RFC3339 with offset such as 2026-08-28T14:05:00+07:00", shown(*raw.TransactionAt))
+			return Extraction{}, fmt.Errorf("invalid transaction_at, want RFC3339 with offset such as 2026-08-28T14:05:00+07:00")
 		}
 		at = &parsed
 	}
@@ -89,7 +89,7 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	if raw.CategorySlug != nil {
 		trimmed := strings.TrimSpace(*raw.CategorySlug)
 		if trimmed == "" || len([]rune(trimmed)) > 160 {
-			return Extraction{}, fmt.Errorf("invalid category_slug %s, want a slug from allowed_categories or null", shown(*raw.CategorySlug))
+			return Extraction{}, fmt.Errorf("invalid category_slug, want a slug from allowed_categories or null")
 		}
 		categorySlug = &trimmed
 	}
@@ -99,7 +99,7 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	seen := map[string]bool{}
 	for _, name := range raw.MissingFields {
 		if !missingNames[name] || seen[name] {
-			return Extraction{}, fmt.Errorf("invalid or repeated missing_fields entry %s", shown(name))
+			return Extraction{}, fmt.Errorf("invalid or repeated missing_fields entry")
 		}
 		seen[name] = true
 	}
@@ -113,14 +113,14 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		seen = map[string]bool{}
 		for _, name := range raw.Review.MissingFields {
 			if !missingNames[name] || seen[name] {
-				return Extraction{}, fmt.Errorf("invalid or repeated review.missingFields entry %s", shown(name))
+				return Extraction{}, fmt.Errorf("invalid or repeated review.missingFields entry")
 			}
 			seen[name] = true
 		}
 		seen = map[string]bool{}
 		for _, action := range raw.Review.SuggestedActions {
 			if !oneOf(action, "USE_EMAIL_RECEIVED_AT", "ENTER_TRANSACTION_TIME", "IGNORE") || seen[action] {
-				return Extraction{}, fmt.Errorf("invalid or repeated review.suggestedActions entry %s", shown(action))
+				return Extraction{}, fmt.Errorf("invalid or repeated review.suggestedActions entry")
 			}
 			seen[action] = true
 		}
@@ -148,13 +148,6 @@ func parseStrictBankRFC3339(value string) (time.Time, error) {
 	return parsed, nil
 }
 
-func shown(value string) string {
-	runes := []rune(value)
-	if len(runes) > 64 {
-		value = string(runes[:64]) + "..."
-	}
-	return fmt.Sprintf("%q", value)
-}
 
 func oneOf(value string, values ...string) bool {
 	for _, item := range values {
