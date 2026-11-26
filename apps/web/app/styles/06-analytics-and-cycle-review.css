@@ -125,11 +125,30 @@
 .pace-notes li[data-shape="marker"] i { width: 10px; height: 10px; border: 2px solid var(--ink-soft); border-radius: 50%; background: var(--surface-strong); vertical-align: -1px; }
 .pace-notes li[data-shape="marker"][data-tone="median"] i { border-color: var(--chart-reference); }
 .evidence-back { display: inline-block; margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); }
-.calendar-body { display: grid; gap: 18px; }
+.calendar-body { display: grid; gap: 0; }
 .calendar-body > * { min-width: 0; }
+.calendar-body > .review-stack { margin-bottom: var(--space-3); }
 .calendar-section[data-stale] { opacity: .5; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-standard); }
 .calendar-body th small { display: block; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
 .calendar-body .month-start td { color: var(--muted); font-size: var(--text-xs); text-align: left; }
+.calendar-range-anchor { position: relative; display: flex; flex-wrap: wrap; align-items: center; }
+.cycle-review .range-controls .calendar-period-button { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.cycle-review .range-controls .calendar-period-button:hover { border-color: var(--ink); background: var(--surface-muted); color: var(--ink); }
+.cycle-review .range-controls .calendar-period-button.active { border-color: var(--ink); background: var(--accent-soft); color: var(--accent); }
+.calendar-period-caret { color: var(--muted); font-size: var(--text-xs); }
+.calendar-range-popover { position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: min(360px, calc(100vw - 32px)); padding: var(--space-4); border: 1.5px solid var(--ink); border-radius: var(--radius-md); background: var(--surface-strong); box-shadow: var(--shadow); }
+.cycle-review .calendar-range-popover .custom-range { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); margin: 0; align-items: stretch; }
+.cycle-review .calendar-range-popover .custom-range label { display: grid; gap: 4px; color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.cycle-review .calendar-range-popover .custom-range select { width: 100%; min-height: 44px; }
+.cycle-review .calendar-range-popover .custom-range button { width: 100%; min-height: 44px; border: 1.5px solid var(--ink); background: var(--accent); color: var(--surface-strong); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.cycle-review .calendar-range-popover .custom-range button:hover:not(:disabled) { border-color: var(--ink); background: var(--accent-hover); color: var(--surface-strong); }
+.cycle-review .calendar-range-popover .custom-range button:disabled { border-color: var(--line-strong); background: transparent; color: var(--muted); }
+.calendar-range-popover .feedback { margin: var(--space-3) 0 0; }
+@media (max-width: 900px) {
+  .calendar-range-anchor { width: 100%; }
+  .cycle-review .range-controls .calendar-period-button { width: 100%; justify-content: space-between; }
+  .calendar-range-popover { position: static; width: 100%; margin-top: var(--space-2); box-shadow: none; }
+}
 
 .ledger-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
 .ledger-selection button, .ledger-selection a { display: inline-flex; align-items: center; min-height: 44px; }
@@ -265,6 +284,7 @@
 .household-bar i[data-tint="3"] { background: #7b8979; }
 .household-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .household-list > li { display: grid; grid-template-columns: 34px minmax(0, 1fr) 110px 150px 64px; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--line); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.household-list[data-no-count] > li { grid-template-columns: 34px minmax(0, 1fr) 150px 64px; }
 .household-list > li:first-child { border-top: 0; }
 .household-avatar, .decision-avatar { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 50%; background: #f1e2c8; font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .household-avatar[data-tint="1"], .decision-avatar[data-tint="1"] { background: #dcddf0; }
@@ -290,7 +310,7 @@
   .heat-table tbody th small.heat-row-delta { display: block; margin-top: 2px; }
   .heat-table tbody th { font-size: var(--text-xs); }
   .heat-cell { padding: 6px 0; font-size: var(--text-xs); }
-  .household-list > li { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 2px var(--space-2); }
+  .household-list > li, .household-list[data-no-count] > li { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 2px var(--space-2); }
   .household-count { grid-column: 2; grid-row: 2; text-align: left; }
   .household-amount { grid-column: 3; grid-row: 1; }
   .household-share { grid-column: 3; grid-row: 2; text-align: right; }
@@ -306,7 +326,8 @@
 .cat-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .cat-list > li { border-top: 1px solid var(--line); }
 .cat-list > li:first-child { border-top: 0; }
-.cat-row, .cycle-review .cat-row:hover:not(:disabled) { display: grid; grid-template-columns: minmax(150px, 1.5fr) minmax(80px, 1.4fr) 124px 56px minmax(140px, 1.3fr); gap: var(--space-2) var(--space-3); align-items: center; width: 100%; min-height: 44px; padding: var(--space-2) var(--space-2); border: 0; border-radius: var(--radius-xs); background: none; color: var(--ink); font: inherit; text-align: left; box-shadow: none; }
+.cat-row { display: grid; grid-template-columns: minmax(150px, 1.5fr) minmax(80px, 1.4fr) 124px 56px minmax(140px, 1.3fr); gap: var(--space-2) var(--space-3); align-items: center; width: 100%; min-height: 44px; padding: var(--space-2) var(--space-2); border: 0; border-radius: var(--radius-xs); background: none; color: var(--ink); font: inherit; text-align: left; box-shadow: none; }
+.category-card[data-calendar] .cat-row { grid-template-columns: minmax(150px, 1.6fr) minmax(80px, 1.6fr) 124px 60px; }
 .cat-row-head { min-height: 0; padding-block: 4px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .04em; }
 .cat-head-num { text-align: right; }
 button.cat-row { cursor: pointer; }
@@ -354,6 +375,7 @@ button.cat-row:hover:not(:disabled) { background: var(--surface-muted); }
 .merchant-item[data-other] .merchant-item-name { color: var(--muted); font-weight: 500; }
 .merchant-item-amount { font-size: var(--text-sm); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .merchant-item-bar { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--surface-muted); }
+.merchant-item[data-no-delta] .merchant-item-bar { grid-column: 1 / -1; }
 .merchant-item-bar i { display: block; height: 100%; border-radius: 3px; background: var(--line-strong); }
 .merchant-row-delta { font-size: var(--text-xs); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .merchant-row-delta[data-tone="good"] { color: var(--income); }
@@ -393,7 +415,7 @@ button.cat-row:hover:not(:disabled) { background: var(--surface-muted); }
 .drawer-list li > a.drawer-open { grid-column: 1 / -1; min-height: 44px; display: inline-flex; align-items: center; }
 .drawer-list small { display: block; color: var(--muted); font-size: var(--text-xs); }
 @media (max-width: 820px) {
-  .cat-row, .cycle-review .cat-row:hover:not(:disabled), .cycle-review details.cat-other-details > summary { grid-template-columns: minmax(0, 1fr) auto; gap: 4px var(--space-2); padding: var(--space-2) var(--space-1); }
+  .cat-row, .category-card[data-calendar] .cat-row, .cycle-review details.cat-other-details > summary { grid-template-columns: minmax(0, 1fr) auto; gap: 4px var(--space-2); padding: var(--space-2) var(--space-1); }
   .cat-row-head, .cat-pct { display: none; }
   .cat-name { grid-column: 1; grid-row: 1; }
   .cat-amount { grid-column: 2; grid-row: 1; }

@@ -17,7 +17,7 @@ import { CategoryDrawer, DailyCard, HistoryCard } from "./CycleWhere";
 import CategoryTable from "./CategoryTable";
 import { KpiStrip, LastCycleCard, NoticeStrip, PaceCard, QualityFooter } from "./CycleDashboard";
 import WealthWorkspace from "../wealth/WealthWorkspace";
-import { CalendarReview } from "./CalendarReview";
+import { CalendarRangeControls, CalendarReview } from "./CalendarReview";
 
 const reportTabs = [["cycle", "Arus kas"], ["wealth", "Kekayaan"]];
 
@@ -226,8 +226,9 @@ function AnalyticsReview() {
           <strong>{statusLine}</strong>
           {wealthNotices.length > 0 && <a className="quality-chip" href={meeting ? selectionHref({ ...selection, step: "quality" }) : "#quality"} onClick={jumpToQuality}>{wealthNotices.length} perlu dilengkapi</a>}
         </div>}</>}
+        {selection.view === "calendar" && <CalendarRangeControls selection={selection} navigate={navigate}/>}
       </div>
-      {selection.view === "calendar" ? <CalendarReview selection={selection} navigate={navigate}/> : <>
+      {selection.view === "calendar" ? <CalendarReview selection={selection} palette={palette}/> : <>
         <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
         {error && <button type="button" className="secondary" onClick={() => navigate({ cycle: "", category: "" })}>Siklus berjalan</button>}
         {loading && !facts && <Skeleton cards={3} rows={4}/>}

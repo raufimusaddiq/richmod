@@ -118,7 +118,7 @@ export function kpiCells(facts) {
   ];
 }
 
-function signedValue(value) {
+export function signedValue(value) {
   if (value == null) return "—";
   if (isZero(value)) return money("0");
   return `${isNegative(value) ? "−" : "+"}${money(magnitude(value))}`;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ratioLabel, transactionHref } from "../lib/cycleReview";
+import { calendarCategoryView } from "../lib/calendarReview";
 import { categoryColorMap, changesView, nonZeroCategoryChanges, OTHER_CATEGORY_COLOR, rankingView } from "../lib/cycleWhere";
 import { money } from "../lib/format";
 import { ComparisonContext, ChangesTable } from "./CycleSections";
@@ -16,7 +17,7 @@ function DeltaCell({ delta, hasBaseline, early }) {
   </span>;
 }
 
-function RowCells({ row, hasBaseline, early, swatch = true }) {
+function RowCells({ row, hasBaseline = false, early = false, swatch = true, showDelta = true }) {
   const showSwatch = swatch && Boolean(row.color);
   const barColor = row.color || "var(--line-strong)";
   return <>
@@ -27,8 +28,20 @@ function RowCells({ row, hasBaseline, early, swatch = true }) {
     <span className="cat-share-bar" aria-hidden="true"><i style={{ width: `${row.length * 100}%`, background: barColor }}/></span>
     <span className="cat-amount">{money(row.amount)}</span>
     <span className="cat-pct">{ratioLabel(row.shareOfExpense)}</span>
-    <DeltaCell delta={row.delta} hasBaseline={hasBaseline} early={early}/>
+    {showDelta && <DeltaCell delta={row.delta} hasBaseline={hasBaseline} early={early}/>}
   </>;
+}
+
+function stackSegments(rows, other = null) {
+  const segments = [];
+  let otherWeight = other ? Number(other.amount) || 0 : 0;
+  for (const row of rows) {
+    const weight = Number(row.amount) || 0;
+    if (!row.color || row.color === OTHER_CATEGORY_COLOR) otherWeight += weight;
+    else if (weight > 0) segments.push({ key: row.key, amount: weight, color: row.color });
+  }
+  if (otherWeight > 0) segments.push({ key: "other", amount: otherWeight, color: OTHER_CATEGORY_COLOR });
+  return segments;
 }
 
 export default function CategoryTable({ facts, step, selected = "", select, palette = null }) {
@@ -43,16 +56,7 @@ export default function CategoryTable({ facts, step, selected = "", select, pale
   const isChangeMode = activeMode === "change";
   const colorMap = categoryColorMap(facts, palette);
 
-  const segments = [];
-  if (ranking && (ranking.rows.length || ranking.other)) {
-    let otherWeight = ranking.other ? Number(ranking.other.amount) || 0 : 0;
-    for (const row of ranking.rows) {
-      const weight = Number(row.amount) || 0;
-      if (!row.color || row.color === OTHER_CATEGORY_COLOR) otherWeight += weight;
-      else if (weight > 0) segments.push({ key: row.key, amount: weight, color: row.color });
-    }
-    if (otherWeight > 0) segments.push({ key: "other", amount: otherWeight, color: OTHER_CATEGORY_COLOR });
-  }
+  const segments = ranking && (ranking.rows.length || ranking.other) ? stackSegments(ranking.rows, ranking.other) : [];
 
   const rows = isChangeMode ? changes.rows : (ranking?.rows || []);
   const other = isChangeMode ? null : ranking?.other;
@@ -112,10 +116,39 @@ export default function CategoryTable({ facts, step, selected = "", select, pale
       <p className="cat-total"><span>Total</span><strong>{money(facts.cashflow.expense)}</strong></p>
     </div>
     <details id="changes" className="review-daily" open={step === "changes" || undefined}>
-      <summary>Perbandingan lengkap › <small>median, persentase &amp; kontribusi</small></summary>
+      <summary>Perbandingan kategori yang berubah › <small>median, persentase &amp; kontribusi</small></summary>
       <p className="dash-caption">Urutan dari server, bukan penilaian baik atau buruk. Merah dan hijau hanya menunjukkan arah pengeluaran. Satu pembanding: {changes.baseline}.</p>
       <ComparisonContext comparison={facts.comparison} period={facts.period}/>
       <ChangesTable items={nonZeroCategoryChanges(facts)} comparison={facts.comparison} selected={selected} select={select} colors={colorMap.colors}/>
     </details>
+  </section>;
+}
+
+export function CalendarCategoryTable({ items = [], total = null, rangeHref = "", palette = null, stale = false }) {
+  const { rows } = calendarCategoryView(items, palette);
+  const segments = rows.length ? stackSegments(rows) : [];
+  return <section id="where" className="surface dash-card category-card calendar-section" data-calendar="" data-stale={stale ? "true" : undefined} aria-busy={stale || undefined} aria-labelledby="where-title">
+    <div className="dash-card-head">
+      <div>
+        <SectionTitle id="where-title" title="Ke mana uangnya"/>
+      </div>
+    </div>
+    {segments.length > 0 && <div key={segments.map(segment => `${segment.key}:${segment.amount}`).join("|")} className="cat-stack" role="img" aria-label="Porsi pengeluaran bersih menurut kategori">{segments.map(segment => <i key={segment.key} style={{ flexGrow: segment.amount, background: segment.color }}/>)}</div>}
+    {!rows.length ? <p className="empty compact">Belum ada pengeluaran bersih pada rentang ini.</p> : <>
+      <div className="cat-row cat-row-head" aria-hidden="true">
+        <span>Kategori</span>
+        <span>Porsi</span>
+        <span className="cat-head-num">Jumlah</span>
+        <span className="cat-head-num">%</span>
+      </div>
+      <ol className="cat-list" aria-label="Kategori menurut jumlah">
+        {rows.map(row => <li key={row.key}><div className="cat-row"><RowCells row={row} showDelta={false}/></div></li>)}
+      </ol>
+    </>}
+    <p className="dash-caption">Pengeluaran bersih setelah refund, diurutkan dari server menurut jumlah.</p>
+    <div className="card-foot">
+      {rangeHref && <a className="card-link" href={rangeHref}>Semua transaksi →</a>}
+      {total != null && <p className="cat-total"><span>Total</span><strong>{money(total)}</strong></p>}
+    </div>
   </section>;
 }
