@@ -198,6 +198,31 @@ test("editing sends only the changed fields with the version it read, and Escape
   expect(patch.headers["if-match"], "the version that was read").toBe("2026-09-06T10:00:00Z");
 });
 
+test("the editor shows amount and date inputs only for hand-entered transactions and explains why they are locked otherwise", { tag: "@desktop-only" }, async ({ page, api }) => {
+  ledgerApi(api, { items: [
+    transaction("tx-1", "Warung", { amount: "5000", categoryId: "cat-1", accountId: "account-1", factsEditable: true, factsLockReason: null }),
+    transaction("tx-2", "Bank", { amount: "7000", categoryId: "cat-1", accountId: "account-1", factsEditable: false, factsLockReason: "SOURCE_EVIDENCE" }),
+  ] });
+  api.on("/api/v1/transactions/tx-1", () => ({}), { method: "PATCH" });
+  await page.goto("/transactions", { waitUntil: "networkidle" });
+  const drawer = page.getByRole("dialog", { name: "Detail transaksi" });
+  const dialog = page.locator("dialog[open].create-dialog");
+  await page.locator(".transaction-row").nth(1).click();
+  await drawer.getByRole("button", { name: "Ubah", exact: true }).click();
+  await expect(dialog.getByLabel("Jumlah (IDR)")).toHaveCount(0);
+  await expect(dialog.locator('input[name="transactionDate"]')).toHaveCount(0);
+  await expect(dialog).toContainText("mengikuti sumbernya");
+  await dialog.getByRole("button", { name: "Batal" }).click();
+  await drawer.getByRole("button", { name: "Tutup detail" }).click();
+  await page.locator(".transaction-row").first().click();
+  await drawer.getByRole("button", { name: "Ubah", exact: true }).click();
+  await expect(dialog.getByLabel("Jumlah (IDR)")).toHaveValue("5000");
+  await dialog.getByLabel("Jumlah (IDR)").fill("12.000");
+  await dialog.getByRole("button", { name: /^Simpan/ }).click();
+  await expect.poll(() => api.calls("/api/v1/transactions/tx-1", "PATCH").length).toBe(1);
+  expect(api.calls("/api/v1/transactions/tx-1", "PATCH")[0].body).toEqual({ amount: "12000" });
+});
+
 test("the Catat sheet refreshes the open ledger after a save", { tag: "@desktop-only" }, async ({ page, api }) => {
   const state = ledgerApi(api);
   api.on("/api/v1/transactions", request => (request.method === "POST" ? (state.items = [transaction("tx-new", "Warung baru"), ...state.items], { id: "tx-new" }) : undefined));

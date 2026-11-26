@@ -58,6 +58,8 @@ type transactionDetail struct {
 	transactionView
 	ActiveMerges  []activeMergeView `json:"activeMerges"`
 	CanMarkSalary bool              `json:"canMarkSalary"`
+	FactsEditable bool              `json:"factsEditable"`
+	FactsLock     *string           `json:"factsLockReason"`
 }
 
 func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +266,17 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		slog.ErrorContext(r.Context(), "load salary eligibility for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
 		markable = false
 	}
-	writeJSON(w, 200, transactionDetail{transactionView: v, ActiveMerges: merges, CanMarkSalary: markable})
+	detail := transactionDetail{transactionView: v, ActiveMerges: merges, CanMarkSalary: markable}
+	lock, err := reviewdomain.HandEnteredFactsLock(r.Context(), h.pool, household, v.ID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "load fact lock for transaction detail", "household_id", household, "transaction_id", v.ID, "error", err)
+		lock = reviewdomain.FactsLockSource
+	}
+	detail.FactsEditable = lock == ""
+	if lock != "" {
+		detail.FactsLock = &lock
+	}
+	writeJSON(w, 200, detail)
 }
 
 func (h *Handler) MarkSalary(w http.ResponseWriter, r *http.Request) {

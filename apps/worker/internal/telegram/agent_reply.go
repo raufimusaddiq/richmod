@@ -15,6 +15,8 @@ const genericMutationReply = "Permintaan keuanganmu sudah diproses."
 
 const sourceEvidenceFixesAmountMessage = "Nominal dan merchant transaksi ini berasal dari bukti sumbernya (email bank, bukti penyedia, atau dokumen), jadi tidak bisa diubah dari chat. Kalau memang salah, buka transaksinya di aplikasi atau kirim bukti yang benar. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
 
+const factsLockedMessage = "Nominal dan merchant transaksi ini tidak bisa diubah dari chat karena transaksinya sudah digabung, berupa gaji, atau jenisnya tidak mendukung. Buka transaksinya di aplikasi untuk melihat pilihannya. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
+
 var nonMutatingRefusalStatuses = map[string]bool{
 	"TRANSFER_PURPOSE_REQUIRED":        true,
 	"INCOMPATIBLE_TRANSFER_PURPOSE":    true,
@@ -29,6 +31,7 @@ var nonMutatingRefusalStatuses = map[string]bool{
 	"TRANSFER_CLASSIFICATION_REQUIRED": true,
 	"TRANSFER_NOT_CATEGORIZABLE":       true,
 	"TRANSACTION_VOIDED":               true,
+	statusFactsLocked:                  true,
 }
 
 func isNonMutatingRefusal(result agentToolResult) bool {
@@ -295,6 +298,8 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Perubahan itu sudah tidak menunggu konfirmasi: sudah selesai, dibatalkan, atau lewat 30 menit. Sebutkan lagi perubahan yang kamu mau, nanti kubuatkan konfirmasi baru.", true
 	case "SOURCE_EVIDENCE_FIXES_AMOUNT":
 		return sourceEvidenceFixesAmountMessage, true
+	case statusFactsLocked:
+		return factsLockedMessage, true
 	case "ACCOUNT_AMBIGUOUS":
 		return "Aku belum bisa memastikan rekening sumbernya. Sebutkan nama rekening yang lebih spesifik, ya.", true
 	case "TRANSFER_CLASSIFICATION_REQUIRED":

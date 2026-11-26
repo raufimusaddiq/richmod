@@ -145,3 +145,71 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 		t.Fatalf("missing transaction did not close the review: stored=%s computed=%s status=%s", refreshed, recomputed, status)
 	}
 }
+
+func TestHandEnteredAmountAndDateCorrectionRefreshOpenCycleResidual(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := time.Now().UnixNano()
+	var household, user, source, primary, handTx string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Correct %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("correct-%d@example.test", stamp)).Scan(&user))
+	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user)
+	must(err)
+	_, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp, household, user)
+	must(err)
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, household, fmt.Sprintf("correct-%d", stamp)).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Primary','primary',true) RETURNING id`, household, user).Scan(&primary))
+	insertSalary := func(date, period string) string {
+		var tx, event string
+		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'INCOME','CONFIRMED',16000000,$2::date,$3,'GENERAL',now()) RETURNING id`, household, date, user).Scan(&tx))
+		must(pool.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,16000000,$5,'CONFIRMED',$6) RETURNING id`, primary, household, period, date, tx, source).Scan(&event))
+		return event
+	}
+	insertSalary("2026-08-25", "2026-08-01")
+	_, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',9000000,'2026-08-26',$2,'GENERAL',now())`, household, user)
+	must(err)
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',2000000,'2026-09-20 12:00+07',$2,'GENERAL',now()) RETURNING id`, household, user).Scan(&handTx))
+	_, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY')`, handTx, source)
+	must(err)
+	end := insertSalary("2026-09-25", "2026-09-01")
+	must(New(pool).Generate(ctx, Payload{HouseholdID: household, EndSalaryEventID: end}))
+	basis := func() string {
+		var value string
+		must(pool.QueryRow(ctx, `SELECT c.basis_residual_idr::text FROM cycle_residual_case c WHERE c.household_id=$1`, household).Scan(&value))
+		return value
+	}
+	if got := basis(); got != "5000000" {
+		t.Fatalf("seed residual = %s, want 5000000", got)
+	}
+	correct := func(cmd reviewdomain.CorrectionCommand) {
+		cmd.HouseholdID, cmd.ActorUserID, cmd.ActorType, cmd.TransactionID, cmd.HandEnteredOnly = household, user, "USER", handTx, true
+		tx, err := pool.Begin(ctx)
+		must(err)
+		defer tx.Rollback(ctx)
+		must(reviewdomain.CorrectConfirmedTransaction(ctx, tx, cmd))
+		must(tx.Commit(ctx))
+	}
+	correct(reviewdomain.CorrectionCommand{AmountIDR: "3000000"})
+	if got := basis(); got != "4000000" {
+		t.Fatalf("residual after amount edit = %s, want 4000000", got)
+	}
+	moved := time.Date(2026, 8, 20, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600))
+	correct(reviewdomain.CorrectionCommand{TransactionAt: &moved})
+	if got := basis(); got != "7000000" {
+		t.Fatalf("residual after moving the date out of the cycle = %s, want 7000000", got)
+	}
+}

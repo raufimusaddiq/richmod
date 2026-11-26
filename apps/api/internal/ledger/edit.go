@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
 const (
@@ -29,12 +31,16 @@ const (
 	codeStale            = "STALE_EDIT"
 	codePreconditionNeed = "IF_MATCH_REQUIRED"
 	codeTransferLocked   = "TRANSFER_FIELD_LOCKED"
+	codeInvalidAmount    = "INVALID_AMOUNT"
+	codeInvalidDate      = "INVALID_DATE"
+	codeDateInFuture     = "DATE_IN_FUTURE"
+	codeDateTooOld       = "DATE_TOO_OLD"
 )
 
 const maxMerchantNameRunes = 160
 
 var lockedEditFields = map[string]bool{
-	"amount": true, "transactionAt": true, "type": true, "currency": true, "status": true,
+	"transactionAt": true, "type": true, "currency": true, "status": true,
 	"purpose": true, "relatedWealthAccountId": true, "merchantId": true, "evidence": true,
 }
 
@@ -52,7 +58,7 @@ type optString struct {
 }
 
 type editInput struct {
-	categoryID, accountID, description, note, merchantName optString
+	categoryID, accountID, description, note, merchantName, amount, transactionDate optString
 }
 
 func parseEditBody(body []byte) (editInput, error) {
@@ -74,6 +80,10 @@ func parseEditBody(body []byte) (editInput, error) {
 			target = &in.note
 		case "merchantName":
 			target = &in.merchantName
+		case "amount":
+			target = &in.amount
+		case "transactionDate":
+			target = &in.transactionDate
 		default:
 			if lockedEditFields[key] {
 				return editInput{}, editError{http.StatusBadRequest, codeLockedField, "field " + key + " cannot be edited"}
@@ -103,9 +113,14 @@ func parseEditBody(body []byte) (editInput, error) {
 		if key == "merchantName" {
 			s = strings.Join(strings.Fields(s), " ")
 		}
+		if key == "transactionDate" {
+			if _, err := time.Parse("2006-01-02", s); err != nil {
+				return editInput{}, editError{http.StatusBadRequest, codeInvalidDate, "transactionDate must be a YYYY-MM-DD date"}
+			}
+		}
 		target.value = &s
 	}
-	if !in.categoryID.set && !in.accountID.set && !in.description.set && !in.note.set && !in.merchantName.set {
+	if !in.categoryID.set && !in.accountID.set && !in.description.set && !in.note.set && !in.merchantName.set && !in.amount.set && !in.transactionDate.set {
 		return editInput{}, editError{http.StatusBadRequest, codeEmptyEdit, "no editable fields supplied"}
 	}
 	if in.description.set && (in.description.value == nil || *in.description.value == "" || len(*in.description.value) > 500) {
@@ -113,6 +128,12 @@ func parseEditBody(body []byte) (editInput, error) {
 	}
 	if in.merchantName.set && (in.merchantName.value == nil || *in.merchantName.value == "" || len([]rune(*in.merchantName.value)) > maxMerchantNameRunes) {
 		return editInput{}, editError{http.StatusBadRequest, codeInvalidField, "merchantName is required and must not exceed 160 characters"}
+	}
+	if in.amount.set && (in.amount.value == nil || *in.amount.value == "") {
+		return editInput{}, editError{http.StatusBadRequest, codeInvalidAmount, "amount must be a positive whole IDR amount"}
+	}
+	if in.transactionDate.set && (in.transactionDate.value == nil || *in.transactionDate.value == "") {
+		return editInput{}, editError{http.StatusBadRequest, codeInvalidDate, "transactionDate must be a YYYY-MM-DD date"}
 	}
 	if in.note.set && in.note.value != nil && len(*in.note.value) > 2000 {
 		return editInput{}, editError{http.StatusBadRequest, codeInvalidField, "note must not exceed 2000 characters"}
@@ -181,13 +202,13 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		accountID, categoryID                     *string
 		description, note                         *string
 		merchantID, counterparty, merchantCurrent *string
-		updatedAt                                 time.Time
+		updatedAt, transactionAt                  time.Time
 		reviewOpen                                bool
 	)
-	err = tx.QueryRow(ctx, `SELECT t.type,t.status,t.account_id::text,t.category_id::text,t.description,t.note,t.merchant_id::text,t.counterparty_name,m.normalized_name,t.updated_at,
+	err = tx.QueryRow(ctx, `SELECT t.type,t.status,t.account_id::text,t.category_id::text,t.description,t.note,t.merchant_id::text,t.counterparty_name,m.normalized_name,t.updated_at,t.transaction_at,
 		EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND'))
 		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).
-		Scan(&kind, &status, &accountID, &categoryID, &description, &note, &merchantID, &counterparty, &merchantCurrent, &updatedAt, &reviewOpen)
+		Scan(&kind, &status, &accountID, &categoryID, &description, &note, &merchantID, &counterparty, &merchantCurrent, &updatedAt, &transactionAt, &reviewOpen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return editError{http.StatusNotFound, codeNotFound, "transaction not found"}
 	}
@@ -205,6 +226,11 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 	}
 	if kind == "TRANSFER" && (in.categoryID.set || in.accountID.set || in.merchantName.set) {
 		return editError{http.StatusConflict, codeTransferLocked, "a transfer's category, account and place cannot be edited"}
+	}
+	if in.amount.set || in.transactionDate.set {
+		if err := correctHandEnteredFacts(ctx, tx, p, household, id, expected, transactionAt, in); err != nil {
+			return err
+		}
 	}
 	if in.categoryID.set && in.categoryID.value != nil && !equalPtr(in.categoryID.value, categoryID) {
 		var okCategory bool
@@ -300,6 +326,50 @@ func (h *Handler) edit(ctx context.Context, p auth.Principal, household, id stri
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func correctHandEnteredFacts(ctx context.Context, tx pgx.Tx, p auth.Principal, household, id string, expected, current time.Time, in editInput) error {
+	cmd := reviewdomain.CorrectionCommand{
+		HouseholdID: household, ActorUserID: p.UserID, ActorType: "USER", TransactionID: id,
+		ExpectedUpdatedAt: &expected, HandEnteredOnly: true,
+	}
+	if in.amount.set {
+		cmd.AmountIDR = *in.amount.value
+	}
+	if in.transactionDate.set {
+		if next := withJakartaDate(current, *in.transactionDate.value); !next.Equal(current) {
+			cmd.TransactionAt = &next
+		}
+	}
+	err := reviewdomain.CorrectConfirmedTransaction(ctx, tx, cmd)
+	var locked reviewdomain.CorrectionLockedError
+	switch {
+	case err == nil, errors.Is(err, reviewdomain.ErrCorrectionEmpty):
+		return nil
+	case errors.As(err, &locked):
+		return editError{http.StatusBadRequest, codeLockedField, "amount and date can be edited only on a transaction entered by hand"}
+	case errors.Is(err, reviewdomain.ErrCorrectionStale):
+		return editError{http.StatusConflict, codeStale, "transaction changed since it was loaded"}
+	case errors.Is(err, reviewdomain.ErrCorrectionAmountShape):
+		return editError{http.StatusBadRequest, codeInvalidAmount, "amount must be a positive whole IDR amount"}
+	case errors.Is(err, reviewdomain.ErrCorrectionDateFuture):
+		return editError{http.StatusBadRequest, codeDateInFuture, "transactionDate cannot be in the future"}
+	case errors.Is(err, reviewdomain.ErrCorrectionDateTooOld):
+		return editError{http.StatusBadRequest, codeDateTooOld, "transactionDate is too far in the past"}
+	case errors.Is(err, reviewdomain.ErrCorrectionNotAllowed):
+		return editError{http.StatusBadRequest, codeLockedField, "amount and date cannot be edited on this transaction"}
+	}
+	return err
+}
+
+func withJakartaDate(current time.Time, date string) time.Time {
+	location := clock.HouseholdLocation()
+	day, err := time.ParseInLocation("2006-01-02", date, location)
+	if err != nil {
+		return current
+	}
+	local := current.In(location)
+	return time.Date(day.Year(), day.Month(), day.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond(), location)
 }
 
 func equalPtr(a, b *string) bool {

@@ -94,14 +94,14 @@ test("T-16 polish: actors, evidence, minus sign, admin durations and decimal com
   assert.equal(duration(20_867_600), "5 j 47 m");
 });
 
-import { canEditTransaction, editErrorMessage, editFormErrors, editInitialValues, editOptionsReady, editPayload, editSelectOptions, editableFields } from "../app/lib/transactionForm.js";
+import { canEditTransaction, editErrorMessage, editFormErrors, editInitialValues, editOptionsReady, editPayload, editSelectOptions, editableFields, editDateBounds } from "../app/lib/transactionForm.js";
 
 test("edit: only live transactions are editable and transfers lock category and account", () => {
   for (const status of ["CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
   assert.equal(canEditTransaction({ id: "t", status: "NEEDS_REVIEW" }), false);
   assert.equal(canEditTransaction({ id: "t", status: "VOIDED" }), false);
   assert.equal(canEditTransaction({ status: "CONFIRMED" }), false);
-  assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, place: false, description: true, note: true });
+  assert.deepEqual(editableFields({ type: "TRANSFER" }), { category: false, account: false, place: false, description: true, note: true, amount: false, date: false });
   assert.equal(editableFields({ type: "INCOME" }).category, true);
 });
 
@@ -116,6 +116,14 @@ test("edit: validation and payload", () => {
   assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", description: "Lama", note: "n" }, { categoryId: "", accountId: "a1", description: " Kopi ", note: " " }, new Set(["categoryId", "accountId", "description", "note"])), { categoryId: null, accountId: "a1", description: "Kopi", note: null });
   assert.deepEqual(editPayload({ type: "EXPENSE", categoryId: "c0", accountId: "a0", description: "Lama", note: null }, { categoryId: "c0", accountId: "a0", description: "Baru", note: "" }), { description: "Baru" });
   assert.deepEqual(editPayload({ type: "EXPENSE", description: "Lama" }, { categoryId: "", accountId: "", description: "Lama", note: "" }), {});
+  const own = { type: "EXPENSE", description: "Lama", amount: "5000", transactionAt: "2026-09-06T08:35:00Z", factsEditable: true };
+  assert.deepEqual(editPayload(own, { description: "Lama", amount: "12.000", transactionDate: "2026-09-05" }), { amount: "12000", transactionDate: "2026-09-05" });
+  assert.deepEqual(editPayload(own, { description: "Lama", amount: "5000", transactionDate: "2026-09-06" }), {});
+  assert.deepEqual(editPayload({ ...own, factsEditable: false }, { description: "Lama", amount: "12000", transactionDate: "2026-09-05" }), {});
+  assert.equal(editInitialValues(own).transactionDate, "2026-09-06");
+  assert.deepEqual(editDateBounds(new Date("2026-09-07T03:00:00Z")), { min: "2025-08-03", max: "2026-09-07" });
+  assert.ok(editFormErrors({ description: "x", amount: "0", transactionDate: "2999-01-01" }, own).amount);
+  assert.ok(editFormErrors({ description: "x", amount: "5", transactionDate: "2999-01-01" }, own).transactionDate);
   assert.deepEqual(Object.keys(editPayload({ type: "TRANSFER" }, { categoryId: "c", accountId: "a", description: "x", note: "n" })).sort(), ["description", "note"]);
 });
 
@@ -138,7 +146,7 @@ test("edit: form waits for category and account option lists and preserves assig
   assert.equal(editOptionsReady(expense, { categoriesLoaded: false, accountsLoaded: true }), false);
   assert.equal(editOptionsReady(expense, { categoriesLoaded: true, accountsLoaded: true }), true);
   assert.equal(editOptionsReady(transfer, { categoriesLoaded: false, accountsLoaded: false }), true);
-  assert.deepEqual(editInitialValues(expense), { categoryId: "c1", accountId: "a1", merchantName: "", description: "", note: "" });
+  assert.deepEqual(editInitialValues(expense), { categoryId: "c1", accountId: "a1", merchantName: "", description: "", note: "", amount: "", transactionDate: "" });
   assert.deepEqual(editSelectOptions([{ id: "c2", name: "Transport", active: true }, { id: "c1", name: "Makan", active: false }], "c1", "Makan").map(item => item.id), ["c2", "c1"]);
   assert.deepEqual(editSelectOptions([{ id: "c2", name: "Transport", active: true }], "c1", "Makan").map(item => item.id), ["c1", "c2"]);
 });

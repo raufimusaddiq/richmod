@@ -13,17 +13,13 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
-var selfEnteredSourceTypes = []string{"TELEGRAM_TEXT", "TELEGRAM_CALLBACK", "WEB_MANUAL"}
+const statusFactsLocked = "TRANSACTION_FACTS_LOCKED"
 
-func selfEnteredTransaction(ctx context.Context, q interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}, householdID, transactionID string) (bool, error) {
-	var self bool
-	err := q.QueryRow(ctx, `SELECT t.type IN ('INCOME','EXPENSE') AND NOT EXISTS (
-			SELECT 1 FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id
-			WHERE te.transaction_id=t.id AND NOT s.source_type=ANY($3::text[]))
-		FROM transaction t WHERE t.id=$1 AND t.household_id=$2`, transactionID, householdID, selfEnteredSourceTypes).Scan(&self)
-	return self, err
+func factsLockStatus(reason string) string {
+	if reason == reviewdomain.FactsLockSource {
+		return "SOURCE_EVIDENCE_FIXES_AMOUNT"
+	}
+	return statusFactsLocked
 }
 
 func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
@@ -143,12 +139,12 @@ func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState,
 		return result, true, nil
 	}
 	if amount != "" || merchant != "" {
-		self, err := selfEnteredTransaction(ctx, tx, state.HouseholdID, transactionID)
+		reason, err := reviewdomain.HandEnteredFactsLock(ctx, tx, state.HouseholdID, transactionID)
 		if err != nil {
 			return result, true, err
 		}
-		if !self {
-			result.Status = "SOURCE_EVIDENCE_FIXES_AMOUNT"
+		if reason != "" {
+			result.Status = factsLockStatus(reason)
 			result.Facts = map[string]any{"label": untrustedField(label), "amount_idr": currentAmount}
 			return result, true, nil
 		}
@@ -218,7 +214,7 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 		}
 		if outcome.Refused {
 			status = "REFUSED"
-			result.Status = "SOURCE_EVIDENCE_FIXES_AMOUNT"
+			result.Status = factsLockStatus(outcome.RefusedReason)
 		}
 		if outcome.Voided {
 			status = "REFUSED"
@@ -248,10 +244,11 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 }
 
 type correctionOutcome struct {
-	Refused    bool
-	Voided     bool
-	Blocked    string
-	ProposedAt *time.Time
+	Refused       bool
+	RefusedReason string
+	Voided        bool
+	Blocked       string
+	ProposedAt    *time.Time
 }
 
 const (
@@ -283,13 +280,11 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	var transactionID, txStatus, txType string
 	var proposedCategoryID, proposedDescription, proposedAmount, proposedMerchant *string
 	var proposedAt *time.Time
-	var beforeAt time.Time
-	var beforeAmount, beforeMerchant, beforeCategory, beforeDescription string
 	if err := tx.QueryRow(ctx, `SELECT a.transaction_id,a.proposed_transaction_at,a.proposed_category_id::text,a.proposed_description,a.proposed_amount::text,a.proposed_merchant,
-			t.status,t.type,t.transaction_at,t.amount::text,COALESCE(t.counterparty_name,''),COALESCE(t.category_id::text,''),COALESCE(t.description,'')
+			t.status,t.type
 		FROM telegram_pending_action a JOIN transaction t ON t.id=a.transaction_id AND t.household_id=a.household_id
 		WHERE a.id=$1 AND a.household_id=$2 FOR UPDATE OF a,t`, actionID, householdID).Scan(&transactionID, &proposedAt, &proposedCategoryID, &proposedDescription, &proposedAmount, &proposedMerchant,
-		&txStatus, &txType, &beforeAt, &beforeAmount, &beforeMerchant, &beforeCategory, &beforeDescription); err != nil {
+		&txStatus, &txType); err != nil {
 		return outcome, err
 	}
 	if txStatus == "VOIDED" {
@@ -307,12 +302,12 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		return outcome, err
 	}
 	if proposedAmount != nil || proposedMerchant != nil {
-		self, err := selfEnteredTransaction(ctx, tx, householdID, transactionID)
+		reason, err := reviewdomain.HandEnteredFactsLock(ctx, tx, householdID, transactionID)
 		if err != nil {
 			return outcome, err
 		}
-		if !self {
-			outcome.Refused = true
+		if reason != "" {
+			outcome.Refused, outcome.RefusedReason = true, reason
 			_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 			return outcome, err
 		}
@@ -329,30 +324,50 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		}
 		merchantID = id
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction SET transaction_at=COALESCE($2,transaction_at),category_id=COALESCE($3::uuid,category_id),description=COALESCE(NULLIF($4::text,''),description),
-			amount=COALESCE($5::numeric,amount),counterparty_name=COALESCE($6::text,counterparty_name),merchant_id=CASE WHEN $6::text IS NULL THEN merchant_id ELSE NULLIF($7::text,'')::uuid END,updated_at=now()
-		WHERE id=$1 AND household_id=$8`, transactionID, proposedAt, proposedCategoryID, proposedDescription, proposedAmount, proposedMerchant, merchantID, householdID); err != nil {
-		return outcome, err
+	description := ""
+	if proposedDescription != nil {
+		description = *proposedDescription
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,before_json,after_json) VALUES($1,'TELEGRAM',$2,'EDIT_TRANSACTION','transaction',$3,
-			jsonb_build_object('transaction_at',$4::timestamptz,'amount',$5::text,'counterparty_name',$6::text,'category_id',NULLIF($7::text,''),'description',$8::text),
-			jsonb_build_object('transaction_at',$9::timestamptz,'category_id',$10::text,'description',$11::text,'amount',$12::text,'counterparty_name',$13::text,'pending_action_id',$14::uuid))`,
-		householdID, userID, transactionID, beforeAt, beforeAmount, beforeMerchant, beforeCategory, beforeDescription,
-		proposedAt, proposedCategoryID, proposedDescription, proposedAmount, proposedMerchant, actionID); err != nil {
+	amount := ""
+	if proposedAmount != nil {
+		amount = *proposedAmount
+	}
+	categoryID := ""
+	if proposedCategoryID != nil {
+		categoryID = *proposedCategoryID
+	}
+	err = reviewdomain.CorrectConfirmedTransaction(ctx, tx, reviewdomain.CorrectionCommand{
+		HouseholdID: householdID, ActorUserID: userID, ActorType: "TELEGRAM", TransactionID: transactionID, PendingActionID: actionID,
+		CategoryID: categoryID, Description: description, AmountIDR: amount, CounterpartyName: proposedMerchant, MerchantID: merchantID,
+		TransactionAt: proposedAt, AllowAnyType: true,
+	})
+	switch {
+	case errors.Is(err, reviewdomain.ErrCorrectionDateFuture), errors.Is(err, reviewdomain.ErrCorrectionDateTooOld):
+		outcome.Blocked = "INVALID_TIME"
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
+	case errors.Is(err, reviewdomain.ErrInvalidCandidate):
+		outcome.Blocked = "INVALID_CATEGORY"
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
+	case errors.Is(err, reviewdomain.ErrCorrectionAmountShape):
+		outcome.Blocked = "INVALID_AMOUNT"
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
+	case errors.Is(err, reviewdomain.ErrCorrectionNotAllowed):
+		var locked reviewdomain.CorrectionLockedError
+		if errors.As(err, &locked) {
+			outcome.Refused, outcome.RefusedReason = true, locked.Reason
+		} else {
+			outcome.Blocked = "TARGET_UNAVAILABLE"
+		}
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
+	case err != nil && !errors.Is(err, reviewdomain.ErrCorrectionEmpty):
 		return outcome, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CONFIRMED',resolved_at=now() WHERE id=$1`, actionID); err != nil {
 		return outcome, err
-	}
-	if txStatus == "CONFIRMED" && (proposedAmount != nil || proposedAt != nil) {
-		if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, beforeAt, userID); err != nil {
-			return outcome, err
-		}
-		if proposedAt != nil && !proposedAt.Equal(beforeAt) {
-			if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, *proposedAt, userID); err != nil {
-				return outcome, err
-			}
-		}
 	}
 	outcome.ProposedAt = proposedAt
 	return outcome, nil

@@ -286,6 +286,42 @@ func TestCorrectionsChangeAmountOnlyForSelfEnteredTransactions(t *testing.T) {
 	if before != "25000" || after != "27000" {
 		t.Fatalf("audit before/after = %s/%s", before, after)
 	}
+
+	var categoryID, categoryTx string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Sementara','sementara-correct') RETURNING id`, f.householdID).Scan(&categoryID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',15000,'IDR',now(),'Toko Kategori',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&categoryTx))
+	staleCategory, _, err := p.agentStageCorrection(ctx, f.state, gateway.ToolCall{}, map[string]any{"search_text": "Toko Kategori", "period": "TODAY", "category_slug": "sementara-correct"})
+	mustAgentTest(t, err)
+	if staleCategory.Status != "PENDING_CONFIRMATION" {
+		t.Fatalf("category correction was not staged: %#v", staleCategory)
+	}
+	_, err = f.pool.Exec(ctx, `UPDATE category SET active=false WHERE id=$1`, categoryID)
+	mustAgentTest(t, err)
+	repliesBefore := countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, f.chatID)
+	_, err = p.processPendingEdit(ctx, f.householdID, f.update, f.sourceID, true, staleCategory.confirmationToken)
+	mustAgentTest(t, err)
+	var pendingStatus string
+	var storedCategory *string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM telegram_pending_action WHERE transaction_id=$1`, categoryTx).Scan(&pendingStatus))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT category_id::text FROM transaction WHERE id=$1`, categoryTx).Scan(&storedCategory))
+	if pendingStatus != "CANCELLED" || storedCategory != nil || countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, f.chatID) != repliesBefore+1 {
+		t.Fatalf("a category deactivated before Ya must cancel the correction with a reply: pending=%s category=%v", pendingStatus, storedCategory)
+	}
+
+	var refundTx string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'REFUND','CONFIRMED',10000,'IDR',now(),'Toko Retur',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&refundTx))
+	refund, _, err := p.agentStageCorrection(ctx, f.state, gateway.ToolCall{}, map[string]any{"search_text": "Toko Retur", "period": "TODAY", "description": "Retur barang"})
+	mustAgentTest(t, err)
+	if refund.Status != "PENDING_CONFIRMATION" {
+		t.Fatalf("a refund description correction was not staged: %#v", refund)
+	}
+	_, err = p.processPendingEdit(ctx, f.householdID, f.update, f.sourceID, true, refund.confirmationToken)
+	mustAgentTest(t, err)
+	var description string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT COALESCE(description,'') FROM transaction WHERE id=$1`, refundTx).Scan(&description))
+	if description != "Retur barang" {
+		t.Fatalf("a confirmed refund correction was dropped: description=%q", description)
+	}
 }
 
 func TestPendingBatchDoesNotSwallowAnUnrelatedQuestion(t *testing.T) {
