@@ -81,6 +81,17 @@ func newTypingFixture(t *testing.T, sourceType string, chat int64) *typingFixtur
 	return f
 }
 
+func (f *typingFixture) waitForCalls(n int) []int64 {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := f.calls(); len(got) >= n {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return f.calls()
+}
+
 func (f *typingFixture) payloads() map[string]json.RawMessage {
 	return map[string]json.RawMessage{
 		"FETCH_TELEGRAM_IMAGE":           json.RawMessage(fmt.Sprintf(`{"source_event_id":%q,"file_id":"f","user_id":"u","telegram_user_id":1}`, f.sourceID)),
@@ -97,7 +108,8 @@ func TestDocumentChainJobsTypeInSourceChatUntilReturn(t *testing.T) {
 	for jobType, payload := range f.payloads() {
 		before := len(f.calls())
 		stop := f.processor.StartDocumentTyping(f.ctx, jobType, f.household, payload)
-		if got := f.calls(); len(got) <= before || got[len(got)-1] != chat {
+		got := f.waitForCalls(before + 1)
+		if len(got) <= before || got[len(got)-1] != chat {
 			t.Fatalf("%s: typing not sent to the source chat: %v", jobType, got)
 		}
 		stop()
@@ -117,6 +129,8 @@ func TestDocumentChainJobsTypeInSourceChatUntilReturn(t *testing.T) {
 	stopB := f.processor.StartDocumentTyping(f.ctx, "PROCESS_DOCUMENT", f.household, payload)
 	defer stopA()
 	defer stopB()
+	f.waitForCalls(before + 1)
+	time.Sleep(100 * time.Millisecond)
 	if sent := len(f.calls()) - before; sent != 1 {
 		t.Fatalf("parallel pages sent %d indicators to one chat, want 1", sent)
 	}

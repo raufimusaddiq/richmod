@@ -26,11 +26,15 @@ func runTyping(ctx context.Context, send func(context.Context), interval, firstD
 		send(sendCtx)
 		cancel()
 	}
-	if firstDelay <= 0 {
-		sendOnce()
-	}
 	go func() {
-		if firstDelay > 0 {
+		if firstDelay <= 0 {
+			select {
+			case <-stop:
+				return
+			default:
+				sendOnce()
+			}
+		} else {
 			timer := time.NewTimer(firstDelay)
 			select {
 			case <-timer.C:
