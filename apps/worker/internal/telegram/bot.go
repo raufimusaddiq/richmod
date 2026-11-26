@@ -29,6 +29,7 @@ type SendPayload struct {
 	SettledCard      bool                  `json:"settled_card,omitempty"`
 	AssistantShown   bool                  `json:"assistant_shown,omitempty"`
 	UbahUntil        string                `json:"ubah_until,omitempty"`
+	Notice           bool                  `json:"notice,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 

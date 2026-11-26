@@ -16,7 +16,7 @@ const (
 	salaryAsk         = "Slip gaji ini dicatat sebagai apa?"
 	payDateAsk        = "Tanggal pembayarannya kapan?"
 	payslipAppAsk     = "Slip gaji ini perlu dicek di aplikasi."
-	payslipAppHint    = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
+	payslipAppHint    = appReviewHint
 	salaryChoiceHint  = "Pilih di bawah."
 	salaryInvalidAck  = "Pilihan itu tidak berlaku untuk slip ini."
 	salaryPolicyAck   = "✅ Jenis gaji disimpan."
@@ -126,7 +126,7 @@ func payslipSummary(ctx context.Context, tx pgx.Tx, householdID, proposalID stri
 	if employer != "" {
 		lines = append(lines, "Pemberi kerja: "+clean(employer, 200))
 	}
-	lines = append(lines, "Gaji bersih: Rp"+FormatIDR(amount))
+	lines = appendFact(lines, "Gaji bersih", IDR(amount))
 	if label := payslipPeriodLabel(period); label != "" {
 		lines = append(lines, "Periode: "+label)
 	}
@@ -271,13 +271,13 @@ func (p *Processor) finishPayslip(ctx context.Context, tx, sp pgx.Tx, householdI
 
 func payslipDoneStep(choice, amount string, at time.Time, startsCycle bool) Step {
 	if choice == "ORDINARY_INCOME" {
-		return Step{Kind: stepDone, Ack: "✅ Pemasukan tercatat · Rp" + FormatIDR(amount)}
+		return Step{Kind: stepDone, Ack: savedLine("Pemasukan biasa", IDR(amount))}
 	}
 	if !startsCycle {
-		return Step{Kind: stepDone, Ack: "✅ Gaji tercatat · Rp" + FormatIDR(amount) + "."}
+		return Step{Kind: stepDone, Ack: savedLine("Gaji", IDR(amount))}
 	}
 	local := at.In(jakartaLocation())
-	return Step{Kind: stepDone, Ack: "✅ Gaji tercatat · Rp" + FormatIDR(amount) + ". Siklus baru mulai " + reviewdomain.FormatIndonesianShortDate(local) + "."}
+	return Step{Kind: stepDone, Ack: savedLine("Gaji", IDR(amount)) + ". Siklus baru mulai " + reviewdomain.FormatIndonesianShortDate(local) + "."}
 }
 
 func (p *Processor) ignorePayslip(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step) (stepOutcome, error) {

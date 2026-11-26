@@ -13,7 +13,7 @@ import (
 
 const genericMutationReply = "Permintaan keuanganmu sudah diproses."
 
-const sourceEvidenceFixesAmountMessage = "Nominal dan merchant transaksi ini berasal dari bukti sumbernya (email bank, bukti penyedia, atau dokumen), jadi tidak bisa diubah dari chat. Kalau memang salah, buka transaksinya di web atau kirim bukti yang benar. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
+const sourceEvidenceFixesAmountMessage = "Nominal dan merchant transaksi ini berasal dari bukti sumbernya (email bank, bukti penyedia, atau dokumen), jadi tidak bisa diubah dari chat. Kalau memang salah, buka transaksinya di aplikasi atau kirim bukti yang benar. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
 
 var nonMutatingRefusalStatuses = map[string]bool{
 	"TRANSFER_PURPOSE_REQUIRED":        true,
@@ -100,10 +100,7 @@ func transactionRecordedMessage(result agentToolResult) string {
 			label = "Pemasukan"
 		}
 	}
-	line := label
-	if amount != "" {
-		line += " · Rp" + FormatIDR(amount)
-	}
+	line := joinDot(label, IDR(amount))
 	details := []string{}
 	if name, _ := m["category_name"].(string); name != "" {
 		details = append(details, name)
@@ -119,11 +116,11 @@ func transactionRecordedMessage(result agentToolResult) string {
 	if result.Status == "NEEDS_REVIEW" {
 		next := "Tinggal satu langkah di kartu di bawah, ya."
 		if inChat, _ := result.Review["card_in_chat"].(bool); !inChat {
-			next = "Lengkapi di Kotak Tinjauan, ya."
+			next = "Lengkapi di " + reviewInboxName + " di aplikasi, ya."
 		}
-		return "📝 Kucatat dulu: " + line + detail + "\n" + next
+		return "⏳ Kucatat dulu: " + line + detail + "\n" + next
 	}
-	return "✅ Tercatat: " + line + detail
+	return "✅ Tersimpan: " + line + detail
 }
 
 func approximatePeriodName(at time.Time) string {
@@ -146,7 +143,7 @@ func possibleExistingMessage(m map[string]any) string {
 	if at, err := time.Parse(time.RFC3339, fmt.Sprint(m["transaction_at"])); err == nil {
 		when = " ke " + formatIDDateTime(at)
 	}
-	return "Sepertinya ini " + label + " · Rp" + FormatIDR(amount) + " yang sudah tercatat. Mau ubah tanggalnya" + when + " saja, bukan mencatat baru?"
+	return "Sepertinya ini " + joinDot(label, IDR(amount)) + " yang sudah tercatat. Mau ubah tanggalnya" + when + " saja, bukan mencatat baru?"
 }
 
 func correctionStagedMessage(m map[string]any) string {
@@ -155,13 +152,10 @@ func correctionStagedMessage(m map[string]any) string {
 		label = "Transaksi"
 	}
 	amount, _ := m["amount_idr"].(string)
-	header := "Perubahan untuk " + label
-	if amount != "" {
-		header += " · Rp" + FormatIDR(amount)
-	}
+	header := "Perubahan untuk " + joinDot(label, IDR(amount))
 	changes := []string{}
 	if value, _ := m["new_amount_idr"].(string); value != "" {
-		changes = append(changes, "nominal → Rp"+FormatIDR(value))
+		changes = append(changes, "nominal → "+IDR(value))
 	}
 	if value, _ := m["new_merchant"].(string); value != "" {
 		changes = append(changes, "merchant → "+value)
@@ -181,7 +175,7 @@ func correctionStagedMessage(m map[string]any) string {
 	for _, change := range changes {
 		body += "\n• " + change
 	}
-	return header + ":" + body + "\n\nPilih tombol konfirmasi kalau sudah benar. Perubahan ini menunggu 30 menit."
+	return header + ":" + body + "\n\nPilih Ya, simpan perubahan kalau sudah benar. Perubahan ini menunggu 30 menit."
 }
 
 func (p *Processor) recoverUnansweredTurn(ctx context.Context, sourceEventID, householdID, payloadText, parserName string) error {
@@ -204,13 +198,13 @@ func (p *Processor) recoverUnansweredTurn(ctx context.Context, sourceEventID, ho
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM telegram_conversation_turn WHERE source_event_id=$1::uuid AND role='ASSISTANT')
 		OR EXISTS(SELECT 1 FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND created_at > now()-interval '1 day'
 			AND (payload_json->>'chat_id')::bigint=$2::bigint AND (payload_json->>'reply_to_message_id')::bigint=$3::bigint
-			AND NOT (payload_json->>'text')=ANY($4::text[]))`, sourceEventID, update.Message.Chat.ID, update.Message.MessageID, progressNoticeTexts).Scan(&answered); err != nil {
+			AND NOT COALESCE((payload_json->>'notice')::boolean,false))`, sourceEventID, update.Message.Chat.ID, update.Message.MessageID).Scan(&answered); err != nil {
 		return err
 	}
 	if answered {
 		return nil
 	}
-	message := "Pesanmu sudah kuproses, tapi balasannya sempat tertunda. Cek hasilnya di riwayat transaksi atau Kotak Tinjauan di web, ya."
+	message := "Pesanmu sudah kuproses, tapi jawabannya sempat tertunda. Cek hasilnya di Transaksi atau " + reviewInboxName + " di aplikasi, ya."
 	var raw []byte
 	err = tx.QueryRow(ctx, `SELECT public_context_json FROM telegram_conversation_turn WHERE source_event_id=$1::uuid AND role='TOOL' AND public_context_json->>'class'='SIDE_EFFECT' ORDER BY created_at DESC,id DESC LIMIT 1`, sourceEventID).Scan(&raw)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -246,14 +240,11 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		case "POSSIBLE_EXISTING_TRANSACTION":
 			return possibleExistingMessage(result.Mutation), true
 		case "TRANSFER_RECORDED":
-			if amount != "" {
-				return "✅ Transfer Rp" + FormatIDR(amount) + " sudah tercatat.", true
-			}
-			return "✅ Transfer sudah tercatat.", true
+			return savedLine("Transfer", IDR(amount)), true
 		case "TRANSFER_ALREADY_RECORDED":
 			return "Transfer ini sudah tercatat sebelumnya, jadi tidak dicatat lagi.", true
 		case "TRANSFER_RECONCILIATION_STAGED":
-			return "Transfer ini perlu ditinjau karena ada transaksi yang mungkin sama.", true
+			return "Transfer ini perlu dicek dulu karena ada transaksi yang mungkin sama.", true
 		case "BATCH_STAGED":
 			return batchStagedMessage(result.Mutation, "Daftar transaksinya begini:"), true
 		case "BATCH_UPDATED":
@@ -262,7 +253,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 			}
 			return "Daftar transaksi sudah diperbarui.", true
 		case "BATCH_CANCELLED":
-			return "Daftar transaksi dibatalkan, tidak ada yang dicatat.", true
+			return "Daftar transaksi dibatalkan. Tidak ada yang dicatat.", true
 		case "BATCH_RECORDED":
 			recorded, reviewed, skipped := mutationInt(result.Mutation, "recorded"), mutationInt(result.Mutation, "needs_review"), mutationInt(result.Mutation, "skipped_already_recorded")
 			if recorded+reviewed+skipped == 0 {
@@ -277,17 +268,17 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 			if confirmed, _ := result.Mutation["confirmed"].(bool); confirmed {
 				return "✅ Perubahan transaksi sudah disimpan.", true
 			}
-			return "Perubahan transaksi dibatalkan.", true
+			return "Perubahan dibatalkan. Tidak ada yang berubah.", true
 		}
 	}
 
 	switch result.Status {
 	case "EVIDENCE_DISPUTE_STAGED":
-		return "Kartu koreksi sudah dikirim. Tekan “Konfirmasi transaksi berbeda” jika screenshot ini memang transaksi terpisah; belum ada yang dicatat.", true
+		return "Kartu koreksi sudah dikirim. Pilih Ya, transaksi berbeda kalau screenshot ini memang transaksi terpisah. Belum ada yang dicatat.", true
 	case "EVIDENCE_DISPUTE_ALREADY_STAGED":
 		return "Koreksi untuk screenshot ini sudah menunggu konfirmasi di kartu sebelumnya. Belum ada yang dicatat.", true
 	case "EVIDENCE_DISPUTE_INVALID":
-		return "Screenshot ini belum bisa dipisahkan lewat chat: hanya satu baris pengeluaran yang tergabung ke catatan lama, dengan nominal dan tanggal terbaca, yang bisa dikoreksi. Tidak ada yang diubah.", true
+		return "Screenshot ini belum bisa dipisahkan lewat chat: hanya satu baris pengeluaran yang tergabung ke transaksi lama, dengan nominal dan tanggal terbaca, yang bisa dikoreksi. Tidak ada yang diubah.", true
 	case "EVIDENCE_DISPUTE_UNAUTHORIZED":
 		return "Aku tidak bisa memverifikasi akun Telegram-mu di keluarga ini, jadi koreksi tidak dibuat.", true
 	case "AMBIGUOUS_TARGET":
@@ -309,9 +300,9 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	case "TRANSFER_CLASSIFICATION_REQUIRED":
 		return "Ini transfer, bukan pengeluaran, jadi perlu diklasifikasikan dulu: ke rekening sendiri, rekening keluarga, atau investasi. Belum ada yang dicatat.", true
 	case "TRANSACTION_UNDER_REVIEW":
-		return "Transaksi itu masih menunggu tinjauan, jadi belum bisa diubah dari chat. Selesaikan dulu kartu tinjauannya.", true
+		return "Transaksi itu masih menunggu kartunya diselesaikan, jadi belum bisa diubah dari chat. Selesaikan dulu kartunya.", true
 	case "TRANSFER_NOT_CATEGORIZABLE":
-		return "Transfer tidak punya kategori pengeluaran, jadi kategorinya tidak diubah. Belum ada yang berubah.", true
+		return "Transfer tidak punya kategori pengeluaran, jadi kategorinya tidak diubah. Tidak ada yang berubah.", true
 	case "TRANSACTION_VOIDED":
 		return "Transaksi itu sudah dibatalkan, jadi perubahannya tidak disimpan.", true
 	case "TRANSFER_PURPOSE_REQUIRED":
@@ -331,7 +322,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 	case "INVALID_CATEGORY":
 		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia.", true
 	case "STALE_REVIEW_BINDING":
-		return "Tinjauan ini sudah berubah atau selesai. Lihat kartu terbarunya untuk melanjutkan.", true
+		return "Kartu ini sudah berubah atau selesai. Lihat kartu terbarunya untuk melanjutkan.", true
 	}
 	return genericMutationReply, false
 }

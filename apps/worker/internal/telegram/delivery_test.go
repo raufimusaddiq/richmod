@@ -58,7 +58,7 @@ func TestEditOutcomeClassification(t *testing.T) {
 func TestDescribeReviewOutcome(t *testing.T) {
 	cases := []struct{ status, action, resolver, category, transaction, want string }{
 		{"OPEN", "", "", "", "NEEDS_REVIEW", ""},
-		{"RESOLVED", "TELEGRAM_CONFIRM", "Rina", "Makan", "CONFIRMED", "dicatat sebagai Makan oleh Rina"},
+		{"RESOLVED", "TELEGRAM_CONFIRM", "Rina", "Makan", "CONFIRMED", "disimpan sebagai Makan oleh Rina"},
 		{"RESOLVED", "IGNORE", "Budi", "", "IGNORED", "diabaikan oleh Budi"},
 		{"RESOLVED", "NO_LONGER_APPLICABLE", "Budi", "", "CONFIRMED", "ditutup otomatis karena tidak lagi berlaku"},
 		{"RESOLVED", "SET_WEALTH_ACCOUNT", "", "", "", "diselesaikan"},
@@ -69,7 +69,7 @@ func TestDescribeReviewOutcome(t *testing.T) {
 			t.Fatalf("%+v: got %q", tc, got)
 		}
 	}
-	if note := reviewClosureNote("RESOLVED", "dicatat sebagai Makan oleh Rina"); note != "✅ Tinjauan ini sudah selesai: dicatat sebagai Makan oleh Rina." {
+	if note := reviewClosureNote("RESOLVED", "disimpan sebagai Makan oleh Rina"); note != "✅ Kartu ini sudah selesai: disimpan sebagai Makan oleh Rina." {
 		t.Fatalf("resolved note = %q", note)
 	}
 	if note := reviewClosureNote("EXPIRED", ""); !strings.Contains(note, "Kotak Tinjauan") {

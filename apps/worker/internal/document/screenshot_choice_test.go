@@ -119,7 +119,7 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 
 func TestScreenshotSummaryReportsBatchOutcome(t *testing.T) {
 	summary := screenshotSummary(10, 8, 1, 1)
-	for _, want := range []string{"10 transaksi ditemukan.", "✓ 8 berhasil dicatat", "✓ 1 cocok dengan transaksi yang sudah ada", "! 1 butuh keputusan"} {
+	for _, want := range []string{"10 transaksi ditemukan.", "✅ 8 tersimpan", "✅ 1 cocok dengan transaksi yang sudah ada", "⏳ 1 menunggu jawabanmu"} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary %q must contain %q", summary, want)
 		}

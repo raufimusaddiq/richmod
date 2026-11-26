@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const helpMessage = "👋 Hai! Aku Richmod, siap bantu mencatat keuangan keluarga.\n\n" +
+const helpMessage = "Hai! Aku Richmod, siap bantu mencatat keuangan keluarga.\n\n" +
 	"Coba kirim pesan seperti ini:\n" +
 	"• makan siang 50rb\n" +
 	"• gaji 8 juta hari ini\n" +
@@ -18,7 +18,7 @@ const helpMessage = "👋 Hai! Aku Richmod, siap bantu mencatat keuangan keluarg
 	"• cari transaksi Alfamart\n" +
 	"• koreksi transaksi Alfamart ke kemarin\n\n" +
 	"Kamu juga bisa kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
-	"Kalau ada yang belum jelas, aku akan minta detail lewat tombol atau balasan ke pesanku."
+	"Kalau ada yang belum jelas, aku akan menanyakannya di sini."
 
 func isHelpCommand(text string) bool {
 	fields := strings.Fields(strings.ToLower(text))

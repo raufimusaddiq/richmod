@@ -261,10 +261,10 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 	one := withCandidates(1)
 	runContractRows(t, []contractRow{
 		{"the card shows the new record beside the one that already exists, then a tap merges", dupKind, []contractOption{one}, func(h *contractHarness) {
-			h.wantCard("Ini sama dengan catatan yang sudah ada?", "Baru: Warung Contoh · Rp25.000", "Sudah ada: Warung Contoh · Rp25.000", "Alasan: ")
+			h.wantCard("Ini sama dengan transaksi yang sudah ada?", "Baru: Warung Contoh · Rp25.000", "Sudah ada: Warung Contoh · Rp25.000", "Alasan: ")
 			h.wantButtons("Sama, gabungkan", "Beda, catat baru", "Abaikan")
 			h.tapLabel("Sama, gabungkan")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada: Warung Contoh · Rp25.000")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada: Warung Contoh · Rp25.000")
 			h.wantNoButtons()
 			h.wantType("EXPENSE", "VOIDED")
 			h.wantItem("RESOLVED")
@@ -278,7 +278,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 		}},
 		{"Beda, catat baru asks for the category when the expense has none, then records it as new", dupKind, []contractOption{one}, func(h *contractHarness) {
 			h.tapLabel("Beda, catat baru")
-			h.wantCard("✅ Dicatat sebagai transaksi baru.", "Masuk kategori apa?")
+			h.wantCard("✅ Tersimpan sebagai transaksi baru.", "Masuk kategori apa?")
 			h.wantButtons("Makan", "Abaikan")
 			h.tapLabel("Makan")
 			h.wantTransaction("CONFIRMED", "Warung Contoh", "Makan")
@@ -286,7 +286,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 		}},
 		{"Beda, catat baru finishes the card when the category is already known", dupKind, []contractOption{one, withCategory()}, func(h *contractHarness) {
 			h.tapLabel("Beda, catat baru")
-			h.wantCard("✅ Tersimpan: Warung Contoh · Makan · Rp25.000", "Dicatat sebagai transaksi baru.")
+			h.wantCard("✅ Tersimpan: Warung Contoh · Makan · Rp25.000", "Tersimpan sebagai transaksi baru.")
 			h.wantNoButtons()
 			h.wantTransaction("CONFIRMED", "Warung Contoh", "Makan")
 			h.wantModelCalls(0)
@@ -298,7 +298,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 		}},
 		{"typing the button label as a reply merges", dupKind, []contractOption{one}, func(h *contractHarness) {
 			h.reply("sama, gabungkan")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada")
 			h.wantType("EXPENSE", "VOIDED")
 			h.wantAnswered("LABEL_TEXT")
 		}},
@@ -309,13 +309,13 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 		}},
 		{"typing the label as a plain message to the single waiting card merges", dupKind, []contractOption{one}, func(h *contractHarness) {
 			h.plain("Sama, gabungkan")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada")
 			h.wantAnswered("LABEL_TEXT")
 		}},
 		{"with two cards waiting a label only the duplicate card has still reaches it", dupKind, []contractOption{one}, func(h *contractHarness) {
 			h.openOtherCard()
 			h.plain("Sama, gabungkan")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada")
 			h.wantAssistantCalls(0)
 		}},
 		{"with two cards waiting an unrelated plain message goes to the assistant", dupKind, []contractOption{one}, func(h *contractHarness) {
@@ -330,7 +330,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 		}},
 		{"a plain yes shows the question again and records nothing", dupKind, []contractOption{one}, func(h *contractHarness) {
 			h.plain("ya")
-			h.wantCard("Maaf, aku belum menangkap itu. Ini sama dengan catatan yang sudah ada?")
+			h.wantCard("Maaf, aku belum menangkap itu. Ini sama dengan transaksi yang sudah ada?")
 			h.wantButtons("Sama, gabungkan")
 			h.wantType("EXPENSE", "NEEDS_REVIEW")
 			h.wantAssistantCalls(0)
@@ -355,7 +355,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 			h.exec(`INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',25000,'IDR',now()-interval '6 hours',now())`, h.f.householdID)
 			h.tap("review:duppage:0")
 			h.tap(stale)
-			h.wantCard("Catatan itu sudah berubah, jadi belum ada yang digabung.", "Ini sama dengan catatan yang sudah ada?")
+			h.wantCard("Transaksi itu sudah berubah, jadi belum ada yang digabung.", "Ini sama dengan transaksi yang sudah ada?")
 			h.wantType("EXPENSE", "NEEDS_REVIEW")
 			if fresh := h.buttonData("Sama, gabungkan 1"); fresh == stale {
 				t.Fatalf("the refreshed card reuses the stale stamp %q", fresh)
@@ -365,7 +365,7 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 			h.wantCard("Sudah ada (1): ", "Sudah ada (2): ")
 			h.wantButtons("Sama, gabungkan 1", "Sama, gabungkan 2", "Beda, catat baru")
 			h.tapLabel("Sama, gabungkan 2")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada")
 			h.wantJobs(`SELECT count(*) FROM reconciliation_merge m JOIN transaction t ON t.id=m.target_transaction_id WHERE m.household_id=$1 AND m.source_transaction_id=$2 AND t.transaction_at<now()-interval '4 hours'`, 1, h.f.householdID, h.txID)
 		}},
 		{"more candidates than a page fit are paged with their global numbers", dupKind, []contractOption{withCandidates(10)}, func(h *contractHarness) {
@@ -375,11 +375,11 @@ func TestInteractionEngineDuplicateContract(t *testing.T) {
 			h.wantCard("(halaman 2)", "Sudah ada (9): ")
 			h.wantButtons("Sama, gabungkan 9", "Sama, gabungkan 10", "Sebelumnya")
 			h.tapLabel("Sama, gabungkan 10")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada")
 			h.wantType("EXPENSE", "VOIDED")
 		}},
 		{"when no similar record is left the card offers only a new record or ignoring", dupKind, nil, func(h *contractHarness) {
-			h.wantCard("Aku tidak menemukan catatan yang mirip lagi.")
+			h.wantCard("Aku tidak menemukan transaksi yang mirip lagi.")
 			h.wantNoButton("Sama, gabungkan")
 			h.wantButtons("Beda, catat baru", "Abaikan")
 		}},
@@ -610,10 +610,10 @@ func TestInteractionEngineUnsupportedEmailContract(t *testing.T) {
 			h.wantObservation("IGNORED", "", "")
 		}},
 		{"a disagreement that has a record to merge with offers the duplicate choices", conflict, []contractOption{onTransaction(), withCandidates(1)}, func(h *contractHarness) {
-			h.wantCard("Ini sama dengan catatan yang sudah ada?", "Baru: Warung Contoh · Rp25.000", "Sudah ada: Warung Contoh · Rp25.000")
+			h.wantCard("Ini sama dengan transaksi yang sudah ada?", "Baru: Warung Contoh · Rp25.000", "Sudah ada: Warung Contoh · Rp25.000")
 			h.wantButtons("Sama, gabungkan", "Beda, catat baru", "Abaikan")
 			h.tapLabel("Sama, gabungkan")
-			h.wantCard("✅ Digabung dengan catatan yang sudah ada")
+			h.wantCard("✅ Digabung dengan transaksi yang sudah ada")
 			h.wantType("EXPENSE", "VOIDED")
 		}},
 	})
@@ -639,7 +639,7 @@ func TestInteractionEngineWealthContract(t *testing.T) {
 				t.Fatalf("wealth callback = %q", data)
 			}
 			h.tapLabel("Reksa Contoh")
-			h.wantCard("✅ Saldo dicatat: Reksa Contoh · Rp15.000.000", "bukan transaksi")
+			h.wantCard("✅ Saldo tersimpan: Reksa Contoh · Rp15.000.000", "bukan transaksi")
 			h.wantNoButtons()
 			h.wantWealth("ACCEPTED", "Reksa Contoh")
 			h.wantItem("RESOLVED")
@@ -651,7 +651,7 @@ func TestInteractionEngineWealthContract(t *testing.T) {
 			h.wantCard("Catat saldo ini ke akun yang sudah dikenali?", "Akun yang dikenali: Emas Contoh", "Nilai: Rp15.000.000")
 			h.wantButtons("Ya, catat", "Akun lain", "Abaikan")
 			h.tapLabel("Ya, catat")
-			h.wantCard("✅ Saldo dicatat: Emas Contoh · Rp15.000.000")
+			h.wantCard("✅ Saldo tersimpan: Emas Contoh · Rp15.000.000")
 			h.wantWealth("ACCEPTED", "Emas Contoh")
 		}},
 		{"Akun lain moves a recognised account to the account list", wealthKind, []contractOption{known}, func(h *contractHarness) {
@@ -663,13 +663,13 @@ func TestInteractionEngineWealthContract(t *testing.T) {
 		}},
 		{"a button label typed as a reply records like the tap", wealthKind, nil, func(h *contractHarness) {
 			h.reply("reksa contoh")
-			h.wantCard("✅ Saldo dicatat: Reksa Contoh")
+			h.wantCard("✅ Saldo tersimpan: Reksa Contoh")
 			h.wantWealth("ACCEPTED", "Reksa Contoh")
 			h.wantAnswered("LABEL_TEXT")
 		}},
 		{"a full account name too long for its button, typed as a reply, records the snapshot", wealthKind, []contractOption{withNamedWealth(longWealthName)}, func(h *contractHarness) {
 			h.reply(longWealthName)
-			h.wantCard("✅ Saldo dicatat: " + longWealthName)
+			h.wantCard("✅ Saldo tersimpan: " + longWealthName)
 			h.wantWealth("ACCEPTED", longWealthName)
 			h.wantAnswered("REPLY")
 		}},

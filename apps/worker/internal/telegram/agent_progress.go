@@ -13,8 +13,6 @@ const (
 	progressNoticeThinking  = "Masih kuproses ya, jawabannya menyusul di sini."
 )
 
-var progressNoticeTexts = []string{progressNoticeMessage, progressNoticeRecording, progressNoticeThinking, gatewayDeferredMessage}
-
 type agentActivity int32
 
 const (
@@ -65,7 +63,7 @@ func (p *Processor) enqueueProgressNotice(ctx context.Context, update telegramUp
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO job(type,payload_json)
 		SELECT 'SEND_TELEGRAM_MESSAGE',
-		       jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text)
+		       jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'notice',true)
 		WHERE NOT EXISTS (
 		  SELECT 1 FROM job
 		  WHERE type='SEND_TELEGRAM_MESSAGE'

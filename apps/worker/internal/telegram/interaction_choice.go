@@ -10,9 +10,9 @@ import (
 const (
 	callbackInteractionAnswer = "interaction:answer"
 	callbackInteractionNew    = "interaction:new"
-	closedCardReply           = "Kartu ini sudah selesai, jadi balasan tadi tidak mengubah apa pun."
-	answerOrNewQuestion       = "Jawaban atau catatan baru? Ada kartu yang masih menunggu jawaban, dan pesanmu memuat nominal."
-	interactionChoiceStale    = "Pilihan ini sudah tidak berlaku. Kirim ulang pesannya kalau masih perlu, ya."
+	closedCardReply           = "Kartu ini sudah selesai, jadi pesanmu tadi tidak mengubah apa pun."
+	answerOrNewQuestion       = "Ini jawaban untuk kartu yang menunggu, atau transaksi baru? Pesanmu memuat nominal."
+	interactionChoiceStale    = "Pilihan ini sudah tidak berlaku. Kirim lagi pesanmu kalau masih perlu, ya."
 )
 
 func interactionOverride(parserName string) string {
@@ -45,8 +45,8 @@ func (p *Processor) askAnswerOrNew(ctx context.Context, householdID, sourceEvent
 		return err
 	}
 	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
-		{{Text: "Jawaban untuk kartu tadi", CallbackData: callbackInteractionAnswer}},
-		{{Text: "Catatan baru", CallbackData: callbackInteractionNew}},
+		{{Text: "Jawaban untuk kartu", CallbackData: callbackInteractionAnswer}},
+		{{Text: "Transaksi baru", CallbackData: callbackInteractionNew}},
 	}}
 	if err := enqueueReplyMarkup(ctx, tx, update, answerOrNewQuestion, markup); err != nil {
 		return err

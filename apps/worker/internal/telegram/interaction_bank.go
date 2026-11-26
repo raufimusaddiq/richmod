@@ -20,9 +20,9 @@ const (
 	bankConfirmHint    = "Nominal dan waktunya sudah terbaca dari email. Pilih di bawah."
 	bankAccountAsk     = "Email ini untuk rekening yang mana?"
 	bankAccountHint    = "Pilih di bawah, atau ketik nama rekeningnya."
-	bankNoAccountsHint = "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan dulu di aplikasi."
-	bankWhy            = "Aku belum bisa membaca isi email bank ini sendiri."
-	bankClosedAck      = "Kartu ini sudah berubah, jadi belum ada yang dicatat. Buka Kotak Tinjauan untuk melanjutkannya."
+	bankNoAccountsHint = "Email bank ini belum terhubung ke rekening, dan belum ada rekening yang aktif. Tambahkan dulu di aplikasi."
+	bankWhy            = "Aku belum bisa membaca isi email bank ini."
+	bankClosedAck      = "Kartu ini sudah berubah, jadi belum ada yang dicatat. Lanjutkan di " + reviewInboxName + " di aplikasi."
 	bankAccountMissAck = "Aku belum menemukan satu rekening yang cocok."
 )
 
@@ -102,7 +102,7 @@ func bankFacts(b bankSubject, pending bankPending) string {
 		lines = append(lines, "Dari: "+b.Sender)
 	}
 	if amount := firstText(b.AmountIDR, pending.AmountIDR); amount != "" {
-		lines = append(lines, "Nominal: Rp"+FormatIDR(amount))
+		lines = appendFact(lines, "Nominal", IDR(amount))
 	}
 	if label := bankMomentLabel(firstText(b.TransactionAt, pending.TransactionAt)); label != "" {
 		lines = append(lines, "Waktu: "+label)
@@ -208,7 +208,7 @@ func (p *Processor) saveBankAmount(ctx context.Context, tx pgx.Tx, householdID, 
 	if err := saveBankPending(ctx, tx, review.RequestID, pending); err != nil {
 		return stepOutcome{}, err
 	}
-	return p.bankAdvance(ctx, tx, householdID, review, step, pending, "✅ Nominal Rp"+FormatIDR(amount)+" diterima.")
+	return p.bankAdvance(ctx, tx, householdID, review, step, pending, "✅ Nominal "+IDR(amount)+" diterima.")
 }
 
 func (p *Processor) finishBankTime(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, at time.Time) (stepOutcome, error) {
@@ -282,7 +282,7 @@ func (p *Processor) completeBank(ctx context.Context, tx pgx.Tx, householdID str
 	if err := sp.Commit(ctx); err != nil {
 		return stepOutcome{}, false, err
 	}
-	done := Step{Kind: stepDone, Ack: "✅ Diterima: Rp" + FormatIDR(amount) + ", " + bankMomentLabel(at) + ". Transaksinya sedang dicatat."}
+	done := Step{Kind: stepDone, Ack: "✅ Diterima: " + joinDot(IDR(amount), bankMomentLabel(at)) + ". Transaksinya sedang dicatat."}
 	if err := refreshSiblingCards(ctx, tx, review.RequestID, review.ChatID, done); err != nil {
 		return stepOutcome{}, false, err
 	}
@@ -397,7 +397,7 @@ func (p *Processor) ignoreBank(ctx context.Context, tx pgx.Tx, householdID strin
 	if err := sp.Commit(ctx); err != nil {
 		return stepOutcome{}, err
 	}
-	return stepOutcome{Step: Step{Kind: stepDone, Ack: "🗑️ Email bank ini diabaikan. Tidak dicatat."}, Settled: true, Changed: true}, nil
+	return stepOutcome{Step: Step{Kind: stepDone, Ack: "🗑️ Diabaikan: email bank. Tidak dicatat."}, Settled: true, Changed: true}, nil
 }
 
 func enqueueBankFactsCompletion(ctx context.Context, tx pgx.Tx, command reviewdomain.BankFactCommand, chatID int64) error {

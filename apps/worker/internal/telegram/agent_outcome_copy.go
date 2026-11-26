@@ -3,11 +3,11 @@ package telegram
 import "strings"
 
 const (
-	outcomeSavedMessage     = "✅ Sudah tersimpan."
+	outcomeSavedMessage     = "✅ Tersimpan."
 	outcomeIgnoredMessage   = "Oke, kuabaikan. Tidak ada yang dicatat."
 	outcomeUnchangedMessage = "Tidak ada yang berubah."
 	outcomeFailedMessage    = "Belum berhasil, dan belum ada yang berubah. Coba lagi sebentar lagi, ya."
-	outcomeAwaitingMessage  = "Sudah kusiapkan, tinggal menunggu konfirmasimu lewat tombolnya. Belum ada yang berubah."
+	outcomeAwaitingMessage  = "Sudah kusiapkan, tinggal kamu konfirmasi dengan Ya. Belum ada yang berubah."
 )
 
 func isAwaitingStatus(status string) bool {

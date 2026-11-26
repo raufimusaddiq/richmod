@@ -473,7 +473,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if hasChat {
 			message := workerTelegram.ReviewQuestion(*row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
-				message = "Dana masuk: Rp" + workerTelegram.FormatIDR(*row.Value.Amount)
+				message = "Dana masuk: " + workerTelegram.IDR(*row.Value.Amount)
 				if strings.TrimSpace(row.Value.Merchant) != "" {
 					message += "\nDari: " + row.Value.Merchant
 				}

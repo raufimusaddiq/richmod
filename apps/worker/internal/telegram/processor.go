@@ -175,7 +175,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 		}
 	}
 	if sourceType == "TELEGRAM_CALLBACK" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+		return p.finishStaleAction(ctx, sourceEventID, update)
 	}
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
@@ -206,7 +206,7 @@ func (p *Processor) dispatchCallback(ctx context.Context, sourceEventID, househo
 	return p.processMerchantLearningTap(ctx, sourceEventID, householdID, update, data)
 }
 
-const disputeButtonsOnlyMessage = "Koreksi screenshot hanya bisa diselesaikan lewat tombol di kartunya."
+const disputeButtonsOnlyMessage = "Koreksi screenshot hanya bisa diselesaikan dengan memilih salah satu pilihan di kartunya."
 
 func strPtr(value string) *string { return &value }
 
@@ -232,7 +232,7 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 	if err != nil {
 		return true, err
 	}
-	message := "Perubahan dibatalkan."
+	message := "Perubahan dibatalkan. Tidak ada yang berubah."
 	if confirm {
 		outcome, err := applyPendingCorrectionTx(ctx, tx, householdID, actionID, update.Message.From.ID)
 		if err != nil {
@@ -277,7 +277,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 	if err != nil {
 		return true, err
 	}
-	msg := "Pencatatan daftar transaksi dibatalkan."
+	msg := "Daftar transaksi dibatalkan. Tidak ada yang dicatat."
 	if confirm {
 		var items []agentPendingBatchItem
 		if err = json.Unmarshal([]byte(raw), &items); err != nil {
@@ -431,6 +431,14 @@ func (p *Processor) categorySlugs(ctx context.Context, householdID string) ([]st
 }
 
 func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID, status string, update telegramUpdate, message string) error {
+	return p.finishReply(ctx, sourceEventID, status, update, message, false)
+}
+
+func (p *Processor) finishStaleAction(ctx context.Context, sourceEventID string, update telegramUpdate) error {
+	return p.finishReply(ctx, sourceEventID, "IGNORED", update, staleActionMessage, true)
+}
+
+func (p *Processor) finishReply(ctx context.Context, sourceEventID, status string, update telegramUpdate, message string, stale bool) error {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -440,7 +448,7 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 		return err
 	}
 	reply := message
-	if update.CallbackQuery != nil && message == staleActionMessage {
+	if update.CallbackQuery != nil && stale {
 		if err := recordStaleReviewAction(ctx, tx, sourceEventID, update); err != nil {
 			return err
 		}
@@ -449,7 +457,7 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 	if err := enqueueReply(ctx, tx, update, reply); err != nil {
 		return err
 	}
-	if update.CallbackQuery != nil && message == staleActionMessage {
+	if update.CallbackQuery != nil && stale {
 		if err := enqueueRetireButtons(ctx, tx, update, "Tidak lagi berlaku."); err != nil {
 			return err
 		}
@@ -491,4 +499,9 @@ func jakartaLocation() *time.Location {
 		panic(err)
 	}
 	return location
+}
+
+func enqueueNotice(ctx context.Context, tx pgx.Tx, update telegramUpdate, message string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'notice',true))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000))
+	return err
 }

@@ -321,7 +321,7 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	if documented != "NEEDS_REVIEW" || sourced != "NEEDS_REVIEW" {
 		t.Fatalf("a batch with unresolved rows stays in review: document=%s source=%s", documented, sourced)
 	}
-	assertScreenshotSummary(t, fixture, "3 transaksi ditemukan.", "1 berhasil dicatat", "2 butuh keputusan")
+	assertScreenshotSummary(t, fixture, "3 transaksi ditemukan.", "✅ 1 tersimpan", "⏳ 2 menunggu jawabanmu")
 	assertScreenshotReviewDecisions(t, fixture, 2)
 }
 
@@ -349,7 +349,7 @@ func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 	if documented != "EXTRACTED" || sourced != "PROCESSED" {
 		t.Fatalf("a clear batch reaches a terminal state: document=%s source=%s", documented, sourced)
 	}
-	assertScreenshotSummary(t, fixture, "2 transaksi ditemukan.", "2 berhasil dicatat")
+	assertScreenshotSummary(t, fixture, "2 transaksi ditemukan.", "✅ 2 tersimpan")
 	var summary string
 	if err := fixture.pool.QueryRow(context.Background(), `SELECT COALESCE(max(payload_json->>'text'),'') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1`, fmt.Sprint(fixture.chatID)).Scan(&summary); err != nil {
 		t.Fatal(err)

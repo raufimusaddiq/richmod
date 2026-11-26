@@ -386,7 +386,7 @@ const callbackPendingCardPrefix = "pending:card:"
 
 func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, cards []agentReviewBinding, answer typedCardAnswer) error {
 	if (answer.Kind != cardAnswerCategory && answer.Kind != cardAnswerDate) || hasProposalCard(cards) {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Ada beberapa kartu yang menunggu jawaban seperti itu. Jawab langsung di kartu yang dimaksud, ya.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Ada beberapa kartu yang menunggu jawaban seperti itu. Sebutkan nama atau nominal transaksi yang kamu maksud, ya.")
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -408,7 +408,7 @@ func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID
 		}
 		label := clean(card.Label, 40)
 		if card.AmountIDR != "" {
-			label += " · Rp" + FormatIDR(card.AmountIDR)
+			label = joinDot(label, IDR(card.AmountIDR))
 		}
 		keyboard = append(keyboard, []InlineKeyboardButton{{Text: label, CallbackData: callbackPendingCardPrefix + token}})
 	}
@@ -437,7 +437,7 @@ func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID
 	return tx.Commit(ctx)
 }
 
-const cardChoiceStaleMessage = "Pilihan ini sudah tidak berlaku. Jawab langsung di kartu yang dimaksud, ya."
+const cardChoiceStaleMessage = "Pilihan ini sudah tidak berlaku. Sebutkan nama atau nominal transaksi yang kamu maksud, ya."
 
 func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	if !strings.HasPrefix(data, callbackPendingCardPrefix) {

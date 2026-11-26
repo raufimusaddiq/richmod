@@ -29,7 +29,7 @@ func evidenceIgnoreLabel(reviewType string) string {
 	case strings.HasPrefix(reviewType, "FINANCIAL_EMAIL") || reviewType == "CONFLICTING_EVIDENCE":
 		return "bukti email"
 	}
-	return "tinjauan ini"
+	return "kartu ini"
 }
 
 func (p *Processor) applyEvidenceTap(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, data string, sit situation) (stepOutcome, error) {
@@ -103,7 +103,7 @@ func (p *Processor) applyIgnoreEvidence(ctx context.Context, tx pgx.Tx, review e
 	return stepOutcome{Step: Step{Kind: stepDone, Ack: "🗑️ Diabaikan: " + evidenceIgnoreLabel(review.ReviewType) + ". Tidak ada transaksi yang dicatat."}, Settled: true, Changed: true}, nil
 }
 
-const evidenceChangedAck = "Tinjauan ini sudah berubah, jadi belum ada yang diabaikan."
+const evidenceChangedAck = "Kartu ini sudah berubah, jadi belum ada yang diabaikan."
 
 func (p *Processor) applyDuplicateTap(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, data string) (stepOutcome, error) {
 	switch {
@@ -167,7 +167,7 @@ func (p *Processor) mergeDuplicate(ctx context.Context, tx pgx.Tx, householdID s
 	if err := sp.Commit(ctx); err != nil {
 		return stepOutcome{}, err
 	}
-	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Digabung dengan catatan yang sudah ada: " + target.line() + "."}, Settled: true, Changed: true}, nil
+	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Digabung dengan transaksi yang sudah ada: " + target.line() + "."}, Settled: true, Changed: true}, nil
 }
 
 func (p *Processor) recordDuplicateAsNew(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step) (stepOutcome, error) {
@@ -196,10 +196,10 @@ func (p *Processor) recordDuplicateAsNew(ctx context.Context, tx pgx.Tx, househo
 		if err != nil {
 			return stepOutcome{}, err
 		}
-		next.Step = next.Step.WithAck("✅ Dicatat sebagai transaksi baru.")
+		next.Step = next.Step.WithAck("✅ Tersimpan sebagai transaksi baru.")
 		return next, nil
 	}
-	return p.finishConfirm(ctx, tx, sp, householdID, sourceEventID, review, step, "TELEGRAM_CONFIRM_AS_NEW", "Dicatat sebagai transaksi baru.")
+	return p.finishConfirm(ctx, tx, sp, householdID, sourceEventID, review, step, "TELEGRAM_CONFIRM_AS_NEW", "Tersimpan sebagai transaksi baru.")
 }
 
 func (p *Processor) confirmReviewedTransaction(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, note string) (stepOutcome, error) {
@@ -297,9 +297,9 @@ func (p *Processor) resolveDispute(ctx context.Context, tx pgx.Tx, householdID s
 	if err := sp.Commit(ctx); err != nil {
 		return stepOutcome{}, err
 	}
-	ack := "✅ Koreksi dibatalkan. Screenshot tetap terkait dengan catatan semula; tidak ada transaksi baru."
+	ack := "✅ Koreksi dibatalkan. Screenshot tetap terkait dengan transaksi semula, dan tidak ada transaksi baru."
 	if confirm {
-		ack = "✅ Transaksi berbeda dicatat. Screenshot sekarang terkait dengan catatan baru; catatan lama dan bukti aslinya tetap tersimpan."
+		ack = "✅ Tersimpan sebagai transaksi berbeda. Screenshot kini terkait dengan transaksi baru, dan transaksi lama beserta bukti aslinya tetap ada."
 	}
 	return stepOutcome{Step: Step{Kind: stepDone, Ack: ack}, Settled: true, Changed: true}, nil
 }
@@ -401,13 +401,7 @@ func (p *Processor) resolveEmailEntity(ctx context.Context, tx pgx.Tx, household
 	if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT name FROM account WHERE id=NULLIF($1,'')::uuid),''),COALESCE((SELECT name FROM wealth_account WHERE id=NULLIF($2,'')::uuid),'')`, result.AccountID, result.WealthAccountID).Scan(&account, &wealth); err != nil {
 		return stepOutcome{}, err
 	}
-	var parts []string
-	for _, part := range []string{account, wealth} {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Tersimpan: " + strings.Join(parts, " · "), Hint: "Email ini sedang diproses lagi dengan pilihanmu."}, Settled: true, Changed: true}, nil
+	return stepOutcome{Step: Step{Kind: stepDone, Ack: savedLine(account, wealth), Hint: "Email ini sedang diproses lagi dengan pilihanmu."}, Settled: true, Changed: true}, nil
 }
 
 func (p *Processor) applyWealthTap(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, data string) (stepOutcome, error) {
@@ -486,7 +480,7 @@ func (p *Processor) resolveWealth(ctx context.Context, tx pgx.Tx, householdID st
 	if err := tx.QueryRow(ctx, `SELECT name FROM wealth_account WHERE id=$1 AND household_id=$2`, accountID, householdID).Scan(&name); err != nil {
 		return stepOutcome{}, err
 	}
-	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Saldo dicatat: " + name + " · Rp" + FormatIDR(value), Hint: "Ini catatan saldo saja, bukan transaksi."}, Settled: true, Changed: true}, nil
+	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Saldo tersimpan: " + joinDot(name, IDR(value)), Hint: balanceNote}, Settled: true, Changed: true}, nil
 }
 
 func (p *Processor) applyDocumentTap(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, data string) (stepOutcome, error) {

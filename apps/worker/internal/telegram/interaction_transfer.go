@@ -27,9 +27,9 @@ const (
 	accountStaleAck        = "Pilihan itu sudah tidak berlaku."
 	accountIncompatibleAck = "Akun itu tidak cocok untuk pilihan ini."
 	transferInvalidAck     = "Pilihan itu tidak berlaku untuk transaksi ini."
-	ignoreNotAllowedAck    = "Tinjauan ini tidak bisa diabaikan."
-	relinkElsewhereHint    = "Akun transfer ini diganti lewat Kotak Tinjauan di aplikasi."
-	reconciliationHint     = "Pilih catatan yang sama untuk digabung, atau Catat transfer baru."
+	ignoreNotAllowedAck    = "Kartu ini tidak bisa diabaikan."
+	relinkElsewhereHint    = "Akun transfer ini diganti di " + reviewInboxName + " di aplikasi."
+	reconciliationHint     = "Pilih transaksi yang sama untuk digabung, atau Catat transfer baru."
 )
 
 type transferOption struct {
@@ -534,14 +534,7 @@ var transferLabels = map[string]string{
 }
 
 func transferDoneStep(label, detail, amount string) Step {
-	parts := []string{}
-	for _, part := range []string{label, detail} {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	parts = append(parts, "Rp"+FormatIDR(amount))
-	return Step{Kind: stepDone, Ack: "✅ Tersimpan: " + strings.Join(parts, " · ")}
+	return Step{Kind: stepDone, Ack: savedLine(label, detail, IDR(amount))}
 }
 
 func (p *Processor) classifyTransfer(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, classification, wealthAccountID, categoryID string) (stepOutcome, error) {
@@ -708,7 +701,7 @@ func (p *Processor) applyReconciliation(ctx context.Context, tx pgx.Tx, househol
 			return staleTap(step), nil
 		}
 		command.Action, command.CandidateID = "MERGE_EXISTING", candidates[index]
-		label = "Digabung dengan catatan yang ada"
+		label = "Digabung dengan transaksi yang sudah ada"
 	}
 	amount, err := reconciliationAmount(ctx, tx, householdID, review.ItemID)
 	if errors.Is(err, pgx.ErrNoRows) {

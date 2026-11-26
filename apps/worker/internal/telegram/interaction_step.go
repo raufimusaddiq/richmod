@@ -113,22 +113,23 @@ const (
 )
 
 type Step struct {
-	Kind     stepKind
-	Fact     factKind
-	State    string
-	Ack      string
-	Ask      string
-	Hint     string
-	Facts    string
-	Why      string
-	Page     int
-	Back     bool
-	Raw      string
-	ReadOnly bool
-	Dispute  bool
-	Fallback bool
-	Defer    bool
-	Rows     [][]InlineKeyboardButton
+	Kind         stepKind
+	Fact         factKind
+	State        string
+	Ack          string
+	Ask          string
+	Hint         string
+	Facts        string
+	Why          string
+	Page         int
+	Back         bool
+	Raw          string
+	ReadOnly     bool
+	Dispute      bool
+	Fallback     bool
+	Defer        bool
+	AccountNoted bool
+	Rows         [][]InlineKeyboardButton
 }
 
 func (s Step) Title() string {
@@ -409,7 +410,7 @@ func engineOwnsFacts(decision reviewdec.Decision, subject reviewSubject) bool {
 func rememberStep(facts, merchant, category string) Step {
 	return Step{
 		Kind: stepConfirm, Fact: factRemember, Facts: facts,
-		Ack:  "✅ Dicatat: " + category + ".",
+		Ack:  "✅ Tersimpan: " + category + ".",
 		Ask:  "Pakai " + category + " juga untuk transaksi berikutnya dari " + merchant + "?",
 		Hint: "Pilih Ya, ingat atau Sekali ini.",
 		Rows: [][]InlineKeyboardButton{{{Text: "Ya, ingat", CallbackData: callbackRemember}, {Text: "Sekali ini", CallbackData: callbackOnce}}},
@@ -417,22 +418,14 @@ func rememberStep(facts, merchant, category string) Step {
 }
 
 func doneStep(merchant, category, amount, note string) Step {
-	parts := []string{}
-	for _, part := range []string{merchant, category} {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	parts = append(parts, "Rp"+FormatIDR(amount))
-	return Step{Kind: stepDone, Ack: "✅ Tersimpan: " + strings.Join(parts, " · "), Hint: note}
+	return Step{Kind: stepDone, Ack: savedLine(merchant, category, IDR(amount)), Hint: note}
 }
 
 func ignoredStep(merchant, amount string) Step {
-	label := "Rp" + FormatIDR(amount)
-	if merchant != "" {
-		label = merchant + " · " + label
+	if label := joinDot(merchant, IDR(amount)); label != "" {
+		return Step{Kind: stepDone, Ack: "🗑️ Diabaikan: " + label + ". Tidak dicatat."}
 	}
-	return Step{Kind: stepDone, Ack: "🗑️ Diabaikan: " + label + ". Tidak dicatat."}
+	return Step{Kind: stepDone, Ack: ignoredLine}
 }
 
 func (s *Step) loadCategoryRows(ctx context.Context, tx pgx.Tx, reviewID string, page int) error {

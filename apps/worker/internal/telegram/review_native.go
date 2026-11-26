@@ -66,7 +66,7 @@ type cardOutcome struct {
 }
 
 func (o cardOutcome) text(note string) string {
-	title := "✅ Dicatat"
+	title := "✅ Tersimpan"
 	if o.Category != "" {
 		title += ": " + o.Category
 	}
@@ -171,17 +171,13 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 	if err = commitMerchantLearning(ctx, tx, householdID, userID, reviewID, transactionID, sourceEventID, remember); err != nil {
 		return err
 	}
-	message := "Kategori ini hanya dipakai untuk transaksi tadi, tidak disimpan sebagai aturan merchant."
-	if remember {
-		message = "✅ Kategori merchant sudah disimpan untuk transaksi berikutnya. Aturannya bisa dinonaktifkan di Settings."
-	}
 	outcome, err := confirmedCardOutcome(ctx, tx, householdID, transactionID)
 	if err != nil {
 		return err
 	}
-	note := "Kategori hanya dipakai untuk transaksi ini."
+	note := rememberedOnceNote
 	if remember {
-		note = "⭐ Diingat untuk " + outcome.Merchant + ". Bisa dinonaktifkan di Settings."
+		note = rememberedNote(outcome.Merchant)
 	}
 	var cardChat, cardMessage int64
 	_ = tx.QueryRow(ctx, `SELECT COALESCE((context_json->'learning_card'->>'chat_id')::bigint,0),COALESCE((context_json->'learning_card'->>'message_id')::bigint,0) FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&cardChat, &cardMessage)
@@ -201,7 +197,7 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 			return err
 		}
 	}
-	if err = enqueueReply(ctx, tx, update, message); err != nil {
+	if err = enqueueReply(ctx, tx, update, note); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -230,11 +226,7 @@ func commitMerchantLearning(ctx context.Context, tx pgx.Tx, householdID, userID,
 }
 
 func ReviewQuestion(amount, merchant string) string {
-	facts := "Nominal: Rp" + FormatIDR(amount)
-	if merchant = strings.TrimSpace(merchant); merchant != "" {
-		facts += "\nMerchant: " + merchant
-	}
-	return facts
+	return factBlock("Nominal", IDR(amount), "Merchant", merchant)
 }
 
 func FormatIDR(value string) string {

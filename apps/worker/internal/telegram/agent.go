@@ -170,16 +170,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	now := p.turnTime(update)
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
-	generalTools := agentFinanceTools(categories, contextState.HasPendingAction, contextState.HasPendingBatch)
-	if evidence == nil && len(recentEvidence) == 0 {
-		generalTools = withoutTool(generalTools, "get_evidence_context")
-	}
-	if len(cardRefs) > 0 {
-		generalTools = append(generalTools, showReviewCardTool())
-	}
-	if assetPurchaseOffered(reviewBinding) {
-		generalTools = append(generalTools, proposeAssetPurchaseTool())
-	}
+	generalTools := agentGeneralTools(categories, contextState, evidence != nil || len(recentEvidence) > 0, len(cardRefs) > 0, assetPurchaseOffered(reviewBinding))
 	tools, workflowScope := generalTools, agentWorkflowGeneral
 	if explicitReply {
 		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding)
@@ -693,6 +684,20 @@ func (p *Processor) settleFreshEvidenceSources(ctx context.Context, state *agent
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func agentGeneralTools(categories []string, state agentContextState, hasEvidence, hasCards, assetOffered bool) []gateway.ToolDefinition {
+	tools := agentFinanceTools(categories, state.HasPendingAction, state.HasPendingBatch)
+	if !hasEvidence {
+		tools = withoutTool(tools, "get_evidence_context")
+	}
+	if hasCards {
+		tools = append(tools, showReviewCardTool())
+	}
+	if assetOffered {
+		tools = append(tools, proposeAssetPurchaseTool())
+	}
+	return tools
 }
 
 func withoutTool(tools []gateway.ToolDefinition, name string) []gateway.ToolDefinition {

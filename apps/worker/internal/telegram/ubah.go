@@ -118,16 +118,33 @@ func (p *Processor) armUbahFromSend(ctx context.Context, payload SendPayload, me
 	return armUbah(ctx, p.pool, payload.ReviewRequestID, payload.ChatID, messageID, userID, until)
 }
 
-func (p *Processor) ubahDoneText(ctx context.Context, tx pgx.Tx, householdID, transactionID, note string) (string, error) {
+func (p *Processor) ubahDoneStep(ctx context.Context, tx pgx.Tx, householdID, transactionID, note string) (Step, error) {
 	outcome, err := confirmedCardOutcome(ctx, tx, householdID, transactionID)
 	if err != nil {
-		return "", err
+		return Step{}, err
 	}
 	amount, err := transactionAmount(ctx, tx, householdID, transactionID)
 	if err != nil {
-		return "", err
+		return Step{}, err
 	}
-	return doneStep(outcome.Merchant, outcome.Category, amount, note).Text(), nil
+	return doneStep(outcome.Merchant, outcome.Category, amount, note), nil
+}
+
+func storedDoneStep(ctx context.Context, tx pgx.Tx, reviewID string) (Step, bool, error) {
+	var line, note string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(context_json->>'done_line',''),COALESCE(context_json->>'done_note','') FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&line, &note)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && line == "") {
+		return Step{}, false, nil
+	}
+	if err != nil {
+		return Step{}, false, err
+	}
+	return Step{Kind: stepDone, Ack: line, Hint: note}, true, nil
+}
+
+func storeDoneStep(ctx context.Context, tx jobExecer, reviewID string, step Step) error {
+	_, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('done_line',$2::text,'done_note',$3::text),updated_at=now() WHERE review_request_id=$1`, reviewID, clean(step.Title(), 500), clean(step.Hint, 500))
+	return err
 }
 
 type UbahExpirePayload struct {
@@ -178,9 +195,12 @@ func (p *Processor) closeUbah(ctx context.Context, tx pgx.Tx, householdID, revie
 		return err
 	}
 	if transactionID != "" {
-		text, err := p.ubahDoneText(ctx, tx, householdID, transactionID, "")
+		step, stored, err := storedDoneStep(ctx, tx, reviewID)
+		if err == nil && !stored {
+			step, err = p.ubahDoneStep(ctx, tx, householdID, transactionID, "")
+		}
 		if err == nil {
-			if err := settleReviewCardInPlace(ctx, tx, reviewID, state.ChatID, state.MessageID, text, nil); err != nil {
+			if err := settleReviewCardInPlace(ctx, tx, reviewID, state.ChatID, state.MessageID, step.Text(), nil); err != nil {
 				return err
 			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -294,11 +314,14 @@ func (p *Processor) processUbahTap(ctx context.Context, sourceEventID, household
 		return show("chooser", reviewdomain.TelegramCardText("Mau ubah apa?", facts, "", ""), ubahChooserMarkup(offer))
 	}
 	doneLine := func(note string) (bool, error) {
-		text, err := p.ubahDoneText(ctx, tx, householdID, offer.TransactionID, note)
+		step, err := p.ubahDoneStep(ctx, tx, householdID, offer.TransactionID, note)
 		if err != nil {
 			return true, err
 		}
-		return show("done", text, ubahDoneMarkup().InlineKeyboard)
+		if err := storeDoneStep(ctx, tx, reviewID, step); err != nil {
+			return true, err
+		}
+		return show("done", step.Text(), ubahDoneMarkup().InlineKeyboard)
 	}
 	back := []InlineKeyboardButton{{Text: "Kembali", CallbackData: callbackUbahBack}}
 	categoryPickerRows := func(page int) (bool, error) {
@@ -389,7 +412,7 @@ func (p *Processor) ubahRemember(ctx context.Context, tx pgx.Tx, householdID, us
 	if err != nil {
 		return true, err
 	}
-	return done("⭐ Diingat untuk " + outcome.Merchant + ". Bisa dinonaktifkan di Settings.")
+	return done(rememberedNote(outcome.Merchant))
 }
 
 func ubahOwnsTap(data string) bool {
@@ -475,14 +498,17 @@ func (p *Processor) processUbahText(ctx context.Context, sourceEventID, househol
 		}
 	}
 	if reply == "" {
-		doneText, err := p.ubahDoneText(ctx, tx, householdID, offer.TransactionID, "Tanggal diubah ke "+reviewdomain.FormatIndonesianDate(date)+".")
+		doneStep, err := p.ubahDoneStep(ctx, tx, householdID, offer.TransactionID, "Tanggal diubah ke "+reviewdomain.FormatIndonesianDate(date)+".")
 		if err != nil {
+			return true, err
+		}
+		if err := storeDoneStep(ctx, tx, reviewID, doneStep); err != nil {
 			return true, err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{ubah,mode}','"done"'::jsonb),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 			return true, err
 		}
-		if err := settleReviewCardInPlace(ctx, tx, reviewID, state.ChatID, state.MessageID, doneText, ubahDoneMarkup()); err != nil {
+		if err := settleReviewCardInPlace(ctx, tx, reviewID, state.ChatID, state.MessageID, doneStep.Text(), ubahDoneMarkup()); err != nil {
 			return true, err
 		}
 	}

@@ -192,7 +192,7 @@ func TestAssetPurchaseWithTwoSimilarTransfersKeepsTheCardWaiting(t *testing.T) {
 		t.Fatal("confirm tap was not handled")
 	}
 	scene.wantUntouched(t)
-	if outcome := assetPurchaseOutcomeMessage("TRANSFER_RECONCILIATION_REQUIRED", assetPurchaseProposal{}); !strings.Contains(outcome, "Kartu saldonya tetap menunggu") {
+	if outcome := assetPurchaseOutcomeMessage("TRANSFER_RECONCILIATION_REQUIRED", assetPurchaseProposal{}); !strings.Contains(outcome, "Kartu saldonya masih menunggu") {
 		t.Fatalf("the refusal gives no next step: %q", outcome)
 	}
 }

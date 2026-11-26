@@ -272,13 +272,23 @@ func (h *contractHarness) audit() {
 	for _, job := range fresh {
 		h.checked[job.id] = true
 		var payload struct {
-			ReviewRequestID string `json:"review_request_id"`
-			MessageID       int64  `json:"message_id"`
-			Text            string `json:"text"`
+			ReviewRequestID string                `json:"review_request_id"`
+			MessageID       int64                 `json:"message_id"`
+			Text            string                `json:"text"`
+			ReplyMarkup     *InlineKeyboardMarkup `json:"reply_markup"`
 		}
 		mustAgentTest(h.t, json.Unmarshal(job.payload, &payload))
-		if strings.Contains(payload.Text, "Balas pesan ini") {
-			h.t.Fatalf("loose prompt copy: %q", payload.Text)
+		if problems := copyViolations(payload.Text); payload.Text != "" && len(problems) > 0 {
+			h.t.Fatalf("copy audit: %v in %q", problems, payload.Text)
+		}
+		if payload.ReplyMarkup != nil {
+			for _, row := range payload.ReplyMarkup.InlineKeyboard {
+				for _, button := range row {
+					if problems := copyViolations(button.Text); len(problems) > 0 {
+						h.t.Fatalf("copy audit: %v in button %q", problems, button.Text)
+					}
+				}
+			}
 		}
 		switch job.kind {
 		case "SEND_TELEGRAM_MESSAGE":
@@ -635,7 +645,7 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantCard("✅ Warung Contoh disimpan. Masuk kategori apa?", "Nominal: Rp25.000")
 			h.wantButtons("Makan", "Transportasi", "Abaikan")
 			h.tapLabel("Makan")
-			h.wantCard("✅ Dicatat: Makan.", "Pakai Makan juga untuk transaksi berikutnya dari Warung Contoh?")
+			h.wantCard("✅ Tersimpan: Makan.", "Pakai Makan juga untuk transaksi berikutnya dari Warung Contoh?")
 			h.wantButtons("Ya, ingat", "Sekali ini")
 			h.tapLabel("Sekali ini")
 			h.wantCard(contractDone, "hanya dipakai untuk transaksi ini")
@@ -689,6 +699,19 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.tap("review:edit")
 			h.wantCard("Pilihan itu tidak berlaku untuk kartu ini.", "Masuk kategori apa?")
 			h.wantButtons("Makan", "Abaikan")
+		}},
+		{"the Ubah window closing keeps the remembered note the user saw", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
+			h.tapLabel("Makan")
+			h.tapLabel("Ya, ingat")
+			h.wantCard("✅ Tersimpan: Toko Contoh · Makan · Rp25.000", "Diingat untuk Toko Contoh")
+			var raw string
+			mustAgentTest(h.t, h.f.pool.QueryRow(h.ctx, `SELECT payload_json::text FROM job WHERE type='EXPIRE_UBAH_BUTTON' AND payload_json->>'review_request_id'=$1`, h.reviewID).Scan(&raw))
+			payload, err := DecodeUbahExpirePayload(json.RawMessage(raw))
+			mustAgentTest(h.t, err)
+			mustAgentTest(h.t, h.p.ExpireUbahButton(h.ctx, payload))
+			h.deliver()
+			h.wantCard("✅ Tersimpan: Toko Contoh · Makan · Rp25.000", "Diingat untuk Toko Contoh")
+			h.wantNoButtons()
 		}},
 		{"a plain yes on the remember step answers the card", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.tapLabel("Makan")
@@ -764,7 +787,7 @@ func TestInteractionEngineContract(t *testing.T) {
 		{"unclear category text is resolved by the narrow check", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
 			h.picker.script = []string{"transportasi"}
 			h.reply("buat ongkos pulang")
-			h.wantCard("✅ Dicatat: Transportasi.")
+			h.wantCard("✅ Tersimpan: Transportasi.")
 			h.wantTransaction("CONFIRMED", "Toko Contoh", "Transportasi")
 			h.wantModelCalls(1)
 			schema, _ := json.Marshal(h.picker.tools[0][0].Parameters)
@@ -805,7 +828,7 @@ func TestInteractionEngineContract(t *testing.T) {
 			}
 			h.tapLabel("Berikutnya")
 			h.tapLabel("Kategori 12")
-			h.wantCard("✅ Dicatat: Kategori 12.")
+			h.wantCard("✅ Tersimpan: Kategori 12.")
 			h.wantTransaction("CONFIRMED", "Toko Contoh", "Kategori 12")
 		}},
 		{"abaikan finishes the card without recording", "AMBIGUOUS_CATEGORY", nil, func(h *contractHarness) {
@@ -1034,7 +1057,7 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 			h.wantCard("Ini untuk apa?", "Nominal: Rp500.000")
 			h.wantButtons("Catat transfer baru", "Abaikan")
 			h.tap("review:xfer:merge:0")
-			h.wantCard("✅ Tersimpan: Digabung dengan catatan yang ada · Rp500.000")
+			h.wantCard("✅ Tersimpan: Digabung dengan transaksi yang sudah ada · Rp500.000")
 			h.wantNoButtons()
 			h.wantType("TRANSFER", "CONFIRMED")
 			h.wantItem("RESOLVED")
@@ -1164,7 +1187,7 @@ func TestInteractionEngineTransferContract(t *testing.T) {
 			if status != "NEEDS_REVIEW" {
 				t.Fatalf("the second card was answered: %s", status)
 			}
-			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'text' LIKE 'Ada beberapa kartu%'`, 1)
+			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'text' LIKE 'Ada beberapa kartu%' AND (payload_json->>'chat_id')::bigint=$1`, 1, h.f.chatID)
 		}},
 		{"investment accounts are paged by position", transfer, []contractOption{unclassified, withInvestmentAccounts("Dana 01", "Dana 02", "Dana 03", "Dana 04", "Dana 05", "Dana 06", "Dana 07", "Dana 08", "Dana 09")}, func(h *contractHarness) {
 			h.tapLabel("Investasi")
@@ -1259,7 +1282,7 @@ const (
 	payslipDateOnlyDecision = `{"version":1,"reasonCode":"MISSING_PAY_DATE","decisionClass":"EVIDENCE_GAP","interactionMode":"SINGLE_FIELD","knownFacts":{},"missingFacts":["transaction_at"],"allowedActions":["SET_PAY_DATE","IGNORE"],"whyNotAutoConfirm":"the pay date is not present in the evidence","decisionSource":"DETERMINISTIC"}`
 	cycleDecision           = `{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","decisionClass":"HUMAN_POLICY_CHOICE","missingFacts":["residual_allocation"],"allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"],"interactionMode":"POLICY_CHOICE"}`
 	cycleResidualFixture    = "1200000"
-	payslipDoneSalaryPrefix = "✅ Gaji tercatat · Rp8.500.000. Siklus baru mulai "
+	payslipDoneSalaryPrefix = "✅ Tersimpan: Gaji · Rp8.500.000. Siklus baru mulai "
 )
 
 func withLargeLeftover() contractOption {
@@ -1470,7 +1493,7 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 		}},
 		{"held payslip: a slip from an employer that is not the primary source records salary without claiming a cycle", held, []contractOption{withOtherPrimaryEmployer()}, func(h *contractHarness) {
 			h.tapLabel("Catat sebagai gaji")
-			h.wantCard("✅ Gaji tercatat · Rp8.500.000.")
+			h.wantCard("✅ Tersimpan: Gaji · Rp8.500.000")
 			if _, text, _ := h.current(); strings.Contains(text, "Siklus baru") {
 				t.Fatalf("a cycle was claimed for a non-primary source: %q", text)
 			}
@@ -1479,7 +1502,7 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 		}},
 		{"held payslip: Pemasukan biasa records plain income", held, nil, func(h *contractHarness) {
 			h.tapLabel("Pemasukan biasa")
-			h.wantCard("✅ Pemasukan tercatat · Rp8.500.000")
+			h.wantCard("✅ Tersimpan: Pemasukan biasa · Rp8.500.000")
 			h.wantNoButtons()
 			h.wantSalary("CONFIRMED", "8500000", "", 1)
 			h.wantResolution("ORDINARY_INCOME")
@@ -1493,7 +1516,7 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 		}},
 		{"held payslip: an exact label typed as a reply is the tap", held, nil, func(h *contractHarness) {
 			h.reply("  PEMASUKAN biasa ")
-			h.wantCard("✅ Pemasukan tercatat · Rp8.500.000")
+			h.wantCard("✅ Tersimpan: Pemasukan biasa · Rp8.500.000")
 			h.wantSalary("CONFIRMED", "8500000", "", 1)
 			h.wantAnswered("LABEL_TEXT")
 			h.wantModelCalls(0)
@@ -1505,7 +1528,7 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 		}},
 		{"held payslip: an exact label thread-replied is the tap", held, nil, func(h *contractHarness) {
 			h.threadReply("Pemasukan biasa")
-			h.wantCard("✅ Pemasukan tercatat · Rp8.500.000")
+			h.wantCard("✅ Tersimpan: Pemasukan biasa · Rp8.500.000")
 			h.wantAnswered("LABEL_TEXT")
 		}},
 		{"held payslip: ya and oke re-show the card and record nothing", held, nil, func(h *contractHarness) {
@@ -1580,7 +1603,7 @@ func TestInteractionEngineSalaryContract(t *testing.T) {
 		{"first payslip without a date: the date as a thread reply", first, nil, func(h *contractHarness) {
 			h.tapLabel("Pemasukan biasa")
 			h.threadReply("1/1")
-			h.wantCard("✅ Pemasukan tercatat · Rp8.500.000")
+			h.wantCard("✅ Tersimpan: Pemasukan biasa · Rp8.500.000")
 			h.wantSalary("CONFIRMED", "8500000", "01-01", 1)
 			h.wantAnswered("TAP", "THREAD_REPLY")
 		}},
@@ -1865,7 +1888,7 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 		}},
 		{"Ada transaksi belum tercatat resolves the card and the next plain message is ordinary chat", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
 			h.tapLabel("Ada transaksi belum tercatat")
-			h.wantCard("Ketik transaksi yang belum tercatat, misalnya 'makan 25rb kemarin'. Sisa siklus akan dihitung ulang.")
+			h.wantCard("Ketik transaksi yang belum tercatat, misalnya “makan 25rb kemarin”. Sisa siklus akan dihitung ulang.")
 			h.wantNoButtons()
 			h.wantAllocations()
 			h.wantResolution("TRANSACTION_MISSING")
@@ -1909,7 +1932,7 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 		{"a recomputed leftover shows the new amount and never applies the stale one", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
 			h.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',200000,'2026-09-02T12:00:00+07:00',now())`, h.f.householdID)
 			h.tapLabel("Tabungan Contoh")
-			h.wantCard("Sisa siklus berubah. Pilih lagi.", "Sisa siklus 25 Agu–24 Sep: Rp1.000.000.")
+			h.wantCard("Sisa siklusnya berubah.", "Sisa siklus 25 Agu–24 Sep: Rp1.000.000.")
 			h.wantButtons("Tabungan Contoh", "Reksa Contoh", "Biarkan saja")
 			h.wantAllocations()
 			h.wantItemActive()
@@ -1920,7 +1943,7 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 		{"a leftover that vanished closes the card without allocating", cycle, []contractOption{both, withInvestmentAccounts("Reksa Contoh")}, func(h *contractHarness) {
 			h.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',1200000,'2026-09-02T12:00:00+07:00',now())`, h.f.householdID)
 			h.tapLabel("Biarkan saja")
-			h.wantCard("Sisa siklus sudah tidak ada lagi. Tinjauan ditutup.")
+			h.wantCard("Sisa siklus ini sudah tidak perlu dialokasikan, jadi kartunya ditutup.")
 			h.wantNoButtons()
 			h.wantAllocations()
 			h.wantItem("RESOLVED")
@@ -1932,7 +1955,7 @@ func TestInteractionEngineCycleContract(t *testing.T) {
 			h.tapLabel("Reksa Contoh")
 			h.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',200000,'2026-09-02T12:00:00+07:00',now())`, h.f.householdID)
 			h.tapLabel("Semua sisa")
-			h.wantCard("Sisa siklus berubah. Pilih lagi.", "Rp1.000.000.")
+			h.wantCard("Sisa siklusnya berubah.", "Rp1.000.000.")
 			h.wantAllocations()
 			h.wantItemActive()
 		}},

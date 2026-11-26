@@ -72,7 +72,7 @@ func loadReviewSubject(ctx context.Context, tx pgx.Tx, reviewID string) (reviewS
 	return subject, err
 }
 
-const appReviewHint = "Buka Kotak Tinjauan di aplikasi untuk menyelesaikannya."
+const appReviewHint = "Selesaikan di " + reviewInboxName + " di aplikasi."
 
 func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subject reviewSubject) reviewCard {
 	return stepRenderCard(stepOrFallback(decision, reviewType, facts, subject))
@@ -146,7 +146,7 @@ func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID strin
 	}
 	keyboard := make([][]InlineKeyboardButton, 0, len(mergeable)+2)
 	for index, candidate := range mergeable {
-		label := "Gabung Rp" + FormatIDR(candidate.Amount) + " · " + reviewdomain.FormatIndonesianDate(candidate.TransactionAt.In(jakartaLocation()))
+		label := "Gabung " + joinDot(IDR(candidate.Amount), reviewdomain.FormatIndonesianDate(candidate.TransactionAt.In(jakartaLocation())))
 		keyboard = append(keyboard, []InlineKeyboardButton{{Text: clean(label, 40), CallbackData: fmt.Sprintf("review:xfer:merge:%d", index)}})
 	}
 	if set.Purpose != "" {
@@ -192,11 +192,11 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		if err := tx.QueryRow(ctx, `SELECT institution,account_hint,observed_value_idr::text,observed_date FROM wealth_observation WHERE id=$1 AND household_id=$2`, wealthObservation, householdID).Scan(&institution, &hint, &value, &observed); err != nil {
 			return "", ignoreNoRows(err)
 		}
-		lines := []string{"Akun: " + strings.TrimSpace(institution+" "+hint), "Nilai: Rp" + FormatIDR(value)}
+		date := ""
 		if observed != nil {
-			lines = append(lines, "Tanggal: "+reviewdomain.FormatIndonesianDate(*observed))
+			date = reviewdomain.FormatIndonesianDate(*observed)
 		}
-		return strings.Join(lines, "\n"), nil
+		return factBlock("Akun", institution+" "+hint, "Nilai", IDR(value), "Tanggal", date), nil
 	case proposalID != "":
 		if summary, ok, err := payslipItemSummary(ctx, tx, householdID, itemID, proposalID); ok || err != nil {
 			return summary, err
@@ -223,11 +223,7 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		if err != nil {
 			return "", ignoreNoRows(err)
 		}
-		lines := []string{"Nominal: Rp" + FormatIDR(amount), "Tanggal: " + reviewdomain.FormatIndonesianDate(at.In(jakartaLocation()))}
-		if description != "" {
-			lines = append(lines, "Keterangan: "+clean(description, 200))
-		}
-		return strings.Join(lines, "\n"), nil
+		return factBlock("Nominal", IDR(amount), "Tanggal", reviewdomain.FormatIndonesianDate(at.In(jakartaLocation())), "Keterangan", clean(description, 200)), nil
 	}
 	return "", nil
 }

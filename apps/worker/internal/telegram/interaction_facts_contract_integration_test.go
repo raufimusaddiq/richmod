@@ -125,7 +125,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.reply("54rb")
 			h.wantCard(bankAmountOK, "Transaksinya terjadi kapan?")
 			h.tapLabel("Waktu email")
-			h.wantCard("✅ Diterima: Rp54.000,", "Transaksinya sedang dicatat.")
+			h.wantCard("✅ Diterima: Rp54.000 ·", "Transaksinya sedang dicatat.")
 			h.wantNoButtons()
 			h.wantBankQueued(1, "54000")
 			h.wantItemActive()
@@ -185,19 +185,19 @@ func TestInteractionEngineBankContract(t *testing.T) {
 		{"the time can be a button: today", bankKind, nil, func(h *contractHarness) {
 			h.reply("54rb")
 			h.tapLabel("Hari ini")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantBankQueued(1, "54000")
 		}},
 		{"the time can be a button: yesterday", bankKind, nil, func(h *contractHarness) {
 			h.reply("54rb")
 			h.tapLabel("Kemarin")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantBankQueued(1, "54000")
 		}},
 		{"the email time can be typed as its label", bankKind, nil, func(h *contractHarness) {
 			h.reply("54rb")
 			h.reply("Waktu email")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantAnswered("REPLY", "LABEL_TEXT")
 			h.wantBankQueued(1, "54000")
 		}},
@@ -206,7 +206,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.tapLabel("Tanggal lain")
 			h.wantCard("Ketik tanggalnya, misalnya 3 Okt atau 25/9.")
 			h.reply("kemarin 15.07")
-			h.wantCard("✅ Diterima: Rp54.000,", "15:07")
+			h.wantCard("✅ Diterima: Rp54.000 ·", "15:07")
 		}},
 		{"a future time is refused and the step is shown again", bankKind, nil, func(h *contractHarness) {
 			h.reply("54rb")
@@ -237,7 +237,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.wantButtons("Catat", "Abaikan")
 			h.plain("ya")
 			h.wantBankQueued(1, "54000")
-			h.wantCard("✅ Diterima: Rp54.000, 25 Nov 15:07.")
+			h.wantCard("✅ Diterima: Rp54.000 · 25 Nov 15:07.")
 		}},
 		{"an email not linked to an account asks for the account before it queues", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
 			h.reply("54rb")
@@ -246,7 +246,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.wantButtons("Rekening A", "Rekening B", "Abaikan")
 			h.wantBankQueued(0, "")
 			h.tapLabel("Rekening B")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantBankQueued(1, "54000")
 			h.wantJobs(`SELECT count(*) FROM bank_email_listener WHERE household_id=$1 AND account_id IS NOT NULL`, 1, h.f.householdID)
 		}},
@@ -254,14 +254,14 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.reply("54rb")
 			h.tapLabel("Hari ini")
 			h.reply("rekening a")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantBankQueued(1, "54000")
 		}},
 		{"a reply may name the account by a unique part of its name", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
 			h.reply("54rb")
 			h.tapLabel("Hari ini")
 			h.reply("b")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantBankQueued(1, "54000")
 		}},
 		{"an untargeted plain part of an account name binds nothing, an exact name does", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
@@ -272,7 +272,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 			h.wantCard("Email ini untuk rekening yang mana?")
 			h.wantBankQueued(0, "")
 			h.plain("rekening b")
-			h.wantCard("✅ Diterima: Rp54.000,")
+			h.wantCard("✅ Diterima: Rp54.000 ·")
 			h.wantBankQueued(1, "54000")
 		}},
 		{"an account that is not offered cannot be chosen", bankKind, []contractOption{unlinked}, func(h *contractHarness) {
@@ -284,7 +284,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 		}},
 		{"ignoring the email closes it and queues nothing", bankKind, nil, func(h *contractHarness) {
 			h.tapLabel("Abaikan")
-			h.wantCard("🗑️ Email bank ini diabaikan. Tidak dicatat.")
+			h.wantCard("🗑️ Diabaikan: email bank. Tidak dicatat.")
 			h.wantNoButtons()
 			h.wantItem("RESOLVED")
 			h.wantBankQueued(0, "")
@@ -299,7 +299,7 @@ func TestInteractionEngineBankContract(t *testing.T) {
 				t.Fatalf("the other member's copy did not follow the step: %q", text)
 			}
 			h.tapLabel("Waktu email")
-			if text := h.texts[messageB]; !strings.Contains(text, "✅ Diterima: Rp54.000,") || len(h.markups[messageB]) != 0 {
+			if text := h.texts[messageB]; !strings.Contains(text, "✅ Diterima: Rp54.000 ·") || len(h.markups[messageB]) != 0 {
 				t.Fatalf("the other member's copy was not closed: %q %v", text, h.markups[messageB])
 			}
 			h.staleTapOn(h.chatB, messageB, textB, "review:date:today")
@@ -357,7 +357,7 @@ func TestInteractionEngineAmountContract(t *testing.T) {
 			h.wantButtons("Penghasilan", "Transfer sendiri", "Abaikan")
 			h.wantProposalTransactions(0)
 			h.tapLabel("Penghasilan")
-			h.wantCard("✅ Penghasilan tercatat · Rp1.500.000")
+			h.wantCard("✅ Tersimpan: Penghasilan · Rp1.500.000")
 			h.wantNoButtons()
 			h.wantProposalTransactions(1)
 		}},
@@ -371,7 +371,7 @@ func TestInteractionEngineAmountContract(t *testing.T) {
 		{"the income choice can be typed", amountKind, []contractOption{income}, func(h *contractHarness) {
 			h.reply("1,5jt")
 			h.reply("penghasilan")
-			h.wantCard("✅ Penghasilan tercatat · Rp1.500.000")
+			h.wantCard("✅ Tersimpan: Penghasilan · Rp1.500.000")
 			h.wantProposalTransactions(1)
 		}},
 		{"a plain yes on the income choice re-shows it and records nothing", amountKind, []contractOption{income}, func(h *contractHarness) {
@@ -549,7 +549,7 @@ func TestInteractionEngineFactsContract(t *testing.T) {
 		}},
 		{"a message that looks like a new expense asks answer or new", purposeKind, nil, func(h *contractHarness) {
 			h.chat("makan siang 25rb")
-			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE 'Jawaban atau catatan baru?%'`, 1, h.f.chatID)
+			h.wantJobs(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text'=$2`, 1, h.f.chatID, answerOrNewQuestion)
 			h.wantAssistantCalls(0)
 		}},
 		{"a purpose card ignored settles without a record", purposeKind, nil, func(h *contractHarness) {

@@ -142,7 +142,7 @@ func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND counterparty_name='Kopi Kenangan' AND status='CONFIRMED'`, f.householdID); n != 1 {
 		t.Fatal("the recovered message was not recorded through the agent")
 	}
-	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "Tercatat: Kopi Kenangan") {
+	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "Tersimpan: Kopi Kenangan") {
 		t.Fatalf("recovered reply = %q", reply)
 	}
 	turns, err := NewProcessor(f.pool, nil).recentConversation(ctx, f.householdID, f.chatID, "00000000-0000-4000-8000-000000000002")
@@ -395,7 +395,7 @@ func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
 	p := NewProcessor(f.pool, model)
 	sourceID, err := runEvidenceTurn(t, ctx, f, p, "kopi kenangan 26.500", 0)
 	mustAgentTest(t, err)
-	_, err = f.pool.Exec(ctx, `DELETE FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tercatat%'`, f.chatID)
+	_, err = f.pool.Exec(ctx, `DELETE FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tersimpan%'`, f.chatID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `DELETE FROM telegram_conversation_turn WHERE source_event_id=$1 AND role='ASSISTANT'`, sourceID)
 	mustAgentTest(t, err)
@@ -405,7 +405,7 @@ func TestRetryOfACommittedTurnReSendsTheLostAnswerOnce(t *testing.T) {
 	if len(model.requests) != 1 {
 		t.Fatal("recovery must not call the model again")
 	}
-	if n := countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tercatat: Kopi Kenangan%'`, f.chatID); n != 1 {
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tersimpan: Kopi Kenangan%'`, f.chatID); n != 1 {
 		t.Fatalf("the lost answer must be re-sent exactly once, got %d", n)
 	}
 }
@@ -430,7 +430,7 @@ func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
 		item("20000", "Warteg", "makan"), item("15000", "Bakso Pak Kumis", "makan"), item("8000", "Fotokopi", ""),
 	}})
 	mustAgentTest(t, err)
-	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "mirip yang sudah tercatat") || !strings.Contains(reply, "kategori belum ada") {
+	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "Mirip yang sudah tercatat") || !strings.Contains(reply, "kategori belum ada") {
 		t.Fatalf("staged list must show the duplicate and the missing category: %q", reply)
 	}
 	state := *f.state
@@ -445,7 +445,7 @@ func TestBatchLaneFollowsTheSingleEntryRules(t *testing.T) {
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND counterparty_name='Warteg' AND merchant_id IS NOT NULL`, f.householdID); n != 1 {
 		t.Fatal("batch merchants must be resolved to merchant rows")
 	}
-	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "2 transaksi sudah tercatat") || !strings.Contains(reply, "1 lagi belum punya kategori") {
+	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "2 transaksi tersimpan") || !strings.Contains(reply, "1 lagi belum punya kategori") {
 		t.Fatalf("batch outcome reply = %q", reply)
 	}
 }
