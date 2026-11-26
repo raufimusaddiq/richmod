@@ -213,7 +213,7 @@ for (const width of [320, 360, 390, 1366]) {
       expect(audit.rogueSand, "no sand swatch appears on any row except Kategori lain").toBe(0);
       expect(audit.dailyBars.some(fill => fill === "rgb(47, 74, 109)"), `Laporan daily bars use slate navy #2f4a6d: ${JSON.stringify(audit.dailyBars)}`).toBe(true);
       if (phone) {
-        const wideTables = await page.evaluate(() => [...document.querySelectorAll(".review-table-wrap, .merchant-rank-scroll")].map(el => ({ cls: el.className, label: el.getAttribute("aria-label"), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })).filter(item => item.scrollWidth > item.clientWidth));
+        const wideTables = await page.evaluate(() => [...document.querySelectorAll(".review-table-wrap")].map(el => ({ cls: el.className, label: el.getAttribute("aria-label"), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })).filter(item => item.scrollWidth > item.clientWidth));
         expect(wideTables, "Laporan tables never scroll sideways on a phone").toEqual([]);
       }
     });

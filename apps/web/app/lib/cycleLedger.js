@@ -159,11 +159,9 @@ export function paceCurves(pace) {
 }
 
 export function provisionalDays(period) {
-  if (!period?.start || !period?.end) return 0;
-  const start = Date.parse(`${period.start}T00:00:00Z`);
-  const end = Date.parse(`${period.end}T00:00:00Z`);
-  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return 0;
-  return Math.round((end - start) / 86400000);
+  if (period?.state !== "ACTIVE") return 0;
+  const days = period.provisionalDays;
+  return Number.isInteger(days) && days > 0 ? days : 0;
 }
 
 export function mapPace(items = [], pace, period = null) {

@@ -241,7 +241,7 @@ function AnalyticsReview() {
           <CategoryTable facts={facts} step={step} selected={selection.category} select={chooseCategory} palette={palette}/>
           <div className="dash-row dash-row-split">
             <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory} palette={palette}/>
-            <MerchantCard facts={facts} step={step}/>
+            <MerchantCard facts={facts}/>
           </div>
           <DailyCard facts={facts} step={step}/>
           <div className="review-stack surface card">

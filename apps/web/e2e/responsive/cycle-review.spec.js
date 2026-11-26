@@ -72,6 +72,7 @@ test("an active cycle opens calm: wide verdict lead tile, pace first, unified ca
   await expect(page.getByText("Historical advice should never display.")).toHaveCount(0);
   await expect(page.getByText("Stale cutoff must never display.")).toHaveCount(0);
   for (const id of ["family-talk", "quality"]) expect(await page.locator(`#${id} > details`).evaluate(element => element.open), `${id} is folded by default`).toBe(false);
+  await expect(page.locator(".cycle-status")).toContainText("dari ±30");
   await expect(page.locator("#daily .cycle-spending-chart"), "Ritme harian chart is mounted immediately").toBeVisible();
   await expect(page.locator("#daily .review-daily table"), "daily value table stays folded").toBeHidden();
 
@@ -225,9 +226,6 @@ test("history and matrix share the same-day and full toggle, show Rp/hr and arus
   expect((await firstRunning.evaluate(element => element.style.getPropertyValue("--tint"))).trim(), "the running column carries no tint").toBe("0");
   expect(await firstRunning.evaluate(element => getComputedStyle(element).borderStyle), "the running column is dashed instead of tinted").toBe("dashed");
   expect(await heat.locator("td[data-running] .heat-cell").evaluateAll(cells => cells.map(cell => cell.style.getPropertyValue("--tint").trim())), "no tinted cell sits in the running column").toEqual(["0", "0", "0", "0"]);
-  await sameDay.click();
-  await expect(sameDay).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#history .history-cols > li"), "the cycle columns card draws every served cycle").toHaveCount(6);
   const matrixRow = heat.getByRole("button", { name: "Buka bukti Belanja rumah", exact: true });
   await expect(matrixRow).toHaveCount(1);
   await expect(heat.locator("tbody tr").first().locator("td.heat-amount").last(), "the selected column shows the served category amount").toHaveText("2,1");
@@ -239,6 +237,10 @@ test("history and matrix share the same-day and full toggle, show Rp/hr and arus
   await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor({ state: "detached" });
   await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
   expect(await matrixRow.evaluate(element => element === document.activeElement), "closing the drawer returns focus to the matrix row").toBe(true);
+  await expect(fullCycle, "history toggle survives same-cycle navigation").toHaveAttribute("aria-pressed", "true");
+  await sameDay.click();
+  await expect(sameDay).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#history .history-cols > li"), "the cycle columns card draws every served cycle").toHaveCount(6);
 });
 
 test("the history toggle follows the selected cycle: a closed cycle has no same-day toggle and the active cycle re-seeds it", async ({ page }) => {
@@ -269,14 +271,12 @@ test("history columns share the category colours of the ranking", async ({ page 
 test("the merchant card and household split are exact and never write", async ({ page, api }) => {
   await visit(page, CYCLE);
   await page.getByRole("heading", { name: "Merchant teratas" }).waitFor();
-  await expect(page.locator("#merchants .merchant-list > li")).toHaveCount(2);
-  await openDisclosure(page, "#merchants details", "#merchants table.merchant-rank");
-  const merchants = page.locator("#merchants table.merchant-rank");
-  for (const header of ["Merchant", "Transaksi", "Siklus ini", "Siklus lalu, hari yang sama", "Selisih"]) await expect(merchants.getByRole("columnheader", { name: header, exact: true }), `merchant column ${header}`).toHaveCount(1);
-  await expect(merchants.locator("tbody tr"), "one row per served payee plus the remainder").toHaveCount(2);
-  await expect(merchants.locator("tfoot th")).toHaveText("Total");
-  await expect(merchants.locator("tfoot"), "the total equals the cycle's net expense").toHaveText(/Rp\s?4\.200\.000/);
-  expect(new URL(await merchants.getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), page.url()).searchParams.get("merchantId")).toBe(MERCHANT);
+  const rows = page.locator("#merchants .merchant-list > li");
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator("#merchants details"), "merchant card has no redundant fold").toHaveCount(0);
+  await expect(rows.first()).toContainText(idr(2100000));
+  await expect(rows.last()).toContainText("Merchant lain");
+  expect(new URL(await page.locator("#merchants").getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), page.url()).searchParams.get("merchantId")).toBe(MERCHANT);
 
   await openDisclosure(page, "#family-talk > details", "#household .household-list");
   const household = page.locator("#household .household-list > li");
@@ -444,7 +444,7 @@ test("the closed-cycle meeting walks all 7 steps, auto-opens folds, keeps a draf
   expect(searchOf(page).get("review")).toBe("drivers");
   await expect(page.locator("#where").getByRole("button", { name: "Terbesar", exact: true }), "step 4 forces Terbesar").toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#merchants")).toBeVisible();
-  await expect(page.locator("#merchants table.merchant-rank"), "step 4 auto-opens Semua merchant").toBeVisible();
+  await expect(page.locator("#merchants .merchant-list > li")).toHaveCount(2);
   await page.locator("#where").getByRole("button", { name: /^Belanja rumah/ }).click();
   await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
   expect(searchOf(page).get("review")).toBe("drivers");

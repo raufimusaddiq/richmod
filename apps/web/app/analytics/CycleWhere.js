@@ -55,7 +55,9 @@ export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectC
   const early = facts.period?.state === "ACTIVE" && facts.spendingShape?.days <= 3;
   const defaultMode = sameDay && !early ? "SAME_DAY" : "FULL";
   const [mode, setMode] = useState(defaultMode);
-  useEffect(() => { setMode(defaultMode); }, [facts.period.start, defaultMode]);
+  const resetMode = useRef(defaultMode);
+  resetMode.current = defaultMode;
+  useEffect(() => { setMode(resetMode.current); }, [facts.period.start]);
 
   const effectiveMode = sameDay && !early ? mode : "FULL";
   const colorMap = categoryColorMap(facts, palette);

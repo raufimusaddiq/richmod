@@ -90,7 +90,7 @@ test("every scrolling table wrapper is focusable, a named region", async ({ page
   await page.goto("/analytics", { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
   await page.evaluate(() => document.querySelectorAll("details").forEach(details => { details.open = true; }));
-  const wrappers = await page.locator(".review-table-wrap, .heat-wrap, .merchant-rank-scroll").evaluateAll(nodes => nodes.map(node => ({ tabindex: node.getAttribute("tabindex"), role: node.getAttribute("role"), label: node.getAttribute("aria-label") })));
+  const wrappers = await page.locator(".review-table-wrap, .heat-wrap").evaluateAll(nodes => nodes.map(node => ({ tabindex: node.getAttribute("tabindex"), role: node.getAttribute("role"), label: node.getAttribute("aria-label") })));
   expect(wrappers.length).toBeGreaterThanOrEqual(3);
   for (const wrapper of wrappers) {
     expect(wrapper.tabindex).toBe("0");

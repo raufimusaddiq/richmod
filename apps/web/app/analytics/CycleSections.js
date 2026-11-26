@@ -136,7 +136,7 @@ function MerchantDelta({ value }) {
   </span>;
 }
 
-export function MerchantCard({ facts, step }) {
+export function MerchantCard({ facts }) {
   const list = merchantBars(facts.merchantRanking);
   const rows = list?.rows || [];
   const other = list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
@@ -148,71 +148,24 @@ export function MerchantCard({ facts, step }) {
         {facts.takeaways?.merchants && <p className="takeaway">{facts.takeaways.merchants}</p>}
       </div>
     </div>
-    {empty ? <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p> : <>
-      <ul className="merchant-list" aria-label="Merchant teratas">
-        {rows.map(item => <li key={item.key} className="merchant-item">
-          <span className="merchant-item-name">
-            {item.id ? <a href={transactionHref(facts.period, { merchantId: item.id })}>{item.name}</a> : <span>{item.name}</span>}
-            {item.notNamed && <small>tanpa nama penerima</small>}
-          </span>
-          <span className="merchant-item-amount">{money(item.amount)}</span>
-          <span className="merchant-item-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>
-          <MerchantDelta value={item.deltaVsPrevious}/>
-        </li>)}
-        {other && <li className="merchant-item" data-other="">
-          <span className="merchant-item-name"><span>Merchant lain · {other.merchantCount}</span></span>
-          <span className="merchant-item-amount">{money(other.amount)}</span>
-          <span aria-hidden="true"/>
-          <MerchantDelta value={other.deltaVsPrevious}/>
-        </li>}
-      </ul>
-      <details className="review-daily" open={step === "drivers" || undefined}>
-        <summary>Semua merchant › <small>{list.rows.length} teratas, jumlah transaksi, total</small></summary>
-        <MerchantRanking ranking={facts.merchantRanking} period={facts.period}/>
-      </details>
-    </>}
+    {empty ? <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p> : <ul className="merchant-list" aria-label="Merchant teratas">
+      {rows.map(item => <li key={item.key} className="merchant-item">
+        <span className="merchant-item-name">
+          {item.id ? <a href={transactionHref(facts.period, { merchantId: item.id })}>{item.name}</a> : <span>{item.name}</span>}
+          {item.notNamed && <small>tanpa nama penerima</small>}
+        </span>
+        <span className="merchant-item-amount">{money(item.amount)}</span>
+        <span className="merchant-item-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>
+        <MerchantDelta value={item.deltaVsPrevious}/>
+      </li>)}
+      {other && <li className="merchant-item" data-other="">
+        <span className="merchant-item-name"><span>Merchant lain · {other.merchantCount}</span></span>
+        <span className="merchant-item-amount">{money(other.amount)}</span>
+        <span aria-hidden="true"/>
+        <MerchantDelta value={other.deltaVsPrevious}/>
+      </li>}
+    </ul>}
   </section>;
-}
-
-export function MerchantRanking({ ranking, period }) {
-  const list = merchantBars(ranking);
-  if (!list || !list.rows.length) return <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p>;
-  const name = (item, other) => item.id
-    ? <a href={transactionHref(period, { merchantId: item.id })}>{item.name}</a>
-    : <span data-muted={other || undefined}>{item.name}</span>;
-  const bar = item => <span className="merchant-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>;
-  return <div className="merchant-rank-wrap">
-    <div className="merchant-rank-scroll" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom">
-      <table className="merchant-rank">
-        <caption className="visually-hidden">Merchant pendukung, terbesar dulu. Pembanding: {list.compareLabel.toLowerCase()}.</caption>
-        <thead><tr><th scope="col">Merchant</th><th scope="col">Transaksi</th><th scope="col">Siklus ini</th><th scope="col">{list.compareLabel}</th><th scope="col">Selisih</th></tr></thead>
-        <tbody>
-          {list.rows.map(item => <tr key={item.key}>
-            <th scope="row">{name(item)}{item.notNamed && <small>transaksi tanpa nama penerima</small>}{bar(item)}</th>
-            <td data-label="Transaksi">{item.count ?? "—"}</td>
-            <td data-label="Siklus ini">{money(item.amount)}</td>
-            <td data-label={list.compareLabel}>{amountLabel(item.previous)}</td>
-            <td data-label="Selisih"><Delta value={item.deltaVsPrevious}/></td>
-          </tr>)}
-          {list.other && nonZeroAmount(list.other.amount) && <tr data-other="true">
-            <th scope="row">{name({ ...list.other, name: `Merchant lain · ${list.other.merchantCount}` }, true)}{bar(list.other)}</th>
-            <td data-label="Transaksi">{list.other.count ?? "—"}</td>
-            <td data-label="Siklus ini">{money(list.other.amount)}</td>
-            <td data-label={list.compareLabel}>{amountLabel(list.other.previous)}</td>
-            <td data-label="Selisih"><Delta value={list.other.deltaVsPrevious}/></td>
-          </tr>}
-        </tbody>
-        {list.total && <tfoot><tr>
-          <th scope="row">Total</th>
-          <td data-label="Transaksi">{list.total.count ?? "—"}</td>
-          <td data-label="Siklus ini">{money(list.total.amount)}</td>
-          <td data-label={list.compareLabel}>{amountLabel(list.total.previous)}</td>
-          <td data-label="Selisih"><Delta value={list.total.deltaVsPrevious}/></td>
-        </tr></tfoot>}
-      </table>
-    </div>
-    <a className="card-link" href={transactionHref(period)}>Semua transaksi siklus ini →</a>
-  </div>;
 }
 
 export function HouseholdSection({ members = [] }) {

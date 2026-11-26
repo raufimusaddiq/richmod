@@ -292,11 +292,12 @@ test("buildLedger supports SAME_DAY totals and passes through served per-day fie
   assert.equal(full.columns[0].averageDailyExpenseRounded, facts.history[0].averageDailyExpenseRounded);
 });
 
-test("mapPace extends the x-domain to provisional period.end when present", () => {
-  assert.equal(provisionalDays({ start: "2026-09-05", end: "2026-10-05" }), 30);
-  assert.equal(provisionalDays({ start: "2026-09-05", end: null }), 0);
+test("mapPace extends the x-domain using served period.provisionalDays on active cycles", () => {
+  assert.equal(provisionalDays({ state: "ACTIVE", start: "2026-09-05", end: null, provisionalDays: 32 }), 32);
+  assert.equal(provisionalDays({ state: "ACTIVE", start: "2026-09-05", end: null }), 0);
+  assert.equal(provisionalDays({ state: "CLOSED", start: "2026-09-05", end: "2026-10-05", provisionalDays: 32 }), 0);
   const items = [{ period: "2026-09-05", cumulativeExpense: "100" }, { period: "2026-09-06", cumulativeExpense: "250" }];
-  const extended = mapPace(items, null, { start: "2026-09-05", end: "2026-10-07" });
+  const extended = mapPace(items, null, { state: "ACTIVE", start: "2026-09-05", end: null, provisionalDays: 32 });
   assert.equal(extended.length, 32);
   assert.equal(extended[1].runningTotal, 250);
   assert.equal(extended[2].runningTotal, null);

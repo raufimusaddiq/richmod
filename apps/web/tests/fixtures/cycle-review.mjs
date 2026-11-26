@@ -47,7 +47,7 @@ function merchantRankingFor(facts) {
 export function cycleFacts(start = "2026-09-01") {
   const closed = start === "2026-08-26";
   const september25 = start === "2026-09-25";
-  const period = { kind: "SALARY_CYCLE", start: closed ? "2026-08-26" : september25 ? "2026-09-25" : "2026-09-01", end: closed ? "2026-09-01" : null, measuredUntil: closed ? "2026-09-01" : september25 ? "2026-10-02" : "2026-09-07", state: closed ? "CLOSED" : "ACTIVE", configured: true };
+  const period = { kind: "SALARY_CYCLE", start: closed ? "2026-08-26" : september25 ? "2026-09-25" : "2026-09-01", end: closed ? "2026-09-01" : null, measuredUntil: closed ? "2026-09-01" : september25 ? "2026-10-02" : "2026-09-07", state: closed ? "CLOSED" : "ACTIVE", configured: true, ...(closed ? {} : { provisionalDays: 30 }) };
   const previous = { kind: "SALARY_CYCLE", start: closed ? "2026-07-26" : "2026-08-26", end: closed ? "2026-08-26" : "2026-09-01", measuredUntil: closed ? "2026-08-26" : "2026-09-01", state: "CLOSED", configured: true };
   const change = (id, name, amount, previous, median3, deltaVsPrevious, deltaVsMedian3, relative, share, contribution) => ({
     id, name, amount, previous, median3, deltaVsPrevious, deltaVsMedian3, relativeDeltaVsPrevious: relative, relativeDeltaVsMedian3: null,
@@ -169,7 +169,7 @@ export function cycleFacts(start = "2026-09-01") {
 
 export function earlyCycleFacts(start = "2026-09-05") {
   const facts = cycleFacts("2026-09-01");
-  facts.period = { kind: "SALARY_CYCLE", start, end: "2026-10-05", measuredUntil: "2026-09-07", state: "ACTIVE", configured: true };
+  facts.period = { kind: "SALARY_CYCLE", start, end: null, measuredUntil: "2026-09-07", state: "ACTIVE", configured: true, provisionalDays: 32 };
   facts.cycles = [facts.period, { kind: "SALARY_CYCLE", start: "2026-08-26", end: "2026-09-01", measuredUntil: "2026-09-01", state: "CLOSED", configured: true }];
   facts.daily = [
     { period: "2026-09-05", expense: "1480000", grossExpense: "1480000", refund: "0", income: "12000000", cumulativeExpense: "1480000" },
@@ -251,7 +251,7 @@ export function earlyCycleFacts(start = "2026-09-05") {
   );
   facts.categoryChanges = [earlyBills, earlyGroceries, earlyDining];
   facts.merchantDrivers = [];
-  facts.history = facts.history.map((item, index) => (index === facts.history.length - 1 ? { ...item, start, end: "2026-10-05", measuredUntil: "2026-09-07", days: 2, averageDailyExpenseRounded: "845000", expense: "1690000", grossExpense: "1690000", netCashflow: "10310000" } : item));
+  facts.history = facts.history.map((item, index) => (index === facts.history.length - 1 ? { ...item, start, end: null, measuredUntil: "2026-09-07", days: 2, averageDailyExpenseRounded: "845000", expense: "1690000", grossExpense: "1690000", netCashflow: "10310000" } : item));
   const earlyById = new Map(facts.categoryChanges.map(item => [item.id, item]));
   facts.categoryHistory.cycleStarts = facts.history.map(item => item.start);
   facts.categoryHistory.totals = facts.history.map(item => item.expense);
@@ -287,6 +287,7 @@ export const cycleCommentary = {
 
 export function firstCycleFacts(start = "2026-09-01") {
   const facts = cycleFacts(start);
+  delete facts.period.provisionalDays;
   facts.cycles = [facts.period];
   facts.history = [facts.history.at(-1)];
   facts.previousCycle = null;

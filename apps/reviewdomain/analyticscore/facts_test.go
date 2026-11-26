@@ -8,6 +8,52 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/financialmath"
 )
 
+func TestProvisionalCycleDaysUsesMedianOfRecentClosedCycles(t *testing.T) {
+	end := func(date string) *string { return &date }
+	three := []reviewPeriod{
+		{Kind: "SALARY_CYCLE", Start: "2026-10-01", State: "ACTIVE"},
+		{Kind: "SALARY_CYCLE", Start: "2026-08-30", End: end("2026-10-01"), State: "CLOSED"},
+		{Kind: "SALARY_CYCLE", Start: "2026-08-02", End: end("2026-08-30"), State: "CLOSED"},
+		{Kind: "SALARY_CYCLE", Start: "2026-07-03", End: end("2026-08-02"), State: "CLOSED"},
+	}
+	if got := provisionalCycleDays(three, 0); got != 30 {
+		t.Fatalf("median of 32/28/30 = %d, want 30", got)
+	}
+	if got := provisionalCycleDays(three, 1); got != 0 {
+		t.Fatalf("closed cycle provisionalDays = %d, want 0", got)
+	}
+	one := []reviewPeriod{
+		{Kind: "SALARY_CYCLE", Start: "2026-10-01", State: "ACTIVE"},
+		{Kind: "SALARY_CYCLE", Start: "2026-09-02", End: end("2026-10-01"), State: "CLOSED"},
+	}
+	if got := provisionalCycleDays(one, 0); got != 29 {
+		t.Fatalf("one closed cycle = %d, want 29", got)
+	}
+	two := []reviewPeriod{
+		{Kind: "SALARY_CYCLE", Start: "2026-10-01", State: "ACTIVE"},
+		{Kind: "SALARY_CYCLE", Start: "2026-08-31", End: end("2026-10-01"), State: "CLOSED"},
+		{Kind: "SALARY_CYCLE", Start: "2026-08-03", End: end("2026-08-31"), State: "CLOSED"},
+	}
+	if got := provisionalCycleDays(two, 0); got != 31 {
+		t.Fatalf("two closed cycles should use most recent (31), got %d", got)
+	}
+	none := []reviewPeriod{{Kind: "SALARY_CYCLE", Start: "2026-10-01", State: "ACTIVE"}}
+	if got := provisionalCycleDays(none, 0); got != 0 {
+		t.Fatalf("no closed cycles = %d, want 0", got)
+	}
+	cal := []reviewPeriod{{Kind: "CALENDAR_MONTH", Start: "2026-10-01", End: end("2026-11-01"), State: "ACTIVE"}}
+	if got := provisionalCycleDays(cal, 0); got != 0 {
+		t.Fatalf("calendar fallback = %d, want 0", got)
+	}
+	raw, err := json.Marshal(three[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "provisionalDays") {
+		t.Fatalf("closed cycle JSON must omit provisionalDays: %s", raw)
+	}
+}
+
 func TestMedian3UsesMiddleCompletedCycle(t *testing.T) {
 	if got := median3([]string{"1400000", "700000", "1350000"}); got == nil || *got != "1350000" {
 		t.Fatalf("median=%v", got)
