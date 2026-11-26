@@ -193,7 +193,12 @@ function AnalyticsReview() {
       : `Ditutup · ${facts.spendingShape.days} hari · data s.d. ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}`
     : "";
 
-  const jumpToQuality = () => {
+  const jumpToQuality = event => {
+    if (meeting) {
+      event.preventDefault();
+      navigate({ step: "quality" });
+      return;
+    }
     setQualityOpenTrigger(count => count + 1);
   };
 
@@ -201,8 +206,8 @@ function AnalyticsReview() {
     <div className="analytics-flow">
       {wealthView ? <div className="analytics-panel" role="tabpanel" id="laporan-panel" aria-labelledby="laporan-tab-wealth"><WealthWorkspace user={user}/></div> :
       <div id="laporan-panel" role="tabpanel" aria-labelledby="laporan-tab-cycle" className="cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
-      <div className="range-controls report-bar">
-        <div className="range-control-group" data-slide data-slide-panel=".cycle-review > :not(.report-bar)" role="group" aria-label="Tampilan analisis">
+      <div className="range-controls">
+        <div className="range-control-group" data-slide data-slide-panel=".cycle-review > :not(.range-controls)" role="group" aria-label="Tampilan analisis">
           <button type="button" aria-pressed={selection.view === "cycle"} className={selection.view === "cycle" ? "active" : "secondary"} onClick={() => navigate({ view: "cycle" })}>Siklus Gaji</button>
           <button type="button" aria-pressed={selection.view === "calendar"} className={selection.view === "calendar" ? "active" : "secondary"} onClick={() => navigate({ view: "calendar" })}>Kalender</button>
         </div>
@@ -219,7 +224,7 @@ function AnalyticsReview() {
         </div>
         {facts && !error && <div className="cycle-status" aria-live="polite">
           <strong>{statusLine}</strong>
-          {wealthNotices.length > 0 && <a className="quality-chip" href="#quality" onClick={jumpToQuality}>{wealthNotices.length} perlu dilengkapi</a>}
+          {wealthNotices.length > 0 && <a className="quality-chip" href={meeting ? selectionHref({ ...selection, step: "quality" }) : "#quality"} onClick={jumpToQuality}>{wealthNotices.length} perlu dilengkapi</a>}
         </div>}</>}
       </div>
       {selection.view === "calendar" ? <CalendarReview selection={selection} navigate={navigate}/> : <>

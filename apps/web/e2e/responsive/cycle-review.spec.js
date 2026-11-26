@@ -402,6 +402,7 @@ test("without AI every section is still there and nothing is posted", async ({ p
 
 test("the closed-cycle meeting walks all 7 steps, auto-opens folds, keeps a draft, and records decisions only on explicit save", async ({ page, api }) => {
   flags.aiAvailable = false;
+  flags.advisory = true;
   await visit(page, CLOSED);
   await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   await page.getByRole("button", { name: "Mulai tinjauan · 7 langkah", exact: true }).click();
@@ -413,6 +414,13 @@ test("the closed-cycle meeting walks all 7 steps, auto-opens folds, keeps a draf
   await expect(page.locator("#history .heat-table"), "step 1 auto-opens Angka per kategori").toBeVisible();
   await expect(page.locator("#where")).toBeHidden();
   await expect(page.locator("#spending-shape")).toBeHidden();
+
+  await page.locator(".quality-chip").click();
+  expect(searchOf(page).get("review"), "quality chip navigates to quality step during review").toBe("quality");
+  await expect(page.locator("#quality .review-quality"), "quality fold opens on quality step").toBeVisible();
+  await page.getByRole("navigation", { name: "Langkah tinjauan siklus" }).getByRole("button", { name: "1. Posisi siklus", exact: true }).click();
+  expect(searchOf(page).get("review")).toBe("position");
+  expect(await page.locator("#quality > details").evaluate(element => element.open), "leaving quality step closes its fold").toBe(false);
 
   const nav = page.getByRole("navigation", { name: "Langkah tinjauan siklus" });
   await expect(nav.getByRole("button")).toHaveCount(7);

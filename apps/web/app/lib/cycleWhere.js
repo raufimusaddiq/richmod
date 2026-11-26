@@ -12,30 +12,25 @@ export function rankingView(facts, palette = null) {
   const ranking = facts.categoryRanking;
   if (!ranking || !Array.isArray(ranking.rows)) return null;
   const basis = baselineFor(facts.period, facts.spendingShape?.days);
-  const byKey = new Map((facts.categoryChanges || []).map(item => [categoryKey(item), item]));
+  const evidenceKeys = new Set((facts.categoryChanges || []).map(categoryKey));
   const peak = Math.max(0, ...[...ranking.rows, ...(ranking.other ? [ranking.other] : [])].map(row => Math.abs(Number(row.amount))).filter(Number.isFinite));
   const { colors } = categoryColorMap(facts, palette);
-  const deltaFor = (row, key) => {
-    if ("deltaVsBaseline" in row) return deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true });
-    const matched = key ? byKey.get(key) : null;
-    if (matched) return deltaView(matched[basis.delta] ?? null, { relative: matched[basis.relative] ?? null, lowerIsBetter: true });
-    return deltaView(null, { lowerIsBetter: true });
-  };
-  const view = (row, key) => ({ ...row, delta: deltaFor(row, key), length: fraction(row.amount, peak) });
+  const deltaFor = row => deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true });
+  const view = row => ({ ...row, delta: deltaFor(row), length: fraction(row.amount, peak) });
   const rows = ranking.rows.map(row => {
     const key = categoryKey(row);
     const assigned = colors.get(key);
     const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
-    return { ...view(row, key), key, color, openable: byKey.has(key) };
+    return { ...view(row), key, color, openable: evidenceKeys.has(key) };
   });
   const otherRows = Array.isArray(ranking.other?.rows)
     ? ranking.other.rows.map(row => {
       const key = categoryKey(row);
-      return { ...view(row, key), key, color: "", openable: byKey.has(key) };
+      return { ...view(row), key, color: "", openable: evidenceKeys.has(key) };
     })
     : [];
   const other = ranking.other && (Number(ranking.other.categoryCount) > 0 || otherRows.length > 0)
-    ? { ...view(ranking.other, ""), key: "other", color: OTHER_CATEGORY_COLOR, rows: otherRows }
+    ? { ...view(ranking.other), key: "other", color: OTHER_CATEGORY_COLOR, rows: otherRows }
     : null;
   const hasBaseline = Boolean(facts.comparison?.previousFullCycle || facts.comparison?.previous);
   return { rows, other, baseline: basis.label, hasBaseline, total: facts.cashflow.expense };

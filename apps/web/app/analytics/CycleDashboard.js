@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { CyclePaceChart } from "../components/Charts";
 import CountUp from "../components/CountUp";
 import { paceCurves, paceReferences } from "../lib/cycleLedger";
@@ -29,21 +29,23 @@ export function NoticeStrip({ facts }) {
 }
 
 export function QualityFooter({ facts, step, openTrigger = 0 }) {
-  const detailsRef = useRef(null);
+  const [open, setOpen] = useState(step === "quality");
   const calendar = facts.period.kind !== "SALARY_CYCLE";
   const items = facts.dataQuality || [];
   const { blocking, advisory } = splitDataQuality(items);
   const totalCount = items.length + (calendar ? 1 : 0);
 
   useEffect(() => {
-    if ((step === "quality" || openTrigger > 0) && detailsRef.current) {
-      detailsRef.current.open = true;
-    }
-  }, [step, openTrigger]);
+    setOpen(step === "quality");
+  }, [step]);
+
+  useEffect(() => {
+    if (openTrigger > 0) setOpen(true);
+  }, [openTrigger]);
 
   useEffect(() => {
     const reveal = () => {
-      if (detailsRef.current && window.location.hash === "#quality") detailsRef.current.open = true;
+      if (window.location.hash === "#quality") setOpen(true);
     };
     reveal();
     window.addEventListener("hashchange", reveal);
@@ -59,7 +61,7 @@ export function QualityFooter({ facts, step, openTrigger = 0 }) {
         : `${advisory.length} hal · informasi`;
 
   return <section id="quality" className="review-section" aria-labelledby="quality-title">
-    <details ref={detailsRef} className="report-disclosure" open={step === "quality" || undefined}>
+    <details className="report-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary><h2 id="quality-title" tabIndex={-1}>Kelengkapan data</h2><span>{summaryNote}</span></summary>
       <div className="report-disclosure-body">
         {totalCount === 0

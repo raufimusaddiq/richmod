@@ -141,7 +141,7 @@ export function MerchantCard({ facts, step }) {
   const top = list?.rows?.slice(0, 6) || [];
   const other = list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
   const empty = !list || !list.rows.length;
-  return <section id="merchants" className="surface dash-card merchant-card" aria-labelledby="merchants-title">
+  return <section id="merchants" className="surface dash-card" aria-labelledby="merchants-title">
     <div className="dash-card-head">
       <div>
         <SectionTitle id="merchants-title" title="Merchant teratas"/>

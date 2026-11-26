@@ -70,7 +70,7 @@ export default function CategoryTable({ facts, step, selected = "", select, pale
         <SectionTitle id="where-title" title="Ke mana uangnya"/>
         {takeaway && <p className="takeaway">{takeaway}</p>}
       </div>
-      <div className="segmented cat-mode-toggle" data-slide role="group" aria-label="Urutan kategori">
+      <div className="segmented" data-slide role="group" aria-label="Urutan kategori">
         <button type="button" className={activeMode === "top" ? "active" : "secondary"} aria-pressed={activeMode === "top"} disabled={step === "changes"} onClick={() => setMode("top")}>Terbesar</button>
         <button type="button" className={activeMode === "change" ? "active" : "secondary"} aria-pressed={activeMode === "change"} disabled={!canChange || step === "drivers"} onClick={() => setMode("change")}>Paling berubah</button>
       </div>

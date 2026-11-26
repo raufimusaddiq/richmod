@@ -423,7 +423,7 @@ button.cat-row:hover:not(:disabled) { background: var(--surface-muted); }
   .cat-total { margin-left: 0; width: 100%; justify-content: space-between; }
   .history-scroll { margin-top: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-xs); background-color: var(--surface); background-image: linear-gradient(to right, var(--surface) 30%, rgb(255 252 244 / 0)), linear-gradient(to left, var(--surface) 30%, rgb(255 252 244 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
   .history-cols { flex: 1 0 auto; gap: 6px; margin-top: 0; padding: var(--space-1); }
-  .history-cols > li { flex: 0 0 84px; min-width: 84px; }
+  .history-cols > li { flex: 0 0 96px; min-width: 96px; }
   .history-cols button, .cycle-review .history-cols button:hover:not(:disabled) { grid-template-rows: auto minmax(140px, 1fr) auto auto; padding: var(--space-1) 2px; }
   .history-plot { min-height: 140px; }
   .history-bar { width: 100%; }

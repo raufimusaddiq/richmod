@@ -100,7 +100,7 @@ export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectC
                 : isSameDay
                   ? <small>hari 1–{column.elapsedDays}</small>
                   : <>
-                    {column.averageDailyExpenseRounded != null && <small>{money(column.averageDailyExpenseRounded).replace(/^Rp\s?/, "")}/hr</small>}
+                    {column.averageDailyExpenseRounded != null && <small>{money(column.averageDailyExpenseRounded)}/hr</small>}
                     <small>arus kas {signedMillions(column.net)}</small>
                   </>}
             </span>
