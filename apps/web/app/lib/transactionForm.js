@@ -102,15 +102,16 @@ export function editDateBounds(now = new Date()) {
 }
 
 const FACTS_LOCK_NOTES = {
-  SOURCE_EVIDENCE: "Jumlah dan tanggal transaksi ini mengikuti sumbernya (email atau dokumen), jadi tidak bisa diubah di sini. Tanggalnya bisa diperbaiki lewat Ubah di Telegram. Kalau jumlahnya salah, kirim bukti yang benar.",
+  SOURCE_EVIDENCE: "Jumlah dan tanggal transaksi ini mengikuti sumbernya (email atau dokumen), jadi tidak bisa diubah di sini. Untuk tanggal, minta bot di Telegram, misalnya: ubah tanggal Warung Contoh jadi 3 Okt. Kalau jumlahnya salah, batalkan transaksi ini lalu catat ulang dengan jumlah yang benar.",
+  NOT_CONFIRMED: "Jumlah dan tanggal baru bisa diubah setelah transaksinya tersimpan. Selesaikan tinjauannya dulu.",
   TRANSFER: "Jumlah dan tanggal transfer tidak bisa diubah. Batalkan lalu catat ulang jika salah.",
   SALARY: "Jumlah dan tanggal gaji mengikuti slip gaji, jadi tidak bisa diubah di sini.",
   MERGED: "Transaksi ini sudah digabung. Pisahkan penggabungannya dulu kalau jumlah atau tanggalnya perlu diubah.",
 };
 
 export function factsEditNote(transaction) {
-  if (transaction?.factsEditable === true) return "Jumlah dan tanggal bisa diubah karena kamu yang mencatatnya. Jam tetap sama dan jenis transaksi tidak bisa diubah.";
-  return FACTS_LOCK_NOTES[transaction?.factsLockReason] || "Jumlah dan tanggal tidak bisa diubah. Batalkan lalu catat ulang jika salah.";
+  if (transaction?.factsEditable === true) return "Jumlah dan tanggal bisa diubah karena transaksi ini dicatat manual. Jam tetap sama dan jenis transaksi tidak bisa diubah.";
+  return FACTS_LOCK_NOTES[transaction?.factsLockReason] || "Jumlah dan tanggal transaksi ini tidak bisa diubah di sini. Kalau salah, batalkan transaksi ini lalu catat ulang.";
 }
 
 export function editInitialValues(transaction = {}) {
