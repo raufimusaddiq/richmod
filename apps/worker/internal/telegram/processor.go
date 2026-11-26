@@ -56,6 +56,7 @@ type Processor struct {
 	postGenerativeAutoConfirmOff bool
 	now                          func() time.Time
 	bot                          *Bot
+	documentTyping               *DocumentTyping
 }
 
 type telegramUpdate struct {
@@ -104,7 +105,10 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
 
-func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
+func (p *Processor) SetBot(bot *Bot) {
+	p.bot = bot
+	p.documentTyping = NewDocumentTyping(p.pool, bot)
+}
 
 func (p *Processor) SetPostGenerativeAutoConfirm(enabled bool) {
 	p.postGenerativeAutoConfirmOff = !enabled

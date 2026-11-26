@@ -229,30 +229,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 }
 
 func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
-	if p.bot == nil || chatID == 0 {
+	if !p.bot.typingReady() || chatID == 0 {
 		return func() {}
 	}
-	stop := make(chan struct{})
-	send := func() {
-		typingCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		_ = p.bot.Typing(typingCtx, chatID)
-		cancel()
-	}
-	send()
-	go func() {
-		ticker := time.NewTicker(4 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				send()
-			case <-stop:
-				return
-			}
-		}
-	}()
-	var once sync.Once
-	return func() { once.Do(func() { close(stop) }) }
+	send := func(sendCtx context.Context) { _ = p.bot.Typing(sendCtx, chatID) }
+	return runTyping(ctx, send, typingInterval, 0)
 }
 
 const finalPhaseInstruction = `
