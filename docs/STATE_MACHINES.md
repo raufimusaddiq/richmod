@@ -71,7 +71,17 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
   `description` (required, max 500), `note` (max 2000, `null`/empty clears) and
   `merchantName` ("Tempat · Ubah"; trimmed, whitespace-collapsed, 1-160 chars, never
   `null`; see below).
-- **Locked (400 `LOCKED_FIELD`):** amount, transaction time, type, currency,
+- **Hand-entered only:** `amount` (positive whole IDR string) and `transactionDate`
+  (`YYYY-MM-DD` in Jakarta, the original time of day is kept; not in the future, not older
+  than 400 days). Allowed only when `reviewdomain.HandEnteredFactsLock` is empty: a confirmed
+  income or expense with no wealth account, salary event or active merge whose evidence is all
+  `WEB_MANUAL`, `TELEGRAM_TEXT` or `TELEGRAM_CALLBACK` source events (ADR-130). Otherwise 400
+  `LOCKED_FIELD`; the detail read says which with `factsEditable` and `factsLockReason`
+  (`NOT_CONFIRMED`, `TRANSFER`, `SALARY`, `MERGED`, `SOURCE_EVIDENCE`). The change runs through
+  `reviewdomain.CorrectConfirmedTransaction` (same function as Telegram Ubah and the assistant),
+  writes one `EDIT_TRANSACTION` audit row (actor `USER`) and refreshes open cycle residuals for the
+  old and new date. Errors: 400 `INVALID_AMOUNT`, `INVALID_DATE`, `DATE_IN_FUTURE`, `DATE_TOO_OLD`.
+- **Locked (400 `LOCKED_FIELD`):** transaction time of day (`transactionAt`), type, currency,
   status, purpose, related wealth account, `merchantId` (the raw canonical ID), evidence. Correcting these
   stays void + re-create so evidence integrity is preserved. Any other field is
   400 `UNKNOWN_FIELD`; an empty body is 400 `EMPTY_EDIT`.

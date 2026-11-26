@@ -124,7 +124,6 @@ func TestEditTransactionDetails(t *testing.T) {
 			"foreign_category": {fmt.Sprintf(`{"categoryId":%q}`, foreignCategory), codeInvalidCategory},
 			"foreign_account":  {fmt.Sprintf(`{"accountId":%q}`, foreignAccount), codeInvalidAccount},
 			"inactive_account": {fmt.Sprintf(`{"accountId":%q}`, inactive), codeInvalidAccount},
-			"locked_amount":    {`{"amount":"1"}`, codeLockedField},
 			"unknown":          {`{"colour":"red"}`, codeUnknownField},
 			"empty":            {`{}`, codeEmptyEdit},
 			"blank_desc":       {`{"description":"  "}`, codeInvalidField},
@@ -218,4 +217,138 @@ func TestEditTransactionDetails(t *testing.T) {
 func execOnly(pool *pgxpool.Pool, sql string, args ...any) error {
 	_, err := pool.Exec(context.Background(), sql, args...)
 	return err
+}
+
+func TestEditHandEnteredDateAndAmount(t *testing.T) {
+	t.Parallel()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var household, foreign, user string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Facts own') RETURNING id`).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Facts foreign') RETURNING id`).Scan(&foreign))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Editor','unused') RETURNING id`, fmt.Sprintf("facts-%d@example.test", testsupport.UniqueStamp())).Scan(&user))
+	h := NewHandler(pool)
+	own := auth.Principal{UserID: user, HouseholdID: household, HasHousehold: true}
+	other := auth.Principal{UserID: user, HouseholdID: foreign, HasHousehold: true}
+	newTx := func(kind, sourceType string) string {
+		var id, source string
+		must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,$2,'CONFIRMED',5000,(date_trunc('day',now() AT TIME ZONE 'Asia/Jakarta') - interval '10 days' + interval '14 hours 35 minutes') AT TIME ZONE 'Asia/Jakarta','Awal',now()) RETURNING id`, household, kind).Scan(&id))
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,received_at,payload_hash,processing_status) VALUES($1,$2,now(),$3,'PROCESSED') RETURNING id`, household, sourceType, []byte(id)).Scan(&source))
+		_, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TEST')`, id, source)
+		must(err)
+		return id
+	}
+	stamp := func(id string) string {
+		var s string
+		must(pool.QueryRow(ctx, `SELECT to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM transaction WHERE id=$1`, id).Scan(&s))
+		return s
+	}
+	patch := func(id, ifMatch, body string, as auth.Principal) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/transactions/"+id, strings.NewReader(body))
+		req.SetPathValue("id", id)
+		req.Header.Set("If-Match", ifMatch)
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), as))
+		rec := httptest.NewRecorder()
+		h.EditTransaction(rec, req)
+		return rec
+	}
+	code := func(rec *httptest.ResponseRecorder) string {
+		var body map[string]string
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		return body["code"]
+	}
+	jakartaDay := func(offset int) string {
+		var s string
+		must(pool.QueryRow(ctx, `SELECT to_char((now() AT TIME ZONE 'Asia/Jakarta')::date + $1::int,'YYYY-MM-DD')`, offset).Scan(&s))
+		return s
+	}
+	facts := func(id string) (amount, day, clock string) {
+		must(pool.QueryRow(ctx, `SELECT amount::text,to_char(transaction_at AT TIME ZONE 'Asia/Jakarta','YYYY-MM-DD'),to_char(transaction_at AT TIME ZONE 'Asia/Jakarta','HH24:MI') FROM transaction WHERE id=$1`, id).Scan(&amount, &day, &clock))
+		return
+	}
+	detail := func(id string) (bool, any) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/"+id, nil)
+		req.SetPathValue("id", id)
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), own))
+		rec := httptest.NewRecorder()
+		h.GetTransaction(rec, req)
+		var body struct {
+			Editable bool `json:"factsEditable"`
+			Reason   any  `json:"factsLockReason"`
+		}
+		must(json.Unmarshal(rec.Body.Bytes(), &body))
+		return body.Editable, body.Reason
+	}
+
+	t.Run("hand_entered_amount_and_date_are_corrected_with_audit_and_original_time_of_day", func(t *testing.T) {
+		id := newTx("EXPENSE", "WEB_MANUAL")
+		if editable, reason := detail(id); !editable || reason != nil {
+			t.Fatalf("hand-entered facts editable=%v reason=%v", editable, reason)
+		}
+		before := stamp(id)
+		day := jakartaDay(-3)
+		rec := patch(id, before, `{"amount":"12000","transactionDate":"`+day+`"}`, own)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body)
+		}
+		amount, gotDay, clock := facts(id)
+		if amount != "12000" || gotDay != day || clock != "14:35" {
+			t.Fatalf("facts = %s %s %s", amount, gotDay, clock)
+		}
+		var oldAmount, newAmount, actor string
+		must(pool.QueryRow(ctx, `SELECT before_json->>'amount',after_json->>'amount',actor_type FROM audit_log WHERE entity_id=$1 AND action='EDIT_TRANSACTION' AND household_id=$2`, id, household).Scan(&oldAmount, &newAmount, &actor))
+		if oldAmount != "5000" || newAmount != "12000" || actor != "USER" {
+			t.Fatalf("audit = %s %s %s", oldAmount, newAmount, actor)
+		}
+		if rec := patch(id, before, `{"amount":"13000"}`, own); rec.Code != http.StatusConflict || code(rec) != "STALE_EDIT" {
+			t.Fatalf("stale edit = %d %s", rec.Code, rec.Body)
+		}
+	})
+	t.Run("evidence_backed_and_transfer_facts_stay_locked", func(t *testing.T) {
+		for name, tx := range map[string]string{"bank email": newTx("EXPENSE", "BANK_EMAIL"), "provider email": newTx("INCOME", "FINANCIAL_EMAIL"), "photo": newTx("EXPENSE", "WEB_IMAGE"), "transfer": newTx("TRANSFER", "WEB_MANUAL")} {
+			if editable, reason := detail(tx); editable || reason == nil {
+				t.Fatalf("%s: editable=%v reason=%v", name, editable, reason)
+			}
+			if rec := patch(tx, stamp(tx), `{"amount":"9000"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "LOCKED_FIELD" {
+				t.Fatalf("%s amount edit = %d %s", name, rec.Code, rec.Body)
+			}
+			if rec := patch(tx, stamp(tx), `{"transactionDate":"`+jakartaDay(-1)+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "LOCKED_FIELD" {
+				t.Fatalf("%s date edit = %d %s", name, rec.Code, rec.Body)
+			}
+			if amount, _, _ := facts(tx); amount != "5000" {
+				t.Fatalf("%s amount changed to %s", name, amount)
+			}
+		}
+	})
+	t.Run("other_household_future_date_and_bad_amount_are_refused", func(t *testing.T) {
+		id := newTx("EXPENSE", "TELEGRAM_TEXT")
+		if rec := patch(id, stamp(id), `{"amount":"9000"}`, other); rec.Code != http.StatusNotFound {
+			t.Fatalf("foreign household = %d %s", rec.Code, rec.Body)
+		}
+		if rec := patch(id, stamp(id), `{"transactionDate":"`+jakartaDay(1)+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "DATE_IN_FUTURE" {
+			t.Fatalf("future date = %d %s", rec.Code, rec.Body)
+		}
+		for _, amount := range []string{"0", "-5", "12.5", "1e3", "abc"} {
+			if rec := patch(id, stamp(id), `{"amount":"`+amount+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "INVALID_AMOUNT" {
+				t.Fatalf("amount %q = %d %s", amount, rec.Code, rec.Body)
+			}
+		}
+		if amount, _, _ := facts(id); amount != "5000" {
+			t.Fatalf("refused edits changed amount to %s", amount)
+		}
+	})
 }

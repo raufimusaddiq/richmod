@@ -1,3 +1,5 @@
+import { jakartaDay } from "./ledgerDays.js";
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function dateRangeError(from, to) {
@@ -86,7 +88,29 @@ export function canEditTransaction(transaction) {
 
 export function editableFields(transaction) {
   const transfer = transaction?.type === "TRANSFER";
-  return { category: !transfer, account: !transfer, place: !transfer, description: true, note: true };
+  const facts = transaction?.factsEditable === true;
+  return { category: !transfer, account: !transfer, place: !transfer, description: true, note: true, amount: facts, date: facts };
+}
+
+export const MAX_EDIT_AGE_DAYS = 400;
+
+export function editDateBounds(now = new Date()) {
+  const today = jakartaDay(now);
+  const oldest = new Date(`${today}T00:00:00Z`);
+  oldest.setUTCDate(oldest.getUTCDate() - MAX_EDIT_AGE_DAYS);
+  return { min: oldest.toISOString().slice(0, 10), max: today };
+}
+
+const FACTS_LOCK_NOTES = {
+  SOURCE_EVIDENCE: "Jumlah dan tanggal transaksi ini mengikuti sumbernya (email atau dokumen), jadi tidak bisa diubah di sini. Tanggalnya bisa diperbaiki lewat Ubah di Telegram. Kalau jumlahnya salah, kirim bukti yang benar.",
+  TRANSFER: "Jumlah dan tanggal transfer tidak bisa diubah. Batalkan lalu catat ulang jika salah.",
+  SALARY: "Jumlah dan tanggal gaji mengikuti slip gaji, jadi tidak bisa diubah di sini.",
+  MERGED: "Transaksi ini sudah digabung. Pisahkan penggabungannya dulu kalau jumlah atau tanggalnya perlu diubah.",
+};
+
+export function factsEditNote(transaction) {
+  if (transaction?.factsEditable === true) return "Jumlah dan tanggal bisa diubah karena kamu yang mencatatnya. Jam tetap sama dan jenis transaksi tidak bisa diubah.";
+  return FACTS_LOCK_NOTES[transaction?.factsLockReason] || "Jumlah dan tanggal tidak bisa diubah. Batalkan lalu catat ulang jika salah.";
 }
 
 export function editInitialValues(transaction = {}) {
@@ -96,6 +120,8 @@ export function editInitialValues(transaction = {}) {
     merchantName: transaction?.merchantName || "",
     description: transaction?.description || "",
     note: transaction?.note || "",
+    amount: transaction?.amount ? String(transaction.amount).replace(/\..*$/, "") : "",
+    transactionDate: transaction?.transactionAt ? jakartaDay(transaction.transactionAt) : "",
   };
 }
 
@@ -120,6 +146,14 @@ export function editFormErrors(values, transaction = {}) {
   } else if (description.length > 500) errors.description = "Deskripsi maksimal 500 karakter.";
   if (String(values.note || "").trim().length > 2000) errors.note = "Catatan maksimal 2000 karakter.";
   if (String(values.merchantName || "").trim().length > 160) errors.merchantName = "Tempat maksimal 160 karakter.";
+  if (editableFields(transaction).amount) {
+    if (!/^[1-9][0-9]*$/.test(normalizeAmount(values.amount))) errors.amount = "Isi jumlah dengan angka bulat lebih dari 0.";
+    const { min, max } = editDateBounds();
+    const day = String(values.transactionDate || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) errors.transactionDate = "Isi tanggal transaksi.";
+    else if (day > max) errors.transactionDate = "Tanggal itu belum terjadi.";
+    else if (day < min) errors.transactionDate = "Tanggal itu terlalu lama.";
+  }
   return errors;
 }
 
@@ -140,6 +174,11 @@ export function editPayload(transaction, values, touched = null) {
   if (fields.place && allow("merchantName") && place && place !== (transaction.merchantName || "")) body.merchantName = place;
   const description = String(values.description || "").trim();
   if (allow("description") && description !== (transaction.description || "")) body.description = description;
+  if (fields.amount && allow("amount")) {
+    const amount = normalizeAmount(values.amount);
+    if (amount && amount !== String(transaction.amount || "").replace(/\..*$/, "")) body.amount = amount;
+  }
+  if (fields.date && allow("transactionDate") && values.transactionDate && values.transactionDate !== jakartaDay(transaction.transactionAt)) body.transactionDate = values.transactionDate;
   const note = String(values.note || "").trim() || null;
   if (allow("note") && note !== (transaction.note || null)) body.note = note;
   return body;
@@ -152,9 +191,14 @@ export function editErrorMessage(status, body = {}) {
     case "TRANSACTION_VOIDED": return "Transaksi yang dibatalkan tidak bisa diubah.";
     case "TRANSFER_FIELD_LOCKED": return "Kategori, akun, dan tempat transfer tidak bisa diubah.";
     case "INVALID_CATEGORY": return "Kategori tidak valid atau tidak aktif. Pilih kategori lain.";
+    case "LOCKED_FIELD": return "Jumlah dan tanggal transaksi ini tidak bisa diubah. Muat ulang lalu coba lagi.";
+    case "INVALID_AMOUNT": return "Isi jumlah dengan angka bulat lebih dari 0.";
+    case "DATE_IN_FUTURE": return "Tanggal itu belum terjadi.";
+    case "DATE_TOO_OLD": return "Tanggal itu terlalu lama.";
+    case "INVALID_DATE": return "Isi tanggal transaksi dengan benar.";
     case "INVALID_ACCOUNT": return "Akun tidak valid atau tidak aktif. Pilih akun lain.";
     case "NOT_FOUND": return "Transaksi tidak ditemukan.";
-    case "LOCKED_FIELD": case "UNKNOWN_FIELD": case "INVALID_FIELD": case "EMPTY_EDIT": case "INVALID_REQUEST":
+    case "UNKNOWN_FIELD": case "INVALID_FIELD": case "EMPTY_EDIT": case "INVALID_REQUEST":
       return "Perubahan belum valid. Periksa isian lalu coba lagi.";
     default:
   }

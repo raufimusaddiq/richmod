@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 const (
 	dateForwardDays     = 31
-	payDateMaxAgeDays   = 400
+	payDateMaxAgeDays   = reviewdomain.MaxCorrectionAgeDays
 	dateHint            = "Pilih di bawah, atau ketik tanggalnya."
 	dateOtherHint       = "Ketik tanggalnya, misalnya 3 Okt atau 25/9."
 	futureDateAck       = "Tanggal itu belum terjadi."
