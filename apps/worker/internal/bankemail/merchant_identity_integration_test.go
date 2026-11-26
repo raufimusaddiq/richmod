@@ -413,6 +413,62 @@ func TestBankEmailSingleTokenAfterInstitutionStripRoutesToReview(t *testing.T) {
 	}
 }
 
+func TestMerchantIdentityIgnoresCrossHouseholdAliasTarget(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	var own, foreign, category, foreignMerchant string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Tenant own %d", stamp)).Scan(&own); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Tenant foreign %d", stamp)).Scan(&foreign); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, own).Scan(&category); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, foreign).Scan(&foreignMerchant); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role='replica'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'PAYEE SHORT',$2,$3,true,true)`, own, foreignMerchant, category); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role='origin'`); err != nil {
+		t.Fatal(err)
+	}
+	merchantID, err := reviewdomain.ExistingMerchantID(ctx, tx, own, "PAYEE SHORT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merchantID != "" {
+		t.Fatalf("cross-household alias target resolved to %s", merchantID)
+	}
+	memory, err := loadMerchantMemory(ctx, tx, own, "PAYEE SHORT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memory.MerchantID != "" || memory.CategoryID != "" {
+		t.Fatalf("cross-household alias target reached memory: %+v", memory)
+	}
+}
+
 func TestLoadMerchantMemoryRequiresOneUnambiguousNormalizedRule(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

@@ -69,9 +69,6 @@ func setReviewMerchant(ctx context.Context, tx pgx.Tx, householdID, reviewID, tr
 	if match != nil {
 		merchantID, rememberedCategoryID = match.MerchantID, match.CategoryID
 	} else if merchantID, err = reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, value); err != nil {
-		if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) || errors.Is(err, reviewdomain.ErrUnusableMerchantName) {
-			return "", nil
-		}
 		return "", err
 	}
 	if merchantID != "" {

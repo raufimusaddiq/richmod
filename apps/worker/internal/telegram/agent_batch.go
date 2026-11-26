@@ -316,11 +316,7 @@ func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, househ
 			outcome.Skipped++
 			continue
 		}
-		merchantID, remembered, err := resolveEntryMerchantTx(ctx, tx, householdID, v.Merchant)
-		if err != nil {
-			return outcome, err
-		}
-		merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, v.Merchant)
+		merchantID, remembered, merchantReview, err := resolveEntryMerchantTx(ctx, tx, householdID, v.Merchant)
 		if err != nil {
 			return outcome, err
 		}

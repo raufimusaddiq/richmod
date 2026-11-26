@@ -211,6 +211,7 @@ func matchAliasMerchant(ctx context.Context, q MerchantQuerier, household string
 	var id *string
 	if err := q.QueryRow(ctx, `SELECT count(DISTINCT ma.normalized_merchant_id),min(ma.normalized_merchant_id::text)
 		FROM merchant_alias ma
+		JOIN merchant m ON m.id=ma.normalized_merchant_id AND m.household_id=ma.household_id
 		WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=ANY($2::text[])`, household, names).Scan(&count, &id); err != nil {
 		return "", err
 	}
@@ -293,6 +294,7 @@ func LookupMerchantMemory(ctx context.Context, q MerchantQuerier, household, raw
 		min(c.id::text) FILTER (WHERE ma.auto_apply AND ma.created_from_user_confirmation AND c.id IS NOT NULL),
 		min(c.slug) FILTER (WHERE ma.auto_apply AND ma.created_from_user_confirmation AND c.id IS NOT NULL)
 		FROM merchant_alias ma
+		JOIN merchant m ON m.id=ma.normalized_merchant_id AND m.household_id=ma.household_id
 		LEFT JOIN category c ON c.id=ma.default_category_id AND c.household_id=ma.household_id AND c.active
 		WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=ANY($2::text[])`, household, names).Scan(&aliases, &merchants, &categories, &merchantID, &categoryID, &slug); err != nil {
 		return nil, err

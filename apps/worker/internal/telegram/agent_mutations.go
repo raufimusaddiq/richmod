@@ -67,11 +67,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, fmt.Errorf("re-authorize Telegram identity: %w", err)
 	}
 
-	merchantID, remembered, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
-	if err != nil {
-		return result, true, err
-	}
-	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, state.HouseholdID, value.Merchant)
+	merchantID, remembered, merchantReview, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
 	if err != nil {
 		return result, true, err
 	}
