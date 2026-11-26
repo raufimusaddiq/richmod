@@ -91,7 +91,7 @@ func TestReceiptMissingCategoryAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
 	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt ambiguous merchant category")
 	ctx := context.Background()
-	long := "SARI PERMATA 1234567890"
+	long := "1128 5635 31"
 	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	var shortMerchant, longMerchant string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, fixture.householdID).Scan(&shortMerchant); err != nil {
@@ -122,7 +122,7 @@ func TestReceiptDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
 	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt ambiguous merchant duplicate")
 	ctx := context.Background()
-	long := "SARI PERMATA 1234567890"
+	long := "1128 5635 31"
 	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	var shortMerchant, longMerchant string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, fixture.householdID).Scan(&shortMerchant); err != nil {

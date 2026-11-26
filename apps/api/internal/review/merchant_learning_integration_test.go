@@ -96,7 +96,7 @@ func TestConfirmAmbiguousMerchantStaysInReview(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, householdID).Scan(&longMerchant); err != nil {
 		t.Fatal(err)
 	}
-	long := "SARI PERMATA 1234567890"
+	long := "1128 5635 31"
 	if _, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'PAYEE DUP',$2),($1,$3,$4)`, householdID, shortMerchant, "PAYEE DUP BANK MANDIRI 1128 5635 31", longMerchant); err != nil {
 		t.Fatal(err)
 	}

@@ -213,7 +213,7 @@ func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *te
 	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot ambiguous merchant amount")
 	ctx := context.Background()
-	long := "SARI PERMATA 1234567890"
+	long := "1128 5635 31"
 	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	var shortMerchant, longMerchant string
 	if err := f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, f.householdID).Scan(&shortMerchant); err != nil {

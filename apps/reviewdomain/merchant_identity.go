@@ -125,7 +125,7 @@ func NormalizePayeeName(raw string) string {
 		name = next
 	}
 	if strippedInstitution && len(strings.Fields(name)) < 2 {
-		return ""
+		return withoutAccount
 	}
 	return name
 }
@@ -196,17 +196,19 @@ func ExistingMerchantID(ctx context.Context, q MerchantQuerier, household, raw s
 	if err != nil || id != "" {
 		return id, err
 	}
+	normalized := lowerCollapse(NormalizePayeeName(raw))
+	if normalized != "" && normalized != exact {
+		id, err = matchAliasMerchant(ctx, q, household, []string{normalized})
+		if err != nil || id != "" {
+			return id, err
+		}
+	}
 	id, err = matchNamedMerchant(ctx, q, household, []string{exact})
 	if err != nil || id != "" {
 		return id, err
 	}
-	normalized := lowerCollapse(NormalizePayeeName(raw))
 	if normalized == "" || normalized == exact {
 		return "", nil
-	}
-	id, err = matchAliasMerchant(ctx, q, household, []string{normalized})
-	if err != nil || id != "" {
-		return id, err
 	}
 	return matchNamedMerchant(ctx, q, household, []string{normalized})
 }
