@@ -90,9 +90,9 @@ func bankDoneLine(done bankCompletion) string {
 	case done.Amount == "":
 		return "✅ Email bank diproses tanpa mencatat transaksi."
 	case done.Linked:
-		return "✅ Digabung dengan transaksi yang sudah ada: " + joinDot(idr(done.Amount), bankInstantLabel(done.At)) + "."
+		return "✅ Digabung dengan transaksi yang sudah ada: " + joinDot(IDR(done.Amount), bankInstantLabel(done.At)) + "."
 	}
-	return savedLine(done.Merchant, done.Category, idr(done.Amount), bankInstantLabel(done.At))
+	return savedLine(done.Merchant, done.Category, IDR(done.Amount), bankInstantLabel(done.At))
 }
 
 func bankInstantLabel(at time.Time) string {

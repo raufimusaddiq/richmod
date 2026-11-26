@@ -480,7 +480,7 @@ func (p *Processor) resolveWealth(ctx context.Context, tx pgx.Tx, householdID st
 	if err := tx.QueryRow(ctx, `SELECT name FROM wealth_account WHERE id=$1 AND household_id=$2`, accountID, householdID).Scan(&name); err != nil {
 		return stepOutcome{}, err
 	}
-	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Saldo tersimpan: " + joinDot(name, idr(value)), Hint: balanceNote}, Settled: true, Changed: true}, nil
+	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Saldo tersimpan: " + joinDot(name, IDR(value)), Hint: balanceNote}, Settled: true, Changed: true}, nil
 }
 
 func (p *Processor) applyDocumentTap(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, data string) (stepOutcome, error) {

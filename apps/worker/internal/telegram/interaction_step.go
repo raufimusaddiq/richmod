@@ -418,11 +418,11 @@ func rememberStep(facts, merchant, category string) Step {
 }
 
 func doneStep(merchant, category, amount, note string) Step {
-	return Step{Kind: stepDone, Ack: savedLine(merchant, category, idr(amount)), Hint: note}
+	return Step{Kind: stepDone, Ack: savedLine(merchant, category, IDR(amount)), Hint: note}
 }
 
 func ignoredStep(merchant, amount string) Step {
-	if label := joinDot(merchant, idr(amount)); label != "" {
+	if label := joinDot(merchant, IDR(amount)); label != "" {
 		return Step{Kind: stepDone, Ack: "🗑️ Diabaikan: " + label + ". Tidak dicatat."}
 	}
 	return Step{Kind: stepDone, Ack: ignoredLine}

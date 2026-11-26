@@ -240,7 +240,7 @@ type duplicateRecord struct {
 }
 
 func (r duplicateRecord) line() string {
-	return joinDot(r.Label, idr(r.Amount), reviewdomain.FormatIndonesianDate(r.At.In(jakartaLocation())))
+	return joinDot(r.Label, IDR(r.Amount), reviewdomain.FormatIndonesianDate(r.At.In(jakartaLocation())))
 }
 
 type duplicateView struct {
@@ -494,7 +494,7 @@ func financialEmailSummary(ctx context.Context, tx pgx.Tx, householdID, observat
 	}
 	var lines []string
 	if digitsOnly(amount) {
-		lines = appendFact(lines, "Nominal", idr(amount))
+		lines = appendFact(lines, "Nominal", IDR(amount))
 	}
 	if at, err := time.Parse(time.RFC3339, occurred); err == nil {
 		lines = append(lines, "Tanggal: "+reviewdomain.FormatIndonesianDate(at.In(jakartaLocation())))

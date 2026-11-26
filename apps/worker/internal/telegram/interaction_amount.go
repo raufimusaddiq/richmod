@@ -113,7 +113,7 @@ func amountStepFrom(base Step, actions []string) Step {
 
 func proposalIncomeStep(base Step, amount string, actions []string) Step {
 	base.Kind, base.Fact, base.State, base.Back = stepChoice, factProposalIncome, "AWAITING_CONFIRMATION", false
-	base.Ask, base.Hint = idr(amount)+" ini dicatat sebagai apa?", proposalIncomeHint
+	base.Ask, base.Hint = IDR(amount)+" ini dicatat sebagai apa?", proposalIncomeHint
 	var buttons []InlineKeyboardButton
 	if contains(actions, "SET_AMOUNT") {
 		buttons = append(buttons, InlineKeyboardButton{Text: "Penghasilan", CallbackData: callbackIncome})
@@ -163,7 +163,7 @@ func (p *Processor) saveProposalAmount(ctx context.Context, tx pgx.Tx, household
 			return stepOutcome{}, err
 		}
 		next := proposalIncomeStep(step, amount, cardActions(review.Decision, review.ReviewType))
-		return stepOutcome{Step: next.WithAck("✅ Nominal " + idr(amount) + " diterima."), Changed: true}, nil
+		return stepOutcome{Step: next.WithAck("✅ Nominal " + IDR(amount) + " diterima."), Changed: true}, nil
 	}
 	return p.resolveProposalAmount(ctx, tx, householdID, sourceEventID, review, step, amount, false)
 }
@@ -201,7 +201,7 @@ func (p *Processor) resolveProposalAmount(ctx context.Context, tx pgx.Tx, househ
 		return stepOutcome{}, err
 	}
 	if income {
-		return stepOutcome{Step: Step{Kind: stepDone, Ack: savedLine("Penghasilan", idr(amount))}, Settled: true, Changed: true}, nil
+		return stepOutcome{Step: Step{Kind: stepDone, Ack: savedLine("Penghasilan", IDR(amount))}, Settled: true, Changed: true}, nil
 	}
 	outcome, err := confirmedCardOutcome(ctx, tx, householdID, result.TransactionID)
 	if err != nil {

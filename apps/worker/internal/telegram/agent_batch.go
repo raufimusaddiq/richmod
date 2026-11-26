@@ -124,7 +124,7 @@ func (p *Processor) markBatchItemDuplicates(ctx context.Context, state *agentSta
 	if err != nil || !found {
 		return err
 	}
-	item.SimilarExisting = joinDot(label, idr(item.Amount), formatIDDateTime(at))
+	item.SimilarExisting = joinDot(label, IDR(item.Amount), formatIDDateTime(at))
 	return nil
 }
 
@@ -418,7 +418,7 @@ func batchStagedMessage(mutation map[string]any, header string) string {
 		if strings.TrimSpace(label) == "" {
 			label = "Transaksi"
 		}
-		line := fmt.Sprintf("\n%d. %s", index+1, joinDot(label, idr(amount)))
+		line := fmt.Sprintf("\n%d. %s", index+1, joinDot(label, IDR(amount)))
 		if typ, _ := item["type"].(string); typ == "INCOME" {
 			line += " (pemasukan)"
 		} else if slug, _ := item["category_slug"].(string); slug == "" {
@@ -433,7 +433,7 @@ func batchStagedMessage(mutation map[string]any, header string) string {
 		b.WriteString(line)
 	}
 	if total, _ := mutation["total_idr"].(string); total != "" && len(items) > 1 {
-		b.WriteString("\n\nTotal: " + idr(total))
+		b.WriteString("\n\nTotal: " + IDR(total))
 	}
 	b.WriteString("\n\nPilih Ya, catat semua kalau sudah benar, atau sebutkan item yang ingin diubah. Daftar ini menunggu 30 menit.")
 	return b.String()

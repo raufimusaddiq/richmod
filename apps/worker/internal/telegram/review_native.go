@@ -226,7 +226,7 @@ func commitMerchantLearning(ctx context.Context, tx pgx.Tx, householdID, userID,
 }
 
 func ReviewQuestion(amount, merchant string) string {
-	return factBlock("Nominal", idr(amount), "Merchant", merchant)
+	return factBlock("Nominal", IDR(amount), "Merchant", merchant)
 }
 
 func FormatIDR(value string) string {

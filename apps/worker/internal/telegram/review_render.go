@@ -146,7 +146,7 @@ func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID strin
 	}
 	keyboard := make([][]InlineKeyboardButton, 0, len(mergeable)+2)
 	for index, candidate := range mergeable {
-		label := "Gabung " + joinDot(idr(candidate.Amount), reviewdomain.FormatIndonesianDate(candidate.TransactionAt.In(jakartaLocation())))
+		label := "Gabung " + joinDot(IDR(candidate.Amount), reviewdomain.FormatIndonesianDate(candidate.TransactionAt.In(jakartaLocation())))
 		keyboard = append(keyboard, []InlineKeyboardButton{{Text: clean(label, 40), CallbackData: fmt.Sprintf("review:xfer:merge:%d", index)}})
 	}
 	if set.Purpose != "" {
@@ -196,7 +196,7 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		if observed != nil {
 			date = reviewdomain.FormatIndonesianDate(*observed)
 		}
-		return factBlock("Akun", institution+" "+hint, "Nilai", idr(value), "Tanggal", date), nil
+		return factBlock("Akun", institution+" "+hint, "Nilai", IDR(value), "Tanggal", date), nil
 	case proposalID != "":
 		if summary, ok, err := payslipItemSummary(ctx, tx, householdID, itemID, proposalID); ok || err != nil {
 			return summary, err
@@ -223,7 +223,7 @@ func reviewItemSummary(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		if err != nil {
 			return "", ignoreNoRows(err)
 		}
-		return factBlock("Nominal", idr(amount), "Tanggal", reviewdomain.FormatIndonesianDate(at.In(jakartaLocation())), "Keterangan", clean(description, 200)), nil
+		return factBlock("Nominal", IDR(amount), "Tanggal", reviewdomain.FormatIndonesianDate(at.In(jakartaLocation())), "Keterangan", clean(description, 200)), nil
 	}
 	return "", nil
 }

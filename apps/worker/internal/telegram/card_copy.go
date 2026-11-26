@@ -9,7 +9,7 @@ const (
 	cardFinishedMessage = "Kartu ini sudah selesai."
 )
 
-func idr(amount string) string {
+func IDR(amount string) string {
 	if !strings.ContainsAny(amount, "0123456789") {
 		return ""
 	}
@@ -57,10 +57,8 @@ func factBlock(pairs ...string) string {
 	return strings.Join(lines, "\n")
 }
 
-func IDR(amount string) string { return idr(amount) }
-
 func BalanceSavedText(account, amount string) string {
-	return Step{Kind: stepDone, Ack: "✅ Saldo tersimpan: " + joinDot(account, idr(amount)), Hint: balanceNote}.Text()
+	return Step{Kind: stepDone, Ack: "✅ Saldo tersimpan: " + joinDot(account, IDR(amount)), Hint: balanceNote}.Text()
 }
 
 const balanceNote = "Ini catatan saldo saja, bukan transaksi."

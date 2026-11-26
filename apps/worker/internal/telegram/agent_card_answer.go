@@ -408,7 +408,7 @@ func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID
 		}
 		label := clean(card.Label, 40)
 		if card.AmountIDR != "" {
-			label = joinDot(label, idr(card.AmountIDR))
+			label = joinDot(label, IDR(card.AmountIDR))
 		}
 		keyboard = append(keyboard, []InlineKeyboardButton{{Text: label, CallbackData: callbackPendingCardPrefix + token}})
 	}

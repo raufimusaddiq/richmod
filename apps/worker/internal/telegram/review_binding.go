@@ -453,7 +453,7 @@ func transactionReviewSummary(ctx context.Context, tx pgx.Tx, householdID, trans
 	if err != nil {
 		return "", err
 	}
-	return factBlock("Nominal", idr(amount), "Merchant", merchant), nil
+	return factBlock("Nominal", IDR(amount), "Merchant", merchant), nil
 }
 
 func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID string, chatID, replyTo int64) error {

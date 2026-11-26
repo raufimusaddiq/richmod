@@ -534,7 +534,7 @@ var transferLabels = map[string]string{
 }
 
 func transferDoneStep(label, detail, amount string) Step {
-	return Step{Kind: stepDone, Ack: savedLine(label, detail, idr(amount))}
+	return Step{Kind: stepDone, Ack: savedLine(label, detail, IDR(amount))}
 }
 
 func (p *Processor) classifyTransfer(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, classification, wealthAccountID, categoryID string) (stepOutcome, error) {

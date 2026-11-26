@@ -164,7 +164,7 @@ func accountNames(ctx context.Context, tx pgx.Tx, householdID string, ids []stri
 	return names, rows.Err()
 }
 
-func rupiah(value *big.Int) string { return idr(value.String()) }
+func rupiah(value *big.Int) string { return IDR(value.String()) }
 
 func (p *Processor) cycleSplitStep(ctx context.Context, tx pgx.Tx, householdID string, e engineReview, base Step) (Step, error) {
 	if e.Subject.Cycle == nil {
@@ -478,13 +478,13 @@ func (p *Processor) applyCycleAllocations(ctx context.Context, tx pgx.Tx, househ
 
 func cycleAllocatedStep(residual string, allocations []reviewdomain.CycleAllocation, names map[string]string) Step {
 	if len(allocations) == 1 {
-		return Step{Kind: stepDone, Ack: "✅ Sisa " + idr(residual) + " dialokasikan ke " + clean(names[allocations[0].WealthAccountID], 60) + "."}
+		return Step{Kind: stepDone, Ack: "✅ Sisa " + IDR(residual) + " dialokasikan ke " + clean(names[allocations[0].WealthAccountID], 60) + "."}
 	}
 	parts := make([]string, 0, len(allocations))
 	for _, allocation := range allocations {
-		parts = append(parts, clean(names[allocation.WealthAccountID], 40)+" "+idr(allocation.AmountIDR))
+		parts = append(parts, clean(names[allocation.WealthAccountID], 40)+" "+IDR(allocation.AmountIDR))
 	}
-	return Step{Kind: stepDone, Ack: fmt.Sprintf("✅ Sisa %s dialokasikan ke %d akun: %s.", idr(residual), len(allocations), strings.Join(parts, ", "))}
+	return Step{Kind: stepDone, Ack: fmt.Sprintf("✅ Sisa %s dialokasikan ke %d akun: %s.", IDR(residual), len(allocations), strings.Join(parts, ", "))}
 }
 
 func (p *Processor) cycleSimpleAction(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, step Step, action string) (stepOutcome, error) {
@@ -523,7 +523,7 @@ func (p *Processor) cycleSimpleAction(ctx context.Context, tx pgx.Tx, householdI
 	if action == "TRANSACTION_MISSING" {
 		return stepOutcome{Step: Step{Kind: stepDone, Ack: cycleMissingAck}, Settled: true, Changed: true}, nil
 	}
-	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Sisa " + idr(result.Residual) + " dibiarkan tidak dialokasikan."}, Settled: true, Changed: true}, nil
+	return stepOutcome{Step: Step{Kind: stepDone, Ack: "✅ Sisa " + IDR(result.Residual) + " dibiarkan tidak dialokasikan."}, Settled: true, Changed: true}, nil
 }
 
 func (p *Processor) cycleStale(ctx context.Context, tx pgx.Tx, householdID string, review engineReview, result reviewdomain.CycleResult) (stepOutcome, error) {

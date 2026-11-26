@@ -169,7 +169,7 @@ func assetPurchaseStagedMessage(mutation map[string]any) string {
 	if parsed, err := time.Parse(time.RFC3339, at); err == nil {
 		when = formatIDDateTime(parsed)
 	}
-	return fmt.Sprintf("Catat %s sebagai pembelian aset ke %s, dibayar dari %s pada %s? Saldo yang terbaca dari gambar tadi diganti dengan transaksi ini. Belum ada yang tersimpan sampai kamu memilih Ya, catat pembelian.", idr(amount), wealth, account, when)
+	return fmt.Sprintf("Catat %s sebagai pembelian aset ke %s, dibayar dari %s pada %s? Saldo yang terbaca dari gambar tadi diganti dengan transaksi ini. Belum ada yang tersimpan sampai kamu memilih Ya, catat pembelian.", IDR(amount), wealth, account, when)
 }
 
 func assetPurchaseMarkup(token string) *InlineKeyboardMarkup {
@@ -236,9 +236,9 @@ func (p *Processor) processPendingAssetPurchase(ctx context.Context, householdID
 func assetPurchaseOutcomeMessage(status string, proposal assetPurchaseProposal) string {
 	switch status {
 	case "RESOLVED":
-		return savedLine("Pembelian aset", idr(proposal.amount))
+		return savedLine("Pembelian aset", IDR(proposal.amount))
 	case "RESOLVED_EXISTING":
-		return savedLine("Pembelian aset", idr(proposal.amount)) + " Aku memakai transaksi yang sudah ada pada hari itu, jadi tidak ada transaksi baru."
+		return savedLine("Pembelian aset", IDR(proposal.amount)) + " Aku memakai transaksi yang sudah ada pada hari itu, jadi tidak ada transaksi baru."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
 		return "Ada beberapa transaksi mirip pada hari itu, jadi belum ada yang dicatat. Kartu saldonya masih menunggu: pilih akunnya atau Abaikan, atau rapikan dulu transaksinya di halaman Transaksi lalu minta lagi."
 	case "INCOMPATIBLE_WEALTH_ACCOUNT":

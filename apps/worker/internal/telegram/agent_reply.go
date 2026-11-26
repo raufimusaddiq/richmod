@@ -100,7 +100,7 @@ func transactionRecordedMessage(result agentToolResult) string {
 			label = "Pemasukan"
 		}
 	}
-	line := joinDot(label, idr(amount))
+	line := joinDot(label, IDR(amount))
 	details := []string{}
 	if name, _ := m["category_name"].(string); name != "" {
 		details = append(details, name)
@@ -143,7 +143,7 @@ func possibleExistingMessage(m map[string]any) string {
 	if at, err := time.Parse(time.RFC3339, fmt.Sprint(m["transaction_at"])); err == nil {
 		when = " ke " + formatIDDateTime(at)
 	}
-	return "Sepertinya ini " + joinDot(label, idr(amount)) + " yang sudah tercatat. Mau ubah tanggalnya" + when + " saja, bukan mencatat baru?"
+	return "Sepertinya ini " + joinDot(label, IDR(amount)) + " yang sudah tercatat. Mau ubah tanggalnya" + when + " saja, bukan mencatat baru?"
 }
 
 func correctionStagedMessage(m map[string]any) string {
@@ -152,10 +152,10 @@ func correctionStagedMessage(m map[string]any) string {
 		label = "Transaksi"
 	}
 	amount, _ := m["amount_idr"].(string)
-	header := "Perubahan untuk " + joinDot(label, idr(amount))
+	header := "Perubahan untuk " + joinDot(label, IDR(amount))
 	changes := []string{}
 	if value, _ := m["new_amount_idr"].(string); value != "" {
-		changes = append(changes, "nominal → "+idr(value))
+		changes = append(changes, "nominal → "+IDR(value))
 	}
 	if value, _ := m["new_merchant"].(string); value != "" {
 		changes = append(changes, "merchant → "+value)
@@ -240,7 +240,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		case "POSSIBLE_EXISTING_TRANSACTION":
 			return possibleExistingMessage(result.Mutation), true
 		case "TRANSFER_RECORDED":
-			return savedLine("Transfer", idr(amount)), true
+			return savedLine("Transfer", IDR(amount)), true
 		case "TRANSFER_ALREADY_RECORDED":
 			return "Transfer ini sudah tercatat sebelumnya, jadi tidak dicatat lagi.", true
 		case "TRANSFER_RECONCILIATION_STAGED":
