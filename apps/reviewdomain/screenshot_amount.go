@@ -101,11 +101,13 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	}
 	var merchantID *string
 	if merchant != "" {
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, cmd.HouseholdID, merchant).Scan(&id); err != nil {
+		id, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchant)
+		if err != nil {
 			return result, err
 		}
-		merchantID = &id
+		if id != "" {
+			merchantID = &id
+		}
 	}
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,$2,$3,$4::numeric,'IDR',$5,$6,$7,NULLIF($8,''),$9,$9,CASE WHEN $3='CONFIRMED' THEN now() ELSE NULL END) RETURNING id`, cmd.HouseholdID, typ, status, *cmd.AmountIDR, at, merchantID, category, description, confidence).Scan(&result.TransactionID); err != nil {
 		return result, err

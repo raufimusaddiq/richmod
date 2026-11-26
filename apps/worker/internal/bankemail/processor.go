@@ -559,6 +559,17 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if err != nil {
 		return err
 	}
+	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+	if err != nil {
+		return err
+	}
+	if merchantReview && result.AutoConfirm {
+		merchantID = ""
+		result.AutoConfirm = false
+		result.Status = "NEEDS_REVIEW"
+		result.ReviewType = "UNKNOWN_MERCHANT"
+		result.Description = "Nama merchant cocok dengan lebih dari satu tempat atau tidak bisa dipakai."
+	}
 	transactionType := result.Type
 	if transactionType == "NEEDS_REVIEW" {
 		transactionType = "UNCLASSIFIED"
@@ -742,20 +753,11 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	if raw == "" {
 		return "", nil
 	}
-	var id string
-	err := tx.QueryRow(ctx, `SELECT min(normalized_merchant_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) GROUP BY household_id,lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT normalized_merchant_id)=1`, household, raw).Scan(&id)
-	if err == nil {
-		return id, nil
+	raw = strings.ToUpper(raw)
+	if runes := []rune(raw); len(runes) > 160 {
+		raw = string(runes[:160])
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return "", err
-	}
-	normalized := strings.ToUpper(raw)
-	if len([]rune(normalized)) > 160 {
-		normalized = string([]rune(normalized)[:160])
-	}
-	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
-	return id, err
+	return reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
 }
 
 type bankLink struct {

@@ -106,11 +106,13 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	}
 	merchantName := cleanText(cmd.MerchantName, 160)
 	if merchantName != "" {
-		var created string
-		if err := tx.QueryRow(ctx, "INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id", cmd.HouseholdID, merchantName).Scan(&created); err != nil {
+		created, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchantName)
+		if err != nil {
 			return result, err
 		}
-		merchantID = &created
+		if created != "" {
+			merchantID = &created
+		}
 	}
 	if cmd.RememberMerchant && merchantID == nil {
 		return result, ErrMerchantRequiredForLearning

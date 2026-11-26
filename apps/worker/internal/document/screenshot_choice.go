@@ -129,6 +129,9 @@ func screenshotReviewReason(row validatedScreenshotRow, possibleDuplicate bool) 
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
 	}
+	if row.MerchantReview {
+		return "UNKNOWN_MERCHANT"
+	}
 	if row.Type == "INCOME" {
 		return "TRANSFER_CLASSIFICATION"
 	}

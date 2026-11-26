@@ -442,6 +442,13 @@ func (p *Processor) applyMerchant(ctx context.Context, tx pgx.Tx, householdID, s
 	if !ok {
 		return reask(step, unusableAnswerAck), nil
 	}
+	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, value)
+	if err != nil {
+		return stepOutcome{}, err
+	}
+	if merchantReview {
+		return reask(step, "Nama itu cocok dengan lebih dari satu tempat atau tidak bisa dipakai. Tulis nama yang lebih spesifik, ya."), nil
+	}
 	remembered, err := setReviewMerchant(ctx, tx, householdID, review.RequestID, review.TransactionID, value)
 	if err != nil {
 		return stepOutcome{}, err

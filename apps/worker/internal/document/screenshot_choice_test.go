@@ -109,6 +109,11 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 			row.CategoryFromMemory = true
 			return row
 		}(), false},
+		{"ambiguous merchant blocks auto confirm", func() validatedScreenshotRow {
+			row := decided
+			row.MerchantReview = true
+			return row
+		}(), false},
 	}
 	for _, testCase := range cases {
 		if got := testCase.row.autoConfirmable(); got != testCase.want {

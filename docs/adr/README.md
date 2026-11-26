@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-132**, in the heading form `## ADR-132: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-133**, in the heading form `## ADR-133: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -142,6 +142,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-129](#adr-129-telegram-interaction-engine) | Telegram interaction engine | Accepted |
 | [ADR-130](#adr-130-hand-entered-amount-and-date-are-editable-on-the-web-through-one-domain-correction) | Hand-entered amount and date are editable on the web through one domain correction | Accepted |
 | [ADR-131](#adr-131-laporan-cycle-layout-hierarchy-unified-category-table-split-notices-and-early-cycle-close-out) | Laporan cycle layout: verdict lead tile, pace first, unified category table, split notices, days 1–7 close-out card | Accepted, amends ADR-112 |
+| [ADR-132](#adr-132-deterministic-payee-suffix-normalization-for-merchant-matching) | Deterministic payee suffix normalization for merchant matching | Accepted |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1376,3 +1377,13 @@ Amendment (2026-11-25, marking a payslip income as salary): a confirmed payslip-
 **Consequence:** all money comparisons, ordering, verdicts and per-day figures remain server-owned (ADR-106); all section IDs (`#position`, `#spending-shape`, `#where`, `#changes`, `#history`, `#matrix`, `#merchants`, `#daily`, `#family-talk`, `#quality`, `#drivers`) stay stable; the 7-step `?review=` CSS and auto-open folds follow the new hierarchy; and the `WhereCard`, `ChangesCard`, diverging-bar and movers code and CSS are removed.
 
 Amendment (2026-11-26, calendar): Laporan's Kalender view shares the same skeleton — one `.range-controls` bar with 3/6/12 presets and a custom-range period popover, a four-tile KPI strip fed by `GET /api/v1/analytics/range-summary`, `MonthlyCashflowChart` with `MonthlyTable` inside a `"Tabel per bulan"` fold, `CategoryTable` in Terbesar-only mode without client-side remainder summing, `MerchantCard`, and `"Catatan rumah tangga"` in a collapsed bottom fold with no `"Tentang …"` explainers.
+
+## ADR-132: Deterministic payee suffix normalization for merchant matching
+
+*Accepted · 2026-11-26*
+
+**Decision:** merchant matching compares the raw name and its deterministic normalized form against existing household aliases and merchant names, and links only when the combined candidates name exactly one merchant. Normalization first strips a trailing account-number tail (two or more trailing digit groups, or one group of at least six digits); only when such a tail was stripped does it also strip one or more trailing recognised bank or e-wallet institution phrases drawn from a single Go data list. A name with no account tail is otherwise unchanged, so an institution word that is part of a real name is never removed. The normalized form may only select an existing household merchant or alias; it never fuzzy-matches, never links across two merchants, and never creates a merchant under the stripped name. An empty normalized form or an ambiguous match links nothing and follows the existing unknown-merchant review path. The raw source string stays unchanged as evidence; only `transaction.merchant_id` and the merchant-memory lookup change.
+
+**Reason:** the same transfer payee arrived once as a short name and once as the bank string with the bank name and account number appended, so analytics showed two merchants and a false swing. The appended tail is bank formatting, not part of the payee's identity.
+
+**Consequence:** new payee events resolve to the household's existing short merchant when both forms are present, including bank email, receipts, screenshots, Telegram entry and review confirmation. Existing splits are not rewritten by a migration; the household fixes them through the existing audited per-transaction merchant rename (`PATCH /api/v1/transactions/{id}` `merchantName`), which repoints the raw alias for future events. No schema change.

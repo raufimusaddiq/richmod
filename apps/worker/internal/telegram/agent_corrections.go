@@ -385,7 +385,6 @@ func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw str
 	if match != nil {
 		return match.MerchantID, match, nil
 	}
-	var merchantID string
-	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, raw).Scan(&merchantID)
+	merchantID, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, raw)
 	return merchantID, nil, err
 }

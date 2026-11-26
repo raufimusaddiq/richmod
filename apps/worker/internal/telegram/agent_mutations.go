@@ -71,6 +71,10 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	if err != nil {
 		return result, true, err
 	}
+	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, state.HouseholdID, value.Merchant)
+	if err != nil {
+		return result, true, err
+	}
 	if value.CategorySlug == "" && remembered != nil && value.Type == "EXPENSE" {
 		value.CategorySlug = remembered.Slug
 	}
@@ -119,7 +123,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	if !decision.DateSupported {
 		state.ResidualDimensions = appendIfMissing(state.ResidualDimensions, "transaction_at")
 	}
-	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil) && len(duplicateIDs) == 0
+	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil) && len(duplicateIDs) == 0 && !merchantReview
 	proposalStatus, transactionStatus := "NEEDS_REVIEW", "NEEDS_REVIEW"
 	if autoConfirm {
 		proposalStatus, transactionStatus = "ACCEPTED", "CONFIRMED"
@@ -191,7 +195,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 				reviewType = "TRANSACTION_FACTS_MISSING"
 			} else if contains(state.ResidualDimensions, "transaction_at") {
 				reviewType = "MISSING_TRANSACTION_DATE"
-			} else if value.Merchant == "" {
+			} else if value.Merchant == "" || merchantReview {
 				reviewType = "UNKNOWN_MERCHANT"
 			}
 			if err = EnqueueReviewRequest(ctx, tx, transactionID, reviewType, state.Update.Message.Chat.ID, state.Update.Message.MessageID, ReviewQuestion(value.Amount, value.Merchant)); err != nil {

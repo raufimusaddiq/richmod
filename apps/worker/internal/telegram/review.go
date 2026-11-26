@@ -68,11 +68,13 @@ func setReviewMerchant(ctx context.Context, tx pgx.Tx, householdID, reviewID, tr
 	}
 	if match != nil {
 		merchantID, rememberedCategoryID = match.MerchantID, match.CategoryID
-	} else if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
+	} else if merchantID, err = reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, value); err != nil {
 		return "", err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
-		return "", err
+	if merchantID != "" {
+		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
+			return "", err
+		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
 		return "", err
