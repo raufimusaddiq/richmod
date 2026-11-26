@@ -10,7 +10,7 @@ require (
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/raufimusaddiq/richmod/apps/reviewdomain v0.0.0
 	golang.org/x/crypto v0.59.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	golang.org/x/text v0.44.0
 )
 
