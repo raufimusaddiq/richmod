@@ -15,6 +15,39 @@ func (*merchantReplyGateway) NativeToolCall(context.Context, string, string, any
 	panic("the merchant step saves typed text without a model")
 }
 
+func TestMerchantOnlyReviewDoesNotAskCategory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "merchant-only")
+	var categoryID, transactionID, reviewID string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining') RETURNING id`, f.householdID).Scan(&categoryID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,created_by_user_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,'IDR',now(),$2,$3) RETURNING id`, f.householdID, categoryID, f.userID).Scan(&transactionID))
+	tx, err := f.pool.Begin(ctx)
+	mustAgentTest(t, err)
+	mustAgentTest(t, EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", f.chatID, 0, "Nominal: Rp54.000"))
+	mustAgentTest(t, tx.Commit(ctx))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
+	_, err = f.pool.Exec(ctx, `UPDATE review_item SET decision=decision||'{"missingFacts":["merchant"],"knownFacts":{"category":"dining"}}'::jsonb WHERE transaction_id=$1`, transactionID)
+	mustAgentTest(t, err)
+	p := NewProcessor(f.pool, &merchantReplyGateway{})
+	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
+	f.update.Message.Text = "Warung Baru"
+	f.update.Message.ReplyToMessage = &struct {
+		MessageID int64 `json:"message_id"`
+	}{99}
+	raw, err := json.Marshal(f.update)
+	mustAgentTest(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, f.sourceID, string(raw))
+	mustAgentTest(t, err)
+	mustAgentTest(t, p.ProcessAgent(ctx, f.sourceID))
+	var status, conversation string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, transactionID).Scan(&status))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&conversation))
+	if status != "CONFIRMED" || conversation != "RESOLVED" {
+		t.Fatalf("merchant-only review status=%s conversation=%s", status, conversation)
+	}
+}
+
 func TestMerchantFirstStepReply(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"remembered", "legacy-card", "unknown", "inactive-category", "unconfirmed-alias", "other-household"} {

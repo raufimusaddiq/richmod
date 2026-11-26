@@ -447,7 +447,7 @@ func (p *Processor) applyMerchant(ctx context.Context, tx pgx.Tx, householdID, s
 		return stepOutcome{}, err
 	}
 	if merchantReview {
-		return reask(step, "Nama itu cocok dengan lebih dari satu tempat atau tidak bisa dipakai. Tulis nama yang lebih spesifik, ya."), nil
+		return reask(step, ambiguousMerchantReply), nil
 	}
 	remembered, err := setReviewMerchant(ctx, tx, householdID, review.RequestID, review.TransactionID, value)
 	if err != nil {
@@ -472,6 +472,15 @@ func (p *Processor) applyMerchant(ctx context.Context, tx pgx.Tx, householdID, s
 		}
 	}
 	review.Decision = withoutMissingFact(review.Decision, "merchant")
+	if len(review.Decision.MissingFacts) == 0 {
+		var categoryKnown bool
+		if err := tx.QueryRow(ctx, `SELECT category_id IS NOT NULL FROM transaction WHERE id=$1 AND household_id=$2`, review.TransactionID, householdID).Scan(&categoryKnown); err != nil {
+			return stepOutcome{}, err
+		}
+		if categoryKnown {
+			return p.confirmReviewedTransaction(ctx, tx, householdID, sourceEventID, review, step, "✅ "+value+" disimpan.")
+		}
+	}
 	next, ok, err := p.nextAfterFact(ctx, tx, householdID, review, "✅ "+value+" disimpan.")
 	if err != nil || !ok {
 		return stepOutcome{}, err
@@ -485,9 +494,15 @@ func (p *Processor) nextAfterFact(ctx context.Context, tx pgx.Tx, householdID st
 		return Step{}, false, err
 	}
 	if len(review.Decision.MissingFacts) == 0 {
-		review.Decision.MissingFacts = []string{"category"}
-		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["category"]'::jsonb),updated_at=now() WHERE id=$1`, review.ItemID); err != nil {
+		var categoryKnown bool
+		if err := tx.QueryRow(ctx, `SELECT category_id IS NOT NULL FROM transaction WHERE id=$1 AND household_id=$2`, review.TransactionID, householdID).Scan(&categoryKnown); err != nil {
 			return Step{}, false, err
+		}
+		if !categoryKnown {
+			review.Decision.MissingFacts = []string{"category"}
+			if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["category"]'::jsonb),updated_at=now() WHERE id=$1`, review.ItemID); err != nil {
+				return Step{}, false, err
+			}
 		}
 	}
 	step, ok := deriveStep(review.Decision, review.ReviewType, facts, review.Subject)

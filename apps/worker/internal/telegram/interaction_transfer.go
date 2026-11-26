@@ -633,6 +633,10 @@ func (p *Processor) applyIncome(ctx context.Context, tx pgx.Tx, householdID, sou
 		_ = sp.Rollback(ctx)
 		return staleTap(step), nil
 	}
+	if reviewdomain.IsMerchantLinkProblem(err) {
+		_ = sp.Rollback(ctx)
+		return reask(step, ambiguousMerchantReply), nil
+	}
 	if err != nil {
 		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err

@@ -183,32 +183,32 @@ func accountDigitGroup(value string) bool {
 	return digits > 0
 }
 
-func payeeMatchNames(raw string) []string {
-	exact := lowerCollapse(raw)
-	normalized := lowerCollapse(NormalizePayeeName(raw))
-	if normalized == "" {
-		return nil
-	}
-	if normalized == exact {
-		return []string{exact}
-	}
-	return []string{exact, normalized}
-}
-
 func lowerCollapse(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
 
 func ExistingMerchantID(ctx context.Context, q MerchantQuerier, household, raw string) (string, error) {
-	names := payeeMatchNames(raw)
-	if len(names) == 0 {
+	exact := lowerCollapse(raw)
+	if exact == "" {
 		return "", nil
 	}
-	id, err := matchAliasMerchant(ctx, q, household, names)
+	id, err := matchAliasMerchant(ctx, q, household, []string{exact})
 	if err != nil || id != "" {
 		return id, err
 	}
-	return matchNamedMerchant(ctx, q, household, names)
+	id, err = matchNamedMerchant(ctx, q, household, []string{exact})
+	if err != nil || id != "" {
+		return id, err
+	}
+	normalized := lowerCollapse(NormalizePayeeName(raw))
+	if normalized == "" || normalized == exact {
+		return "", nil
+	}
+	id, err = matchAliasMerchant(ctx, q, household, []string{normalized})
+	if err != nil || id != "" {
+		return id, err
+	}
+	return matchNamedMerchant(ctx, q, household, []string{normalized})
 }
 
 func matchAliasMerchant(ctx context.Context, q MerchantQuerier, household string, names []string) (string, error) {
@@ -251,15 +251,15 @@ func ResolveOrCreateMerchant(ctx context.Context, q MerchantQuerier, household, 
 	if raw == "" {
 		return "", nil
 	}
-	if strings.TrimSpace(NormalizePayeeName(raw)) == "" {
-		return "", ErrUnusableMerchantName
-	}
 	id, err := ExistingMerchantID(ctx, q, household, raw)
 	if err != nil {
 		return "", err
 	}
 	if id != "" {
 		return id, nil
+	}
+	if strings.TrimSpace(NormalizePayeeName(raw)) == "" {
+		return "", ErrUnusableMerchantName
 	}
 	stored := raw
 	if runes := []rune(stored); len(runes) > 160 {
@@ -273,14 +273,17 @@ func MerchantLinkNeedsReview(ctx context.Context, q MerchantQuerier, household, 
 	if strings.TrimSpace(raw) == "" {
 		return false, nil
 	}
-	if strings.TrimSpace(NormalizePayeeName(raw)) == "" {
-		return true, nil
+	id, err := ExistingMerchantID(ctx, q, household, raw)
+	if err != nil {
+		if IsMerchantLinkProblem(err) {
+			return true, nil
+		}
+		return false, err
 	}
-	_, err := ExistingMerchantID(ctx, q, household, raw)
-	if errors.Is(err, ErrAmbiguousMerchantMatch) {
-		return true, nil
+	if id != "" {
+		return false, nil
 	}
-	return false, err
+	return strings.TrimSpace(NormalizePayeeName(raw)) == "", nil
 }
 
 type MerchantMemoryMatch struct {
@@ -290,10 +293,23 @@ type MerchantMemoryMatch struct {
 }
 
 func LookupMerchantMemory(ctx context.Context, q MerchantQuerier, household, raw string) (*MerchantMemoryMatch, error) {
-	names := payeeMatchNames(raw)
-	if len(names) == 0 {
+	exact := lowerCollapse(raw)
+	if exact == "" {
 		return nil, nil
 	}
+	match, aliases, err := lookupMerchantMemoryName(ctx, q, household, exact)
+	if err != nil || aliases > 0 {
+		return match, err
+	}
+	normalized := lowerCollapse(NormalizePayeeName(raw))
+	if normalized == "" || normalized == exact {
+		return nil, nil
+	}
+	match, _, err = lookupMerchantMemoryName(ctx, q, household, normalized)
+	return match, err
+}
+
+func lookupMerchantMemoryName(ctx context.Context, q MerchantQuerier, household, name string) (*MerchantMemoryMatch, int, error) {
 	var aliases, merchants, categories int
 	var merchantID, categoryID, slug *string
 	if err := q.QueryRow(ctx, `SELECT count(*),
@@ -305,11 +321,11 @@ func LookupMerchantMemory(ctx context.Context, q MerchantQuerier, household, raw
 		FROM merchant_alias ma
 		JOIN merchant m ON m.id=ma.normalized_merchant_id AND m.household_id=ma.household_id
 		LEFT JOIN category c ON c.id=ma.default_category_id AND c.household_id=ma.household_id AND c.active
-		WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=ANY($2::text[])`, household, names).Scan(&aliases, &merchants, &categories, &merchantID, &categoryID, &slug); err != nil {
-		return nil, err
+		WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=$2`, household, name).Scan(&aliases, &merchants, &categories, &merchantID, &categoryID, &slug); err != nil {
+		return nil, 0, err
 	}
 	if aliases == 0 || merchants != 1 || categories != 1 || merchantID == nil || categoryID == nil || slug == nil {
-		return nil, nil
+		return nil, aliases, nil
 	}
-	return &MerchantMemoryMatch{MerchantID: *merchantID, CategoryID: *categoryID, Slug: *slug}, nil
+	return &MerchantMemoryMatch{MerchantID: *merchantID, CategoryID: *categoryID, Slug: *slug}, aliases, nil
 }

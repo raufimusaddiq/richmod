@@ -795,9 +795,6 @@ func resolveMerchantLink(ctx context.Context, tx pgx.Tx, household, raw string) 
 	if raw == "" {
 		return "", false, nil
 	}
-	if strings.TrimSpace(reviewdomain.NormalizePayeeName(raw)) == "" {
-		return "", true, nil
-	}
 	raw = strings.ToUpper(raw)
 	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
 	if reviewdomain.IsMerchantLinkProblem(err) {

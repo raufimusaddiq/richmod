@@ -159,7 +159,7 @@ func TestMerchantIdentityNormalizesBankAndEwalletSuffixes(t *testing.T) {
 		}
 	})
 
-	t.Run("ambiguous_normalized_form_is_not_linked", func(t *testing.T) {
+	t.Run("exact_alias_precedes_normalized_alias", func(t *testing.T) {
 		household := newHousehold(t, "Bank ambiguous")
 		shortCategory := newCategory(t, household, "Ambiguous A")
 		longCategory := newCategory(t, household, "Ambiguous B")
@@ -170,16 +170,16 @@ func TestMerchantIdentityNormalizesBankAndEwalletSuffixes(t *testing.T) {
 		newAlias(t, household, long, longMerchant, longCategory)
 		memory, err := loadMerchantMemory(ctx, pool, household, long)
 		must(t, err)
-		if memory.AutoApply || memory.MerchantID != "" || memory.CategoryID != "" {
-			t.Fatalf("ambiguous memory=%+v", memory)
+		if memory.MerchantID != longMerchant || memory.CategoryID != longCategory {
+			t.Fatalf("exact alias did not win: %+v", memory)
 		}
 		tx, err := pool.Begin(ctx)
 		must(t, err)
 		defer tx.Rollback(ctx)
 		id, err := resolveMerchantID(ctx, tx, household, long)
 		must(t, err)
-		if id != "" {
-			t.Fatalf("ambiguous resolve=%s", id)
+		if id != longMerchant {
+			t.Fatalf("exact alias resolve=%s want %s", id, longMerchant)
 		}
 		var count int
 		must(t, tx.QueryRow(ctx, `SELECT count(*) FROM merchant WHERE household_id=$1`, household).Scan(&count))
@@ -188,11 +188,9 @@ func TestMerchantIdentityNormalizesBankAndEwalletSuffixes(t *testing.T) {
 		}
 	})
 
-	t.Run("digits_only_is_not_linked", func(t *testing.T) {
+	t.Run("digits_only_without_alias_is_not_linked", func(t *testing.T) {
 		household := newHousehold(t, "Bank empty")
-		category := newCategory(t, household, "Empty")
-		digitsMerchant := newMerchant(t, household, "DIGITS TARGET")
-		newAlias(t, household, "1128 5635 31", digitsMerchant, category)
+		newMerchant(t, household, "DIGITS TARGET")
 		tx, err := pool.Begin(ctx)
 		must(t, err)
 		defer tx.Rollback(ctx)
@@ -290,9 +288,10 @@ func TestBankEmailAmbiguousMerchantRoutesToUnknownMerchantReview(t *testing.T) {
 	var shortMerchant, longMerchant string
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, household).Scan(&shortMerchant))
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, household).Scan(&longMerchant))
-	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	long := "SARI PERMATA 1234567890"
+	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	must(func() error {
-		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'JOHN DOE',$2,$3,true,true),($1,$4,$5,$6,true,true)`, household, shortMerchant, shortCategory, long, longMerchant, longCategory)
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'JOHN DOE',$2,$3,true,true),($1,$4,$5,$6,true,true)`, household, shortMerchant, shortCategory, aliasRaw, longMerchant, longCategory)
 		return err
 	}())
 	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
@@ -389,9 +388,10 @@ func TestBankEmailAmbiguousMerchantWithMissingCategoryAsksForBoth(t *testing.T) 
 	var shortMerchant, longMerchant string
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, household).Scan(&shortMerchant))
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, household).Scan(&longMerchant))
-	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	long := "SARI PERMATA 1234567890"
+	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	must(func() error {
-		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, household, shortMerchant, long, longMerchant)
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, household, shortMerchant, aliasRaw, longMerchant)
 		return err
 	}())
 	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
@@ -667,9 +667,10 @@ func TestBankEmailDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
 	var shortMerchant, longMerchant string
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, household).Scan(&shortMerchant))
 	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, household).Scan(&longMerchant))
-	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	long := "SARI PERMATA 1234567890"
+	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	must(func() error {
-		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, household, shortMerchant, long, longMerchant)
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, household, shortMerchant, aliasRaw, longMerchant)
 		return err
 	}())
 	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
@@ -697,6 +698,126 @@ func TestBankEmailDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'duplicate_relationship',decision->'missingFacts' ? 'merchant',decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND')`, household, transactionID).Scan(&reviewType, &duplicateGap, &merchantGap, &knownMerchant))
 	if reviewType != "POSSIBLE_DUPLICATE" || !duplicateGap || !merchantGap || knownMerchant {
 		t.Fatalf("review type=%s duplicateGap=%t merchantGap=%t knownMerchant=%t", reviewType, duplicateGap, merchantGap, knownMerchant)
+	}
+}
+
+func TestBankEmailEmptyNormalizedPayeeLearnsExactAlias(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := testsupport.UniqueStamp()
+	var household, owner, account, category, listenerID string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank learned exact %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-learn-%d@test.invalid", stamp)).Scan(&owner))
+	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&category))
+	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
+	listener := Listener{ID: listenerID, HouseholdID: household, BankName: "Bank", SenderAddress: "bank@test.invalid", AccountID: account, TrackingPolicy: "SPENDING_ONLY", Active: true}
+	raw := "SARI PERMATA 1234567890"
+	process := func(label, amount string) string {
+		var sourceID string
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, label, []byte(label)).Scan(&sourceID))
+		must(func() error {
+			_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, sourceID, listenerID)
+			return err
+		}())
+		direction, channel, description := "OUTGOING", "DEBIT_CARD", "Pembayaran"
+		at := time.Now().Add(-time.Hour).UTC()
+		extraction := Extraction{Kind: "TRANSACTION", AmountIDR: &amount, Direction: &direction, Channel: &channel, Merchant: &raw, Description: &description, TransactionAt: &at, Confidence: .95}
+		result := PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", AutoConfirm: true, CategoryID: category}
+		must((&Processor{pool: pool}).persist(ctx, listener, sourceID, extraction, result, ""))
+		return sourceID
+	}
+	first := process(fmt.Sprintf("learn-%d-1", stamp), "66111")
+	var transactionID, itemID string
+	must(pool.QueryRow(ctx, `SELECT t.id::text,ri.id::text FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN review_item ri ON ri.transaction_id=t.id WHERE e.source_event_id=$1 AND ri.status IN ('OPEN','PENDING_SEND')`, first).Scan(&transactionID, &itemID))
+	tx, err := pool.Begin(ctx)
+	must(err)
+	_, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+		HouseholdID: household, ActorUserID: owner, TransactionID: transactionID, ReviewItemID: itemID,
+		Action: "CONFIRM_REVIEW", CategorySupplied: true, CategoryID: category, MerchantName: "SARI PERMATA", RememberMerchant: true, ResolveReview: true,
+	})
+	must(err)
+	must(tx.Commit(ctx))
+	var learnedAlias int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower($2)`, household, raw).Scan(&learnedAlias))
+	if learnedAlias != 1 {
+		t.Fatalf("confirm did not write the raw alias: %d", learnedAlias)
+	}
+	second := process(fmt.Sprintf("learn-%d-2", stamp), "66112")
+	var status string
+	var merchantID *string
+	must(pool.QueryRow(ctx, `SELECT t.status,t.merchant_id::text FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1`, second).Scan(&status, &merchantID))
+	if status != "CONFIRMED" || merchantID == nil {
+		t.Fatalf("learned exact alias did not link: status=%s merchant=%v", status, merchantID)
+	}
+	var open int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1 AND transaction_id=(SELECT transaction_id FROM transaction_evidence WHERE source_event_id=$2) AND status IN ('OPEN','PENDING_SEND')`, household, second).Scan(&open))
+	if open != 0 {
+		t.Fatalf("learned exact alias still opened %d review items", open)
+	}
+}
+
+func TestBankEmailDigitsOnlyExactAliasLinks(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := testsupport.UniqueStamp()
+	var household, owner, account, category, listenerID, sourceID, merchant string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank digits %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-digits-%d@test.invalid", stamp)).Scan(&owner))
+	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&category))
+	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'DIGITS PAYEE') RETURNING id`, household).Scan(&merchant))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'1128 5635 31',$2,$3,true,true)`, household, merchant, category)
+		return err
+	}())
+	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, sourceID, listenerID)
+		return err
+	}())
+	amount, direction, channel, payee, description := "51234", "OUTGOING", "DEBIT_CARD", "1128 5635 31", "Pembayaran"
+	at := time.Now().Add(-time.Hour).UTC()
+	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: &amount, Direction: &direction, Channel: &channel, Merchant: &payee, Description: &description, TransactionAt: &at, Confidence: .95}
+	listener := Listener{ID: listenerID, HouseholdID: household, BankName: "Bank", SenderAddress: "bank@test.invalid", AccountID: account, TrackingPolicy: "SPENDING_ONLY", Active: true}
+	result := PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", AutoConfirm: true, CategoryID: category}
+	must((&Processor{pool: pool}).persist(ctx, listener, sourceID, extraction, result, ""))
+	var status string
+	var merchantID *string
+	must(pool.QueryRow(ctx, `SELECT t.status,t.merchant_id::text FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1`, sourceID).Scan(&status, &merchantID))
+	if status != "CONFIRMED" || merchantID == nil || *merchantID != merchant {
+		t.Fatalf("digits exact alias status=%s merchant=%v want %s", status, merchantID, merchant)
 	}
 }
 

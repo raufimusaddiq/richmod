@@ -213,7 +213,8 @@ func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *te
 	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot ambiguous merchant amount")
 	ctx := context.Background()
-	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	long := "SARI PERMATA 1234567890"
+	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
 	var shortMerchant, longMerchant string
 	if err := f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, f.householdID).Scan(&shortMerchant); err != nil {
 		t.Fatal(err)
@@ -221,7 +222,7 @@ func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *te
 	if err := f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, f.householdID).Scan(&longMerchant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, f.householdID, shortMerchant, long, longMerchant); err != nil {
+	if _, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, f.householdID, shortMerchant, aliasRaw, longMerchant); err != nil {
 		t.Fatal(err)
 	}
 	category := f.categoryID

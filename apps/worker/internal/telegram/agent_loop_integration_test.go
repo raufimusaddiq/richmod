@@ -555,8 +555,8 @@ func TestAmbiguousCorrectionMerchantDoesNotApply(t *testing.T) {
 	var shortMerchant, longMerchant string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'AMBIGUOUS SHORT') RETURNING id`, f.householdID).Scan(&shortMerchant))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'AMBIGUOUS LONG') RETURNING id`, f.householdID).Scan(&longMerchant))
-	long := "PAYEE DUP BANK MANDIRI 1128 5635 31"
-	_, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'PAYEE DUP',$2),($1,$3,$4)`, f.householdID, shortMerchant, long, longMerchant)
+	long := "SARI PERMATA 1234567890"
+	_, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'PAYEE DUP',$2),($1,$3,$4)`, f.householdID, shortMerchant, "PAYEE DUP BANK MANDIRI 1128 5635 31", longMerchant)
 	mustAgentTest(t, err)
 	var transactionID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',25000,'IDR',now(),'Old Payee',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&transactionID))
