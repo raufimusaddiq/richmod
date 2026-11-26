@@ -420,7 +420,7 @@ func TestBankCardContinuesAfterCompletion(t *testing.T) {
 			before := w.sends()
 			w.runJob()
 			w.wantNoLooseSends(before)
-			w.wantText(cardID, "✅ Tercatat: Toko Contoh, Makan, Rp54.000,")
+			w.wantText(cardID, "✅ Tersimpan: Toko Contoh · Makan · Rp54.000 ·")
 			if len(w.buttons[cardID]) != 0 {
 				t.Fatalf("a finished card kept buttons: %v", w.buttons[cardID])
 			}
@@ -434,7 +434,7 @@ func TestBankCardContinuesAfterCompletion(t *testing.T) {
 			before := w.sends()
 			w.runJob()
 			w.wantNoLooseSends(before)
-			w.wantText(cardID, "✅ Ditautkan ke transaksi yang sudah tercatat: Rp54.000,")
+			w.wantText(cardID, "✅ Digabung dengan transaksi yang sudah ada: Rp54.000 ·")
 			if w.transactions() != 1 {
 				t.Fatalf("transactions = %d, want the existing one only", w.transactions())
 			}

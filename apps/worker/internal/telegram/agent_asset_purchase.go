@@ -18,7 +18,7 @@ const (
 	toolProposeAssetPurchase  = "propose_asset_purchase"
 	assetPurchaseWindow       = "30 minutes"
 	assetPurchaseStagedAction = "ASSET_PURCHASE_STAGED"
-	assetPurchaseStaleMessage = "Usulan pembelian aset ini sudah tidak berlaku, jadi belum ada yang dicatat."
+	assetPurchaseStaleMessage = "Usulan pembelian aset ini sudah tidak berlaku, jadi belum ada yang dicatat. Sebutkan lagi kalau masih perlu."
 )
 
 type assetPurchaseArgs struct {
@@ -169,7 +169,7 @@ func assetPurchaseStagedMessage(mutation map[string]any) string {
 	if parsed, err := time.Parse(time.RFC3339, at); err == nil {
 		when = formatIDDateTime(parsed)
 	}
-	return fmt.Sprintf("Catat Rp%s sebagai pembelian aset ke %s, dibayar dari %s pada %s? Saldo yang terbaca dari gambar tadi diganti dengan transaksi ini. Belum ada yang tersimpan sampai kamu menekan Ya.", FormatIDR(amount), wealth, account, when)
+	return fmt.Sprintf("Catat %s sebagai pembelian aset ke %s, dibayar dari %s pada %s? Saldo yang terbaca dari gambar tadi diganti dengan transaksi ini. Belum ada yang tersimpan sampai kamu memilih Ya, catat pembelian.", idr(amount), wealth, account, when)
 }
 
 func assetPurchaseMarkup(token string) *InlineKeyboardMarkup {
@@ -210,7 +210,7 @@ func (p *Processor) processPendingAssetPurchase(ctx context.Context, householdID
 	if err != nil {
 		return true, err
 	}
-	message := "Usulan pembelian aset dibatalkan."
+	message := "Usulan pembelian aset dibatalkan. Tidak ada yang dicatat."
 	if confirm {
 		if proposal.at, err = time.Parse(time.RFC3339, atText); err != nil {
 			return true, err
@@ -236,13 +236,13 @@ func (p *Processor) processPendingAssetPurchase(ctx context.Context, householdID
 func assetPurchaseOutcomeMessage(status string, proposal assetPurchaseProposal) string {
 	switch status {
 	case "RESOLVED":
-		return "✅ Pembelian aset Rp" + FormatIDR(proposal.amount) + " sudah tercatat."
+		return savedLine("Pembelian aset", idr(proposal.amount))
 	case "RESOLVED_EXISTING":
-		return "✅ Pembelian aset Rp" + FormatIDR(proposal.amount) + " tercatat dengan memakai transaksi yang sudah ada pada hari itu, tidak ada transaksi baru."
+		return savedLine("Pembelian aset", idr(proposal.amount)) + " Aku memakai transaksi yang sudah ada pada hari itu, jadi tidak ada transaksi baru."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
-		return "Ada beberapa transaksi mirip pada hari itu, jadi belum ada yang dicatat. Kartu saldonya tetap menunggu: pilih akun atau Abaikan di kartunya, atau rapikan transaksinya di halaman Transaksi lalu minta lagi."
+		return "Ada beberapa transaksi mirip pada hari itu, jadi belum ada yang dicatat. Kartu saldonya masih menunggu: pilih akunnya atau Abaikan, atau rapikan dulu transaksinya di halaman Transaksi lalu minta lagi."
 	case "INCOMPATIBLE_WEALTH_ACCOUNT":
-		return "Akun kekayaan itu tidak bisa dipakai untuk pembelian aset, jadi belum ada yang dicatat."
+		return "Akun kekayaan itu tidak bisa dipakai untuk pembelian aset, jadi belum ada yang dicatat. Pilih akun lain, ya."
 	default:
 		return assetPurchaseStaleMessage
 	}

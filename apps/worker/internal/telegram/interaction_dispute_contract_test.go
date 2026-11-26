@@ -112,7 +112,7 @@ func TestInteractionEngineDisputeContract(t *testing.T) {
 		if _, err := s.pressIn(s.p.chat, "review:dispute:confirm", s.message); err != nil {
 			t.Fatal(err)
 		}
-		if got := s.edit(s.p.chat, s.message); !strings.Contains(got, "✅ Transaksi berbeda dicatat.") {
+		if got := s.edit(s.p.chat, s.message); !strings.Contains(got, "✅ Tersimpan sebagai transaksi berbeda.") {
 			t.Fatalf("the card says %q", got)
 		}
 		if s.p.confirmed() != 2 || s.p.staged() != 0 || s.item() != "RESOLVED" {

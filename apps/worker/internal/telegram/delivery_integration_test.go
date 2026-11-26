@@ -329,7 +329,7 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	closing := RetireCardPayload{ReviewRequestID: requestID, RecipientID: payload.RecipientID, ChatID: f.chatA, MessageID: 611, Status: "RESOLVED"}
 	bot2, fake2 := newFakeTelegram(t, nil)
 	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot2, closing))
-	if calls := fake2.recorded(); len(calls) != 1 || !strings.HasSuffix(fmt.Sprint(calls[0].Body["text"]), "Sudah diselesaikan oleh Rina di Telegram.\nDicatat sebagai Makan.") {
+	if calls := fake2.recorded(); len(calls) != 1 || !strings.HasSuffix(fmt.Sprint(calls[0].Body["text"]), "Sudah diselesaikan oleh Rina di Telegram.\nDisimpan sebagai Makan.") {
 		t.Fatalf("resolved retirement = %+v", calls)
 	}
 }
@@ -421,7 +421,7 @@ func TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews(t *testing.T) {
 		mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1::bigint::text AND payload_json->>'reply_to_message_id'=$2::bigint::text ORDER BY created_at DESC LIMIT 1`, chat, message).Scan(&reply))
 		return reply
 	}
-	if reply := tap(f.chatB, 801, "review:cat:"+f.categoryID); reply != "Tinjauan ini sudah dijawab: dicatat sebagai Makan oleh Rina." {
+	if reply := tap(f.chatB, 801, "review:cat:"+f.categoryID); reply != "Kartu ini sudah dijawab: disimpan sebagai Makan oleh Rina." {
 		t.Fatalf("late tap reply = %q", reply)
 	}
 
@@ -452,7 +452,7 @@ func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
 		t.Fatalf("the live card has no stale answer: %q %v", reply, err)
 	}
 	f.resolve(t, requestID)
-	if reply, err = answeredReviewReply(f.ctx, f.pool, f.householdID, f.chatA, 900); err != nil || reply != "Tinjauan ini sudah dijawab: dicatat sebagai Makan oleh Rina." {
+	if reply, err = answeredReviewReply(f.ctx, f.pool, f.householdID, f.chatA, 900); err != nil || reply != "Kartu ini sudah dijawab: disimpan sebagai Makan oleh Rina." {
 		t.Fatalf("answered reply = %q %v", reply, err)
 	}
 	if reply, err = answeredReviewReply(f.ctx, f.pool, "00000000-0000-0000-0000-000000000000", f.chatA, 900); err != nil || reply != "" {

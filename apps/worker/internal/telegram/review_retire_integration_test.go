@@ -147,7 +147,7 @@ func TestClosingReviewRequestQueuesOneRetirementPerDeliveredCard(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("retirement made %d Telegram calls, want 2: %+v", len(calls), calls)
 	}
-	if calls[0].Method != "editMessageText" || calls[0].Body["text"] != "🟡 Perlu ditinjau\n\n✅ Tinjauan ini sudah selesai." {
+	if calls[0].Method != "editMessageText" || calls[0].Body["text"] != "🟡 Perlu ditinjau\n\n✅ Kartu ini sudah selesai." {
 		t.Fatalf("card with known text = %+v", calls[0])
 	}
 	if calls[1].Method != "editMessageReplyMarkup" || calls[1].Body["text"] != nil {
@@ -241,7 +241,7 @@ func TestCardBoundAfterCloseIsRecordedAndRetired(t *testing.T) {
 	bot, fake := newFakeTelegram(t, nil)
 	mustAgentTest(t, processor.RetireReviewCard(ctx, bot, late[0]))
 	calls := fake.recorded()
-	if len(calls) != 1 || calls[0].Method != "editMessageText" || calls[0].Body["text"] != "Kartu terlambat\n\n✅ Tinjauan ini sudah selesai." {
+	if len(calls) != 1 || calls[0].Method != "editMessageText" || calls[0].Body["text"] != "Kartu terlambat\n\n✅ Kartu ini sudah selesai." {
 		t.Fatalf("late card retirement = %+v", calls)
 	}
 }

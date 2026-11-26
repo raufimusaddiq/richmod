@@ -194,7 +194,7 @@ var kinds = []Kind{
 		Actions:  []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"},
 		Mode:     ModeBoundedChoice,
 		Why:      "a plausible duplicate exists; choose the matching event, confirm as new, or ignore",
-		WhyID:    "Ada catatan lain yang mirip; mungkin duplikat.",
+		WhyID:    "Ada transaksi lain yang mirip; mungkin dobel.",
 		Telegram: true,
 	},
 	{

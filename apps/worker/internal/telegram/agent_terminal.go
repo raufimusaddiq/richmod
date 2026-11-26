@@ -130,7 +130,7 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	})
 }
 
-const terminalCallbackFailureMessage = "Tombol ini belum bisa diproses. Coba tekan lagi, ya, atau lanjutkan dari Kotak Tinjauan di web."
+const terminalCallbackFailureMessage = "Pilihanmu belum bisa diproses. Coba lagi sebentar lagi, atau lanjutkan di " + reviewInboxName + " di aplikasi."
 
 func (p *Processor) TerminalCallbackFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
 	if !reviewdomain.IsSourceEventID(sourceEventID) {

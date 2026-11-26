@@ -267,7 +267,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 				return err
 			}
 			if accountName != "" {
-				if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "✅ Saldo dicatat: "+accountName+" · Rp"+workerTelegram.FormatIDR(observation.ObservedValueIDR)+"\n\nIni catatan saldo saja, bukan transaksi."); err != nil {
+				if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, workerTelegram.BalanceSavedText(accountName, observation.ObservedValueIDR)); err != nil {
 					return err
 				}
 			}
@@ -468,7 +468,7 @@ func (p *Processor) TerminalClassificationFailureTx(ctx context.Context, tx pgx.
 		return err
 	}
 	if documentStatus == "FAILED" {
-		if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "Dokumen ini belum bisa dibaca. Fotonya tetap tersimpan sebagai bukti."); err != nil {
+		if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, workerTelegram.DocumentUnreadableNote); err != nil {
 			return err
 		}
 	}

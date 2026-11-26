@@ -148,13 +148,13 @@ func screenshotReviewReason(row validatedScreenshotRow, possibleDuplicate bool) 
 func screenshotSummary(found, recorded, linked, pending int) string {
 	lines := []string{fmt.Sprintf("%d transaksi ditemukan.", found)}
 	if recorded > 0 {
-		lines = append(lines, fmt.Sprintf("✓ %d berhasil dicatat", recorded))
+		lines = append(lines, fmt.Sprintf("✅ %d tersimpan", recorded))
 	}
 	if linked > 0 {
-		lines = append(lines, fmt.Sprintf("✓ %d cocok dengan transaksi yang sudah ada", linked))
+		lines = append(lines, fmt.Sprintf("✅ %d cocok dengan transaksi yang sudah ada", linked))
 	}
 	if pending > 0 {
-		lines = append(lines, fmt.Sprintf("! %d butuh keputusan", pending))
+		lines = append(lines, fmt.Sprintf("⏳ %d menunggu jawabanmu", pending))
 	}
 	return strings.Join(lines, "\n")
 }

@@ -20,20 +20,19 @@ var (
 	evalDigit     = regexp.MustCompile(`\d`)
 )
 
+var evalCategories = []string{"makan", "transport", "belanja", "tagihan"}
+
+func evalTools(scenario evalScenario) []gateway.ToolDefinition {
+	return agentGeneralTools(evalCategories, agentContextState{}, false, len(scenario.openCards) > 0, false)
+}
+
 func evalContent(scenario evalScenario) map[string]any {
-	turn := map[string]any{
-		"current_user_text":        untrustedUser(scenario.text),
-		"current_jakarta_datetime": "2026-11-26T09:00:00+07:00",
-		"recent_turns":             []any{},
-		"recent_transactions":      []any{},
-		"allowed_category_slugs":   []string{"makan", "transport", "belanja", "tagihan"},
-		"active_review_count":      0,
-		"has_salary_choice":        false,
-		"has_merchant_learning":    false,
-	}
+	state := agentContextState{RecentTransactions: []map[string]any{}}
 	if scenario.previous != "" {
-		turn["recent_turns"] = []any{map[string]any{"role": "USER", "text": scenario.text}, map[string]any{"role": "ASSISTANT", "text": scenario.previous}}
+		state.Conversation = []PublicTurn{{Role: "USER", Text: scenario.text}, {Role: "ASSISTANT", Text: scenario.previous}}
 	}
+	turn := buildAgentTurnContext(scenario.text, time.Date(2026, 11, 26, 9, 0, 0, 0, jakartaLocation()), evalCategories, state)
+	turn["workflow_scope"] = string(agentWorkflowGeneral)
 	if len(scenario.openCards) > 0 {
 		turn["open_review_cards"] = scenario.openCards
 	}
@@ -169,7 +168,7 @@ func runPromptEval(ctx context.Context, model conversationalGateway) map[string]
 	failures := map[string][]string{}
 	for _, scenario := range evalScenarios {
 		callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		response, err := model.AgentTurn(callCtx, "prompt-eval", gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: evalContent(scenario)})
+		response, err := model.AgentTurn(callCtx, "prompt-eval", gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: evalContent(scenario), Tools: evalTools(scenario)})
 		cancel()
 		if err != nil {
 			failures[scenario.name] = []string{"gateway error: " + err.Error()}

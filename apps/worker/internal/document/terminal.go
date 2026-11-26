@@ -27,7 +27,7 @@ func (p *Processor) TerminalDownstreamFailureTx(ctx context.Context, tx pgx.Tx, 
 	if err != nil {
 		return err
 	}
-	if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, "Dokumen ini belum bisa dibaca. Fotonya tetap tersimpan sebagai bukti."); err != nil {
+	if _, err := workerTelegram.ContinueDocumentCard(ctx, tx, documentID, workerTelegram.DocumentUnreadableNote); err != nil {
 		return err
 	}
 	err = tx.QueryRow(ctx, `UPDATE source_event SET processing_status='FAILED' WHERE id=$1 AND household_id=$2

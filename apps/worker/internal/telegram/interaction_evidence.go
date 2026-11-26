@@ -35,14 +35,14 @@ const (
 )
 
 const (
-	duplicateAsk          = "Ini sama dengan catatan yang sudah ada?"
+	duplicateAsk          = "Ini sama dengan transaksi yang sudah ada?"
 	duplicateHint         = "Pilih di bawah."
-	duplicateNoneHint     = "Aku tidak menemukan catatan yang mirip lagi. Catat sebagai transaksi baru, atau abaikan."
-	duplicateStaleAck     = "Catatan itu sudah berubah, jadi belum ada yang digabung."
+	duplicateNoneHint     = "Aku tidak menemukan transaksi yang mirip lagi. Catat sebagai transaksi baru, atau abaikan."
+	duplicateStaleAck     = "Transaksi itu sudah berubah, jadi belum ada yang digabung."
 	disputeAsk            = "Screenshot ini transaksi yang berbeda?"
-	disputeHint           = "Pilih Ya hanya kalau ini memang transaksi lain. Catatan lama tidak diubah."
+	disputeHint           = "Pilih Ya hanya kalau ini memang transaksi lain. Transaksi lama tidak diubah."
 	disputeMergeActiveAck = "Transaksi ini menjadi tujuan penggabungan yang masih aktif, jadi belum bisa dibatalkan. Pisahkan penggabungannya dulu di halaman Transaksi."
-	disputeStaleAck       = "Koreksi ini tidak bisa dilanjutkan: tautan screenshotnya sudah berubah. Cek di Kotak Tinjauan."
+	disputeStaleAck       = "Koreksi ini tidak bisa dilanjutkan karena tautan screenshotnya sudah berubah. Cek di " + reviewInboxName + " di aplikasi."
 	emailAccountAsk       = "Rekening mana yang dipakai di email ini?"
 	emailWealthAsk        = "Email ini untuk akun kekayaan yang mana?"
 	emailGoneAck          = "Bukti email ini sudah berubah, jadi belum ada yang disimpan."
@@ -61,7 +61,7 @@ const (
 	documentHint          = "Proses ulang membaca dokumen ini sekali lagi. Abaikan kalau tidak perlu dicatat."
 	documentGoneAck       = "Dokumen ini sudah berubah, jadi belum ada yang diproses."
 	qualityAsk            = "Rincian struk tidak cocok dengan total yang tercetak."
-	qualityHint           = "Cek totalnya dulu. Pilih Terima total untuk mencatat total yang tercetak."
+	qualityHint           = "Cek totalnya dulu. Pilih Terima total untuk memakai total yang tercetak."
 	correctionAsk         = "Transaksi ini perlu dicek sebelum dicatat."
 	correctionHint        = "Pilih Benar kalau datanya sudah betul, atau batalkan transaksinya."
 	categoryNeededAck     = "Transaksi ini belum punya kategori."
@@ -240,7 +240,7 @@ type duplicateRecord struct {
 }
 
 func (r duplicateRecord) line() string {
-	return r.Label + " · Rp" + FormatIDR(r.Amount) + " · " + reviewdomain.FormatIndonesianDate(r.At.In(jakartaLocation()))
+	return joinDot(r.Label, idr(r.Amount), reviewdomain.FormatIndonesianDate(r.At.In(jakartaLocation())))
 }
 
 type duplicateView struct {
@@ -429,8 +429,9 @@ func (s *Step) loadWealthConfirmRows(ctx context.Context, tx pgx.Tx, reviewID st
 		return err
 	}
 	line := "Akun yang dikenali: " + clean(name, 60)
-	if !strings.Contains(s.Facts, line) {
+	if !s.AccountNoted {
 		s.Facts = strings.TrimSpace(s.Facts + "\n" + line)
+		s.AccountNoted = true
 	}
 	rows := [][]InlineKeyboardButton{{{Text: "Ya, catat", CallbackData: callbackConfirm}, {Text: "Akun lain", CallbackData: callbackChange}}}
 	s.Rows = append(rows, s.Rows...)
@@ -493,7 +494,7 @@ func financialEmailSummary(ctx context.Context, tx pgx.Tx, householdID, observat
 	}
 	var lines []string
 	if digitsOnly(amount) {
-		lines = append(lines, "Nominal: Rp"+FormatIDR(amount))
+		lines = appendFact(lines, "Nominal", idr(amount))
 	}
 	if at, err := time.Parse(time.RFC3339, occurred); err == nil {
 		lines = append(lines, "Tanggal: "+reviewdomain.FormatIndonesianDate(at.In(jakartaLocation())))

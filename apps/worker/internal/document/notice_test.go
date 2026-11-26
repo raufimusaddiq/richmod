@@ -49,10 +49,10 @@ func TestNoticeCopyAsksForCorrectionsByReply(t *testing.T) {
 			t.Fatalf("notice has stray whitespace: %q", text)
 		}
 	}
-	if got := receiptRecordedNotice("Mirota", "125000"); !strings.HasPrefix(got, "Struk Mirota Rp125.000 sudah tercatat.") {
+	if got := receiptRecordedNotice("Mirota", "125000"); !strings.HasPrefix(got, "Struk Mirota Rp125.000 sudah tersimpan.") {
 		t.Fatalf("recorded notice = %q", got)
 	}
-	if got := payslipRecordedNotice("PT Maju", "9500000"); !strings.HasPrefix(got, "Slip gaji PT Maju tercatat, gaji bersih Rp9.500.000.") {
+	if got := payslipRecordedNotice("PT Maju", "9500000"); !strings.HasPrefix(got, "Slip gaji PT Maju sudah tersimpan, gaji bersih Rp9.500.000.") {
 		t.Fatalf("payslip notice = %q", got)
 	}
 }

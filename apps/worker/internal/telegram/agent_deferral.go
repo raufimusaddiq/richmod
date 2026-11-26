@@ -44,7 +44,7 @@ func (p *Processor) deferForGateway(ctx context.Context, state *agentState, caus
 		return err
 	}
 	if !noticed {
-		if err := enqueueReply(deferCtx, tx, state.Update, gatewayDeferredMessage); err != nil {
+		if err := enqueueNotice(deferCtx, tx, state.Update, gatewayDeferredMessage); err != nil {
 			return err
 		}
 		if err := insertTurnTx(deferCtx, tx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", gatewayDeferredTool, map[string]any{"deferred_at": p.now().Format(time.RFC3339)}); err != nil {

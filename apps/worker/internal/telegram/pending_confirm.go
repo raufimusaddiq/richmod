@@ -61,7 +61,7 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 		choice, token = data[:index], data[index+1:]
 	}
 	if uuid.Validate(token) != nil {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+		return true, p.finishStaleAction(ctx, sourceEventID, update)
 	}
 	switch choice {
 	case callbackPendingActionYes:
@@ -83,7 +83,7 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 		return true, err
 	}
 	if !handled {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+		return true, p.finishStaleAction(ctx, sourceEventID, update)
 	}
 	outcome := "Dikonfirmasi."
 	if strings.HasSuffix(choice, ":no") {

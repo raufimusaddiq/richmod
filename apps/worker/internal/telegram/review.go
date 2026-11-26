@@ -33,7 +33,7 @@ type reviewExtraction struct {
 
 var reviewPayrollPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
-const reviewStillNeedsDetailsMessage = "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
+const reviewStillNeedsDetailsMessage = "Kartu ini masih memerlukan tanggal transaksi atau kategori yang valid."
 
 type categoryChoice struct {
 	ID   string
@@ -52,7 +52,7 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	var reviewID, transactionID string
 	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND (rr.merchant_learning_message_id=$3 OR rr.telegram_message_id=$3)`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Kartu ini sudah selesai. Tidak ada perubahan baru.")
 	}
 	if err != nil {
 		return err

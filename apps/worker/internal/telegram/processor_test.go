@@ -151,7 +151,7 @@ func TestCallbackTextContainsNoTransactionIdentity(t *testing.T) {
 }
 
 func TestStaleReviewCallbackUsesSuccessReply(t *testing.T) {
-	if !strings.Contains("✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.", "sudah selesai") {
+	if !strings.Contains("✅ Kartu ini sudah selesai. Tidak ada perubahan baru.", "sudah selesai") {
 		t.Fatal("stale review callback must acknowledge completed review")
 	}
 }

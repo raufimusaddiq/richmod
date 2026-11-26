@@ -20,7 +20,7 @@ const (
 	CardAnswerJobBudget  = 45 * time.Second
 	unusableAnswerAck    = "Maaf, aku belum menangkap itu."
 	categoryInactiveAck  = "Kategori itu sudah tidak aktif."
-	mergeTargetActiveAck = "Transaksi ini masih jadi tujuan penggabungan, jadi belum bisa diabaikan."
+	mergeTargetActiveAck = "Transaksi ini masih jadi tujuan penggabungan, jadi belum bisa diabaikan. Pisahkan penggabungannya dulu di halaman Transaksi."
 )
 
 type engineInput struct {
@@ -598,9 +598,9 @@ func (p *Processor) applyRemember(ctx context.Context, tx pgx.Tx, householdID, s
 	if err != nil {
 		return stepOutcome{}, err
 	}
-	note := "Kategori hanya dipakai untuk transaksi ini."
+	note := rememberedOnceNote
 	if remember {
-		note = "⭐ Diingat untuk " + outcome.Merchant + ". Bisa dinonaktifkan di Settings."
+		note = rememberedNote(outcome.Merchant)
 	}
 	return stepOutcome{Step: doneStep(outcome.Merchant, outcome.Category, amount, note), Settled: true, Changed: true}, nil
 }
@@ -615,7 +615,7 @@ func (p *Processor) renderStep(ctx context.Context, tx pgx.Tx, update telegramUp
 	text := outcome.Step.Text()
 	markup := outcome.Step.Markup()
 	if outcome.Settled && outcome.Step.Kind == stepDone {
-		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{done_line}',to_jsonb($2::text)),updated_at=now() WHERE review_request_id=$1`, reviewID, clean(outcome.Step.Title(), 500)); err != nil {
+		if err := storeDoneStep(ctx, tx, reviewID, outcome.Step); err != nil {
 			return err
 		}
 	}

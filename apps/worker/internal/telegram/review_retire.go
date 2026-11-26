@@ -37,18 +37,18 @@ func reviewClosureNote(status, outcome string) string {
 	switch status {
 	case "RESOLVED":
 		if outcome != "" {
-			return "✅ Tinjauan ini sudah selesai: " + outcome + "."
+			return "✅ Kartu ini sudah selesai: " + outcome + "."
 		}
-		return "✅ Tinjauan ini sudah selesai."
+		return "✅ Kartu ini sudah selesai."
 	case "CANCELLED":
-		return "Tinjauan ini sudah ditutup."
+		return "Kartu ini sudah ditutup."
 	case "EXPIRED":
-		return "⏳ Tombol tinjauan ini sudah kedaluwarsa. Tinjauannya masih ada di Kotak Tinjauan."
+		return "⏳ Kartu ini sudah kedaluwarsa. Kamu masih bisa menyelesaikannya di " + reviewInboxName + " di aplikasi."
 	}
 	return ""
 }
 
-const supersededCardNote = "↪️ Dilanjutkan di pesan berikutnya."
+const supersededCardNote = "Dilanjutkan di pesan berikutnya."
 
 func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload RetireCardPayload) error {
 	var status, recipientStatus, recipientText string

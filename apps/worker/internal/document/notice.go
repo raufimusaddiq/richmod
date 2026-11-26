@@ -50,11 +50,11 @@ func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, docume
 }
 
 func receiptRecordedNotice(merchant, total string) string {
-	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat." + noticeFooter
+	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tersimpan." + noticeFooter
 }
 
 func receiptRecordedMismatchNotice(merchant, total string) string {
-	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat memakai total yang tercetak. Rincian barisnya tidak pas dengan total, tetapi tidak ada yang perlu kamu putuskan." + noticeFooter
+	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tersimpan memakai total yang tercetak. Rincian barisnya tidak pas dengan total, tetapi tidak ada yang perlu kamu putuskan." + noticeFooter
 }
 
 func receiptLinkedNotice(merchant, total string) string {
@@ -62,7 +62,10 @@ func receiptLinkedNotice(merchant, total string) string {
 }
 
 func payslipRecordedNotice(employer, netPay string) string {
-	return "Slip gaji" + noticeSubject(employer) + " tercatat, gaji bersih" + noticeAmount(netPay) + "." + noticeFooter
+	if amount := noticeAmount(netPay); amount != "" {
+		return "Slip gaji" + noticeSubject(employer) + " sudah tersimpan, gaji bersih" + amount + "." + noticeFooter
+	}
+	return "Slip gaji" + noticeSubject(employer) + " sudah tersimpan." + noticeFooter
 }
 
 func unsupportedDocumentNotice() string {

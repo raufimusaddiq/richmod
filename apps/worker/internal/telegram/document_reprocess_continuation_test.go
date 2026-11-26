@@ -68,7 +68,7 @@ func TestReprocessedDocumentFinishesOnTheSameCard(t *testing.T) {
 	p.gw.extraction = p.readableExtraction("food-and-drink")
 	p.must(p.docs.ProcessScreenshot(p.ctx, u.document))
 
-	if got := p.lastEdit(message); !strings.Contains(got, "1 transaksi ditemukan") || !strings.Contains(got, "1 berhasil dicatat") {
+	if got := p.lastEdit(message); !strings.Contains(got, "1 transaksi ditemukan") || !strings.Contains(got, "1 tersimpan") {
 		t.Fatalf("the finished card says %q", got)
 	}
 	if after := p.n(`SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1`, p.chat); after != sendsBefore {
@@ -215,7 +215,7 @@ func TestRereadThatBecomesAWealthBalanceFinishesOnTheCard(t *testing.T) {
 	p.exec(`INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas Contoh','ASSET','GOLD','OTHER')`, p.household)
 	_, message := p.rereadAfterTap("WEALTH_OBSERVATION", `{"institution":"Bank Contoh","account_hint":"Emas Contoh","observed_value_idr":"15000000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.98}`)
 	got := p.lastEdit(message)
-	if !strings.Contains(got, "✅ Saldo dicatat: Emas Contoh · Rp15.000.000") || !strings.Contains(got, "bukan transaksi") {
+	if !strings.Contains(got, "✅ Saldo tersimpan: Emas Contoh · Rp15.000.000") || !strings.Contains(got, "bukan transaksi") {
 		t.Fatalf("the card says %q", got)
 	}
 }

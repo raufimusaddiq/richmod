@@ -124,7 +124,7 @@ func (p *Processor) markBatchItemDuplicates(ctx context.Context, state *agentSta
 	if err != nil || !found {
 		return err
 	}
-	item.SimilarExisting = label + " · Rp" + FormatIDR(item.Amount) + " · " + formatIDDateTime(at)
+	item.SimilarExisting = joinDot(label, idr(item.Amount), formatIDDateTime(at))
 	return nil
 }
 
@@ -389,12 +389,12 @@ func batchOutcomeMessage(recorded, needsReview, skipped int) string {
 	parts := []string{}
 	switch {
 	case recorded > 0:
-		parts = append(parts, fmt.Sprintf("✅ %d transaksi sudah tercatat.", recorded))
+		parts = append(parts, fmt.Sprintf("✅ %d transaksi tersimpan.", recorded))
 	case needsReview > 0:
-		parts = append(parts, "Daftar sudah kucatat, tapi belum ada yang final.")
+		parts = append(parts, "Daftarnya sudah kucatat, tapi belum ada yang final.")
 	}
 	if needsReview > 0 {
-		parts = append(parts, fmt.Sprintf("%d lagi belum punya kategori — pilih di kartu di bawah, ya.", needsReview))
+		parts = append(parts, fmt.Sprintf("%d lagi belum punya kategori. Pilih kategorinya di kartu di bawah, ya.", needsReview))
 	}
 	if skipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d sudah tercatat dari dokumen yang kamu kirim, jadi tidak dicatat lagi.", skipped))
@@ -418,23 +418,23 @@ func batchStagedMessage(mutation map[string]any, header string) string {
 		if strings.TrimSpace(label) == "" {
 			label = "Transaksi"
 		}
-		line := fmt.Sprintf("\n%d. %s · Rp%s", index+1, label, FormatIDR(amount))
+		line := fmt.Sprintf("\n%d. %s", index+1, joinDot(label, idr(amount)))
 		if typ, _ := item["type"].(string); typ == "INCOME" {
 			line += " (pemasukan)"
 		} else if slug, _ := item["category_slug"].(string); slug == "" {
-			line += " · kategori belum ada, nanti ditinjau"
+			line += " · kategori belum ada, nanti dicek"
 		}
 		if similar, _ := item["similar_existing"].(string); similar != "" {
-			line += "\n   ⚠️ mirip yang sudah tercatat: " + similar
+			line += "\n   Mirip yang sudah tercatat: " + similar
 		}
 		if already, _ := item["already_recorded"].(bool); already {
-			line += "\n   sudah tercatat dari dokumenmu, tidak akan dicatat lagi"
+			line += "\n   Sudah tercatat dari dokumenmu, tidak akan dicatat lagi"
 		}
 		b.WriteString(line)
 	}
 	if total, _ := mutation["total_idr"].(string); total != "" && len(items) > 1 {
-		b.WriteString("\n\nTotal: Rp" + FormatIDR(total))
+		b.WriteString("\n\nTotal: " + idr(total))
 	}
-	b.WriteString("\n\nPilih tombol konfirmasi kalau sudah benar, atau sebutkan item yang ingin diubah. Daftar ini menunggu 30 menit.")
+	b.WriteString("\n\nPilih Ya, catat semua kalau sudah benar, atau sebutkan item yang ingin diubah. Daftar ini menunggu 30 menit.")
 	return b.String()
 }

@@ -113,7 +113,7 @@ func TestCategoryTapSettlesOnTheCard(t *testing.T) {
 
 	f.tap(17, "review:cat:"+category, "🟡 Kategori belum pasti")
 	text, markup := f.lastEdit(17)
-	if !strings.HasPrefix(text, "✅ Dicatat: Galon Isi Ulang.") || !strings.Contains(text, "Nominal: Rp23.000") || !strings.Contains(text, "Tins Mart") || !strings.Contains(markup, "Ya, ingat") || !strings.Contains(markup, "review:remember") || !strings.Contains(markup, "review:once") {
+	if !strings.HasPrefix(text, "✅ Tersimpan: Galon Isi Ulang.") || !strings.Contains(text, "Nominal: Rp23.000") || !strings.Contains(text, "Tins Mart") || !strings.Contains(markup, "Ya, ingat") || !strings.Contains(markup, "review:remember") || !strings.Contains(markup, "review:once") {
 		t.Fatalf("card after tap: %q %s", text, markup)
 	}
 	if pending := f.count(`SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND status='PENDING' AND payload_json->>'review_request_id'=$1`, request); pending != 0 {
@@ -561,7 +561,7 @@ func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
 	}
 	calls := fake.recorded()
 	encoded, _ := json.Marshal(calls)
-	if len(calls) != 1 || strings.Contains(string(encoded), "review:remember") || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "Dicatat") {
+	if len(calls) != 1 || strings.Contains(string(encoded), "review:remember") || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "Tersimpan") {
 		t.Fatalf("expired copy outcome: %s", encoded)
 	}
 }

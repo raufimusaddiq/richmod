@@ -453,11 +453,7 @@ func transactionReviewSummary(ctx context.Context, tx pgx.Tx, householdID, trans
 	if err != nil {
 		return "", err
 	}
-	summary := "Nominal: Rp" + FormatIDR(amount)
-	if merchant != "" {
-		summary += "\nMerchant: " + merchant
-	}
-	return summary, nil
+	return factBlock("Nominal", idr(amount), "Merchant", merchant), nil
 }
 
 func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID string, chatID, replyTo int64) error {

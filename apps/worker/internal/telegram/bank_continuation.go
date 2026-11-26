@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -91,16 +90,9 @@ func bankDoneLine(done bankCompletion) string {
 	case done.Amount == "":
 		return "✅ Email bank diproses tanpa mencatat transaksi."
 	case done.Linked:
-		return "✅ Ditautkan ke transaksi yang sudah tercatat: Rp" + FormatIDR(done.Amount) + ", " + bankInstantLabel(done.At) + "."
+		return "✅ Digabung dengan transaksi yang sudah ada: " + joinDot(idr(done.Amount), bankInstantLabel(done.At)) + "."
 	}
-	parts := []string{}
-	for _, part := range []string{done.Merchant, done.Category} {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	parts = append(parts, "Rp"+FormatIDR(done.Amount), bankInstantLabel(done.At))
-	return "✅ Tercatat: " + strings.Join(parts, ", ") + "."
+	return savedLine(done.Merchant, done.Category, idr(done.Amount), bankInstantLabel(done.At))
 }
 
 func bankInstantLabel(at time.Time) string {

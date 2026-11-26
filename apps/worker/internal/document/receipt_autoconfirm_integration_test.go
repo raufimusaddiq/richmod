@@ -399,7 +399,7 @@ func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) 
 	if jobs != 1 || gotChat != chat || replyTo != 555 || bind != fixture.documentID {
 		t.Fatalf("notice jobs=%d chat=%d reply=%d bind=%s", jobs, gotChat, replyTo, bind)
 	}
-	if !strings.HasPrefix(text, "Struk Indomaret Rp57.500 sudah tercatat.") {
+	if !strings.HasPrefix(text, "Struk Indomaret Rp57.500 sudah tersimpan.") {
 		t.Fatalf("notice text = %q", text)
 	}
 }

@@ -28,7 +28,11 @@ const CycleResidualCardInstruction = "Pilih di bawah, atau ketik nama akunnya."
 
 func CycleResidualQuestion(cycleStart, cycleEnd time.Time, residual string) string {
 	last := cycleEnd.AddDate(0, 0, -1)
-	return "Sisa siklus " + FormatIndonesianShortDate(cycleStart) + "–" + FormatIndonesianShortDate(last) + ": Rp" + FormatRupiah(residual) + ". Mau dialokasikan ke mana?"
+	period := FormatIndonesianShortDate(cycleStart) + "–" + FormatIndonesianShortDate(last)
+	if !strings.ContainsAny(residual, "0123456789") {
+		return "Sisa siklus " + period + " belum dialokasikan. Mau dialokasikan ke mana?"
+	}
+	return "Sisa siklus " + period + ": Rp" + FormatRupiah(residual) + ". Mau dialokasikan ke mana?"
 }
 
 func CycleResidualCardText(cycleStart, cycleEnd time.Time, residual string) string {
