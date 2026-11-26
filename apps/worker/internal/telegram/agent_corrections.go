@@ -346,6 +346,14 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		outcome.Blocked = "INVALID_TIME"
 		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 		return outcome, err
+	case errors.Is(err, reviewdomain.ErrInvalidCandidate):
+		outcome.Blocked = "INVALID_CATEGORY"
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
+	case errors.Is(err, reviewdomain.ErrCorrectionAmountShape):
+		outcome.Blocked = "INVALID_AMOUNT"
+		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+		return outcome, err
 	case errors.Is(err, reviewdomain.ErrCorrectionNotAllowed):
 		var locked reviewdomain.CorrectionLockedError
 		if errors.As(err, &locked) {
