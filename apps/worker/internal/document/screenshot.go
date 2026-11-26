@@ -402,6 +402,13 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			}
 			row.MerchantReview = merchantReview
 		}
+		if row.MerchantReview && row.Type == "INCOME" {
+			id, err := legacyMerchantID(ctx, tx, householdID, row.Value.Merchant)
+			if err != nil {
+				return err
+			}
+			row.MerchantID, row.MerchantReview = id, false
+		}
 		if row.Value.Amount == nil {
 			needsReview, pending = true, pending+1
 			var proposalID, itemID string

@@ -3,6 +3,7 @@ package document
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -109,6 +110,12 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		}
 		if reviewType == "POSSIBLE_DUPLICATE" && row.Type == "INCOME" {
 			decision.MissingFacts = append(decision.MissingFacts, "transfer_relationship")
+		}
+	}
+	if row.MerchantReview && reviewType != "TRANSFER_CLASSIFICATION" {
+		delete(decision.KnownFacts, "merchant")
+		if !slices.Contains(decision.MissingFacts, "merchant") {
+			decision.MissingFacts = append(decision.MissingFacts, "merchant")
 		}
 	}
 	return decision

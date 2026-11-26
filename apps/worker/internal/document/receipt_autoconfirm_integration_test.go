@@ -87,6 +87,70 @@ func TestReceiptPlausibleCandidateBeyondTenWeakQueryHitsStillBlocks(t *testing.T
 	}
 }
 
+func TestReceiptMissingCategoryAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
+	t.Parallel()
+	fixture := seedReceiptFixture(t, "Receipt ambiguous merchant category")
+	ctx := context.Background()
+	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	var shortMerchant, longMerchant string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, fixture.householdID).Scan(&shortMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, fixture.householdID).Scan(&longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, fixture.householdID, shortMerchant, long, longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	value := receiptExtraction{Merchant: long, Total: "57500", Currency: "IDR", Confidence: .95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var reviewType string
+	var categoryGap, merchantGap, knownMerchant bool
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'category',decision->'missingFacts' ? 'merchant',decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviewType, &categoryGap, &merchantGap, &knownMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if reviewType != "AMBIGUOUS_CATEGORY" || !categoryGap || !merchantGap || knownMerchant {
+		t.Fatalf("review type=%s categoryGap=%t merchantGap=%t knownMerchant=%t", reviewType, categoryGap, merchantGap, knownMerchant)
+	}
+}
+
+func TestReceiptDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
+	t.Parallel()
+	fixture := seedReceiptFixture(t, "Receipt ambiguous merchant duplicate")
+	ctx := context.Background()
+	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	var shortMerchant, longMerchant string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, fixture.householdID).Scan(&shortMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, fixture.householdID).Scan(&longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, fixture.householdID, shortMerchant, long, longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,$2,'Another merchant',now())`, fixture.householdID, receiptTime().Add(-15*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: long, Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .35}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var reviewType string
+	var duplicateGap, merchantGap, knownMerchant bool
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'duplicate_relationship',decision->'missingFacts' ? 'merchant',decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviewType, &duplicateGap, &merchantGap, &knownMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if reviewType != "POSSIBLE_DUPLICATE" || !duplicateGap || !merchantGap || knownMerchant {
+		t.Fatalf("review type=%s duplicateGap=%t merchantGap=%t knownMerchant=%t", reviewType, duplicateGap, merchantGap, knownMerchant)
+	}
+}
+
 func TestReceiptReviewPersistsDecisionWithoutTelegramRecipient(t *testing.T) {
 	t.Parallel()
 	fixture := seedReceiptFixture(t, "Receipt review without Telegram")

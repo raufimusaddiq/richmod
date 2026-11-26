@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -144,7 +145,7 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 			decision.KnownFacts[key] = value
 		}
 		if merchantReview {
-			decision.MissingFacts = []string{"merchant"}
+			decision.MissingFacts = append(decision.MissingFacts, "merchant")
 			decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
 		}
 		encoded, err := decision.JSON()
@@ -164,7 +165,7 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		if category != nil {
 			decision.KnownFacts["category_id"] = *category
 		}
-		decision.MissingFacts = []string{"merchant"}
+		decision.MissingFacts = slices.DeleteFunc(decision.MissingFacts, func(fact string) bool { return fact == "category" })
 		decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
 		encoded, err := decision.JSON()
 		if err != nil {

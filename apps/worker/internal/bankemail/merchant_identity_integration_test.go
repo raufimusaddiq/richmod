@@ -640,6 +640,66 @@ func TestBankEmailTransferReviewUsesLegacyExactMerchantLink(t *testing.T) {
 	}
 }
 
+func TestBankEmailDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := testsupport.UniqueStamp()
+	var household, owner, account, category, listenerID, sourceID string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank duplicate merchant %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-dup-%d@test.invalid", stamp)).Scan(&owner))
+	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&category))
+	var shortMerchant, longMerchant string
+	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, household).Scan(&shortMerchant))
+	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, household).Scan(&longMerchant))
+	long := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, household, shortMerchant, long, longMerchant)
+		return err
+	}())
+	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, sourceID, listenerID)
+		return err
+	}())
+	at := time.Now().Add(-time.Hour).UTC()
+	_, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',87931,$2,'Belanja lain',now())`, household, at.Add(-15*time.Minute))
+	must(err)
+	amount, direction, channel, description := "87931", "OUTGOING", "DEBIT_CARD", "Pembayaran"
+	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: &amount, Direction: &direction, Channel: &channel, Merchant: &long, Description: &description, TransactionAt: &at, Confidence: .95}
+	listener := Listener{ID: listenerID, HouseholdID: household, BankName: "Bank", SenderAddress: "bank@test.invalid", AccountID: account, TrackingPolicy: "SPENDING_ONLY", Active: true}
+	result := EvaluateBankEmail(listener, extraction, nil)
+	must((&Processor{pool: pool}).persist(ctx, listener, sourceID, extraction, result, ""))
+	var transactionID string
+	var merchantID *string
+	must(pool.QueryRow(ctx, `SELECT t.id::text,t.merchant_id::text FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1`, sourceID).Scan(&transactionID, &merchantID))
+	if merchantID != nil {
+		t.Fatalf("duplicate ambiguous merchant transaction merchant=%v", merchantID)
+	}
+	var reviewType string
+	var duplicateGap, merchantGap, knownMerchant bool
+	must(pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'duplicate_relationship',decision->'missingFacts' ? 'merchant',decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND')`, household, transactionID).Scan(&reviewType, &duplicateGap, &merchantGap, &knownMerchant))
+	if reviewType != "POSSIBLE_DUPLICATE" || !duplicateGap || !merchantGap || knownMerchant {
+		t.Fatalf("review type=%s duplicateGap=%t merchantGap=%t knownMerchant=%t", reviewType, duplicateGap, merchantGap, knownMerchant)
+	}
+}
+
 func TestLoadMerchantMemoryRequiresOneUnambiguousNormalizedRule(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

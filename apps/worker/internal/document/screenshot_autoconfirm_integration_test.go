@@ -262,13 +262,13 @@ func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *te
 	if status != "NEEDS_REVIEW" || merchantID != nil || transactionCategory != category {
 		t.Fatalf("ambiguous merchant transaction status=%s category=%s merchant=%v", status, transactionCategory, merchantID)
 	}
-	var reviewType, missing string
-	var knownMerchant bool
-	if err := f.pool.QueryRow(ctx, `SELECT review_type,COALESCE(decision->'missingFacts'->>0,''),decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &missing, &knownMerchant); err != nil {
+	var reviewType string
+	var duplicateGap, merchantGap, knownMerchant bool
+	if err := f.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'duplicate_relationship',decision->'missingFacts' ? 'merchant',decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &duplicateGap, &merchantGap, &knownMerchant); err != nil {
 		t.Fatal(err)
 	}
-	if reviewType != "POSSIBLE_DUPLICATE" || missing != "merchant" || knownMerchant {
-		t.Fatalf("review type=%s missing=%s knownMerchant=%t", reviewType, missing, knownMerchant)
+	if reviewType != "POSSIBLE_DUPLICATE" || !duplicateGap || !merchantGap || knownMerchant {
+		t.Fatalf("review type=%s duplicateGap=%t merchantGap=%t knownMerchant=%t", reviewType, duplicateGap, merchantGap, knownMerchant)
 	}
 }
 

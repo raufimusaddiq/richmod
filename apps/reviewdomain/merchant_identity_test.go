@@ -1,6 +1,9 @@
 package reviewdomain
 
-import "testing"
+import (
+	"testing"
+	"unicode/utf8"
+)
 
 func TestNormalizePayeeNameStripsAccountTailAndInstitutionSuffix(t *testing.T) {
 	cases := []struct {
@@ -20,12 +23,18 @@ func TestNormalizePayeeNameStripsAccountTailAndInstitutionSuffix(t *testing.T) {
 		{"short store number is not an account", "KOPI KENANGAN 7", "KOPI KENANGAN 7"},
 		{"digits only", "1128 5635 31", ""},
 		{"institution only", "BANK SYARIAH INDONESIA", "BANK SYARIAH INDONESIA"},
+		{"case mapping before suffix", "İSTANBUL ŞİRKET BANK MANDIRI 1234567890", "İSTANBUL ŞİRKET"},
+		{"sharp s before suffix", "STRAẞE HAUS BANK BCA 1234567890", "STRAẞE HAUS"},
 		{"collapses whitespace", "  JOHN   DOE  ", "JOHN DOE"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := NormalizePayeeName(tc.raw); got != tc.want {
+			got := NormalizePayeeName(tc.raw)
+			if got != tc.want {
 				t.Fatalf("NormalizePayeeName(%q)=%q want %q", tc.raw, got, tc.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatalf("NormalizePayeeName(%q) produced invalid UTF-8: %q", tc.raw, got)
 			}
 		})
 	}

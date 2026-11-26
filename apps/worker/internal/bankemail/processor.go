@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -690,6 +691,9 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if transactionStatus == "NEEDS_REVIEW" {
 		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, merchantReview, transactionID)
 		if len(duplicateCandidates) > 0 {
+			if merchantReview && !slices.Contains(decision.MissingFacts, "merchant") {
+				decision.MissingFacts = append(decision.MissingFacts, "merchant")
+			}
 			decision = duplicateReviewDecision(decision, transactionID, duplicateCandidates)
 		}
 		continuable := false
@@ -881,5 +885,8 @@ func duplicateReviewDecision(base reviewdec.Decision, transactionID string, cand
 	decision.Provenance = map[string]any{"pipeline": "bank-email-generic", "cross_lane_duplicate": true}
 	decision.PolicyVersion = base.PolicyVersion
 	decision.WhyNotAuto = "another source already recorded a transaction that may be this same bank event"
+	if slices.Contains(base.MissingFacts, "merchant") && !slices.Contains(decision.MissingFacts, "merchant") {
+		decision.MissingFacts = append(decision.MissingFacts, "merchant")
+	}
 	return decision
 }

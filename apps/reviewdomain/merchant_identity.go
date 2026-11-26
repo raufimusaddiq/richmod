@@ -144,7 +144,8 @@ func stripInstitutionSuffix(name string) string {
 	if best == "" {
 		return name
 	}
-	return strings.Join(strings.Fields(strings.TrimSpace(name[:len(name)-len(best)])), " ")
+	cut := len([]rune(name)) - len([]rune(best))
+	return strings.Join(strings.Fields(strings.TrimSpace(string([]rune(name)[:cut]))), " ")
 }
 
 func stripTrailingAccountTail(name string) string {
@@ -259,9 +260,6 @@ func ResolveOrCreateMerchant(ctx context.Context, q MerchantQuerier, household, 
 	}
 	if id != "" {
 		return id, nil
-	}
-	if err != nil {
-		return id, err
 	}
 	stored := raw
 	if runes := []rune(stored); len(runes) > 160 {

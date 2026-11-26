@@ -11,17 +11,6 @@ import (
 
 var ErrReopenNotReversible = errors.New("reviewdomain: this resolution is not reversible from review")
 
-func possibleDuplicateDecision(transactionID string, known map[string]any) ([]byte, error) {
-	decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
-	if !ok {
-		return nil, errors.New("reviewdomain: no POSSIBLE_DUPLICATE review contract")
-	}
-	for key, value := range known {
-		decision.KnownFacts[key] = value
-	}
-	return decision.JSON()
-}
-
 func ReopenTransactionReview(ctx context.Context, tx pgx.Tx, household, transactionID string) error {
 	_, err := reopenTransaction(ctx, tx, household, transactionID, "")
 	return err

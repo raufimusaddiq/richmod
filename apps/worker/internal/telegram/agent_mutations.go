@@ -182,6 +182,10 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 			duplicateDecision.KnownFacts["prior_match_transaction_ids"] = duplicateIDs
 			duplicateDecision.Provenance = map[string]any{"pipeline": "telegram-agent", "possible_duplicate": true}
 			duplicateDecision.WhyNotAuto = "a matching expense was already recorded in the last 7 days"
+			if merchantReview {
+				delete(duplicateDecision.KnownFacts, "merchant")
+				duplicateDecision.MissingFacts = append(duplicateDecision.MissingFacts, "merchant")
+			}
 			if err = EnqueueReviewRequest(ctx, tx, transactionID, "POSSIBLE_DUPLICATE", state.Update.Message.Chat.ID, state.Update.Message.MessageID, "Transaksi mirip sudah ada dalam 7 hari terakhir. Pilih gabungkan, catat sebagai baru, atau abaikan.", duplicateDecision); err != nil {
 				return result, true, err
 			}
