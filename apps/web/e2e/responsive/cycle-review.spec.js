@@ -500,14 +500,20 @@ test("the calendar view validates ranges, links months by keyboard and survives 
   await page.getByRole("button", { name: "Kalender", exact: true }).click();
   await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
   expect(searchOf(page).get("view")).toBe("calendar");
+  await expect(page.locator(".range-controls"), "calendar controls live in the single control bar").toHaveCount(1);
+  await expect(page.locator("#position .kpi-cell[data-lead]")).toContainText(idr(7000000));
+  await expect(page.locator("#position .kpi-verdict")).toContainText("September 2026");
+  await expect(page.locator(".review-explainer"), "calendar mode has no Tentang explainers").toHaveCount(0);
+  await expect(page.locator("#where .segmented"), "calendar category table hides the Terbesar/Paling berubah toggle").toHaveCount(0);
+  await expect(page.locator("#changes"), "calendar category table hides the comparison fold").toHaveCount(0);
+  await expect(page.locator("#household > details"), "household notes start collapsed at the bottom").not.toHaveAttribute("open", "");
   await page.getByRole("button", { name: "3 Bulan", exact: true }).click();
   expect(searchOf(page).get("range")).toBe("3");
   expect(await page.locator(".dash-legend li").allTextContents(), "the legend follows the bar order").toEqual(expect.arrayContaining(["Pemasukan", "Pengeluaran"]));
   await expect(page.getByRole("group", { name: "Rentang bulan" })).toBeVisible();
-  await expect(page.locator(".chart-unit").first(), "the unit is on screen").toHaveText("Rp juta");
-  await expect(page.getByText("Lihat nilai kategori").first(), "category values are readable without a tooltip").toBeAttached();
-  await expect(page.getByRole("rowheader", { name: /Sep 26/ }), "months are formatted, not raw YYYY-MM").toHaveCount(1);
+  await page.locator(".calendar-body details.review-daily > summary").click();
   const monthTable = page.getByRole("region", { name: "Arus kas per bulan, geser untuk semua kolom", exact: true });
+  await expect(monthTable.getByRole("rowheader", { name: /Sep 26/ }), "months are formatted, not raw YYYY-MM").toHaveCount(1);
   const monthLink = monthTable.getByRole("link", { name: "Lihat pengeluaran Agu 26", exact: true });
   await expect(monthLink).toHaveAttribute("href", "/transactions?from=2026-08-01&to=2026-08-31&status=CONFIRMED&type=SPENDING&cycle=2026-08-26");
   const startRow = monthTable.getByRole("row").filter({ hasText: "Data mulai Agu 26" });
@@ -522,8 +528,10 @@ test("the calendar view validates ranges, links months by keyboard and survives 
   await page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true }).waitFor();
   expect(new URL(page.url()).pathname, "month link works by keyboard").toBe("/transactions");
   await page.goBack({ waitUntil: "networkidle" });
-  await monthTable.waitFor();
+  await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
 
+  const periodButton = page.locator(".calendar-period-button");
+  await periodButton.click();
   await expect(page.getByLabel("Bulan mulai").locator("option[value='2025-01']"), "months are named in Indonesian").toHaveText("Januari 2025");
   await page.getByLabel("Bulan mulai").selectOption("2025-03");
   await page.getByLabel("Bulan selesai").selectOption("2025-01");
@@ -533,21 +541,24 @@ test("the calendar view validates ranges, links months by keyboard and survives 
   await page.getByLabel("Bulan mulai").selectOption("2025-01");
   await page.getByLabel("Bulan selesai").selectOption("2025-03");
   await page.getByRole("button", { name: "Terapkan", exact: true }).click();
-  await page.getByText("Rentang bulan Jan 25 sampai Mar 25").waitFor();
+  await page.getByText(/Rentang bulan Jan 25 sampai Mar 25/).waitFor();
   expect(searchOf(page).get("from")).toBe("2025-01");
+  await periodButton.click();
   await page.waitForFunction(() => document.querySelector(".custom-range button")?.disabled === true);
   await expect(page.getByRole("button", { name: "Terapkan", exact: true }), "nothing left to apply once the fields match the shown range").toBeDisabled();
   await expect(page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }), "a valid range clears the field error").toHaveCount(0);
   await page.goBack({ waitUntil: "networkidle" });
   const shownRange = defaultRange({ from: "", to: "", range: searchOf(page).get("range") || "3" }, FIXED_NOW);
+  await periodButton.click();
   await page.waitForFunction(expected => document.querySelector('select[name="from"]')?.value === expected, shownRange.from);
   await expect(page.getByLabel("Bulan mulai"), "the inputs follow the URL after Back").toHaveValue(shownRange.from);
+  await page.keyboard.press("Escape");
 
   flags.merchantsFail = true;
   await page.getByRole("button", { name: "6 Bulan", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Analisis kalender belum dapat dimuat" }).waitFor();
   await expect(page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }), "the cashflow chart survives a failed merchants request").toBeVisible();
-  await expect(page.getByRole("rowheader", { name: /Sep 26/ }), "the monthly table survives too").toHaveCount(1);
+  await expect(page.locator("#position .kpi-cell[data-lead]"), "the KPI strip survives too").toContainText(idr(7000000));
   flags.merchantsFail = false;
   await page.getByRole("button", { name: "Coba lagi", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Analisis kalender belum dapat dimuat" }).waitFor({ state: "detached" });
@@ -646,6 +657,7 @@ test("a running cycle starting 25 Sep keeps exact daily rows, links days by keyb
 
 test("entering the ledger from the calendar directly keeps month bounds without inventing a cycle", async ({ page }) => {
   await visit(page, "/analytics?view=calendar");
+  await page.locator(".calendar-body details.review-daily > summary").click();
   const monthTable = page.getByRole("region", { name: "Arus kas per bulan, geser untuk semua kolom", exact: true });
   await monthTable.getByRole("link", { name: "Lihat pengeluaran Agu 26", exact: true }).click();
   await page.getByRole("heading", { name: "Riwayat Transaksi", exact: true }).waitFor();

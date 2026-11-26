@@ -78,7 +78,7 @@ export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectC
         <SectionTitle id="history-title" title="Siklus ke siklus"/>
         {facts.takeaways?.history && <p className="takeaway">{facts.takeaways.history}</p>}
       </div>
-      {sameDay && <div className="segmented history-mode-toggle" data-slide role="group" aria-label="Rentang siklus ke siklus">
+      {sameDay && <div className="segmented" data-slide role="group" aria-label="Rentang siklus ke siklus">
         <button type="button" className={isSameDay ? "active" : "secondary"} aria-pressed={isSameDay} disabled={early} onClick={() => setMode("SAME_DAY")}>Hari 1–{sameDay.elapsedDays}</button>
         <button type="button" className={!isSameDay ? "active" : "secondary"} aria-pressed={!isSameDay} onClick={() => setMode("FULL")}>Siklus penuh</button>
       </div>}

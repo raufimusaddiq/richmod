@@ -53,14 +53,18 @@ export function merchantBars(ranking) {
 }
 
 export function householdRows(members = []) {
-  return members.map((member, index) => ({
-    ...member,
-    key: member.id || member.name,
-    initial: String(member.name || "?").trim().charAt(0).toUpperCase(),
-    share: member.shareOfExpense == null ? null : Number(member.shareOfExpense),
-    tint: index % 4,
-    automatic: member.kind === "AUTOMATIC",
-  }));
+  return members.map((member, index) => {
+    const rawShare = member.shareOfExpense ?? member.share ?? null;
+    return {
+      ...member,
+      key: member.id || member.name,
+      initial: String(member.name || "?").trim().charAt(0).toUpperCase(),
+      share: rawShare == null ? null : Number(rawShare),
+      shareOfExpense: rawShare,
+      tint: index % 4,
+      automatic: member.kind === "AUTOMATIC",
+    };
+  });
 }
 
 export function deltaTone(value) {

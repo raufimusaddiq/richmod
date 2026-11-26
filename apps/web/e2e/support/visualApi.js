@@ -17,10 +17,21 @@ const categories = () => [
   { id: "cat-4", name: "Tagihan", amount: "280000", active: true, slug: "tagihan" },
 ];
 
-const calendarCategories = () => [
+const overviewCategories = () => [
   "Belanja rumah", "Transportasi", "Makan", "Tagihan", "Kesehatan", "Pendidikan", "Hiburan", "Hadiah",
   "Perawatan diri", "Perlengkapan", "Donasi", "Biaya admin", "Lain-lain",
 ].map((name, index) => ({ id: `cal-cat-${index + 1}`, name, amount: String((13 - index) * 180000) }));
+
+const calendarCategories = () => [
+  { id: "11111111-1111-4111-8111-111111111111", name: "Belanja rumah", amount: "5400000", share: "0.302" },
+  { id: "66666666-6666-4666-8666-666666666666", name: "Transportasi", amount: "3200000", share: "0.179" },
+  { id: "55555555-5555-4555-8555-555555555555", name: "Makan", amount: "2850000", share: "0.159" },
+  { id: "cat-4", name: "Tagihan", amount: "2240000", share: "0.125" },
+  { id: "cal-cat-5", name: "Kesehatan", amount: "1600000", share: "0.089" },
+  { id: "cal-cat-6", name: "Pendidikan", amount: "1200000", share: "0.067" },
+  { id: "cal-cat-7", name: "Hiburan", amount: "820000", share: "0.046" },
+  { id: "cal-cat-8", name: "Lain-lain", amount: "580000", share: "0.033" },
+];
 
 const daily = () => Array.from({ length: 12 }, (_, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, grossExpense: String((index % 4) * 80000 + 120000), refund: "0", expense: String((index % 4) * 80000 + 120000), income: index === 0 ? "12500000" : "0" }));
 
@@ -64,6 +75,7 @@ function cycleReviewFacts(start, scenario) {
 export function visualApi(api, { scenario = {}, authenticated = true } = {}) {
   const transactionList = transactions();
   const categoryList = categories();
+  const overviewCategoryList = overviewCategories();
   const calendarList = calendarCategories();
   const dailySeries = daily();
   const snapshots = wealthSnapshots();
@@ -81,10 +93,11 @@ export function visualApi(api, { scenario = {}, authenticated = true } = {}) {
     if (path === "/api/v1/wealth/cycle-recaps") return [];
     if (path === "/api/v1/wealth/observations") return [];
     if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily: dailySeries };
-    if (path.startsWith("/api/v1/analytics/categories")) return query.get("period") === "last_3_cycles" ? categoryList : calendarList;
+    if (path.startsWith("/api/v1/analytics/range-summary")) return { income: "36800000", expense: "17890000", refund: "0", netCashflow: "18910000", months: 3, averageMonthlyExpenseRounded: "5963333", peakMonth: "2026-08", peakMonthExpense: "8100000" };
+    if (path.startsWith("/api/v1/analytics/categories")) return query.get("period") === "last_3_cycles" ? categoryList : (query.get("period") === "calendar" || query.get("period") === "custom") ? calendarList : overviewCategoryList;
     if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-06", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-07", income: "11800000", expense: "7200000", refund: "0", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", refund: "0", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", refund: "0", netCashflow: "9910000" }, { period: "2026-10", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-11", income: "0", expense: "0", refund: "0", netCashflow: "0" }];
-    if (path.startsWith("/api/v1/analytics/merchants")) return [{ name: "Pasar Minggu", amount: "1250000" }, { name: "Grab", amount: "640000" }];
-    if (path.startsWith("/api/v1/analytics/members")) return [{ name: "Rafi", amount: "2590000" }];
+    if (path.startsWith("/api/v1/analytics/merchants")) return [{ id: "m-1", name: "Pasar Minggu", amount: "4200000", share: "0.235" }, { id: "m-2", name: "Grab", amount: "2640000", share: "0.148" }, { id: "m-3", name: "PLN", amount: "1920000", share: "0.107" }, { id: "m-4", name: "Superindo", amount: "1480000", share: "0.083" }];
+    if (path.startsWith("/api/v1/analytics/members")) return [{ id: "member-1", name: "Rafi", amount: "11890000", share: "0.665" }, { id: "member-2", name: "Dina", amount: "6000000", share: "0.335" }];
     if (path === "/api/v1/insights") return [];
     if (/\/api\/v1\/transactions\/[^/]+\/evidence$/.test(path)) return [{ id: "ev-1", evidenceType: "BANK_EMAIL", sourceType: "BANK_EMAIL", receivedAt: "2026-09-06T09:20:00+07:00" }];
     if (/\/api\/v1\/transactions\/[^/]+\/audit$/.test(path)) return [{ id: "audit-1", action: "CONFIRM", actorType: "SYSTEM", createdAt: "2026-09-06T09:21:00+07:00" }];

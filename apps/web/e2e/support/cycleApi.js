@@ -65,6 +65,9 @@ export function cycleReviewApi(api) {
       return reply(items, { status: flags.aiAvailable ? 200 : 503 });
     }
     if (path === "/api/v1/insights/generate") return reply({ id: cycleCommentary.id }, { status: flags.aiAvailable ? flags.generationStatus : 503 });
+    if (path === "/api/v1/analytics/range-summary") {
+      return { income: "24000000", expense: "7000000", refund: "0", netCashflow: "17000000", months: 2, averageMonthlyExpenseRounded: "3500000", peakMonth: "2026-09", peakMonthExpense: "4200000" };
+    }
     if (path === "/api/v1/analytics/cashflow") {
       return [
         { period: "2026-07", income: "0", expense: "0", refund: "0", netCashflow: "0" },

@@ -1,7 +1,11 @@
-import { monthLabel } from "./format.js";
+import { money, monthLabel } from "./format.js";
+import { signedValue } from "./cycleKpi.js";
+import { OTHER_CATEGORY_COLOR, categoryColorMap, categoryKey } from "./categoryColors.js";
+import { transactionHref } from "./cycleReview.js";
 
 const MAX_CUSTOM_MONTHS = 24;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const shortMonth = new Intl.DateTimeFormat("id-ID", { month: "short", timeZone: "UTC" });
 
 export function currentMonthKey(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit" }).formatToParts(now);
@@ -71,20 +75,85 @@ export function hasRefunds(items = []) {
   return items.some(item => item?.refund != null && Number(item.refund) !== 0);
 }
 
-export const CHART_CATEGORY_LIMIT = 10;
-
-function rupiah(value) {
-  try { return BigInt(String(value ?? "0").trim().split(".")[0] || "0"); } catch { return 0n; }
-}
-
-export function chartCategories(items = [], limit = CHART_CATEGORY_LIMIT) {
-  if (items.length <= limit) return items;
-  const rest = items.slice(limit).reduce((sum, item) => sum + rupiah(item.amount), 0n);
-  return [...items.slice(0, limit), { id: "other", name: "Kategori lain", amount: rest.toString(), remainder: true }];
-}
-
 export function rangeSummary(from, to) {
   return from === to ? monthLabel(from) : `${monthLabel(from)} sampai ${monthLabel(to)}`;
+}
+
+export function calendarPeriodLabel(from, to) {
+  if (!MONTH.test(from || "") || !MONTH.test(to || "")) return "";
+  const [fromYear, fromMonth] = from.split("-").map(Number);
+  const [toYear, toMonth] = to.split("-").map(Number);
+  const startMonth = shortMonth.format(new Date(Date.UTC(fromYear, fromMonth - 1, 1)));
+  const endMonth = shortMonth.format(new Date(Date.UTC(toYear, toMonth - 1, 1)));
+  if (from === to) return `${startMonth} ${fromYear}`;
+  if (fromYear === toYear) return `${startMonth} – ${endMonth} ${toYear}`;
+  return `${startMonth} ${fromYear} – ${endMonth} ${toYear}`;
+}
+
+export function calendarVerdict(summary) {
+  if (!summary || !(Number(summary.months) > 0)) return "";
+  const parts = [];
+  if (summary.averageMonthlyExpenseRounded != null) parts.push(`Rata-rata ${money(summary.averageMonthlyExpenseRounded)} per bulan`);
+  if (summary.peakMonth && summary.peakMonthExpense != null) {
+    parts.push(`${parts.length ? "tertinggi" : "Tertinggi"} ${monthName(summary.peakMonth)}, ${money(summary.peakMonthExpense)}`);
+  }
+  return parts.length ? `${parts.join("; ")}.` : "";
+}
+
+export function calendarKpiCells(summary, periodText = "") {
+  if (!summary) return [];
+  const activeMonths = Number(summary.months) || 0;
+  const leadLabel = periodText ? `Pengeluaran bersih · ${periodText}` : "Pengeluaran bersih";
+  if (activeMonths <= 0) {
+    return [
+      { key: "expense", lead: true, label: leadLabel, value: money("0"), emptyComparison: "Belum ada transaksi terkonfirmasi pada rentang ini." },
+      { key: "income", label: "Pemasukan", value: money("0") },
+      { key: "net", label: "Arus kas bersih", value: money("0") },
+      { key: "average", label: "Rata-rata / bulan", value: "—", sub: "Belum ada bulan aktif" },
+    ];
+  }
+  return [
+    { key: "expense", lead: true, label: leadLabel, value: money(summary.expense), verdict: calendarVerdict(summary) },
+    { key: "income", label: "Pemasukan", value: money(summary.income) },
+    { key: "net", label: "Arus kas bersih", value: signedValue(summary.netCashflow) },
+    { key: "average", label: "Rata-rata / bulan", value: money(summary.averageMonthlyExpenseRounded), sub: `${activeMonths} bulan aktif` },
+  ];
+}
+
+export function calendarCategoryView(items = [], palette = null) {
+  if (!Array.isArray(items)) return { rows: [] };
+  const peak = Math.max(0, ...items.map(row => Math.abs(Number(row.amount))).filter(Number.isFinite));
+  const { colors } = categoryColorMap(items, palette);
+  const rows = items.map((row, index) => {
+    const key = row.id || `uncategorized:${index}`;
+    const assigned = colors.get(categoryKey(row));
+    const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
+    const numeric = Math.abs(Number(row.amount));
+    return {
+      key,
+      id: row.id ?? null,
+      name: row.name,
+      amount: row.amount,
+      shareOfExpense: row.share ?? row.shareOfExpense ?? null,
+      length: peak > 0 && Number.isFinite(numeric) ? Math.min(1, numeric / peak) : 0,
+      color,
+      openable: false,
+    };
+  });
+  return { rows };
+}
+
+export function calendarMembers(items = []) {
+  return [...items].sort((left, right) => {
+    if (left.kind === "AUTOMATIC" && right.kind !== "AUTOMATIC") return -1;
+    if (right.kind === "AUTOMATIC" && left.kind !== "AUTOMATIC") return 1;
+    return String(left.name || "").localeCompare(String(right.name || ""), "id");
+  });
+}
+
+export function calendarTransactionHref({ from, to, cycle = "" }, filters = {}) {
+  if (!MONTH.test(from || "") || !MONTH.test(to || "")) return "/transactions";
+  return transactionHref({ start: cycle, measuredUntil: `${addMonths(to, 1)}-01` }, { from: `${from}-01`, ...filters });
 }
 
 export function defaultRange({ from, to, range }, now = new Date()) {

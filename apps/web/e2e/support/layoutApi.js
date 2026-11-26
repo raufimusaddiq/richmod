@@ -122,6 +122,7 @@ export function layoutApi(api) {
     if (path === "/api/v1/analytics/cycle-decisions") return { items: [], previous: [], previousCycleStart: "2026-08-26" };
     if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
     if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", daysElapsed: 12, daysTotal: 30, daily: dailySeries };
+    if (path.startsWith("/api/v1/analytics/range-summary")) return { income: "25000000", expense: "10690000", refund: "0", netCashflow: "14310000", months: 2, averageMonthlyExpenseRounded: "5345000", peakMonth: "2026-08", peakMonthExpense: "8100000" };
     if (path.startsWith("/api/v1/analytics/categories")) return categories;
     if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-08", income: "12500000", expense: "8100000", refund: "0", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", refund: "0", netCashflow: "9910000" }];
     if (path.startsWith("/api/v1/analytics/merchants")) return [{ name: "Pasar Minggu", amount: "1250000" }];

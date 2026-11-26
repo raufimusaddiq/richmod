@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
 import { deltaView } from "../lib/cycleKpi";
 import { compactMillions, directionMark } from "../lib/cycleLedger";
@@ -73,18 +72,12 @@ export function ChangesTable({ items, comparison, selected, select, colors = nul
   </table></div></>;
 }
 
-export function CategoryHeatmap({ facts, mode: controlledMode = null, colors = null, selectedCategory = "", onSelectCategory }) {
+export function CategoryHeatmap({ facts, mode = "FULL", colors = null, selectedCategory = "", onSelectCategory }) {
   const sameDay = facts.categoryHistory?.sameDay;
-  const [localMode, setLocalMode] = useState(sameDay ? "SAME_DAY" : "FULL");
-  const mode = controlledMode ?? localMode;
   const heat = buildHeatmap(facts.categoryHistory, facts.history, mode, { selectedCategory, selectable: facts.categoryChanges.map(item => item.id || "uncategorized") });
   if (!heat) return <p className="empty compact">Matriks kategori belum tersedia untuk siklus ini.</p>;
   const deltaLabel = heat.mode === "SAME_DAY" ? "Selisih vs siklus lalu, hari yang sama" : "Selisih vs siklus lalu";
   return <div className="heat-section">
-    {sameDay && controlledMode == null && <div className="segmented" data-slide role="group" aria-label="Rentang kolom matriks">
-      <button type="button" aria-pressed={mode === "SAME_DAY"} className={mode === "SAME_DAY" ? "active" : "secondary"} onClick={() => setLocalMode("SAME_DAY")}>Hari ke-{sameDay.elapsedDays} yang sama</button>
-      <button type="button" aria-pressed={mode === "FULL"} className={mode === "FULL" ? "active" : "secondary"} onClick={() => setLocalMode("FULL")}>Siklus penuh</button>
-    </div>}
     <p className="review-description">{heat.mode === "SAME_DAY" ? `Setiap siklus dihitung sampai hari ke-${sameDay.elapsedDays} agar siklus berjalan setara.` : "Total akhir tiap siklus. Kolom berjalan ditandai garis putus-putus dan tidak ikut pewarnaan karena belum selesai."}</p>
     <div className="heat-wrap" tabIndex={0} role="region" aria-label="Pengeluaran per kategori dan siklus, geser untuk semua kolom">
       <table className="heat-table">
@@ -136,28 +129,36 @@ function MerchantDelta({ value }) {
   </span>;
 }
 
-export function MerchantCard({ facts }) {
-  const list = merchantBars(facts.merchantRanking);
+export function MerchantCard({ facts = null, items = null, hrefFor = null, caption = "", emptyMessage = "Belum ada merchant pendukung pada siklus ini.", stale = false }) {
+  const showDelta = Boolean(facts);
+  const list = facts ? merchantBars(facts.merchantRanking) : merchantBars({ rows: Array.isArray(items) ? items : [] });
   const rows = list?.rows || [];
-  const other = list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
+  const other = showDelta && list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
   const empty = !list || !rows.length;
-  return <section id="merchants" className="surface dash-card" aria-labelledby="merchants-title">
+  const linkFor = item => {
+    if (!item.id) return "";
+    if (facts) return transactionHref(facts.period, { merchantId: item.id });
+    return hrefFor ? hrefFor(item) : "";
+  };
+  return <section id="merchants" className={`surface dash-card${!showDelta ? " calendar-section" : ""}`} data-stale={stale ? "true" : undefined} aria-busy={stale || undefined} aria-labelledby="merchants-title">
     <div className="dash-card-head">
       <div>
         <SectionTitle id="merchants-title" title="Merchant teratas"/>
-        {facts.takeaways?.merchants && <p className="takeaway">{facts.takeaways.merchants}</p>}
       </div>
     </div>
-    {empty ? <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p> : <ul className="merchant-list" aria-label="Merchant teratas">
-      {rows.map(item => <li key={item.key} className="merchant-item">
-        <span className="merchant-item-name">
-          {item.id ? <a href={transactionHref(facts.period, { merchantId: item.id })}>{item.name}</a> : <span>{item.name}</span>}
-          {item.notNamed && <small>tanpa nama penerima</small>}
-        </span>
-        <span className="merchant-item-amount">{money(item.amount)}</span>
-        <span className="merchant-item-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>
-        <MerchantDelta value={item.deltaVsPrevious}/>
-      </li>)}
+    {empty ? <p className="empty compact">{emptyMessage}</p> : <ul className="merchant-list" aria-label="Merchant teratas">
+      {rows.map(item => {
+        const href = linkFor(item);
+        return <li key={item.key} className="merchant-item" data-no-delta={!showDelta || undefined}>
+          <span className="merchant-item-name">
+            {href ? <a href={href}>{item.name}</a> : <span>{item.name}</span>}
+            {item.notNamed && <small>tanpa nama penerima</small>}
+          </span>
+          <span className="merchant-item-amount">{money(item.amount)}</span>
+          <span className="merchant-item-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>
+          {showDelta && <MerchantDelta value={item.deltaVsPrevious}/>}
+        </li>;
+      })}
       {other && <li className="merchant-item" data-other="">
         <span className="merchant-item-name"><span>Merchant lain · {other.merchantCount}</span></span>
         <span className="merchant-item-amount">{money(other.amount)}</span>
@@ -165,28 +166,34 @@ export function MerchantCard({ facts }) {
         <MerchantDelta value={other.deltaVsPrevious}/>
       </li>}
     </ul>}
+    {caption && <p className="dash-caption">{caption}</p>}
   </section>;
 }
 
-export function HouseholdSection({ members = [] }) {
+export function HouseholdSection({ members = [], showHeading = true }) {
   const rows = householdRows(members);
-  return <section id="household" className="family-talk-part" aria-labelledby="household-title">
-    <h3 id="household-title">Catatan rumah tangga</h3>
+  const hasCounts = rows.some(item => item.count != null);
+  const content = <>
     <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
     {rows.length ? <>
-      <div className="household-bar" role="img" aria-label="Porsi pengeluaran bersih menurut pencatat">
+      {rows.some(item => item.share != null) && <div className="household-bar" role="img" aria-label="Porsi pengeluaran bersih menurut pencatat">
         {rows.map(item => <i key={item.key} data-tint={item.tint} style={{ flexGrow: item.share ?? 0 }}/>)}
-      </div>
-      <ul className="household-list">
+      </div>}
+      <ul className="household-list" data-no-count={!hasCounts || undefined}>
         {rows.map(item => <li key={item.key}>
           <span className="household-avatar" data-tint={item.tint} aria-hidden="true">{item.initial}</span>
           <span className="household-name">{item.name}{item.automatic && <small>otomatis</small>}</span>
-          <span className="household-count">{item.count} transaksi</span>
+          {hasCounts && <span className="household-count">{item.count != null ? `${item.count} transaksi` : ""}</span>}
           <span className="household-amount">{money(item.amount)}</span>
           <span className="household-share">{ratioLabel(item.shareOfExpense)}</span>
         </li>)}
       </ul>
       <p className="heat-legend">Urutan tetap: otomatis dulu, lalu anggota menurut nama. Tanpa perbandingan antar siklus.</p>
     </> : <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
+  </>;
+  if (!showHeading) return content;
+  return <section id="household" className="family-talk-part" aria-labelledby="household-title">
+    <h3 id="household-title">Catatan rumah tangga</h3>
+    {content}
   </section>;
 }

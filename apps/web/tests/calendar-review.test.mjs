@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addMonths, calendarErrorMessage, chartCategories, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthChoices, monthName, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
+import { addMonths, calendarCategoryView, calendarErrorMessage, calendarKpiCells, calendarPeriodLabel, calendarVerdict, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthChoices, monthName, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
 
 const october = new Date("2026-10-02T05:00:00Z");
 
@@ -60,21 +60,65 @@ test("months before the first transaction collapse into one line, and the refund
   assert.equal(hasRefunds([{ period: "2026-08" }]), false, "a missing refund field is not a refund");
 });
 
-test("the category chart keeps the top ten and folds the rest into Kategori lain", () => {
-  const items = Array.from({ length: 25 }, (_, index) => ({ id: `cat-${index}`, name: `Kategori ${index}`, amount: String((25 - index) * 100000) }));
-  const chart = chartCategories(items);
-  assert.equal(chart.length, 11, "ten bars plus one");
-  assert.deepEqual(chart.slice(0, 10).map(item => item.name), items.slice(0, 10).map(item => item.name), "the server's order is kept");
-  assert.equal(chart[10].name, "Kategori lain");
-  assert.equal(chart[10].remainder, true, "the remainder bar is marked so it can read as a remainder");
-  assert.equal(chart[10].amount, String(items.slice(10).reduce((sum, item) => sum + Number(item.amount), 0)), "the tail is summed, not dropped");
-  assert.equal(chartCategories(items.slice(0, 10)).length, 10, "a short list is untouched");
-  assert.equal(chartCategories([]).length, 0);
+test("calendar KPI cells format served summary fields and handle zero active months cleanly", () => {
+  const cells = calendarKpiCells({
+    income: "36800000",
+    expense: "17890000",
+    refund: "0",
+    netCashflow: "18910000",
+    months: 3,
+    averageMonthlyExpenseRounded: "5963333",
+    peakMonth: "2026-08",
+    peakMonthExpense: "8100000",
+  }, "Mei – Okt 2026");
+  assert.equal(cells.length, 4);
+  assert.equal(cells[0].lead, true);
+  assert.equal(cells[0].label, "Pengeluaran bersih · Mei – Okt 2026");
+  assert.match(cells[0].value, /17\.890\.000/);
+  assert.match(cells[0].verdict, /Rata-rata .*5\.963\.333 per bulan; tertinggi Agustus 2026, .*8\.100\.000\./);
+  assert.match(cells[1].value, /36\.800\.000/);
+  assert.match(cells[2].value, /^\+.*18\.910\.000/);
+  assert.match(cells[3].value, /5\.963\.333/);
+  assert.equal(cells[3].sub, "3 bulan aktif");
+
+  const empty = calendarKpiCells({
+    income: "0",
+    expense: "0",
+    refund: "0",
+    netCashflow: "0",
+    months: 0,
+    averageMonthlyExpenseRounded: "0",
+    peakMonth: null,
+    peakMonthExpense: null,
+  }, "Mei – Okt 2026");
+  assert.equal(empty.length, 4);
+  assert.equal(empty[0].verdict, undefined);
+  assert.match(empty[0].emptyComparison, /Belum ada transaksi terkonfirmasi/);
+  assert.equal(empty[3].value, "—");
+  assert.equal(calendarVerdict({ months: 0 }), "");
 });
 
-test("a one-month range is named once, not twice", () => {
+test("calendar category view keeps the server order without summing a remainder in JS", () => {
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    id: `cat-${index}`,
+    name: `Kategori ${index}`,
+    amount: String((12 - index) * 100000),
+    share: "0.08",
+  }));
+  const { rows } = calendarCategoryView(items);
+  assert.equal(rows.length, 12, "all served rows stay intact without a synthetic Kategori lain");
+  assert.deepEqual(rows.map(row => row.name), items.map(item => item.name), "the server order is preserved");
+  assert.equal(rows[0].length, 1);
+  assert.equal(rows[0].shareOfExpense, "0.08");
+  assert.equal(calendarCategoryView([]).rows.length, 0);
+});
+
+test("a one-month range is named once, not twice, and period button labels drop duplicate years", () => {
   assert.equal(rangeSummary("2026-09", "2026-09"), "Sep 26");
   assert.equal(rangeSummary("2026-08", "2026-09"), "Agu 26 sampai Sep 26");
+  assert.equal(calendarPeriodLabel("2026-05", "2026-10"), "Mei – Okt 2026");
+  assert.equal(calendarPeriodLabel("2025-11", "2026-04"), "Nov 2025 – Apr 2026");
+  assert.equal(calendarPeriodLabel("2026-09", "2026-09"), "Sep 2026");
 });
 
 test("range months are offered by Indonesian name, newest first, and an older chosen month stays selectable", () => {
