@@ -132,7 +132,7 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 				var reply bool
 				must(rows.Scan(&chat, &text, &reply))
 				got = append(got, chat)
-				wantNotice := "Tersimpan: transaksi bank.\n\nNominal: Rp54.000\nWaktu: 19/10/2026 08:30 WIB\nKeterangan: " + description
+				wantNotice := "✅ Tersimpan: transaksi bank.\n\nNominal: Rp54.000\nWaktu: 19/10/2026 08:30 WIB\nKeterangan: " + description
 				if result.AutoConfirm && (reply || text != wantNotice) {
 					t.Fatalf("invalid recorded notice: reply=%v text=%q", reply, text)
 				}

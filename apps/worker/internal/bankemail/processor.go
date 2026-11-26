@@ -625,7 +625,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		if err != nil {
 			return err
 		}
-		message := "Tersimpan: transaksi bank.\n\n" + bankTransactionContext(amount, *at, description)
+		message := "✅ Tersimpan: transaksi bank.\n\n" + bankTransactionContext(amount, *at, description)
 		if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json)
 			SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',ti.telegram_user_id,'text',$2::text)
 			FROM telegram_identity ti
@@ -801,7 +801,7 @@ func (p *Processor) linkBankEvidence(ctx context.Context, tx pgx.Tx, listener Li
 			return err
 		}
 		if err == nil {
-			message := "Digabung dengan transaksi yang sudah ada: email bank.\n\n" + bankTransactionContext(link.amount, link.at, link.description)
+			message := "✅ Digabung dengan transaksi yang sudah ada: email bank.\n\n" + bankTransactionContext(link.amount, link.at, link.description)
 			if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json)
 			SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',ti.telegram_user_id,'text',$2::text)
 			FROM telegram_identity ti
