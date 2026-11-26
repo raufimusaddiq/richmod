@@ -494,6 +494,8 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		defer cancel()
 	}
 	ctx = telegram.WithHousehold(ctx, job.HouseholdID)
+	stopTyping := processor.StartDocumentTyping(ctx, job.Type, job.HouseholdID, job.Payload)
+	defer stopTyping()
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
