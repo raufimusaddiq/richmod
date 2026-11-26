@@ -532,6 +532,7 @@ test("the calendar view validates ranges, links months by keyboard and survives 
 
   const periodButton = page.locator(".calendar-period-button");
   await periodButton.click();
+  await expect(page.getByLabel("Bulan mulai"), "opening the range popover moves focus to the first select").toBeFocused();
   await expect(page.getByLabel("Bulan mulai").locator("option[value='2025-01']"), "months are named in Indonesian").toHaveText("Januari 2025");
   await page.getByLabel("Bulan mulai").selectOption("2025-03");
   await page.getByLabel("Bulan selesai").selectOption("2025-01");
@@ -553,6 +554,7 @@ test("the calendar view validates ranges, links months by keyboard and survives 
   await page.waitForFunction(expected => document.querySelector('select[name="from"]')?.value === expected, shownRange.from);
   await expect(page.getByLabel("Bulan mulai"), "the inputs follow the URL after Back").toHaveValue(shownRange.from);
   await page.keyboard.press("Escape");
+  await expect(periodButton, "Escape returns focus to the range trigger").toBeFocused();
 
   flags.merchantsFail = true;
   await page.getByRole("button", { name: "6 Bulan", exact: true }).click();

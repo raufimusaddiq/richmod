@@ -1,7 +1,7 @@
 import { money, monthLabel } from "./format.js";
-import { signedValue } from "./cycleKpi.js";
+import { isZero, signedValue } from "./cycleKpi.js";
 import { OTHER_CATEGORY_COLOR, categoryColorMap, categoryKey } from "./categoryColors.js";
-import { transactionHref } from "./cycleReview.js";
+import { inclusiveEnd } from "./cycleReview.js";
 
 const MAX_CUSTOM_MONTHS = 24;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -94,7 +94,8 @@ export function calendarVerdict(summary) {
   if (!summary || !(Number(summary.months) > 0)) return "";
   const parts = [];
   if (summary.averageMonthlyExpenseRounded != null) parts.push(`Rata-rata ${money(summary.averageMonthlyExpenseRounded)} per bulan`);
-  if (summary.peakMonth && summary.peakMonthExpense != null) {
+  const hasPeak = Boolean(summary.peakMonth) && summary.peakMonthExpense != null && String(summary.peakMonthExpense).trim() !== "" && !isZero(summary.peakMonthExpense);
+  if (hasPeak) {
     parts.push(`${parts.length ? "tertinggi" : "Tertinggi"} ${monthName(summary.peakMonth)}, ${money(summary.peakMonthExpense)}`);
   }
   return parts.length ? `${parts.join("; ")}.` : "";
@@ -153,7 +154,10 @@ export function calendarMembers(items = []) {
 
 export function calendarTransactionHref({ from, to, cycle = "" }, filters = {}) {
   if (!MONTH.test(from || "") || !MONTH.test(to || "")) return "/transactions";
-  return transactionHref({ start: cycle, measuredUntil: `${addMonths(to, 1)}-01` }, { from: `${from}-01`, ...filters });
+  const query = new URLSearchParams({ from: `${from}-01`, to: inclusiveEnd(`${addMonths(to, 1)}-01`), status: "CONFIRMED", type: "SPENDING" });
+  for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
+  if (cycle) query.set("cycle", cycle);
+  return `/transactions?${query}`;
 }
 
 export function defaultRange({ from, to, range }, now = new Date()) {

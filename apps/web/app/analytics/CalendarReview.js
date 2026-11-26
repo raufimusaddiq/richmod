@@ -18,6 +18,7 @@ export function CalendarRangeControls({ selection, navigate }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   const triggerRef = useRef(null);
+  const fromRef = useRef(null);
 
   const selectedFrom = selection.from;
   const selectedTo = selection.to;
@@ -31,6 +32,9 @@ export function CalendarRangeControls({ selection, navigate }) {
   }, [selectedFrom, selectedTo, selectedRange]);
 
   const popoverOpen = open || Boolean(rangeError);
+  useEffect(() => {
+    if (popoverOpen) fromRef.current?.focus();
+  }, [popoverOpen]);
   useEffect(() => {
     if (!popoverOpen) return undefined;
     const onPointerDown = event => {
@@ -72,6 +76,7 @@ export function CalendarRangeControls({ selection, navigate }) {
     }
     setOpen(false);
     navigate({ from, to });
+    triggerRef.current?.focus();
   }
 
   const periodLabel = calendarPeriodLabel(fallback.from, fallback.to);
@@ -82,13 +87,13 @@ export function CalendarRangeControls({ selection, navigate }) {
       {["3", "6", "12"].map(range => <button type="button" key={range} className={selection.range === range && !custom ? "active" : "secondary"} aria-pressed={selection.range === range && !custom} onClick={() => navigate({ range, from: "", to: "" })}>{range} Bulan</button>)}
     </div>
     <div ref={anchorRef} className="calendar-range-anchor">
-      <button ref={triggerRef} type="button" className={custom ? "active calendar-period-button" : "secondary calendar-period-button"} aria-expanded={popoverOpen} aria-haspopup="dialog" aria-controls="calendar-custom-popover" onClick={() => { if (popoverOpen) { setOpen(false); setRangeError(""); } else setOpen(true); }}>
+      <button ref={triggerRef} type="button" className={custom ? "active calendar-period-button" : "secondary calendar-period-button"} aria-expanded={popoverOpen} aria-haspopup="dialog" aria-controls="calendar-custom-popover" onClick={() => { if (popoverOpen) { setOpen(false); setRangeError(""); triggerRef.current?.focus(); } else setOpen(true); }}>
         <span>{periodLabel}</span>
         <span className="calendar-period-caret" aria-hidden="true">▾</span>
       </button>
       {popoverOpen && <div id="calendar-custom-popover" className="calendar-range-popover" role="dialog" aria-label="Rentang bulan kustom">
         <form className="custom-range" aria-label="Rentang bulan kustom" onSubmit={submitRange} noValidate>
-          <label>Bulan mulai<select name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}>{monthOptions}</select></label>
+          <label>Bulan mulai<select ref={fromRef} name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}>{monthOptions}</select></label>
           <label>Bulan selesai<select name="to" {...rangeProps(to)} onChange={event => setTo(event.target.value)}>{monthOptions}</select></label>
           <button type="submit" disabled={!draft}>Terapkan</button>
         </form>
