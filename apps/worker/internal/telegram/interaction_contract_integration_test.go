@@ -305,9 +305,22 @@ func (h *contractHarness) absorb() {
 	}
 }
 
+func (h *contractHarness) openUbahDate() {
+	h.t.Helper()
+	h.tapLabel("Ubah")
+	h.tapLabel("Tanggal")
+}
+
+func (h *contractHarness) releaseLegacyQueue() {
+	h.t.Helper()
+	h.exec(`INSERT INTO job(type,payload_json,max_attempts) SELECT 'SEND_TELEGRAM_MESSAGE',queued_payload,8 FROM review_request_recipient WHERE delivery_status='QUEUED' AND queued_payload IS NOT NULL AND telegram_chat_id=ANY($1)`, h.chats())
+	h.exec(`UPDATE review_request_recipient SET delivery_status='PENDING',queued_payload=NULL WHERE delivery_status='QUEUED' AND queued_payload IS NOT NULL AND telegram_chat_id=ANY($1)`, h.chats())
+}
+
 func (h *contractHarness) deliver() {
 	h.t.Helper()
 	h.audit()
+	h.releaseLegacyQueue()
 	for {
 		rows, err := h.f.pool.Query(h.ctx, `SELECT id::text,type,payload_json FROM job WHERE type IN ('SEND_TELEGRAM_MESSAGE','EDIT_TELEGRAM_MESSAGE','RETIRE_TELEGRAM_REVIEW_CARD') AND status='PENDING' AND (payload_json->>'chat_id')::bigint=ANY($1) ORDER BY created_at,id`, h.chats())
 		mustAgentTest(h.t, err)
@@ -345,6 +358,9 @@ func (h *contractHarness) deliverOne(jobID, kind string, raw []byte) {
 				mustAgentTest(h.t, h.p.markCardSettled(h.ctx, payload.ReviewRequestID, payload.ChatID, messageID))
 			}
 			mustAgentTest(h.t, h.p.BindReviewMessageAs(h.ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text, payload.AssistantShown))
+			if payload.UbahUntil != "" {
+				mustAgentTest(h.t, h.p.armUbahFromSend(h.ctx, payload, messageID))
+			}
 		}
 		h.remember(messageID, payload.Text, payload.ReplyMarkup)
 	case "EDIT_TELEGRAM_MESSAGE":
@@ -524,8 +540,11 @@ func (h *contractHarness) wantButtons(labels ...string) {
 
 func (h *contractHarness) wantNoButtons() {
 	h.t.Helper()
-	if _, text, buttons := h.current(); len(buttons) != 0 {
-		h.t.Fatalf("a finished card still has buttons %v:\n%s", buttons, text)
+	_, text, buttons := h.current()
+	for _, button := range buttons {
+		if button != "Ubah|"+callbackUbah {
+			h.t.Fatalf("a finished card still has buttons %v:\n%s", buttons, text)
+		}
 	}
 }
 

@@ -67,6 +67,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
+	if handled, err := p.processUbahText(ctx, sourceEventID, householdID, update); handled || err != nil {
+		return err
+	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
 	repeatedQuestion := p.noteRepeatedInput(ctx, householdID, sourceEventID, update, receivedAt)

@@ -547,6 +547,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		return processor.ProjectReviewJob(ctx, payload)
+	case "EXPIRE_UBAH_BUTTON":
+		payload, err := telegram.DecodeUbahExpirePayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return processor.ExpireUbahButton(ctx, payload)
 	case "RETIRE_TELEGRAM_REVIEW_CARD":
 		payload, err := telegram.DecodeRetireCardPayload(job.Payload)
 		if err != nil {

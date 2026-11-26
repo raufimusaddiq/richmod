@@ -9,6 +9,10 @@ import (
 )
 
 func reviewOutcome(ctx context.Context, db authorizationQuerier, reviewRequestID string) (string, error) {
+	return reviewOutcomeFor(ctx, db, reviewRequestID, true)
+}
+
+func reviewOutcomeFor(ctx context.Context, db authorizationQuerier, reviewRequestID string, withResolver bool) (string, error) {
 	var itemStatus, action, resolver, category, transactionStatus string
 	err := db.QueryRow(ctx, `SELECT ri.status,COALESCE(ri.resolution_action,''),COALESCE(u.display_name,''),
 			COALESCE(c.name,''),COALESCE(t.status,'')
@@ -24,7 +28,18 @@ func reviewOutcome(ctx context.Context, db authorizationQuerier, reviewRequestID
 	if err != nil {
 		return "", err
 	}
+	if !withResolver {
+		resolver = ""
+	}
 	return describeReviewOutcome(itemStatus, action, resolver, category, transactionStatus), nil
+}
+
+func autoClosedAction(action string) bool {
+	switch action {
+	case "NO_LONGER_APPLICABLE", "LEGACY_TRANSACTION_RESOLVED", "RECONCILED_TERMINAL_TRANSACTION", "EMAIL_RECEIVED_AT_FALLBACK":
+		return true
+	}
+	return false
 }
 
 func describeReviewOutcome(itemStatus, action, resolver, category, transactionStatus string) string {
@@ -38,7 +53,7 @@ func describeReviewOutcome(itemStatus, action, resolver, category, transactionSt
 		phrase = "digabung dengan catatan yang sudah ada"
 	case strings.Contains(action, "IGNORE") || strings.Contains(action, "REJECT") || transactionStatus == "IGNORED" || transactionStatus == "VOIDED":
 		phrase = "diabaikan"
-	case action == "NO_LONGER_APPLICABLE" || action == "LEGACY_TRANSACTION_RESOLVED" || action == "RECONCILED_TERMINAL_TRANSACTION" || action == "EMAIL_RECEIVED_AT_FALLBACK":
+	case autoClosedAction(action):
 		return "ditutup otomatis karena tidak lagi berlaku"
 	case transactionStatus == "CONFIRMED" && category != "":
 		phrase = "dicatat sebagai " + clean(category, 80)

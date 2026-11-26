@@ -130,6 +130,7 @@ func TestReviewCardThreadsOnlyTheOriginatingMember(t *testing.T) {
 		t.Fatalf("spouse's copy must not thread and must name Rina: %+v", spouse[0].Payload)
 	}
 
+	f.resolve(t, requestID)
 	bankRequest := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	for _, chat := range []int64{f.chatA, f.chatB} {
 		sends := f.sends(t, bankRequest, chat)
@@ -160,21 +161,20 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		requests = append(requests, f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, int64(100+i)))
 	}
-	for i, requestID := range requests[:3] {
-		if status := f.deliveryStatus(t, requestID, f.chatA); status != "PENDING" || len(f.sends(t, requestID, f.chatA)) != 1 {
-			t.Fatalf("card %d should be sent: %s, %d sends", i, status, len(f.sends(t, requestID, f.chatA)))
+	if status := f.deliveryStatus(t, requests[0], f.chatA); status != "PENDING" || len(f.sends(t, requests[0], f.chatA)) != 1 {
+		t.Fatalf("the first card should be sent: %s, %d sends", status, len(f.sends(t, requests[0], f.chatA)))
+	}
+	for i, requestID := range requests[1:] {
+		if f.deliveryStatus(t, requestID, f.chatA) != "QUEUED" || len(f.sends(t, requestID, f.chatA)) != 0 {
+			t.Fatalf("card %d must wait for the live card", i+1)
 		}
 	}
-	fourth := requests[3]
-	if f.deliveryStatus(t, fourth, f.chatA) != "QUEUED" || len(f.sends(t, fourth, f.chatA)) != 0 {
-		t.Fatal("the fourth card must wait for a free slot")
-	}
-	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 100); err != nil || f.deliveryStatus(t, fourth, f.chatA) != "QUEUED" {
-		t.Fatalf("sweep released a card with no free slot: %v", err)
+	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 100); err != nil || f.deliveryStatus(t, requests[1], f.chatA) != "QUEUED" {
+		t.Fatalf("sweep released a card while one is live: %v", err)
 	}
 	f.resolve(t, requests[0])
-	if f.deliveryStatus(t, fourth, f.chatA) != "PENDING" || len(f.sends(t, fourth, f.chatA)) != 1 {
-		t.Fatal("closing a card must release the oldest queued card")
+	if f.deliveryStatus(t, requests[1], f.chatA) != "PENDING" || len(f.sends(t, requests[1], f.chatA)) != 1 || f.deliveryStatus(t, requests[2], f.chatA) != "QUEUED" {
+		t.Fatal("closing the live card must release exactly the oldest queued card")
 	}
 
 	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatA, 501, "🟡 Perlu ditinjau"))
@@ -278,8 +278,8 @@ func TestTerminalCardSendFailureIsRecordedAndReleasesTheSlot(t *testing.T) {
 	if f.deliveryStatus(t, requests[0], f.chatA) != "FAILED" || !strings.Contains(deliveryError, "bot was blocked") || (itemStatus != "OPEN" && itemStatus != "PENDING_SEND") {
 		t.Fatalf("failed delivery: status=%s error=%q item=%s", f.deliveryStatus(t, requests[0], f.chatA), deliveryError, itemStatus)
 	}
-	if f.deliveryStatus(t, requests[3], f.chatA) != "PENDING" {
-		t.Fatal("a failed card must free its pacing slot")
+	if f.deliveryStatus(t, requests[1], f.chatA) != "PENDING" || f.deliveryStatus(t, requests[2], f.chatA) != "QUEUED" {
+		t.Fatal("a failed card must free its pacing slot for the next queued card only")
 	}
 }
 
@@ -329,7 +329,7 @@ func TestFollowUpMessageSupersedesAndRetiresTheOlderCard(t *testing.T) {
 	closing := RetireCardPayload{ReviewRequestID: requestID, RecipientID: payload.RecipientID, ChatID: f.chatA, MessageID: 611, Status: "RESOLVED"}
 	bot2, fake2 := newFakeTelegram(t, nil)
 	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot2, closing))
-	if calls := fake2.recorded(); len(calls) != 1 || !strings.HasSuffix(fmt.Sprint(calls[0].Body["text"]), "✅ Tinjauan ini sudah selesai: dicatat sebagai Makan oleh Rina.") {
+	if calls := fake2.recorded(); len(calls) != 1 || !strings.HasSuffix(fmt.Sprint(calls[0].Body["text"]), "Sudah diselesaikan oleh Rina di Telegram.\nDicatat sebagai Makan.") {
 		t.Fatalf("resolved retirement = %+v", calls)
 	}
 }
@@ -463,9 +463,7 @@ func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
 func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var fillers []string
-	for i := 0; i < 3; i++ {
-		fillers = append(fillers, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
-	}
+	fillers = append(fillers, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
 	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET delivery_status='SKIPPED' WHERE telegram_chat_id=$1 AND review_request_id=ANY($2::uuid[])`, f.chatA, fillers)
 	mustAgentTest(t, err)
 	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
@@ -512,9 +510,7 @@ func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 	t.Parallel()
 	f := seedDeliveryFixture(t)
 	var live []string
-	for i := 0; i < 3; i++ {
-		live = append(live, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
-	}
+	live = append(live, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
 	waiting := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
 	if f.deliveryStatus(t, waiting, f.chatA) != "QUEUED" {
 		t.Fatal("setup: the fourth card must wait")
@@ -733,8 +729,8 @@ func TestSweepRepairsPendingCopyWithoutASendJob(t *testing.T) {
 	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
 		t.Fatal(err)
 	}
-	if f.deliveryStatus(t, requests[0], f.chatA) != "FAILED" || f.deliveryStatus(t, requests[3], f.chatA) != "PENDING" {
-		t.Fatalf("orphan repair: first=%s fourth=%s", f.deliveryStatus(t, requests[0], f.chatA), f.deliveryStatus(t, requests[3], f.chatA))
+	if f.deliveryStatus(t, requests[0], f.chatA) != "FAILED" || f.deliveryStatus(t, requests[1], f.chatA) != "PENDING" || f.deliveryStatus(t, requests[2], f.chatA) != "QUEUED" {
+		t.Fatalf("orphan repair: first=%s second=%s third=%s", f.deliveryStatus(t, requests[0], f.chatA), f.deliveryStatus(t, requests[1], f.chatA), f.deliveryStatus(t, requests[2], f.chatA))
 	}
 }
 

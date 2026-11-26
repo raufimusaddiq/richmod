@@ -28,6 +28,7 @@ type SendPayload struct {
 	BindDocumentID   string                `json:"bind_document_id,omitempty"`
 	SettledCard      bool                  `json:"settled_card,omitempty"`
 	AssistantShown   bool                  `json:"assistant_shown,omitempty"`
+	UbahUntil        string                `json:"ubah_until,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
@@ -39,6 +40,7 @@ type EditPayload struct {
 	ReviewRequestID  string                `json:"review_request_id,omitempty"`
 	OutcomeRequestID string                `json:"outcome_request_id,omitempty"`
 	OutcomeRevision  int                   `json:"outcome_revision,omitempty"`
+	RefreshPosition  bool                  `json:"refresh_position,omitempty"`
 }
 
 type APIError struct {
@@ -288,7 +290,7 @@ func DecodeEditPayload(raw json.RawMessage) (EditPayload, error) {
 	if err := decoder.Decode(&payload); err != nil {
 		return EditPayload{}, fmt.Errorf("decode edit payload: %w", err)
 	}
-	if payload.ChatID == 0 || payload.MessageID == 0 || payload.Text == "" {
+	if payload.ChatID == 0 || payload.MessageID == 0 || (payload.Text == "" && !payload.RefreshPosition) {
 		return EditPayload{}, fmt.Errorf("invalid edit payload")
 	}
 	return payload, nil

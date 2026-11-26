@@ -63,6 +63,7 @@ type stepOutcome struct {
 	Changed  bool
 	Declined bool
 	Silent   bool
+	UbahUser string
 }
 
 func (e engineReview) live() bool {
@@ -250,6 +251,13 @@ func (p *Processor) runStepEngine(ctx context.Context, householdID, sourceEventI
 	}
 	if outcome.Declined && in.Tap == "" && ((step.Defer && (step.Fallback || !isYesNoAnswer(in.Text))) || (in.CategorySlug == "" && (!in.Targeted || strings.Contains(in.Text, "?")))) {
 		return false, nil
+	}
+	if outcome.Settled && outcome.Step.Kind == stepDone && !outcome.Declined && !outcome.Silent && review.situation() == sitNone {
+		if _, offered, err := p.ubahOffer(ctx, tx, householdID, review.RequestID); err != nil {
+			return false, err
+		} else if offered {
+			outcome.UbahUser = review.UserID
+		}
 	}
 	if !outcome.Silent {
 		if err := p.remember(ctx, tx, householdID, sourceEventID, update, outcome); err != nil {
@@ -606,21 +614,40 @@ func transactionAmount(ctx context.Context, tx pgx.Tx, householdID, transactionI
 func (p *Processor) renderStep(ctx context.Context, tx pgx.Tx, update telegramUpdate, reviewID string, outcome stepOutcome) error {
 	text := outcome.Step.Text()
 	markup := outcome.Step.Markup()
+	if outcome.Settled && outcome.Step.Kind == stepDone {
+		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{done_line}',to_jsonb($2::text)),updated_at=now() WHERE review_request_id=$1`, reviewID, clean(outcome.Step.Title(), 500)); err != nil {
+			return err
+		}
+	}
+	ubahUntil := time.Time{}
+	if outcome.Settled && outcome.UbahUser != "" {
+		markup = ubahDoneMarkup()
+		ubahUntil = p.now().Add(ubahWindow)
+	}
 	if update.CallbackQuery != nil {
 		chatID, messageID := update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID
 		if outcome.Settled {
-			return settleReviewCardInPlace(ctx, tx, reviewID, chatID, messageID, text, markup)
+			if err := settleReviewCardInPlace(ctx, tx, reviewID, chatID, messageID, text, markup); err != nil {
+				return err
+			}
+			if !ubahUntil.IsZero() {
+				return armUbah(ctx, tx, reviewID, chatID, messageID, outcome.UbahUser, ubahUntil)
+			}
+			return nil
 		}
 		if markup == nil {
 			markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}
 		}
 		return enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, text, markup)
 	}
-	return enqueueStepCard(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, text, markup, outcome.Settled)
+	return enqueueStepCard(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, text, markup, outcome.Settled, ubahUntil)
 }
 
-func enqueueStepCard(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, text string, markup *InlineKeyboardMarkup, settled bool) error {
+func enqueueStepCard(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, text string, markup *InlineKeyboardMarkup, settled bool, ubahUntil time.Time) error {
 	payload := map[string]any{"chat_id": chatID, "reply_to_message_id": replyTo, "text": clean(text, 4000), "review_request_id": reviewID}
+	if !ubahUntil.IsZero() {
+		payload["ubah_until"] = ubahUntil.UTC().Format(time.RFC3339)
+	}
 	if markup != nil {
 		payload["reply_markup"] = markup
 	}

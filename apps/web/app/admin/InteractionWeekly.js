@@ -54,6 +54,7 @@ function measures(w, degraded) {
     row("Pesan yang sama dikirim lagi dalam 3 menit", "0 sampai 1", ["events"], number(w.repeatedInput), w.repeatedInput <= 1),
     replyRow("Balasan bot rusak atau kosong", w.brokenReplies),
     replyRow("Balasan bot yang menjelaskan cara kerja Telegram", w.mechanicsReplies),
+    row("Kartu yang dibuka lagi dengan Ubah", "Tidak ada target", ["events"], number(w.ubahReopened ?? 0), null),
     row(
       "Waktu tengah dari kartu terkirim sampai selesai, untuk review yang selesai di Telegram",
       "Sekitar 1 menit atau kurang",

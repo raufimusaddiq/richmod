@@ -157,6 +157,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
 	}
 	if update.CallbackQuery != nil {
+		if handled, err := p.processUbahTap(ctx, sourceEventID, householdID, update); handled || err != nil {
+			return err
+		}
 		if tapped, err := p.resolveInteraction(ctx, householdID, sourceEventID, update, ""); err != nil {
 			return err
 		} else if tapped.Kind == interactionCardStep {
