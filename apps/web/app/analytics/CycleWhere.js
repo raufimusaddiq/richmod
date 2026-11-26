@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CycleSpendingPatternChart } from "../components/Charts";
-import { averageDailyText, baselineFor } from "../lib/cycleKpi";
+import { averageDailyText, baselineFor, isComparisonTooEarly } from "../lib/cycleKpi";
 import { buildLedger, compactMillions, signedMillions } from "../lib/cycleLedger";
 import { amountLabel, ratioLabel, transactionHref } from "../lib/cycleReview";
 import { categoryColorFor, categoryColorMap, categoryKey, OTHER_CATEGORY_COLOR, partialDay } from "../lib/cycleWhere";
@@ -52,7 +52,7 @@ export function DailyCard({ facts, step }) {
 
 export function HistoryCard({ facts, step, selectedCategory, onSelect, onSelectCategory, palette = null }) {
   const sameDay = facts.categoryHistory?.sameDay;
-  const early = facts.period?.state === "ACTIVE" && facts.spendingShape?.days <= 3;
+  const early = isComparisonTooEarly(facts);
   const defaultMode = sameDay && !early ? "SAME_DAY" : "FULL";
   const [mode, setMode] = useState(defaultMode);
   const resetMode = useRef(defaultMode);
@@ -142,8 +142,7 @@ export function CategoryDrawer({ item, facts, period, close, triggerRef, palette
   }, [triggerRef]);
   const basis = baselineFor(period, facts.spendingShape?.days);
   const key = categoryKey(item);
-  const resolvedColor = categoryColorMap(facts, palette).colors.get(key) || categoryColorFor(item, palette);
-  const swatchColor = resolvedColor && resolvedColor !== OTHER_CATEGORY_COLOR ? resolvedColor : "";
+  const swatchColor = categoryColorMap(facts, palette).colors.get(key) || categoryColorFor(item, palette);
   return <div id="drivers" className="drawer-backdrop category-backdrop" onClick={() => close()}>
     <aside ref={ref} id="category-drawer" tabIndex={-1} className="detail-drawer category-drawer" role="dialog" aria-modal="true" aria-labelledby="drivers-title" onClick={event => event.stopPropagation()}>
       <button type="button" className="drawer-close" aria-label="Tutup rincian kategori" onClick={() => close()}>×</button>

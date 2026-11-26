@@ -107,7 +107,7 @@ for (const width of [320, 360, 390, 1366]) {
       await expectNoHorizontalOverflow(page, `${width}px / expanded daily table`);
     });
 
-    test("Laporan: shared category colours, drawer without sand swatch, chart polish and uniform disclosure rows", async ({ page }) => {
+    test("Laporan: shared category colours, neutral swatch on non-palette rows, chart polish and uniform disclosure rows", async ({ page }) => {
       await page.goto("/", { waitUntil: "networkidle" });
       const home = await homeCategoryColours(page);
       await page.goto("/analytics", { waitUntil: "networkidle" });
@@ -130,7 +130,17 @@ for (const width of [320, 360, 390, 1366]) {
       expect(otherExpanded, "Kategori lain expands to list remaining categories with no swatches").toEqual({ count: 1, names: ["Perjalanan"], swatches: 0 });
       await page.locator("#where .cat-other-list button", { hasText: "Perjalanan" }).click();
       await page.locator("#category-drawer").waitFor();
-      await expect(page.locator("#category-drawer .cat-swatch"), "category drawer omits sand swatch for non-top-6 category").toHaveCount(0);
+      const drawerSwatch = await page.evaluate(() => {
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = "var(--chart-category-other)";
+        document.body.appendChild(probe);
+        const neutral = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        const el = document.querySelector("#category-drawer .cat-swatch");
+        return { count: document.querySelectorAll("#category-drawer .cat-swatch").length, color: el ? getComputedStyle(el).backgroundColor : "", neutral };
+      });
+      expect(drawerSwatch.count, "category drawer renders neutral swatch for non-top-6 category").toBe(1);
+      expect(drawerSwatch.color, "category drawer non-top-6 swatch uses neutral colour").toBe(drawerSwatch.neutral);
       await page.keyboard.press("Escape");
       await page.locator("#category-drawer").waitFor({ state: "detached" });
 
@@ -200,17 +210,20 @@ for (const width of [320, 360, 390, 1366]) {
         const probe = document.createElement("span");
         probe.style.backgroundColor = "var(--chart-category-other)";
         document.body.appendChild(probe);
-        const sand = getComputedStyle(probe).backgroundColor;
+        const neutral = getComputedStyle(probe).backgroundColor;
         probe.remove();
-        const rogueSand = [...document.querySelectorAll("#where .cat-swatch, #changes .heat-swatch, #matrix .heat-swatch")]
-          .filter(el => getComputedStyle(el).backgroundColor === sand)
-          .filter(el => !el.closest("li[data-other]") && !el.closest("span[data-muted]")).length;
+        const missingSwatches = [...document.querySelectorAll("#where .cat-list > li:not([data-other]), #changes tbody tr, #matrix tbody tr")]
+          .filter(el => !el.querySelector(".cat-swatch, .heat-swatch")).length;
+        const travelSwatch = [...document.querySelectorAll("#changes tbody tr")]
+          .find(row => row.textContent?.includes("Perjalanan"))
+          ?.querySelector(".heat-swatch");
         const dailyBars = [...document.querySelectorAll("#daily .cycle-spending-chart .recharts-bar-rectangle path, #daily .cycle-spending-chart .recharts-bar-rectangle rect")]
           .map(el => getComputedStyle(el).fill)
           .filter(fill => fill !== "none" && fill !== "rgba(0, 0, 0, 0)");
-        return { rogueSand, dailyBars };
+        return { missingSwatches, travelColor: travelSwatch ? getComputedStyle(travelSwatch).backgroundColor : "", neutral, dailyBars };
       });
-      expect(audit.rogueSand, "no sand swatch appears on any row except Kategori lain").toBe(0);
+      expect(audit.missingSwatches, "every category row in Ke mana uangnya, changes, and matrix has a swatch").toBe(0);
+      expect(audit.travelColor, "non-palette category in changes table uses neutral swatch").toBe(audit.neutral);
       expect(audit.dailyBars.some(fill => fill === "rgb(47, 74, 109)"), `Laporan daily bars use slate navy #2f4a6d: ${JSON.stringify(audit.dailyBars)}`).toBe(true);
       if (phone) {
         const wideTables = await page.evaluate(() => [...document.querySelectorAll(".review-table-wrap")].map(el => ({ cls: el.className, label: el.getAttribute("aria-label"), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })).filter(item => item.scrollWidth > item.clientWidth));

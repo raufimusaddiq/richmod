@@ -101,6 +101,22 @@ test("days 1-7 early cycle renders the LastCycleCard, wealth chip, and disables 
   await expect(chip).toHaveText("1 perlu dilengkapi");
   await expect(page.locator("#where").getByRole("button", { name: "Paling berubah", exact: true })).toBeDisabled();
   await expect(page.locator("#history").getByRole("button", { name: "Siklus penuh", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#merchants .merchant-row-delta"), "merchant card hides deltas during days 1-3").toHaveCount(0);
+  const dailyTicks = page.locator("#daily .cycle-spending-chart [data-day-tick]");
+  await expect(dailyTicks.first(), "day 1 keeps its tick label on day 2").toHaveText("05");
+  await expect(dailyTicks.nth(1), "partial day keeps its label").toHaveText("06belum penuh");
+  const firstTwoOverlap = await dailyTicks.evaluateAll(nodes => {
+    const firstLine = node => {
+      if (!node?.firstChild) return null;
+      const range = document.createRange();
+      range.selectNodeContents(node.firstChild);
+      return range.getBoundingClientRect();
+    };
+    const first = firstLine(nodes[0]);
+    const second = firstLine(nodes[1]);
+    return Boolean(first && second && first.right > second.left - 1);
+  });
+  expect(firstTwoOverlap, "day 1 and day 2 tick labels never overlap").toBe(false);
   await chip.click();
   expect(await page.locator("#quality > details").evaluate(el => el.open), "clicking wealth chip opens Kelengkapan data").toBe(true);
   await expect(page.locator("#quality")).toContainText("Belum ada pengamatan kekayaan di siklus ini");
@@ -655,6 +671,63 @@ test("a running cycle starting 25 Sep keeps exact daily rows, links days by keyb
   await dayChart.getByRole("link", { name: dayName, exact: true }).click();
   await dayReturn.waitFor();
   expect(new URL(page.url()).search, "chart link works by pointer").toBe(DAY_HREF.slice(DAY_HREF.indexOf("?")));
+});
+
+test("12-month calendar category table renders a palette or neutral swatch on every row and folds non-palette rows into the neutral stack segment", async ({ page, api }) => {
+  const paletteCategories = [
+    { id: "c-1", name: "Belanja rumah", amount: "4500000", share: "0.225" },
+    { id: "c-2", name: "Tempat tinggal", amount: "3800000", share: "0.190" },
+    { id: "c-3", name: "Makan di luar", amount: "3100000", share: "0.155" },
+    { id: "c-4", name: "Transportasi", amount: "2400000", share: "0.120" },
+    { id: "c-5", name: "Tagihan", amount: "1900000", share: "0.095" },
+    { id: "c-6", name: "Kopi & camilan", amount: "1400000", share: "0.070" },
+  ];
+  const calendarTwelve = [
+    ...paletteCategories,
+    { id: "c-7", name: "Kesehatan", amount: "1100000", share: "0.055" },
+    { id: "c-8", name: "Hiburan", amount: "1000000", share: "0.050" },
+    { id: "c-9", name: "Pendidikan", amount: "800000", share: "0.040" },
+  ];
+  api.use(({ path, query }) => {
+    if (path === "/api/v1/analytics/categories") {
+      return query.get("period") === "last_3_cycles" ? paletteCategories : calendarTwelve;
+    }
+    return undefined;
+  });
+  await visit(page, "/analytics?view=calendar&range=12");
+  await expect(page.locator("#where .cat-list > li")).toHaveCount(9);
+  const audit = await page.evaluate(() => {
+    const resolve = token => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = `var(${token})`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    };
+    const palette = [1, 2, 3, 4, 5, 6].map(index => resolve(`--chart-category-${index}`));
+    const neutral = resolve("--chart-category-other");
+    const rows = [...document.querySelectorAll("#where .cat-list > li")].map(li => ({
+      swatches: li.querySelectorAll(".cat-swatch").length,
+      gaps: li.querySelectorAll(".cat-swatch-gap").length,
+      swatchColor: li.querySelector(".cat-swatch") ? getComputedStyle(li.querySelector(".cat-swatch")).backgroundColor : "",
+      barColor: li.querySelector(".cat-share-bar i") ? getComputedStyle(li.querySelector(".cat-share-bar i")).backgroundColor : "",
+    }));
+    const stack = [...document.querySelectorAll("#where .cat-stack > i")].map(el => getComputedStyle(el).backgroundColor);
+    return { palette, neutral, rows, stack };
+  });
+  const allowed = new Set([...audit.palette, audit.neutral]);
+  for (const row of audit.rows) {
+    expect(row.swatches, "every calendar row has one swatch").toBe(1);
+    expect(row.gaps, "no calendar row renders an empty swatch gap").toBe(0);
+    expect(allowed.has(row.swatchColor), `swatch colour ${row.swatchColor} is palette or neutral`).toBe(true);
+    expect(row.barColor, "share bar matches swatch colour").toBe(row.swatchColor);
+  }
+  for (const extra of audit.rows.slice(6)) {
+    expect(extra.swatchColor, "non-palette 12-month row uses neutral colour").toBe(audit.neutral);
+  }
+  expect(audit.stack.at(-1), "stack bar folds non-palette rows into neutral segment").toBe(audit.neutral);
+  expect(await overflows(page)).toBe(false);
 });
 
 test("entering the ledger from the calendar directly keeps month bounds without inventing a cycle", async ({ page }) => {

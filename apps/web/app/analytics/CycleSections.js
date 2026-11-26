@@ -1,5 +1,5 @@
 import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
-import { deltaView } from "../lib/cycleKpi";
+import { deltaView, isComparisonTooEarly } from "../lib/cycleKpi";
 import { compactMillions, directionMark } from "../lib/cycleLedger";
 import { buildHeatmap, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../lib/cycleSections";
 import { OTHER_CATEGORY_COLOR, categoryKey } from "../lib/categoryColors";
@@ -61,7 +61,7 @@ export function ChangesTable({ items, comparison, selected, select, colors = nul
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
     <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —. Sebelumnya · penuh: {measuredLabel(comparison.previousFullCycle)}.</caption>
     <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{prevLabel}</th><th scope="col">{medianLabel}</th><th scope="col">{deltaLabel}</th><th scope="col">{medianDeltaLabel}</th><th scope="col">{contribLabel}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th></>}</tr></thead>
-    <tbody>{items.map(item => { const key = categoryKey(item); const color = colors?.get(key); const swatch = color && color !== OTHER_CATEGORY_COLOR ? <i className="heat-swatch" aria-hidden="true" style={{ "--cat": color }}/> : null; return <tr key={key} data-selected={selected === key}>
+    <tbody>{items.map(item => { const key = categoryKey(item); const color = colors?.get(key) || OTHER_CATEGORY_COLOR; const swatch = colors ? <i className="heat-swatch" aria-hidden="true" style={{ "--cat": color }}/> : null; return <tr key={key} data-selected={selected === key}>
       <th scope="row"><button className="change-button" type="button" aria-haspopup="dialog" aria-controls="category-drawer" onClick={event => select(key, event.currentTarget)}>{swatch}<span>{item.name}</span></button></th>
       <td data-label="Siklus ini">{money(item.amount)}</td><td data-label={prevLabel}>{amountLabel(item.previous)}</td><td data-label={medianLabel}>{amountLabel(item.median3)}</td>
       <td data-label={deltaLabel}><span>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></span></td>
@@ -91,8 +91,8 @@ export function CategoryHeatmap({ facts, mode = "FULL", colors = null, selectedC
         </tr></thead>
         <tbody>
           {heat.rows.map(row => {
-            const color = row.muted ? OTHER_CATEGORY_COLOR : colors?.get(row.key);
-            const swatch = row.muted || (color && color !== OTHER_CATEGORY_COLOR) ? <i className="heat-swatch" aria-hidden="true" style={{ "--cat": row.muted ? OTHER_CATEGORY_COLOR : color }}/> : null;
+            const color = row.muted ? OTHER_CATEGORY_COLOR : (colors?.get(row.key) || OTHER_CATEGORY_COLOR);
+            const swatch = row.muted || colors ? <i className="heat-swatch" aria-hidden="true" style={{ "--cat": color }}/> : null;
             return <tr key={row.key} data-selected-row={row.selected || undefined}>
               <th scope="row">
                 {row.selectable && onSelectCategory
@@ -130,17 +130,18 @@ function MerchantDelta({ value }) {
 }
 
 export function MerchantCard({ facts = null, items = null, hrefFor = null, caption = "", emptyMessage = "Belum ada merchant pendukung pada siklus ini.", stale = false }) {
-  const showDelta = Boolean(facts);
-  const list = facts ? merchantBars(facts.merchantRanking) : merchantBars({ rows: Array.isArray(items) ? items : [] });
+  const hasFacts = Boolean(facts);
+  const showDelta = hasFacts && !isComparisonTooEarly(facts);
+  const list = hasFacts ? merchantBars(facts.merchantRanking) : merchantBars({ rows: Array.isArray(items) ? items : [] });
   const rows = list?.rows || [];
-  const other = showDelta && list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
+  const other = hasFacts && list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
   const empty = !list || !rows.length;
   const linkFor = item => {
     if (!item.id) return "";
-    if (facts) return transactionHref(facts.period, { merchantId: item.id });
+    if (hasFacts) return transactionHref(facts.period, { merchantId: item.id });
     return hrefFor ? hrefFor(item) : "";
   };
-  return <section id="merchants" className={`surface dash-card${!showDelta ? " calendar-section" : ""}`} data-stale={stale ? "true" : undefined} aria-busy={stale || undefined} aria-labelledby="merchants-title">
+  return <section id="merchants" className={`surface dash-card${!hasFacts ? " calendar-section" : ""}`} data-stale={stale ? "true" : undefined} aria-busy={stale || undefined} aria-labelledby="merchants-title">
     <div className="dash-card-head">
       <div>
         <SectionTitle id="merchants-title" title="Merchant teratas"/>
@@ -159,11 +160,13 @@ export function MerchantCard({ facts = null, items = null, hrefFor = null, capti
           {showDelta && <MerchantDelta value={item.deltaVsPrevious}/>}
         </li>;
       })}
-      {other && <li className="merchant-item" data-other="">
+      {other && <li className="merchant-item" data-other="" data-no-delta={!showDelta || undefined}>
         <span className="merchant-item-name"><span>Merchant lain · {other.merchantCount}</span></span>
         <span className="merchant-item-amount">{money(other.amount)}</span>
-        <span aria-hidden="true"/>
-        <MerchantDelta value={other.deltaVsPrevious}/>
+        {showDelta && <>
+          <span aria-hidden="true"/>
+          <MerchantDelta value={other.deltaVsPrevious}/>
+        </>}
       </li>}
     </ul>}
     {caption && <p className="dash-caption">{caption}</p>}

@@ -127,8 +127,7 @@ export function calendarCategoryView(items = [], palette = null) {
   const { colors } = categoryColorMap(items, palette);
   const rows = items.map((row, index) => {
     const key = row.id || `uncategorized:${index}`;
-    const assigned = colors.get(categoryKey(row));
-    const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
+    const color = colors.get(categoryKey(row)) || OTHER_CATEGORY_COLOR;
     const numeric = Math.abs(Number(row.amount));
     return {
       key,

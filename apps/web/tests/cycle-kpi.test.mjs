@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { averageDailyText, baselineFor, deltaTone, deltaView, isZero, kpiCells, shouldShowLastCycleCard } from "../app/lib/cycleKpi.js";
+import { averageDailyText, baselineFor, deltaTone, deltaView, isComparisonTooEarly, isZero, kpiCells, shouldShowLastCycleCard } from "../app/lib/cycleKpi.js";
 import { cycleFacts, earlyCycleFacts, firstCycleFacts, noSpendingFacts } from "./fixtures/cycle-review.mjs";
 
 const text = value => value.replace(/ /g, " ");
@@ -96,14 +96,20 @@ test("days 1-7 close-out card rule: active salary cycle with days <= 7 and previ
 test("days 1-3 active cycle hides KPI lead delta chips while keeping verdict, and day 4 shows chips", () => {
   const early = earlyCycleFacts();
   for (const days of [1, 2, 3]) {
-    const cell = kpiCells({ ...early, spendingShape: { ...early.spendingShape, days } })[0];
+    const sample = { ...early, spendingShape: { ...early.spendingShape, days } };
+    assert.equal(isComparisonTooEarly(sample), true);
+    const cell = kpiCells(sample)[0];
     assert.deepEqual(cell.chips, []);
     assert.equal(cell.verdict, early.takeaways.verdict);
     assert.equal(cell.emptyComparison, "");
   }
-  const day4 = kpiCells({ ...early, spendingShape: { ...early.spendingShape, days: 4 } })[0];
+  const day4Facts = { ...early, spendingShape: { ...early.spendingShape, days: 4 } };
+  assert.equal(isComparisonTooEarly(day4Facts), false);
+  const day4 = kpiCells(day4Facts)[0];
   assert.equal(day4.chips.length, 1);
   assert.match(day4.chips[0].text, /vs siklus lalu$/);
+  assert.equal(isComparisonTooEarly({ ...early, period: { ...early.period, state: "CLOSED" } }), false);
+  assert.equal(isComparisonTooEarly(null), false);
 });
 
 test("the daily average is the served rounded figure, never rounded in the browser", () => {
