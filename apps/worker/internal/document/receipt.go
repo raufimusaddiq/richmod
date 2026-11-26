@@ -237,6 +237,8 @@ func lockReceiptLedger(ctx context.Context, tx pgx.Tx, householdID, sourceID str
 	return nil
 }
 
+var errReceiptMerchantReview = errors.New("receipt merchant needs review")
+
 func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
 	candidates, err := p.findMatches(ctx, householdID, sourceID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant)
 	if err != nil {
@@ -262,7 +264,10 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 		return err
 	}
 	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown && receiptAutoConfirmTrusted(value, merchantID != nil) {
-		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, merchantID)
+		err := p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, merchantID)
+		if err == nil || !errors.Is(err, errReceiptMerchantReview) {
+			return err
+		}
 	}
 	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, merchantID, len(candidates) > 0, pendingCandidateIDs(candidates)...)
 }
@@ -276,6 +281,15 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	defer tx.Rollback(ctx)
 	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
 		return err
+	}
+	if knownMerchantID == nil && strings.TrimSpace(value.Merchant) != "" {
+		merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, value.Merchant)
+		if err != nil {
+			return err
+		}
+		if merchantReview {
+			return errReceiptMerchantReview
+		}
 	}
 	merchantID, err := canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
 	if err != nil {
@@ -385,7 +399,7 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	return tx.Commit(ctx)
 }
 
-func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown, arithmeticSignal bool) string {
+func receiptReviewReason(possibleDuplicate, merchantReview, categoryKnown, dateKnown, arithmeticSignal bool) string {
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
 	}
@@ -396,11 +410,14 @@ func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown, arithmetic
 		return "AMBIGUOUS_CATEGORY"
 	case !dateKnown:
 		return "MISSING_TRANSACTION_DATE"
-	case arithmeticSignal:
-		return "RECEIPT_MISMATCH"
-	default:
-		return "AMBIGUOUS_CATEGORY"
 	}
+	if arithmeticSignal {
+		return "RECEIPT_MISMATCH"
+	}
+	if merchantReview {
+		return "UNKNOWN_MERCHANT"
+	}
+	return "AMBIGUOUS_CATEGORY"
 }
 
 func receiptKnownFacts(value receiptExtraction, validation receiptValidation) map[string]any {
@@ -426,7 +443,21 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
 		return err
 	}
-	merchantID, err := canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
+	merchantReview := false
+	if knownMerchantID == nil && strings.TrimSpace(value.Merchant) != "" {
+		merchantReview, err = reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, value.Merchant)
+		if err != nil {
+			return err
+		}
+	}
+	arithmeticSignal := validation.ArithmeticAvailable && !validation.ArithmeticOK
+	reviewType := receiptReviewReason(possibleDuplicate, merchantReview, categoryID != nil, validation.DateKnown, arithmeticSignal)
+	var merchantID *string
+	if merchantReview && reviewType == "RECEIPT_MISMATCH" {
+		merchantID, err = legacyMerchantID(ctx, tx, householdID, value.Merchant)
+	} else {
+		merchantID, err = canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
+	}
 	if err != nil {
 		return err
 	}
@@ -453,8 +484,6 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_RECEIPT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'possible_duplicate',$4::boolean))`, householdID, transactionID, documentID, possibleDuplicate); err != nil {
 		return err
 	}
-	arithmeticSignal := validation.ArithmeticAvailable && !validation.ArithmeticOK
-	reviewType := receiptReviewReason(possibleDuplicate, categoryID != nil, validation.DateKnown, arithmeticSignal)
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reviewType)
@@ -469,6 +498,12 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 			decision.KnownFacts["category"] = categorySlug
 		}
 		decision.MissingFacts = slices.DeleteFunc(slices.Clone(decision.MissingFacts), func(fact string) bool { return fact == "category" })
+	}
+	if merchantReview && reviewType != "RECEIPT_MISMATCH" {
+		delete(decision.KnownFacts, "merchant")
+		if reviewType != "UNKNOWN_MERCHANT" && !slices.Contains(decision.MissingFacts, "merchant") {
+			decision.MissingFacts = append(decision.MissingFacts, "merchant")
+		}
 	}
 	if possibleDuplicate && len(pendingCandidates) > 0 {
 		decision.KnownFacts["prior_match_transaction_ids"] = pendingCandidates
@@ -520,12 +555,30 @@ func canonicalMerchantID(ctx context.Context, tx pgx.Tx, householdID, name strin
 	if known != nil {
 		return known, nil
 	}
-	normalized := strings.TrimSpace(name)
-	if normalized == "" {
+	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, name)
+	if reviewdomain.IsMerchantLinkProblem(err) {
+		return nil, nil
+	}
+	if err != nil || id == "" {
+		return nil, err
+	}
+	return &id, nil
+}
+
+func legacyMerchantID(ctx context.Context, tx pgx.Tx, householdID, name string) (*string, error) {
+	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
+	if name == "" {
 		return nil, nil
 	}
 	var id string
-	if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
+	err := tx.QueryRow(ctx, `SELECT min(normalized_merchant_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) GROUP BY household_id,lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT normalized_merchant_id)=1`, householdID, name).Scan(&id)
+	if err == nil {
+		return &id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, name).Scan(&id); err != nil {
 		return nil, err
 	}
 	return &id, nil

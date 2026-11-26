@@ -17,7 +17,7 @@ func reviewPolicyVersion(_ string) string {
 	return ToolSchemaVersion
 }
 
-func transactionReviewDecision(household, sourceEventID string, extraction Extraction, result PolicyResult, transactionID string) reviewdec.Decision {
+func transactionReviewDecision(household, sourceEventID string, extraction Extraction, result PolicyResult, merchantReview bool, transactionID string) reviewdec.Decision {
 	known := map[string]any{}
 	if amount := value(extraction.AmountIDR); amount != "" {
 		known["amount_idr"] = amount
@@ -31,7 +31,11 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	if channel := value(extraction.Channel); channel != "" {
 		known["channel"] = channel
 	}
-	if merchant := value(extraction.Merchant); merchant != "" {
+	if result.CategoryID != "" {
+		known["category_id"] = result.CategoryID
+	}
+	merchantAmbiguous := merchantReview
+	if merchant := value(extraction.Merchant); merchant != "" && !merchantAmbiguous {
 		known["merchant"] = merchant
 	}
 
@@ -58,9 +62,17 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		decision.WhyNotAuto = "extraction did not resolve an active household category"
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
-		decision.MissingFacts = []string{"merchant", "category"}
+		if merchantReview {
+			decision.MissingFacts = []string{"merchant"}
+			if result.CategoryID == "" {
+				decision.MissingFacts = append(decision.MissingFacts, "category")
+			}
+			decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
+		} else {
+			decision.MissingFacts = []string{"merchant", "category"}
+			decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
+		}
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
-		decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}

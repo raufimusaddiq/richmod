@@ -12,6 +12,7 @@ import (
 )
 
 const genericMutationReply = "Permintaan keuanganmu sudah diproses."
+const ambiguousMerchantReply = "Nama merchant itu cocok dengan lebih dari satu tempat, jadi belum ada yang diubah. Sebutkan nama merchant yang lebih spesifik, ya."
 
 const sourceEvidenceFixesAmountMessage = "Nominal dan merchant transaksi ini berasal dari bukti sumbernya (email bank, bukti penyedia, atau dokumen), jadi tidak bisa diubah dari chat. Kalau memang salah, buka transaksinya di aplikasi atau kirim bukti yang benar. Kategori, keterangan, dan tanggalnya tetap bisa kuubah."
 
@@ -310,6 +311,8 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Transfer tidak punya kategori pengeluaran, jadi kategorinya tidak diubah. Tidak ada yang berubah.", true
 	case "TRANSACTION_VOIDED":
 		return "Transaksi itu sudah dibatalkan, jadi perubahannya tidak disimpan.", true
+	case "AMBIGUOUS_MERCHANT":
+		return ambiguousMerchantReply, true
 	case "TRANSFER_PURPOSE_REQUIRED":
 		return "Aku belum bisa menentukan jenis transfernya. Sebutkan akun tujuannya (tabungan, investasi, atau utang) atau tulis bahwa ini pindah antar rekening. Belum ada yang dicatat.", true
 	case "INCOMPATIBLE_TRANSFER_PURPOSE", "INCOMPATIBLE_WEALTH_ACCOUNT":

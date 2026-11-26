@@ -316,7 +316,7 @@ func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, househ
 			outcome.Skipped++
 			continue
 		}
-		merchantID, remembered, err := resolveEntryMerchantTx(ctx, tx, householdID, v.Merchant)
+		merchantID, remembered, merchantReview, err := resolveEntryMerchantTx(ctx, tx, householdID, v.Merchant)
 		if err != nil {
 			return outcome, err
 		}
@@ -339,7 +339,7 @@ func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, househ
 			}
 		}
 		status := "CONFIRMED"
-		if v.Type == "EXPENSE" && cat == nil {
+		if (v.Type == "EXPENSE" && cat == nil) || merchantReview {
 			status = "NEEDS_REVIEW"
 		}
 		proposalStatus := "ACCEPTED"
@@ -368,7 +368,11 @@ func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, househ
 			continue
 		}
 		outcome.NeedsReview++
-		if err = EnqueueReviewRequest(ctx, tx, tid, "AMBIGUOUS_CATEGORY", update.Message.Chat.ID, update.Message.MessageID, ReviewQuestion(v.Amount, batchItemLabel(v))); err != nil {
+		reviewType := "AMBIGUOUS_CATEGORY"
+		if merchantReview {
+			reviewType = "UNKNOWN_MERCHANT"
+		}
+		if err = EnqueueReviewRequest(ctx, tx, tid, reviewType, update.Message.Chat.ID, update.Message.MessageID, ReviewQuestion(v.Amount, batchItemLabel(v))); err != nil {
 			return outcome, err
 		}
 	}

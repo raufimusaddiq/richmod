@@ -128,7 +128,7 @@ func TestBankEmailMerchantlessExpenseCollectsMerchantBeforeCategory(t *testing.T
 			if kept.Status != "NEEDS_REVIEW" || kept.ReviewType != "UNKNOWN_MERCHANT" || kept.AutoConfirm {
 				t.Fatalf("merchant must precede category: result=%+v", kept)
 			}
-			decision := transactionReviewDecision("household", "source", extraction, kept, "transaction")
+			decision := transactionReviewDecision("household", "source", extraction, kept, false, "transaction")
 			if len(decision.MissingFacts) != 2 || decision.MissingFacts[0] != "merchant" || decision.MissingFacts[1] != "category" {
 				t.Fatalf("merchant-first contract=%v", decision.MissingFacts)
 			}

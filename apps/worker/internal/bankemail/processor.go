@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -555,10 +556,25 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		}
 	}
 	categoryID := result.CategoryID
-	merchantID, err := resolveMerchantID(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
-	if err != nil {
-		return err
+	merchantID := ""
+	merchantReview := false
+	if reviewReasonCollectsMerchant(result.ReviewType) {
+		merchantID, merchantReview, err = resolveMerchantLink(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+		if err != nil {
+			return err
+		}
+	} else {
+		merchantID, err = resolveLegacyMerchantID(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+		if err != nil {
+			return err
+		}
 	}
+	if merchantReview {
+		result.AutoConfirm = false
+		result.Status = "NEEDS_REVIEW"
+		result.ReviewType = "UNKNOWN_MERCHANT"
+	}
+	autoNotice = autoNotice && !merchantReview
 	transactionType := result.Type
 	if transactionType == "NEEDS_REVIEW" {
 		transactionType = "UNCLASSIFIED"
@@ -673,8 +689,11 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	if transactionStatus == "NEEDS_REVIEW" {
-		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
+		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, merchantReview, transactionID)
 		if len(duplicateCandidates) > 0 {
+			if merchantReview && !slices.Contains(decision.MissingFacts, "merchant") {
+				decision.MissingFacts = append(decision.MissingFacts, "merchant")
+			}
 			decision = duplicateReviewDecision(decision, transactionID, duplicateCandidates)
 		}
 		continuable := false
@@ -737,7 +756,20 @@ func loadMerchantMemory(ctx context.Context, q merchantmemory.Querier, household
 	}
 	return MerchantMemory{MerchantID: match.MerchantID, CategoryID: match.CategoryID, AutoApply: true}, nil
 }
+func reviewReasonCollectsMerchant(reason string) bool {
+	switch reason {
+	case "", "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
+		return true
+	}
+	return false
+}
+
 func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
+	merchantID, _, err := resolveMerchantLink(ctx, tx, household, raw)
+	return merchantID, err
+}
+
+func resolveLegacyMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
 	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
 	if raw == "" {
 		return "", nil
@@ -750,12 +782,28 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
-	normalized := strings.ToUpper(raw)
-	if len([]rune(normalized)) > 160 {
-		normalized = string([]rune(normalized)[:160])
+	stored := strings.ToUpper(raw)
+	if runes := []rune(stored); len(runes) > 160 {
+		stored = string(runes[:160])
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, stored).Scan(&id)
 	return id, err
+}
+
+func resolveMerchantLink(ctx context.Context, tx pgx.Tx, household, raw string) (string, bool, error) {
+	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	if raw == "" {
+		return "", false, nil
+	}
+	raw = strings.ToUpper(raw)
+	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
+	if reviewdomain.IsMerchantLinkProblem(err) {
+		return "", true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, false, nil
 }
 
 type bankLink struct {
@@ -834,5 +882,8 @@ func duplicateReviewDecision(base reviewdec.Decision, transactionID string, cand
 	decision.Provenance = map[string]any{"pipeline": "bank-email-generic", "cross_lane_duplicate": true}
 	decision.PolicyVersion = base.PolicyVersion
 	decision.WhyNotAuto = "another source already recorded a transaction that may be this same bank event"
+	if slices.Contains(base.MissingFacts, "merchant") && !slices.Contains(decision.MissingFacts, "merchant") {
+		decision.MissingFacts = append(decision.MissingFacts, "merchant")
+	}
 	return decision
 }

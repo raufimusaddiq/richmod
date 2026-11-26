@@ -108,6 +108,10 @@ func (p *Processor) finishTransactionDate(ctx context.Context, tx pgx.Tx, househ
 		_ = sp.Rollback(ctx)
 		return staleTap(step), nil
 	}
+	if reviewdomain.IsMerchantLinkProblem(err) {
+		_ = sp.Rollback(ctx)
+		return reask(step, ambiguousMerchantReply), nil
+	}
 	if err != nil {
 		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
@@ -191,6 +195,10 @@ func (p *Processor) applyPurposeText(ctx context.Context, tx pgx.Tx, householdID
 	if errors.As(err, &missing) || errors.Is(err, reviewdomain.ErrMissingCategory) || errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 		_ = sp.Rollback(ctx)
 		return staleTap(step), nil
+	}
+	if reviewdomain.IsMerchantLinkProblem(err) {
+		_ = sp.Rollback(ctx)
+		return reask(step, ambiguousMerchantReply), nil
 	}
 	if err != nil {
 		_ = sp.Rollback(ctx)

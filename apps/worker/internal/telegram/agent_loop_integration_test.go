@@ -548,6 +548,49 @@ func TestRecentTransactionsPreferTheMembersOwnEntries(t *testing.T) {
 	}
 }
 
+func TestAmbiguousCorrectionMerchantDoesNotApply(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "loop-ambiguous-merchant")
+	var shortMerchant, longMerchant string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'AMBIGUOUS SHORT') RETURNING id`, f.householdID).Scan(&shortMerchant))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'AMBIGUOUS LONG') RETURNING id`, f.householdID).Scan(&longMerchant))
+	long := "1128 5635 31"
+	_, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'PAYEE DUP',$2),($1,$3,$4)`, f.householdID, shortMerchant, "PAYEE DUP BANK MANDIRI 1128 5635 31", longMerchant)
+	mustAgentTest(t, err)
+	var transactionID string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',25000,'IDR',now(),'Old Payee',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&transactionID))
+	_, err = f.pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TELEGRAM_TEXT')`, transactionID, f.sourceID)
+	mustAgentTest(t, err)
+	p := NewProcessor(f.pool, nil)
+	staged, _, err := p.agentStageCorrection(ctx, f.state, gateway.ToolCall{}, map[string]any{"search_text": "Old Payee", "period": "TODAY", "merchant": long})
+	mustAgentTest(t, err)
+	if staged.Status != "PENDING_CONFIRMATION" || staged.confirmationToken == "" {
+		t.Fatalf("ambiguous merchant correction was not staged: %#v", staged)
+	}
+	var actionID string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id::text FROM telegram_pending_action WHERE transaction_id=$1 AND status='PENDING'`, transactionID).Scan(&actionID))
+	tx, err := f.pool.Begin(ctx)
+	mustAgentTest(t, err)
+	defer tx.Rollback(ctx)
+	outcome, err := applyPendingCorrectionTx(ctx, tx, f.householdID, actionID, f.chatID)
+	mustAgentTest(t, err)
+	if outcome.Blocked != "AMBIGUOUS_MERCHANT" || outcome.Refused || outcome.Voided {
+		t.Fatalf("ambiguous merchant correction outcome=%+v", outcome)
+	}
+	mustAgentTest(t, tx.Commit(ctx))
+	var merchantID *string
+	var counterparty, pendingStatus string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT merchant_id::text,counterparty_name FROM transaction WHERE id=$1`, transactionID).Scan(&merchantID, &counterparty))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM telegram_pending_action WHERE id=$1`, actionID).Scan(&pendingStatus))
+	if merchantID != nil || counterparty != "Old Payee" || pendingStatus != "CANCELLED" {
+		t.Fatalf("ambiguous correction changed the transaction: merchant=%v counterparty=%s pending=%s", merchantID, counterparty, pendingStatus)
+	}
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='EDIT_TRANSACTION'`, transactionID); n != 0 {
+		t.Fatalf("ambiguous correction wrote %d EDIT_TRANSACTION audit rows", n)
+	}
+}
+
 func TestProgressNoticeNamesWhatTheTurnIsDoing(t *testing.T) {
 	if progressNoticeFor(activityRecording) == progressNoticeFor(activityAnalyzing) || strings.Contains(progressNoticeFor(activityRecording), "analisis") || strings.Contains(progressNoticeFor(activityThinking), "analisis") {
 		t.Fatal("a recording or thinking turn must not be described as an analysis")

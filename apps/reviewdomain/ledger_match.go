@@ -178,18 +178,23 @@ func EnrichLinkedTransaction(ctx context.Context, tx pgx.Tx, householdID, transa
 			return nil, err
 		}
 		if missing {
-			var merchantID string
-			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id::text`, householdID, name).Scan(&merchantID); err != nil {
+			merchantID, err := ResolveOrCreateMerchant(ctx, tx, householdID, name)
+			if IsMerchantLinkProblem(err) {
+				merchantID, err = "", nil
+			}
+			if err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE transaction SET merchant_id=$3,updated_at=now() WHERE id=$1 AND household_id=$2 AND merchant_id IS NULL`, transactionID, householdID, merchantID); err != nil {
-				return nil, err
-			}
-			filled = append(filled, "merchant")
-			known, _ := json.Marshal(name)
-			if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(jsonb_set(decision,'{knownFacts,merchant}',$3::jsonb,true),'{missingFacts}',COALESCE((SELECT jsonb_agg(f) FROM jsonb_array_elements(decision->'missingFacts') f WHERE f<>'"merchant"'::jsonb),'[]'::jsonb)),updated_at=now()
-				WHERE transaction_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND') AND jsonb_typeof(decision->'missingFacts')='array' AND jsonb_typeof(decision->'knownFacts')='object'`, transactionID, householdID, string(known)); err != nil {
-				return nil, err
+			if merchantID != "" {
+				if _, err := tx.Exec(ctx, `UPDATE transaction SET merchant_id=$3,updated_at=now() WHERE id=$1 AND household_id=$2 AND merchant_id IS NULL`, transactionID, householdID, merchantID); err != nil {
+					return nil, err
+				}
+				filled = append(filled, "merchant")
+				known, _ := json.Marshal(name)
+				if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(jsonb_set(decision,'{knownFacts,merchant}',$3::jsonb,true),'{missingFacts}',COALESCE((SELECT jsonb_agg(f) FROM jsonb_array_elements(decision->'missingFacts') f WHERE f<>'"merchant"'::jsonb),'[]'::jsonb)),updated_at=now()
+					WHERE transaction_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND') AND jsonb_typeof(decision->'missingFacts')='array' AND jsonb_typeof(decision->'knownFacts')='object'`, transactionID, householdID, string(known)); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}

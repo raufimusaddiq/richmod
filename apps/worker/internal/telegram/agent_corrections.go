@@ -318,8 +318,13 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	}
 	merchantID := ""
 	if proposedMerchant != nil {
-		id, _, err := resolveEntryMerchantTx(ctx, tx, householdID, *proposedMerchant)
+		id, _, merchantReview, err := resolveEntryMerchantTx(ctx, tx, householdID, *proposedMerchant)
 		if err != nil {
+			return outcome, err
+		}
+		if merchantReview {
+			outcome.Blocked = "AMBIGUOUS_MERCHANT"
+			_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 			return outcome, err
 		}
 		merchantID = id
@@ -373,19 +378,24 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	return outcome, nil
 }
 
-func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw string) (string, *merchantmemory.Match, error) {
+func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw string) (string, *merchantmemory.Match, bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", nil, nil
+		return "", nil, false, nil
 	}
 	match, err := merchantmemory.Lookup(ctx, tx, householdID, raw)
 	if err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 	if match != nil {
-		return match.MerchantID, match, nil
+		return match.MerchantID, match, false, nil
 	}
-	var merchantID string
-	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, raw).Scan(&merchantID)
-	return merchantID, nil, err
+	merchantID, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, raw)
+	if reviewdomain.IsMerchantLinkProblem(err) {
+		return "", nil, true, nil
+	}
+	if err != nil {
+		return "", nil, false, err
+	}
+	return merchantID, nil, false, nil
 }

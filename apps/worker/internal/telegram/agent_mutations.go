@@ -67,7 +67,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, fmt.Errorf("re-authorize Telegram identity: %w", err)
 	}
 
-	merchantID, remembered, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
+	merchantID, remembered, merchantReview, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
 	if err != nil {
 		return result, true, err
 	}
@@ -119,7 +119,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	if !decision.DateSupported {
 		state.ResidualDimensions = appendIfMissing(state.ResidualDimensions, "transaction_at")
 	}
-	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil) && len(duplicateIDs) == 0
+	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil) && len(duplicateIDs) == 0 && !merchantReview
 	proposalStatus, transactionStatus := "NEEDS_REVIEW", "NEEDS_REVIEW"
 	if autoConfirm {
 		proposalStatus, transactionStatus = "ACCEPTED", "CONFIRMED"
@@ -182,6 +182,10 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 			duplicateDecision.KnownFacts["prior_match_transaction_ids"] = duplicateIDs
 			duplicateDecision.Provenance = map[string]any{"pipeline": "telegram-agent", "possible_duplicate": true}
 			duplicateDecision.WhyNotAuto = "a matching expense was already recorded in the last 7 days"
+			if merchantReview {
+				delete(duplicateDecision.KnownFacts, "merchant")
+				duplicateDecision.MissingFacts = append(duplicateDecision.MissingFacts, "merchant")
+			}
 			if err = EnqueueReviewRequest(ctx, tx, transactionID, "POSSIBLE_DUPLICATE", state.Update.Message.Chat.ID, state.Update.Message.MessageID, "Transaksi mirip sudah ada dalam 7 hari terakhir. Pilih gabungkan, catat sebagai baru, atau abaikan.", duplicateDecision); err != nil {
 				return result, true, err
 			}
@@ -191,7 +195,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 				reviewType = "TRANSACTION_FACTS_MISSING"
 			} else if contains(state.ResidualDimensions, "transaction_at") {
 				reviewType = "MISSING_TRANSACTION_DATE"
-			} else if value.Merchant == "" {
+			} else if value.Merchant == "" || merchantReview {
 				reviewType = "UNKNOWN_MERCHANT"
 			}
 			if err = EnqueueReviewRequest(ctx, tx, transactionID, reviewType, state.Update.Message.Chat.ID, state.Update.Message.MessageID, ReviewQuestion(value.Amount, value.Merchant)); err != nil {

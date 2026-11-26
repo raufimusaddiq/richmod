@@ -209,6 +209,70 @@ func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
 	}
 }
 
+func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
+	t.Parallel()
+	f := seedScreenshotFixture(t, "Screenshot ambiguous merchant amount")
+	ctx := context.Background()
+	long := "1128 5635 31"
+	aliasRaw := "JOHN DOE BANK MANDIRI 1128 5635 31"
+	var shortMerchant, longMerchant string
+	if err := f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, f.householdID).Scan(&shortMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, f.householdID).Scan(&longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'JOHN DOE',$2),($1,$3,$4)`, f.householdID, shortMerchant, aliasRaw, longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	category := f.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", long)
+	row.Value.Amount = nil
+	row.Value.Direction, row.Value.CategorySlug = "OUT", &f.categorySlug
+	row.CategoryID, row.CategoryDecided = &category, true
+	f.persist(t, []validatedScreenshotRow{row})
+	var proposalID, reviewID, userID string
+	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID); err != nil {
+		t.Fatal(err)
+	}
+	var prior string
+	if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',now(),now()) RETURNING id`, f.householdID).Scan(&prior); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{knownFacts,prior_match_transaction_ids}',jsonb_build_array($2::text)) WHERE id=$1`, reviewID, prior); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	amount := "54000"
+	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var status, transactionCategory string
+	var merchantID *string
+	if err := f.pool.QueryRow(ctx, `SELECT status,category_id::text,merchant_id::text FROM transaction WHERE id=$1`, result.TransactionID).Scan(&status, &transactionCategory, &merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || merchantID != nil || transactionCategory != category {
+		t.Fatalf("ambiguous merchant transaction status=%s category=%s merchant=%v", status, transactionCategory, merchantID)
+	}
+	var reviewType string
+	var duplicateGap, merchantGap, knownMerchant bool
+	if err := f.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'duplicate_relationship',decision->'missingFacts' ? 'merchant',decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &duplicateGap, &merchantGap, &knownMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if reviewType != "POSSIBLE_DUPLICATE" || !duplicateGap || !merchantGap || knownMerchant {
+		t.Fatalf("review type=%s duplicateGap=%t merchantGap=%t knownMerchant=%t", reviewType, duplicateGap, merchantGap, knownMerchant)
+	}
+}
+
 func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T) {
 	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot absent amount ignored")

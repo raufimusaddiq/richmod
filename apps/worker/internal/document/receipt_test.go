@@ -12,15 +12,18 @@ import (
 
 func TestReceiptReviewDecisionNamesResidualFactsWithoutPromotingFallbackDate(t *testing.T) {
 	for _, test := range []struct {
-		category, date bool
-		wantReason     string
-		wantMissing    []string
+		category, date, merchantReview, arithmetic bool
+		wantReason                                 string
+		wantMissing                                []string
 	}{
-		{true, false, "MISSING_TRANSACTION_DATE", []string{"transaction_at"}},
-		{false, false, "TRANSACTION_FACTS_MISSING", []string{"category", "transaction_at"}},
-		{false, true, "AMBIGUOUS_CATEGORY", []string{"category"}},
+		{category: true, wantReason: "MISSING_TRANSACTION_DATE", wantMissing: []string{"transaction_at"}},
+		{wantReason: "TRANSACTION_FACTS_MISSING", wantMissing: []string{"category", "transaction_at"}},
+		{category: false, date: true, wantReason: "AMBIGUOUS_CATEGORY", wantMissing: []string{"category"}},
+		{category: false, date: true, arithmetic: true, wantReason: "AMBIGUOUS_CATEGORY", wantMissing: []string{"category"}},
+		{category: true, date: false, arithmetic: true, wantReason: "MISSING_TRANSACTION_DATE", wantMissing: []string{"transaction_at"}},
+		{category: true, date: true, merchantReview: true, arithmetic: true, wantReason: "RECEIPT_MISMATCH", wantMissing: []string{}},
 	} {
-		reason := receiptReviewReason(false, test.category, test.date, false)
+		reason := receiptReviewReason(false, test.merchantReview, test.category, test.date, test.arithmetic)
 		decision, ok := reviewdec.Preset(reason, "transaction", "t")
 		if !ok || reason != test.wantReason || !reflect.DeepEqual(decision.MissingFacts, test.wantMissing) {
 			t.Fatalf("reason=%s decision=%+v; want %s %v", reason, decision, test.wantReason, test.wantMissing)
@@ -34,10 +37,13 @@ func TestReceiptReviewDecisionNamesResidualFactsWithoutPromotingFallbackDate(t *
 			t.Fatalf("fallback provenance missing: %v", known)
 		}
 	}
-	if receiptReviewReason(true, true, true, true) != "POSSIBLE_DUPLICATE" {
+	if receiptReviewReason(true, false, true, true, true) != "POSSIBLE_DUPLICATE" {
 		t.Fatal("duplicate ambiguity must take precedence")
 	}
-	if reason := receiptReviewReason(false, true, true, true); reason != "RECEIPT_MISMATCH" {
+	if reason := receiptReviewReason(false, true, true, true, false); reason != "UNKNOWN_MERCHANT" {
+		t.Fatalf("ambiguous merchant got %s", reason)
+	}
+	if reason := receiptReviewReason(false, false, true, true, true); reason != "RECEIPT_MISMATCH" {
 		t.Fatalf("known category/date with arithmetic mismatch got %s", reason)
 	}
 	decision, ok := reviewdec.Preset("RECEIPT_MISMATCH", "transaction", "t")

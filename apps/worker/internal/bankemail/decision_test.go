@@ -10,7 +10,7 @@ import (
 
 func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
-	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
+	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, false, "t")
 	if len(d.MissingFacts) != 2 || d.MissingFacts[0] != "merchant" || d.MissingFacts[1] != "category" {
 		t.Fatalf("merchant must precede category, got %v", d.MissingFacts)
 	}
@@ -33,12 +33,34 @@ func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 }
 
 func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
-	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "AMBIGUOUS_CATEGORY"}, "t")
+	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "AMBIGUOUS_CATEGORY"}, false, "t")
 	if d.InteractionMode != "SINGLE_FIELD" || len(d.AllowedActions) != 2 || d.AllowedActions[0] != "CONFIRM_REVIEW" || d.AllowedActions[1] != "IGNORE" {
 		t.Fatalf("category dropdown contract=%+v", d)
 	}
 	if d.DecisionSource != reviewdec.SourceGenerativeExtraction {
 		t.Fatalf("category decision source=%q", d.DecisionSource)
+	}
+}
+
+func TestMerchantReviewKeepsOtherReasonMissingFacts(t *testing.T) {
+	merchant := "PAYEE DUP"
+	for _, test := range []struct {
+		reason string
+		want   string
+	}{
+		{"TRANSFER_CLASSIFICATION", "transfer_relationship"},
+		{"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "transaction_semantics"},
+	} {
+		d := transactionReviewDecision("h", "s", Extraction{Merchant: &merchant}, PolicyResult{ReviewType: test.reason}, false, "t")
+		if d.ReasonCode != test.reason {
+			t.Fatalf("%s became %s", test.reason, d.ReasonCode)
+		}
+		if len(d.MissingFacts) != 1 || d.MissingFacts[0] != test.want {
+			t.Fatalf("%s missing facts=%v", test.reason, d.MissingFacts)
+		}
+		if d.KnownFacts["merchant"] != merchant {
+			t.Fatalf("%s must keep the exact-linked merchant known: %v", test.reason, d.KnownFacts)
+		}
 	}
 }
 
@@ -56,7 +78,7 @@ func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 }
 
 func TestTransferClassificationDecisionOffersRelationshipChoices(t *testing.T) {
-	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, "t")
+	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, false, "t")
 	preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", "t")
 	if !ok {
 		t.Fatal("TRANSFER_CLASSIFICATION preset missing")

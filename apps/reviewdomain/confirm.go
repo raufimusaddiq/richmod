@@ -106,8 +106,8 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	}
 	merchantName := cleanText(cmd.MerchantName, 160)
 	if merchantName != "" {
-		var created string
-		if err := tx.QueryRow(ctx, "INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id", cmd.HouseholdID, merchantName).Scan(&created); err != nil {
+		created, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchantName)
+		if err != nil {
 			return result, err
 		}
 		merchantID = &created
@@ -125,6 +125,12 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	}
 	if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, confirmedAt, cmd.ActorUserID); err != nil {
 		return result, err
+	}
+	rawMerchant := ""
+	if merchantName != "" {
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(p.merchant_raw,'') FROM transaction_proposal p JOIN transaction_evidence e ON e.metadata_json->>'proposal_id'=p.id::text AND COALESCE(e.metadata_json->>'link_status','ACTIVE')='ACTIVE' WHERE e.transaction_id=$1 AND p.household_id=$2 AND NULLIF(btrim(p.merchant_raw),'') IS NOT NULL ORDER BY p.created_at DESC LIMIT 1`, cmd.TransactionID, cmd.HouseholdID).Scan(&rawMerchant); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return result, err
+		}
 	}
 	if merchantName != "" {
 		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, merchantName); err != nil {
@@ -167,6 +173,11 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	if cmd.RememberMerchant && merchantID != nil && categoryID != nil {
 		if _, err := tx.Exec(ctx, "INSERT INTO merchant_alias (household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 ON CONFLICT (household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true", cmd.HouseholdID, merchantID, categoryID); err != nil {
 			return result, err
+		}
+		if strings.TrimSpace(rawMerchant) != "" {
+			if _, err := tx.Exec(ctx, "INSERT INTO merchant_alias (household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,left(btrim($2),160),$3,$4,true,true) ON CONFLICT (household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET normalized_merchant_id=excluded.normalized_merchant_id,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true", cmd.HouseholdID, rawMerchant, merchantID, categoryID); err != nil {
+				return result, err
+			}
 		}
 	}
 	return result, nil

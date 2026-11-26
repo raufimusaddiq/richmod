@@ -6,8 +6,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
+
+func TestAmbiguousMerchantReplyAndProblemMapping(t *testing.T) {
+	reply, ok := agentMutationReply(agentToolResult{Status: "AMBIGUOUS_MERCHANT"})
+	if !ok || reply != ambiguousMerchantReply {
+		t.Fatalf("ambiguous merchant reply=%q ok=%t", reply, ok)
+	}
+	if !reviewdomain.IsMerchantLinkProblem(reviewdomain.ErrAmbiguousMerchantMatch) || !reviewdomain.IsMerchantLinkProblem(reviewdomain.ErrUnusableMerchantName) {
+		t.Fatal("both merchant link problems must map to the same re-ask")
+	}
+}
 
 func TestValidateAgentCallSetAllowsParallelReads(t *testing.T) {
 	calls := []gateway.ToolCall{

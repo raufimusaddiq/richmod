@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 var ErrMissingAmountReviewInvalid = errors.New("reviewdomain: missing-amount review invalid")
@@ -92,20 +94,24 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, err
 	}
 	duplicate = duplicate || carried > 0
+	merchantReview := false
+	var merchantID *string
+	if merchant != "" {
+		id, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchant)
+		if IsMerchantLinkProblem(err) {
+			merchantReview = true
+		} else if err != nil {
+			return result, err
+		} else if id != "" {
+			merchantID = &id
+		}
+	}
 	status, proposalStatus := "CONFIRMED", "ACCEPTED"
-	if duplicate {
+	if duplicate || merchantReview {
 		status, proposalStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET amount=$2::numeric,transaction_at=$3,category_candidate_id=$4,proposal_status=$5,metadata_json=metadata_json||jsonb_build_object('amount_source','USER','date_known',true),updated_at=now() WHERE id=$1`, cmd.ProposalID, *cmd.AmountIDR, at, category, proposalStatus); err != nil {
 		return result, err
-	}
-	var merchantID *string
-	if merchant != "" {
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, cmd.HouseholdID, merchant).Scan(&id); err != nil {
-			return result, err
-		}
-		merchantID = &id
 	}
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,$2,$3,$4::numeric,'IDR',$5,$6,$7,NULLIF($8,''),$9,$9,CASE WHEN $3='CONFIRMED' THEN now() ELSE NULL END) RETURNING id`, cmd.HouseholdID, typ, status, *cmd.AmountIDR, at, merchantID, category, description, confidence).Scan(&result.TransactionID); err != nil {
 		return result, err
@@ -124,15 +130,48 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, err
 	}
 	if duplicate {
-		known := map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at, "merchant": merchant}
+		known := map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at}
+		if !merchantReview {
+			known["merchant"] = merchant
+		}
 		if len(priorMatches) > 0 {
 			known["prior_match_transaction_ids"] = priorMatches
 		}
-		encoded, err := possibleDuplicateDecision(result.TransactionID, known)
+		decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", result.TransactionID)
+		if !ok {
+			return result, errors.New("reviewdomain: no POSSIBLE_DUPLICATE review contract")
+		}
+		for key, value := range known {
+			decision.KnownFacts[key] = value
+		}
+		if merchantReview {
+			decision.MissingFacts = append(decision.MissingFacts, "merchant")
+			decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
+		}
+		encoded, err := decision.JSON()
 		if err != nil {
 			return result, err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb)`, cmd.HouseholdID, result.TransactionID, string(encoded)); err != nil {
+			return result, err
+		}
+	} else if merchantReview {
+		decision, ok := reviewdec.Preset("UNKNOWN_MERCHANT", "transaction", result.TransactionID)
+		if !ok {
+			return result, errors.New("reviewdomain: no UNKNOWN_MERCHANT review contract")
+		}
+		decision.KnownFacts["amount_idr"] = *cmd.AmountIDR
+		decision.KnownFacts["transaction_at"] = at.Format(time.RFC3339)
+		if category != nil {
+			decision.KnownFacts["category_id"] = *category
+		}
+		decision.MissingFacts = slices.DeleteFunc(decision.MissingFacts, func(fact string) bool { return fact == "category" })
+		decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
+		encoded, err := decision.JSON()
+		if err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN',$3::jsonb)`, cmd.HouseholdID, result.TransactionID, string(encoded)); err != nil {
 			return result, err
 		}
 	} else if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, at, cmd.UserID); err != nil {
@@ -141,7 +180,7 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	if err := RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, source); err != nil {
 		return result, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'SET_SCREENSHOT_AMOUNT','transaction',$4,jsonb_build_object('review_item_id',$5::uuid,'proposal_id',$6::uuid,'needs_duplicate_review',$7::boolean))`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, result.TransactionID, cmd.ReviewItemID, cmd.ProposalID, duplicate)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'SET_SCREENSHOT_AMOUNT','transaction',$4,jsonb_build_object('review_item_id',$5::uuid,'proposal_id',$6::uuid,'needs_duplicate_review',$7::boolean,'needs_merchant_review',$8::boolean))`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, result.TransactionID, cmd.ReviewItemID, cmd.ProposalID, duplicate, merchantReview)
 	return result, err
 }
 

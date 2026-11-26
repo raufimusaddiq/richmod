@@ -64,13 +64,14 @@ type validatedScreenshotRow struct {
 	CategoryDecided    bool
 	CategoryFromMemory bool
 	MerchantID         *string
+	MerchantReview     bool
 	Candidates         []matchCandidate
 	PriorMatchIDs      []string
 	Matched            *matchCandidate
 }
 
 func (row validatedScreenshotRow) autoConfirmable() bool {
-	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && row.DateKnown && row.confidentEnough()
+	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && row.DateKnown && !row.MerchantReview && row.confidentEnough()
 }
 
 func (row *validatedScreenshotRow) applyMerchantMemory(match merchantmemory.Match, slug string) {
@@ -394,6 +395,20 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			}
 		}
 		proposalKey := reprocessProposalKey(fmt.Sprintf("row-%03d", index+1), usedKeys)
+		if row.MerchantID == nil && row.Matched == nil && row.Value.Amount != nil && strings.TrimSpace(row.Value.Merchant) != "" {
+			merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, row.Value.Merchant)
+			if err != nil {
+				return err
+			}
+			row.MerchantReview = merchantReview
+		}
+		if row.MerchantReview && row.Type == "INCOME" {
+			id, err := legacyMerchantID(ctx, tx, householdID, row.Value.Merchant)
+			if err != nil {
+				return err
+			}
+			row.MerchantID, row.MerchantReview = id, false
+		}
 		if row.Value.Amount == nil {
 			needsReview, pending = true, pending+1
 			var proposalID, itemID string

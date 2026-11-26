@@ -228,6 +228,9 @@ func (p *Processor) finishConfirm(ctx context.Context, tx, sp pgx.Tx, householdI
 	case errors.As(err, &missing), errors.Is(err, reviewdomain.ErrTransferClassificationRequired), errors.Is(err, reviewdomain.ErrAlreadyResolved):
 		_ = sp.Rollback(ctx)
 		return reask(step, choiceStaleAck), nil
+	case reviewdomain.IsMerchantLinkProblem(err):
+		_ = sp.Rollback(ctx)
+		return reask(step, ambiguousMerchantReply), nil
 	case err != nil:
 		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err
