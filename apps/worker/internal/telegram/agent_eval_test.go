@@ -15,7 +15,9 @@ import (
 
 var (
 	evalOpeners   = regexp.MustCompile(`(?i)^\s*(?:tentu|baik,|baik\s+(?:aku|saya)|berdasarkan|terima kasih|certainly|of course|sure[,!]|great question|as an ai|sebagai asisten)`)
-	evalMutation  = regexp.MustCompile(`(?i)✅|\b(?:sudah|telah)\s+(?:ku)?(?:catat|simpan|ubah|ganti|hapus)|\btercatat\b|\btersimpan\b|(?:has|have) been (?:recorded|saved|updated|changed)|\bi(?:'ve| have)\s+(?:recorded|saved|logged|updated)`)
+	evalMutation  = regexp.MustCompile(`(?i)✅|\b(?:sudah|telah)\s+(?:ku|di)?(?:catat|simpan|ubah|ganti|hapus)(?:kan)?\b|\b(?:sudah|telah)\s+(?:tercatat|tersimpan)\b|(?:has|have) been (?:recorded|saved|updated|changed)|\bi(?:'ve| have)\s+(?:recorded|saved|logged|updated)`)
+	evalSavedLine = regexp.MustCompile(`(?im)^\s*(?:tersimpan|tercatat)\b`)
+	evalNegators  = map[string]bool{"belum": true, "tidak": true, "tak": true, "bukan": true, "not": true, "haven't": true, "hasn't": true}
 	evalHelpWords = regexp.MustCompile(`(?i)/help|keuangan|finance|financ`)
 	evalDigit     = regexp.MustCompile(`\d`)
 )
@@ -106,7 +108,7 @@ func evalCheck(scenario evalScenario, reply string) []string {
 			}
 		}
 	}
-	if !scenario.mutationMade && !scenario.existingFacts && evalMutation.MatchString(reply) {
+	if !scenario.mutationMade && !scenario.existingFacts && evalClaimsChange(reply) {
 		failures = append(failures, "claims a change that was not made")
 	}
 	if scenario.needsHelp && !evalHelpWords.MatchString(reply) {
@@ -138,7 +140,7 @@ func evalCheckCall(scenario evalScenario, response gateway.AgentResponse) []stri
 	if !called {
 		failures = append(failures, "does not call "+scenario.wantCall)
 	}
-	if evalMutation.MatchString(response.Text) {
+	if evalClaimsChange(response.Text) {
 		failures = append(failures, "claims a change that was not made")
 	}
 	return failures
@@ -230,5 +232,45 @@ func TestPromptEvalLive(t *testing.T) {
 			}
 			t.Logf("%d of %d scenarios passed", len(evalScenarios)-len(failures), len(evalScenarios))
 		})
+	}
+}
+
+func evalClaimsChange(text string) bool {
+	if evalSavedLine.MatchString(text) {
+		return true
+	}
+	for _, loc := range evalMutation.FindAllStringIndex(text, -1) {
+		if text[loc[0]:loc[1]] == "✅" || !evalNegated(text[:loc[0]]) {
+			return true
+		}
+	}
+	return false
+}
+
+func evalNegated(before string) bool {
+	words := strings.Fields(strings.ToLower(before))
+	for index := len(words) - 1; index >= 0 && index >= len(words)-2; index-- {
+		if evalNegators[strings.Trim(words[index], ".,!?;:\"“”")] {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEvalClaimsChange(t *testing.T) {
+	t.Parallel()
+	for _, reply := range []string{
+		"Belum tercatat. Bensin berapa harganya?",
+		"Koreksi ke Transport sudah disiapkan.\nBelum tersimpan.",
+		"Total kekayaanmu Rp152.000.000.\nAkun tercatat: Tabungan dan Reksa.",
+	} {
+		if evalClaimsChange(reply) {
+			t.Errorf("%q is not a claim", reply)
+		}
+	}
+	for _, reply := range []string{"✅ Tersimpan: Kopi · Rp25.000", "Sudah kucatat ya", "I've recorded it", "Tercatat: Kopi"} {
+		if !evalClaimsChange(reply) {
+			t.Errorf("%q is a claim", reply)
+		}
 	}
 }
