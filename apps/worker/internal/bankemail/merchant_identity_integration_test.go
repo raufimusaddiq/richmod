@@ -214,7 +214,7 @@ func TestMerchantIdentityNormalizesBankAndEwalletSuffixes(t *testing.T) {
 		}
 	})
 
-	t.Run("institution_word_strips_only_with_account_tail", func(t *testing.T) {
+	t.Run("single_token_institution_remnant_is_not_linked", func(t *testing.T) {
 		household := newHousehold(t, "Bank institution")
 		category := newCategory(t, household, "Sari")
 		shortMerchant := newMerchant(t, household, "SARI")
@@ -229,8 +229,13 @@ func TestMerchantIdentityNormalizesBankAndEwalletSuffixes(t *testing.T) {
 		}
 		id, err = resolveMerchantID(ctx, tx, household, "SARI PERMATA 1234567890")
 		must(t, err)
+		if id == shortMerchant {
+			t.Fatal("a one-token institution remnant must not link to the existing merchant")
+		}
+		id, err = resolveMerchantID(ctx, tx, household, "SARI 1234567890")
+		must(t, err)
 		if id != shortMerchant {
-			t.Fatalf("account-suffixed institution word resolved=%s want %s", id, shortMerchant)
+			t.Fatalf("account-tail-only one-token name resolved=%s want %s", id, shortMerchant)
 		}
 	})
 
@@ -322,6 +327,57 @@ func TestBankEmailAmbiguousMerchantRoutesToUnknownMerchantReview(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tersimpan%'`, stamp).Scan(&notices))
 	if notices != 0 {
 		t.Fatalf("ambiguous merchant enqueued %d saved notices", notices)
+	}
+}
+
+func TestBankEmailSingleTokenAfterInstitutionStripRoutesToReview(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := testsupport.UniqueStamp()
+	var household, owner, account, category, listenerID, sourceID string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank single token %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-single-%d@test.invalid", stamp)).Scan(&owner))
+	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&category))
+	var sari string
+	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'SARI') RETURNING id`, household).Scan(&sari))
+	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, sourceID, listenerID)
+		return err
+	}())
+	amount, direction, channel, merchant, description := "64217", "OUTGOING", "DEBIT_CARD", "SARI PERMATA 1234567890", "Pembayaran"
+	at := time.Now().Add(-time.Hour).UTC()
+	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: &amount, Direction: &direction, Channel: &channel, Merchant: &merchant, Description: &description, TransactionAt: &at, Confidence: .95}
+	listener := Listener{ID: listenerID, HouseholdID: household, BankName: "Bank", SenderAddress: "bank@test.invalid", AccountID: account, TrackingPolicy: "SPENDING_ONLY", Active: true}
+	result := PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", AutoConfirm: true, CategoryID: category}
+	must((&Processor{pool: pool}).persist(ctx, listener, sourceID, extraction, result, ""))
+	var transactionID, status string
+	var merchantID *string
+	must(pool.QueryRow(ctx, `SELECT t.id::text,t.status,t.merchant_id::text FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1`, sourceID).Scan(&transactionID, &status, &merchantID))
+	if status != "NEEDS_REVIEW" || merchantID != nil {
+		t.Fatalf("single-token stripped payee was linked: status=%s merchant=%v", status, merchantID)
+	}
+	var reviewType string
+	must(pool.QueryRow(ctx, `SELECT review_type FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND')`, household, transactionID).Scan(&reviewType))
+	if reviewType != "UNKNOWN_MERCHANT" {
+		t.Fatalf("review type=%s", reviewType)
 	}
 }
 

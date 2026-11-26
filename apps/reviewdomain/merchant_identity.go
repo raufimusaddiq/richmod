@@ -110,12 +110,17 @@ func NormalizePayeeName(raw string) string {
 		return name
 	}
 	name = withoutAccount
+	strippedInstitution := false
 	for i := 0; i < 4; i++ {
 		next := stripInstitutionSuffix(name)
 		if next == name {
 			break
 		}
+		strippedInstitution = true
 		name = next
+	}
+	if strippedInstitution && len(strings.Fields(name)) < 2 {
+		return ""
 	}
 	return name
 }

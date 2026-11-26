@@ -555,16 +555,11 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		}
 	}
 	categoryID := result.CategoryID
-	merchantID, err := resolveMerchantID(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
-	if err != nil {
-		return err
-	}
-	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+	merchantID, merchantReview, err := resolveMerchantLink(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
 	if err != nil {
 		return err
 	}
 	if merchantReview && result.AutoConfirm {
-		merchantID = ""
 		result.AutoConfirm = false
 		result.Status = "NEEDS_REVIEW"
 		result.ReviewType = "UNKNOWN_MERCHANT"
@@ -749,9 +744,17 @@ func loadMerchantMemory(ctx context.Context, q merchantmemory.Querier, household
 	return MerchantMemory{MerchantID: match.MerchantID, CategoryID: match.CategoryID, AutoApply: true}, nil
 }
 func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
+	merchantID, _, err := resolveMerchantLink(ctx, tx, household, raw)
+	return merchantID, err
+}
+
+func resolveMerchantLink(ctx context.Context, tx pgx.Tx, household, raw string) (string, bool, error) {
 	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
 	if raw == "" {
-		return "", nil
+		return "", false, nil
+	}
+	if strings.TrimSpace(reviewdomain.NormalizePayeeName(raw)) == "" {
+		return "", true, nil
 	}
 	raw = strings.ToUpper(raw)
 	if runes := []rune(raw); len(runes) > 160 {
@@ -759,9 +762,12 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	}
 	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
 	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) {
-		return "", nil
+		return "", true, nil
 	}
-	return id, err
+	if err != nil {
+		return "", false, err
+	}
+	return id, false, nil
 }
 
 type bankLink struct {

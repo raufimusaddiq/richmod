@@ -393,6 +393,9 @@ func receiptReviewReason(possibleDuplicate, merchantReview, categoryKnown, dateK
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
 	}
+	if arithmeticSignal {
+		return "RECEIPT_MISMATCH"
+	}
 	if merchantReview {
 		return "UNKNOWN_MERCHANT"
 	}
@@ -403,8 +406,6 @@ func receiptReviewReason(possibleDuplicate, merchantReview, categoryKnown, dateK
 		return "AMBIGUOUS_CATEGORY"
 	case !dateKnown:
 		return "MISSING_TRANSACTION_DATE"
-	case arithmeticSignal:
-		return "RECEIPT_MISMATCH"
 	default:
 		return "AMBIGUOUS_CATEGORY"
 	}
