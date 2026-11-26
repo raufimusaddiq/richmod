@@ -94,7 +94,7 @@ test("T-16 polish: actors, evidence, minus sign, admin durations and decimal com
   assert.equal(duration(20_867_600), "5 j 47 m");
 });
 
-import { canEditTransaction, editErrorMessage, editFormErrors, editInitialValues, editOptionsReady, editPayload, editSelectOptions, editableFields } from "../app/lib/transactionForm.js";
+import { canEditTransaction, editErrorMessage, editFormErrors, editInitialValues, editOptionsReady, editPayload, editSelectOptions, editableFields, editDateBounds } from "../app/lib/transactionForm.js";
 
 test("edit: only live transactions are editable and transfers lock category and account", () => {
   for (const status of ["CONFIRMED"]) assert.equal(canEditTransaction({ id: "t", status }), true);
@@ -121,6 +121,7 @@ test("edit: validation and payload", () => {
   assert.deepEqual(editPayload(own, { description: "Lama", amount: "5000", transactionDate: "2026-09-06" }), {});
   assert.deepEqual(editPayload({ ...own, factsEditable: false }, { description: "Lama", amount: "12000", transactionDate: "2026-09-05" }), {});
   assert.equal(editInitialValues(own).transactionDate, "2026-09-06");
+  assert.deepEqual(editDateBounds(new Date("2026-09-07T03:00:00Z")), { min: "2025-08-03", max: "2026-09-07" });
   assert.ok(editFormErrors({ description: "x", amount: "0", transactionDate: "2999-01-01" }, own).amount);
   assert.ok(editFormErrors({ description: "x", amount: "5", transactionDate: "2999-01-01" }, own).transactionDate);
   assert.deepEqual(Object.keys(editPayload({ type: "TRANSFER" }, { categoryId: "c", accountId: "a", description: "x", note: "n" })).sort(), ["description", "note"]);

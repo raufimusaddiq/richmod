@@ -243,7 +243,7 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 			message = "✅ Tanggal transaksi sudah diubah ke " + formatIDDateTime(*outcome.ProposedAt) + "."
 		}
 		if outcome.Refused {
-			message = sourceEvidenceFixesAmountMessage
+			message, _ = agentMutationReply(agentToolResult{Status: factsLockStatus(outcome.RefusedReason)})
 		}
 		if outcome.Voided {
 			message = "Transaksi itu sudah dibatalkan, jadi perubahannya tidak disimpan."

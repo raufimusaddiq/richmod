@@ -16,6 +16,7 @@ const MaxCorrectionAgeDays = 400
 const (
 	FactsLockNotConfirmed = "NOT_CONFIRMED"
 	FactsLockTransfer     = "TRANSFER"
+	FactsLockType         = "NOT_EDITABLE_TYPE"
 	FactsLockSalary       = "SALARY"
 	FactsLockMerged       = "MERGED"
 	FactsLockSource       = "SOURCE_EVIDENCE"
@@ -46,13 +47,14 @@ func HandEnteredFactsLock(ctx context.Context, q RowQuerier, householdID, transa
 	var reason string
 	err := q.QueryRow(ctx, `SELECT CASE
 			WHEN t.status<>'CONFIRMED' THEN $3
-			WHEN t.type NOT IN ('INCOME','EXPENSE') OR t.related_wealth_account_id IS NOT NULL THEN $4
+			WHEN t.type='TRANSFER' OR t.related_wealth_account_id IS NOT NULL THEN $4
+			WHEN t.type NOT IN ('INCOME','EXPENSE') THEN $9
 			WHEN EXISTS(SELECT 1 FROM salary_event se WHERE se.transaction_id=t.id) THEN $5
 			WHEN EXISTS(SELECT 1 FROM reconciliation_merge rm WHERE rm.status='ACTIVE' AND (rm.source_transaction_id=t.id OR rm.target_transaction_id=t.id)) THEN $6
 			WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id AND NOT s.source_type=ANY($7::text[])) THEN $8
 			ELSE '' END
 		FROM transaction t WHERE t.id=$1 AND t.household_id=$2`,
-		transactionID, householdID, FactsLockNotConfirmed, FactsLockTransfer, FactsLockSalary, FactsLockMerged, HandEnteredSourceTypes, FactsLockSource).Scan(&reason)
+		transactionID, householdID, FactsLockNotConfirmed, FactsLockTransfer, FactsLockSalary, FactsLockMerged, HandEnteredSourceTypes, FactsLockSource, FactsLockType).Scan(&reason)
 	return reason, err
 }
 
@@ -71,14 +73,15 @@ type CorrectionCommand struct {
 	TransactionAt     *time.Time
 	ExpectedUpdatedAt *time.Time
 	HandEnteredOnly   bool
-	AllowTransfer     bool
+	AllowAnyType      bool
 	Now               time.Time
 }
 
 func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionCommand) error {
 	cmd.AmountIDR = strings.TrimSpace(cmd.AmountIDR)
 	cmd.Description = strings.TrimSpace(cmd.Description)
-	if cmd.CategoryID == "" && cmd.TransactionAt == nil && cmd.AmountIDR == "" && cmd.Description == "" && cmd.CounterpartyName == nil {
+	empty := cmd.CategoryID == "" && cmd.TransactionAt == nil && cmd.AmountIDR == "" && cmd.Description == "" && cmd.CounterpartyName == nil
+	if empty && !cmd.HandEnteredOnly {
 		return ErrCorrectionEmpty
 	}
 	if cmd.AmountIDR != "" && !wholeIDR.MatchString(cmd.AmountIDR) {
@@ -98,8 +101,8 @@ func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionC
 	if cmd.ExpectedUpdatedAt != nil && !updatedAt.Equal(*cmd.ExpectedUpdatedAt) {
 		return ErrCorrectionStale
 	}
-	transferOK := cmd.AllowTransfer && kind == "TRANSFER" && cmd.CategoryID == "" && cmd.AmountIDR == "" && cmd.CounterpartyName == nil
-	if status != "CONFIRMED" || (kind != "EXPENSE" && kind != "INCOME" && !transferOK) {
+	otherTypeOK := cmd.AllowAnyType && (kind != "TRANSFER" || (cmd.CategoryID == "" && cmd.AmountIDR == "" && cmd.CounterpartyName == nil))
+	if status != "CONFIRMED" || (kind != "EXPENSE" && kind != "INCOME" && !otherTypeOK) {
 		return ErrCorrectionNotAllowed
 	}
 	amountChanged := cmd.AmountIDR != "" && cmd.AmountIDR != amount
@@ -113,6 +116,9 @@ func CorrectConfirmedTransaction(ctx context.Context, tx pgx.Tx, cmd CorrectionC
 		if reason != "" {
 			return CorrectionLockedError{Reason: reason}
 		}
+	}
+	if empty {
+		return ErrCorrectionEmpty
 	}
 	if dateChanged {
 		now := cmd.Now

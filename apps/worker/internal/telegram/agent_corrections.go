@@ -13,9 +13,13 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
-func selfEnteredTransaction(ctx context.Context, q reviewdomain.RowQuerier, householdID, transactionID string) (bool, error) {
-	reason, err := reviewdomain.HandEnteredFactsLock(ctx, q, householdID, transactionID)
-	return reason == "", err
+const statusFactsLocked = "TRANSACTION_FACTS_LOCKED"
+
+func factsLockStatus(reason string) string {
+	if reason == reviewdomain.FactsLockSource {
+		return "SOURCE_EVIDENCE_FIXES_AMOUNT"
+	}
+	return statusFactsLocked
 }
 
 func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
@@ -135,12 +139,12 @@ func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState,
 		return result, true, nil
 	}
 	if amount != "" || merchant != "" {
-		self, err := selfEnteredTransaction(ctx, tx, state.HouseholdID, transactionID)
+		reason, err := reviewdomain.HandEnteredFactsLock(ctx, tx, state.HouseholdID, transactionID)
 		if err != nil {
 			return result, true, err
 		}
-		if !self {
-			result.Status = "SOURCE_EVIDENCE_FIXES_AMOUNT"
+		if reason != "" {
+			result.Status = factsLockStatus(reason)
 			result.Facts = map[string]any{"label": untrustedField(label), "amount_idr": currentAmount}
 			return result, true, nil
 		}
@@ -210,7 +214,7 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 		}
 		if outcome.Refused {
 			status = "REFUSED"
-			result.Status = "SOURCE_EVIDENCE_FIXES_AMOUNT"
+			result.Status = factsLockStatus(outcome.RefusedReason)
 		}
 		if outcome.Voided {
 			status = "REFUSED"
@@ -240,10 +244,11 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 }
 
 type correctionOutcome struct {
-	Refused    bool
-	Voided     bool
-	Blocked    string
-	ProposedAt *time.Time
+	Refused       bool
+	RefusedReason string
+	Voided        bool
+	Blocked       string
+	ProposedAt    *time.Time
 }
 
 const (
@@ -297,12 +302,12 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		return outcome, err
 	}
 	if proposedAmount != nil || proposedMerchant != nil {
-		self, err := selfEnteredTransaction(ctx, tx, householdID, transactionID)
+		reason, err := reviewdomain.HandEnteredFactsLock(ctx, tx, householdID, transactionID)
 		if err != nil {
 			return outcome, err
 		}
-		if !self {
-			outcome.Refused = true
+		if reason != "" {
+			outcome.Refused, outcome.RefusedReason = true, reason
 			_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 			return outcome, err
 		}
@@ -334,7 +339,7 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	err = reviewdomain.CorrectConfirmedTransaction(ctx, tx, reviewdomain.CorrectionCommand{
 		HouseholdID: householdID, ActorUserID: userID, ActorType: "TELEGRAM", TransactionID: transactionID, PendingActionID: actionID,
 		CategoryID: categoryID, Description: description, AmountIDR: amount, CounterpartyName: proposedMerchant, MerchantID: merchantID,
-		TransactionAt: proposedAt, AllowTransfer: true,
+		TransactionAt: proposedAt, AllowAnyType: true,
 	})
 	switch {
 	case errors.Is(err, reviewdomain.ErrCorrectionDateFuture), errors.Is(err, reviewdomain.ErrCorrectionDateTooOld):
@@ -342,7 +347,9 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 		return outcome, err
 	case errors.Is(err, reviewdomain.ErrCorrectionNotAllowed):
-		outcome.Refused = true
+		var locked reviewdomain.CorrectionLockedError
+		errors.As(err, &locked)
+		outcome.Refused, outcome.RefusedReason = true, locked.Reason
 		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 		return outcome, err
 	case err != nil && !errors.Is(err, reviewdomain.ErrCorrectionEmpty):

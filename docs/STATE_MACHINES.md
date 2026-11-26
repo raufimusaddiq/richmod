@@ -77,7 +77,7 @@ transaction from the `/transactions` drawer ("Ubah"). Edits never change status.
   income or expense with no wealth account, salary event or active merge whose evidence is all
   `WEB_MANUAL`, `TELEGRAM_TEXT` or `TELEGRAM_CALLBACK` source events (ADR-130). Otherwise 400
   `LOCKED_FIELD`; the detail read says which with `factsEditable` and `factsLockReason`
-  (`NOT_CONFIRMED`, `TRANSFER`, `SALARY`, `MERGED`, `SOURCE_EVIDENCE`). The change runs through
+  (`NOT_CONFIRMED`, `TRANSFER`, `NOT_EDITABLE_TYPE`, `SALARY`, `MERGED`, `SOURCE_EVIDENCE`). The change runs through
   `reviewdomain.CorrectConfirmedTransaction` (same function as Telegram Ubah and the assistant),
   writes one `EDIT_TRANSACTION` audit row (actor `USER`) and refreshes open cycle residuals for the
   old and new date. Errors: 400 `INVALID_AMOUNT`, `INVALID_DATE`, `DATE_IN_FUTURE`, `DATE_TOO_OLD`.

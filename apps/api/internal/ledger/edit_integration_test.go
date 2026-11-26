@@ -329,6 +329,10 @@ func TestEditHandEnteredDateAndAmount(t *testing.T) {
 			if rec := patch(tx, stamp(tx), `{"transactionDate":"`+jakartaDay(-1)+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "LOCKED_FIELD" {
 				t.Fatalf("%s date edit = %d %s", name, rec.Code, rec.Body)
 			}
+			_, today, _ := facts(tx)
+			if rec := patch(tx, stamp(tx), `{"transactionDate":"`+today+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "LOCKED_FIELD" {
+				t.Fatalf("%s unchanged date edit = %d %s", name, rec.Code, rec.Body)
+			}
 			if amount, _, _ := facts(tx); amount != "5000" {
 				t.Fatalf("%s amount changed to %s", name, amount)
 			}
@@ -341,6 +345,12 @@ func TestEditHandEnteredDateAndAmount(t *testing.T) {
 		}
 		if rec := patch(id, stamp(id), `{"transactionDate":"`+jakartaDay(1)+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "DATE_IN_FUTURE" {
 			t.Fatalf("future date = %d %s", rec.Code, rec.Body)
+		}
+		if rec := patch(id, stamp(id), `{"transactionDate":"`+jakartaDay(-401)+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "DATE_TOO_OLD" {
+			t.Fatalf("401 days back = %d %s", rec.Code, rec.Body)
+		}
+		if rec := patch(id, stamp(id), `{"transactionDate":"`+jakartaDay(-400)+`"}`, own); rec.Code != http.StatusOK {
+			t.Fatalf("400 days back = %d %s", rec.Code, rec.Body)
 		}
 		for _, amount := range []string{"0", "-5", "12.5", "1e3", "abc"} {
 			if rec := patch(id, stamp(id), `{"amount":"`+amount+`"}`, own); rec.Code != http.StatusBadRequest || code(rec) != "INVALID_AMOUNT" {
