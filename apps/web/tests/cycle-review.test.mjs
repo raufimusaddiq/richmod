@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changeWidth, cycleLabel, inclusiveEnd, measuredLabel, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../app/lib/cycleReview.js";
+import { cycleLabel, inclusiveEnd, isBlockingQuality, measuredLabel, ratioLabel, readReviewSelection, selectionHref, signedMoney, splitDataQuality, transactionHref } from "../app/lib/cycleReview.js";
 import { money } from "../app/lib/format.js";
 import { addMonths } from "../app/lib/calendarReview.js";
 
@@ -30,19 +30,18 @@ test("currency and ratio formatting never invent a value for null", () => {
   assert.equal(ratioLabel("0.755"), "75,5%");
 });
 
-test("change weight is proportional to the largest absolute delta, not a threshold", () => {
-  const items = [{ deltaVsPrevious: "100000" }, { deltaVsPrevious: "-200000" }, { deltaVsPrevious: null, amount: "0" }];
-  assert.equal(changeWidth(items[0], items), "50%");
-  assert.equal(changeWidth(items[1], items), "100%");
-  assert.equal(changeWidth(items[2], items), "0%");
-  assert.equal(changeWidth({ amount: "0" }, [{ deltaVsPrevious: "0" }]), "0%");
-});
-
-test("rent compares full cycles by default, not a zero equal-day prefix", () => {
-  const rent = { amount: "1950000", previous: "0", deltaVsPrevious: "1950000", previousFullCycle: "1950000", deltaVsPreviousFullCycle: "0", relativeDeltaVsPreviousFullCycle: "0.0000" };
-  assert.equal(changeWidth(rent, [rent], "deltaVsPreviousFullCycle"), "0%");
-  assert.equal(ratioLabel(rent.relativeDeltaVsPreviousFullCycle), "0%");
-  assert.equal(signedMoney(rent.deltaVsPreviousFullCycle), money("0"));
+test("data quality notices split into blocking banner items and advisory wealth reminders", () => {
+  assert.equal(isBlockingQuality("OPEN_REVIEWS"), true);
+  assert.equal(isBlockingQuality("UNCATEGORIZED_EXPENSE"), true);
+  assert.equal(isBlockingQuality("PROCESSING_INCOMPLETE"), true);
+  assert.equal(isBlockingQuality("MISSING_SALARY_ANCHOR"), true);
+  assert.equal(isBlockingQuality("MISSING_WEALTH_SNAPSHOT"), false);
+  assert.equal(isBlockingQuality("MISSING_PREVIOUS_WEALTH_SNAPSHOT"), false);
+  assert.equal(isBlockingQuality("WEALTH_SNAPSHOT_BEFORE_CYCLE"), false);
+  assert.equal(isBlockingQuality("WEALTH_ACCOUNT_SET_CHANGED"), false);
+  const split = splitDataQuality([{ kind: "OPEN_REVIEWS" }, { kind: "WEALTH_SNAPSHOT_BEFORE_CYCLE" }, { kind: "MISSING_WEALTH_SNAPSHOT" }]);
+  assert.deepEqual(split.blocking.map(item => item.kind), ["OPEN_REVIEWS"]);
+  assert.deepEqual(split.advisory.map(item => item.kind), ["WEALTH_SNAPSHOT_BEFORE_CYCLE", "MISSING_WEALTH_SNAPSHOT"]);
 });
 
 test("period drill-down keeps its existing inclusive query end", () => {

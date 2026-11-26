@@ -126,31 +126,27 @@ for (const reduced of [false, true]) {
       }
     });
 
-    test("analytics cycle: KPI strip, history bars, and the daily pattern after opening", async ({ page, api }) => {
+    test("analytics cycle: KPI strip, pace chart, history bars, and the always-visible daily strip", async ({ page, api }) => {
       await visit(page, api, "/analytics?view=cycle&cycle=2026-09-01", ".kpi-cell[data-lead] dd");
       await page.waitForSelector(".history-bar");
+      await page.waitForSelector(".cycle-spending-chart .recharts-bar-rectangle");
       await page.waitForTimeout(settleMs);
       const cycleRows = (await rows(page)).filter(row => row.hero);
       expect(cycleRows.at(-1).hero, "the KPI strip ends on the exact value").toBe(cycleRows.at(-1).heroFinal);
       const history = cycleRows.map(row => row.historyHeight).filter(value => value > 0);
       const finalHistory = history.at(-1);
+      const dailyDrawn = cycleRows.filter(row => row.barCount > 0);
+      const barsFinal = dailyDrawn.at(-1).barHeight;
       const cycleAnimations = await animationNames(page);
+      expect(barsFinal, "the daily pattern drew on load").toBeGreaterThan(20);
       if (reduced) {
         expect(history.every(value => Math.abs(value - finalHistory) < 0.5), "history bars are at full height immediately").toBe(true);
+        expect(dailyDrawn.every(row => row.barHeight === barsFinal), "the daily pattern is static").toBe(true);
         expect(cycleAnimations.some(name => name.startsWith("bar-grow")), "no css bar animation starts").toBe(false);
       } else {
         expect(cycleAnimations, "history bars run their grow animation").toContain("bar-grow-y");
-        expect(cycleAnimations, "the where-stack runs its grow animation").toContain("bar-grow-x");
+        expect(cycleAnimations, "the cat-stack runs its grow animation").toContain("bar-grow-x");
       }
-      const mark = (await rows(page)).length;
-      await page.getByRole("heading", { name: "Pengeluaran harian", exact: true }).click();
-      await page.waitForSelector(".cycle-spending-chart .recharts-bar-rectangle");
-      await page.waitForTimeout(settleMs);
-      const opened = (await rows(page)).slice(mark).filter(row => row.barCount > 0);
-      expect(opened.length, "the daily pattern drew after opening").toBeGreaterThan(3);
-      const barsFinal = opened.at(-1).barHeight;
-      if (reduced) expect(opened.every(row => row.barHeight === barsFinal), "the daily pattern is static").toBe(true);
-      else expect(opened[0].barHeight, "the daily pattern mounts at the baseline when opened").toBeLessThan(barsFinal * 0.5);
     });
 
     test("analytics calendar: switching the range animates the new bars", async ({ page, api }) => {

@@ -37,15 +37,15 @@ test("ranking and change deltas follow the baseline of the cycle state", () => {
   assert.match(dining(changesView(closed)).delta.text, /222/);
 });
 
-test("Yang berubah takes the first five in server order, never re-sorted", () => {
+test("Paling berubah filters out zero deltas, preserves server order, and caps at eight", () => {
   const facts = cycleFacts();
-  facts.categoryChanges = Array.from({ length: 8 }, (_, index) => ({ ...facts.categoryChanges[0], id: `c${index}`, name: `K${index}`, deltaVsPrevious: String(index % 2 ? -(index * 100) : index * 100) }));
+  facts.categoryChanges = Array.from({ length: 11 }, (_, index) => ({ ...facts.categoryChanges[0], id: `c${index}`, name: `K${index}`, deltaVsPrevious: index === 0 || index === 4 ? "0" : String(index % 2 ? -(index * 100) : index * 100) }));
   const view = changesView(facts);
-  assert.deepEqual(view.rows.map(row => row.name), ["K0", "K1", "K2", "K3", "K4"]);
-  assert.equal(view.rows[1].side, "less");
-  assert.equal(view.rows[2].side, "more");
-  assert.equal(view.rows[0].side, "", "a zero change has no side");
-  assert.equal(view.rows[4].width, "100%");
+  assert.deepEqual(view.rows.map(row => row.name), ["K1", "K2", "K3", "K5", "K6", "K7", "K8", "K9"]);
+  assert.equal(view.rows[0].delta.tone, "good");
+  assert.equal(view.rows[1].delta.tone, "bad");
+  assert.equal(view.rows[0].side, undefined);
+  assert.equal(view.rows[0].width, undefined);
 });
 
 test("without a comparison cycle the card says so instead of drawing deltas", () => {

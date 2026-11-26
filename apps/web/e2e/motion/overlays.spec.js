@@ -145,11 +145,11 @@ test("closing the detail drawer returns focus to its opener as the exit starts",
 
 test("the category drawer hands focus back to its opener as it starts leaving", async ({ page }) => {
   await page.goto("/analytics", { waitUntil: "networkidle" });
-  const category = page.locator("#where .where-list > li:not([data-other]) button").first();
+  const category = page.locator("#where .cat-list > li:not([data-other]) button").first();
   await category.click();
   await page.waitForSelector("#category-drawer");
   await pause(450);
-  await recordExitFocus(page, "#where .where-list > li:not([data-other]) button");
+  await recordExitFocus(page, "#where .cat-list > li:not([data-other]) button");
   await page.click("#category-drawer .drawer-close");
   const samples = await exitFocusSamples(page);
   expect(samples.length, "the exit was observed while the drawer was leaving").toBeGreaterThan(0);

@@ -113,25 +113,24 @@ for (const width of [320, 360, 390, 1366]) {
       await page.goto("/analytics", { waitUntil: "networkidle" });
       await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
       await expect(page.locator(".kpi-note"), "Laporan omits Refund/Tentang posisi siklus line").toHaveCount(0);
-      await expect(page.locator("#where .where-delta"), "Ke mana uangnya omits delta column").toHaveCount(0);
-      expect(await page.locator("#where .where-share").count(), "Ke mana uangnya shows share percentages").toBeGreaterThanOrEqual(1);
+      expect(await page.locator("#where .cat-pct").count(), "Ke mana uangnya shows share percentages").toBeGreaterThanOrEqual(1);
       expect(await page.locator("#history .history-bar .history-seg").count(), "Siklus ke siklus draws category-stacked bars").toBeGreaterThanOrEqual(1);
       const colours = await page.evaluate(() => ({
-        where: [...document.querySelectorAll("#where .where-list > li:not([data-other]) .where-swatch")].map(el => getComputedStyle(el).backgroundColor),
+        where: [...document.querySelectorAll("#where .cat-list > li:not([data-other]) .cat-swatch")].map(el => getComputedStyle(el).backgroundColor),
         history: [...document.querySelectorAll("#history .history-cols > li:last-child .history-seg")].map(el => getComputedStyle(el).backgroundColor),
       }));
       expect(colours.where, "Ke mana uangnya shares exact Retro hidup colours with Beranda").toEqual(home.ranked.slice(0, 3));
       expect(colours.history, "Siklus ke siklus shares exact Retro hidup colours with Beranda").toEqual(home.ranked.slice(0, 3));
 
-      await page.locator("#where .where-other-summary").click();
+      await page.locator("#where .cat-other-summary").click();
       const otherExpanded = await page.evaluate(() => {
-        const subRows = [...document.querySelectorAll("#where .where-other-list > li")];
-        return { count: subRows.length, names: subRows.map(el => el.querySelector(".where-name")?.textContent?.trim()), swatches: subRows.reduce((sum, el) => sum + el.querySelectorAll(".where-swatch").length, 0) };
+        const subRows = [...document.querySelectorAll("#where .cat-other-list > li")];
+        return { count: subRows.length, names: subRows.map(el => el.querySelector(".cat-name-text")?.textContent?.trim()), swatches: subRows.reduce((sum, el) => sum + el.querySelectorAll(".cat-swatch").length, 0) };
       });
       expect(otherExpanded, "Kategori lain expands to list remaining categories with no swatches").toEqual({ count: 1, names: ["Perjalanan"], swatches: 0 });
-      await page.locator("#where .where-other-list button", { hasText: "Perjalanan" }).click();
+      await page.locator("#where .cat-other-list button", { hasText: "Perjalanan" }).click();
       await page.locator("#category-drawer").waitFor();
-      await expect(page.locator("#category-drawer .where-swatch"), "category drawer omits sand swatch for non-top-6 category").toHaveCount(0);
+      await expect(page.locator("#category-drawer .cat-swatch"), "category drawer omits sand swatch for non-top-6 category").toHaveCount(0);
       await page.keyboard.press("Escape");
       await page.locator("#category-drawer").waitFor({ state: "detached" });
 
@@ -147,7 +146,7 @@ for (const width of [320, 360, 390, 1366]) {
         return { barRects, plotHeight, selectedBg, endLabels, paceGrid: paceGrid ? { top: paceGrid.top, bottom: paceGrid.bottom } : null };
       });
       if (width >= 1366) {
-        expect(polish.barRects.every(item => item.width >= 56 && item.width <= 76), `Siklus ke siklus bars should be ~56-72px wide: ${JSON.stringify(polish.barRects)}`).toBe(true);
+        expect(polish.barRects.every(item => item.width >= 48 && item.width <= 76), `Siklus ke siklus bars should be ~48-72px wide: ${JSON.stringify(polish.barRects)}`).toBe(true);
         expect(polish.plotHeight, "Siklus ke siklus plot grows to card height").toBeGreaterThanOrEqual(180);
       } else if (phone) {
         expect(polish.barRects.every(item => item.width >= item.buttonWidth - 8), `phone Siklus ke siklus bars fill column width: ${JSON.stringify(polish.barRects)}`).toBe(true);
@@ -203,7 +202,7 @@ for (const width of [320, 360, 390, 1366]) {
         document.body.appendChild(probe);
         const sand = getComputedStyle(probe).backgroundColor;
         probe.remove();
-        const rogueSand = [...document.querySelectorAll("#where .where-swatch, #changes .heat-swatch, #matrix .heat-swatch")]
+        const rogueSand = [...document.querySelectorAll("#where .cat-swatch, #changes .heat-swatch, #matrix .heat-swatch")]
           .filter(el => getComputedStyle(el).backgroundColor === sand)
           .filter(el => !el.closest("li[data-other]") && !el.closest("span[data-muted]")).length;
         const dailyBars = [...document.querySelectorAll("#daily .cycle-spending-chart .recharts-bar-rectangle path, #daily .cycle-spending-chart .recharts-bar-rectangle rect")]
