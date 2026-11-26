@@ -391,7 +391,7 @@ func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw str
 		return match.MerchantID, match, false, nil
 	}
 	merchantID, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, raw)
-	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) || errors.Is(err, reviewdomain.ErrUnusableMerchantName) {
+	if reviewdomain.IsMerchantLinkProblem(err) {
 		return "", nil, true, nil
 	}
 	if err != nil {

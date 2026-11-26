@@ -237,6 +237,8 @@ func lockReceiptLedger(ctx context.Context, tx pgx.Tx, householdID, sourceID str
 	return nil
 }
 
+var errReceiptMerchantReview = errors.New("receipt merchant needs review")
+
 func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
 	candidates, err := p.findMatches(ctx, householdID, sourceID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant)
 	if err != nil {
@@ -261,14 +263,13 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 	if err != nil {
 		return err
 	}
-	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, p.pool, householdID, value.Merchant)
-	if err != nil {
-		return err
+	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown && receiptAutoConfirmTrusted(value, merchantID != nil) {
+		err := p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, merchantID)
+		if err == nil || !errors.Is(err, errReceiptMerchantReview) {
+			return err
+		}
 	}
-	if !p.receiptAutoConfirmOff && !merchantReview && len(candidates) == 0 && categoryID != nil && validation.DateKnown && receiptAutoConfirmTrusted(value, merchantID != nil) {
-		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, merchantID)
-	}
-	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, merchantID, merchantReview, len(candidates) > 0, pendingCandidateIDs(candidates)...)
+	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, merchantID, len(candidates) > 0, pendingCandidateIDs(candidates)...)
 }
 
 func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string, knownMerchantID *string) error {
@@ -280,6 +281,15 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	defer tx.Rollback(ctx)
 	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
 		return err
+	}
+	if knownMerchantID == nil && strings.TrimSpace(value.Merchant) != "" {
+		merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, value.Merchant)
+		if err != nil {
+			return err
+		}
+		if merchantReview {
+			return errReceiptMerchantReview
+		}
 	}
 	merchantID, err := canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
 	if err != nil {
@@ -393,12 +403,6 @@ func receiptReviewReason(possibleDuplicate, merchantReview, categoryKnown, dateK
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
 	}
-	if arithmeticSignal {
-		return "RECEIPT_MISMATCH"
-	}
-	if merchantReview {
-		return "UNKNOWN_MERCHANT"
-	}
 	switch {
 	case !categoryKnown && !dateKnown:
 		return "TRANSACTION_FACTS_MISSING"
@@ -406,9 +410,14 @@ func receiptReviewReason(possibleDuplicate, merchantReview, categoryKnown, dateK
 		return "AMBIGUOUS_CATEGORY"
 	case !dateKnown:
 		return "MISSING_TRANSACTION_DATE"
-	default:
-		return "AMBIGUOUS_CATEGORY"
 	}
+	if arithmeticSignal {
+		return "RECEIPT_MISMATCH"
+	}
+	if merchantReview {
+		return "UNKNOWN_MERCHANT"
+	}
+	return "AMBIGUOUS_CATEGORY"
 }
 
 func receiptKnownFacts(value receiptExtraction, validation receiptValidation) map[string]any {
@@ -424,7 +433,7 @@ func receiptKnownFacts(value receiptExtraction, validation receiptValidation) ma
 	return known
 }
 
-func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID, knownMerchantID *string, merchantReview, possibleDuplicate bool, pendingCandidates ...string) error {
+func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID, knownMerchantID *string, possibleDuplicate bool, pendingCandidates ...string) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -433,6 +442,13 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	defer tx.Rollback(ctx)
 	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
 		return err
+	}
+	merchantReview := false
+	if knownMerchantID == nil && strings.TrimSpace(value.Merchant) != "" {
+		merchantReview, err = reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, value.Merchant)
+		if err != nil {
+			return err
+		}
 	}
 	merchantID, err := canonicalMerchantID(ctx, tx, householdID, value.Merchant, knownMerchantID)
 	if err != nil {
@@ -529,7 +545,7 @@ func canonicalMerchantID(ctx context.Context, tx pgx.Tx, householdID, name strin
 		return known, nil
 	}
 	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, name)
-	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) || errors.Is(err, reviewdomain.ErrUnusableMerchantName) {
+	if reviewdomain.IsMerchantLinkProblem(err) {
 		return nil, nil
 	}
 	if err != nil || id == "" {

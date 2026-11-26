@@ -559,7 +559,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if err != nil {
 		return err
 	}
-	if merchantReview && result.AutoConfirm {
+	if merchantReview {
 		result.AutoConfirm = false
 		result.Status = "NEEDS_REVIEW"
 		result.ReviewType = "UNKNOWN_MERCHANT"
@@ -679,7 +679,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	if transactionStatus == "NEEDS_REVIEW" {
-		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
+		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, merchantReview, transactionID)
 		if len(duplicateCandidates) > 0 {
 			decision = duplicateReviewDecision(decision, transactionID, duplicateCandidates)
 		}
@@ -761,7 +761,7 @@ func resolveMerchantLink(ctx context.Context, tx pgx.Tx, household, raw string) 
 		raw = string(runes[:160])
 	}
 	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
-	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) || errors.Is(err, reviewdomain.ErrUnusableMerchantName) {
+	if reviewdomain.IsMerchantLinkProblem(err) {
 		return "", true, nil
 	}
 	if err != nil {

@@ -11,6 +11,10 @@ import (
 var ErrAmbiguousMerchantMatch = errors.New("reviewdomain: normalized payee matches more than one merchant")
 var ErrUnusableMerchantName = errors.New("reviewdomain: merchant name cannot be used")
 
+func IsMerchantLinkProblem(err error) bool {
+	return errors.Is(err, ErrAmbiguousMerchantMatch) || errors.Is(err, ErrUnusableMerchantName)
+}
+
 type MerchantQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }

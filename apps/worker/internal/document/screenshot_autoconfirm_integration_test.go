@@ -209,7 +209,7 @@ func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
 	}
 }
 
-func TestScreenshotMissingAmountAmbiguousMerchantRoutesToUnknownMerchant(t *testing.T) {
+func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *testing.T) {
 	t.Parallel()
 	f := seedScreenshotFixture(t, "Screenshot ambiguous merchant amount")
 	ctx := context.Background()
@@ -234,6 +234,13 @@ func TestScreenshotMissingAmountAmbiguousMerchantRoutesToUnknownMerchant(t *test
 	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID); err != nil {
 		t.Fatal(err)
 	}
+	var prior string
+	if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',now(),now()) RETURNING id`, f.householdID).Scan(&prior); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{knownFacts,prior_match_transaction_ids}',jsonb_build_array($2::text)) WHERE id=$1`, reviewID, prior); err != nil {
+		t.Fatal(err)
+	}
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -256,12 +263,12 @@ func TestScreenshotMissingAmountAmbiguousMerchantRoutesToUnknownMerchant(t *test
 		t.Fatalf("ambiguous merchant transaction status=%s category=%s merchant=%v", status, transactionCategory, merchantID)
 	}
 	var reviewType, missing string
-	var knownCategory string
-	if err := f.pool.QueryRow(ctx, `SELECT review_type,COALESCE(decision->'missingFacts'->>0,''),COALESCE(decision->'knownFacts'->>'category_id','') FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &missing, &knownCategory); err != nil {
+	var knownMerchant bool
+	if err := f.pool.QueryRow(ctx, `SELECT review_type,COALESCE(decision->'missingFacts'->>0,''),decision->'knownFacts' ? 'merchant' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &missing, &knownMerchant); err != nil {
 		t.Fatal(err)
 	}
-	if reviewType != "UNKNOWN_MERCHANT" || missing != "merchant" || knownCategory != category {
-		t.Fatalf("review type=%s missing=%s knownCategory=%s", reviewType, missing, knownCategory)
+	if reviewType != "POSSIBLE_DUPLICATE" || missing != "merchant" || knownMerchant {
+		t.Fatalf("review type=%s missing=%s knownMerchant=%t", reviewType, missing, knownMerchant)
 	}
 }
 

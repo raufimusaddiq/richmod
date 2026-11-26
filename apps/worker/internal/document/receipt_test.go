@@ -19,6 +19,8 @@ func TestReceiptReviewDecisionNamesResidualFactsWithoutPromotingFallbackDate(t *
 		{category: true, wantReason: "MISSING_TRANSACTION_DATE", wantMissing: []string{"transaction_at"}},
 		{wantReason: "TRANSACTION_FACTS_MISSING", wantMissing: []string{"category", "transaction_at"}},
 		{category: false, date: true, wantReason: "AMBIGUOUS_CATEGORY", wantMissing: []string{"category"}},
+		{category: false, date: true, arithmetic: true, wantReason: "AMBIGUOUS_CATEGORY", wantMissing: []string{"category"}},
+		{category: true, date: false, arithmetic: true, wantReason: "MISSING_TRANSACTION_DATE", wantMissing: []string{"transaction_at"}},
 		{category: true, date: true, merchantReview: true, arithmetic: true, wantReason: "RECEIPT_MISMATCH", wantMissing: []string{}},
 	} {
 		reason := receiptReviewReason(false, test.merchantReview, test.category, test.date, test.arithmetic)

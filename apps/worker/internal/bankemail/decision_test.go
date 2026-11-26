@@ -10,7 +10,7 @@ import (
 
 func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
-	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
+	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, false, "t")
 	if len(d.MissingFacts) != 2 || d.MissingFacts[0] != "merchant" || d.MissingFacts[1] != "category" {
 		t.Fatalf("merchant must precede category, got %v", d.MissingFacts)
 	}
@@ -33,7 +33,7 @@ func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 }
 
 func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
-	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "AMBIGUOUS_CATEGORY"}, "t")
+	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "AMBIGUOUS_CATEGORY"}, false, "t")
 	if d.InteractionMode != "SINGLE_FIELD" || len(d.AllowedActions) != 2 || d.AllowedActions[0] != "CONFIRM_REVIEW" || d.AllowedActions[1] != "IGNORE" {
 		t.Fatalf("category dropdown contract=%+v", d)
 	}
@@ -56,7 +56,7 @@ func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 }
 
 func TestTransferClassificationDecisionOffersRelationshipChoices(t *testing.T) {
-	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, "t")
+	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, false, "t")
 	preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", "t")
 	if !ok {
 		t.Fatal("TRANSFER_CLASSIFICATION preset missing")

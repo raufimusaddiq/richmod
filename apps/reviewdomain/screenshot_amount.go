@@ -97,7 +97,7 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	var merchantID *string
 	if merchant != "" {
 		id, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchant)
-		if errors.Is(err, ErrAmbiguousMerchantMatch) || errors.Is(err, ErrUnusableMerchantName) {
+		if IsMerchantLinkProblem(err) {
 			merchantReview = true
 		} else if err != nil {
 			return result, err
@@ -129,11 +129,25 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, err
 	}
 	if duplicate {
-		known := map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at, "merchant": merchant}
+		known := map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at}
+		if !merchantReview {
+			known["merchant"] = merchant
+		}
 		if len(priorMatches) > 0 {
 			known["prior_match_transaction_ids"] = priorMatches
 		}
-		encoded, err := possibleDuplicateDecision(result.TransactionID, known)
+		decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", result.TransactionID)
+		if !ok {
+			return result, errors.New("reviewdomain: no POSSIBLE_DUPLICATE review contract")
+		}
+		for key, value := range known {
+			decision.KnownFacts[key] = value
+		}
+		if merchantReview {
+			decision.MissingFacts = []string{"merchant"}
+			decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
+		}
+		encoded, err := decision.JSON()
 		if err != nil {
 			return result, err
 		}
