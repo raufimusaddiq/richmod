@@ -58,6 +58,11 @@ export function shouldShowLastCycleCard(facts) {
   );
 }
 
+export function isComparisonTooEarly(facts) {
+  const days = facts?.spendingShape?.days;
+  return Boolean(facts?.period?.state === "ACTIVE" && Number.isInteger(days) && days <= 3);
+}
+
 function deltaChip(key, value, relative, suffix) {
   const view = deltaView(value ?? null, { relative: relative ?? null, lowerIsBetter: true });
   if (view.empty) return null;
@@ -67,8 +72,7 @@ function deltaChip(key, value, relative, suffix) {
 }
 
 function leadChips(facts, active) {
-  const days = facts.spendingShape?.days;
-  if (active && Number.isInteger(days) && days <= 3) return [];
+  if (isComparisonTooEarly(facts)) return [];
   const expense = facts.comparison?.expense;
   const chips = [];
   if (active) {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isComparisonTooEarly } from "../lib/cycleKpi";
 import { ratioLabel, transactionHref } from "../lib/cycleReview";
 import { calendarCategoryView } from "../lib/calendarReview";
 import { categoryColorMap, changesView, nonZeroCategoryChanges, OTHER_CATEGORY_COLOR, rankingView } from "../lib/cycleWhere";
@@ -19,7 +20,7 @@ function DeltaCell({ delta, hasBaseline, early }) {
 
 function RowCells({ row, hasBaseline = false, early = false, swatch = true, showDelta = true }) {
   const showSwatch = swatch && Boolean(row.color);
-  const barColor = row.color || "var(--line-strong)";
+  const barColor = row.color || OTHER_CATEGORY_COLOR;
   return <>
     <span className="cat-name">
       {showSwatch ? <i className="cat-swatch" style={{ "--cat": row.color }} aria-hidden="true"/> : <span className="cat-swatch-gap" aria-hidden="true"/>}
@@ -50,7 +51,7 @@ export default function CategoryTable({ facts, step, selected = "", select, pale
 
   const ranking = rankingView(facts, palette);
   const changes = changesView(facts, { limit: 8, palette });
-  const early = facts.period?.state === "ACTIVE" && facts.spendingShape?.days <= 3;
+  const early = isComparisonTooEarly(facts);
   const canChange = changes.hasBaseline && !early;
   const activeMode = step === "changes" ? "change" : step === "drivers" ? "top" : (canChange ? mode : "top");
   const isChangeMode = activeMode === "change";

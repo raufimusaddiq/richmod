@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { OTHER_CATEGORY_COLOR } from "../app/lib/categoryColors.js";
 import { addMonths, calendarCategoryView, calendarErrorMessage, calendarKpiCells, calendarPeriodLabel, calendarTransactionHref, calendarVerdict, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthChoices, monthName, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
 
 const october = new Date("2026-10-02T05:00:00Z");
@@ -137,6 +138,7 @@ test("calendar category view keeps the server order without summing a remainder 
   assert.deepEqual(rows.map(row => row.name), items.map(item => item.name), "the server order is preserved");
   assert.equal(rows[0].length, 1);
   assert.equal(rows[0].shareOfExpense, "0.08");
+  assert.equal(rows[6].color, OTHER_CATEGORY_COLOR, "non-palette calendar row gets neutral swatch");
   assert.equal(calendarCategoryView([]).rows.length, 0);
 });
 

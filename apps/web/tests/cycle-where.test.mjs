@@ -66,7 +66,7 @@ test("only the running day of an active cycle is partial", () => {
   assert.equal(partialDay(active.period, []), "");
 });
 
-test("rankingView omits sand on non-other rows and maps expandable other.rows with openable flags", () => {
+test("rankingView uses neutral swatch on non-palette rows and maps expandable other.rows with openable flags", () => {
   const facts = cycleFacts();
   const extraId = "77777777-7777-4777-8777-777777777777";
   facts.categoryChanges.push({ ...facts.categoryChanges[0], id: extraId, name: "Perjalanan", amount: "631000" });
@@ -88,8 +88,9 @@ test("rankingView omits sand on non-other rows and maps expandable other.rows wi
   const view = rankingView(facts, palette);
   assert.equal(view.rows[0].color, "var(--chart-category-1)");
   assert.equal(view.rows[1].color, "var(--chart-category-2)");
-  assert.equal(view.rows[2].color, "", "unranked row never gets a sand swatch");
-  assert.equal(view.other.color, OTHER_CATEGORY_COLOR, "Kategori lain keeps sand");
+  assert.equal(view.rows[2].color, OTHER_CATEGORY_COLOR, "non-palette row gets neutral swatch");
+  assert.equal(changesView(facts, { palette }).rows.find(row => row.id === extraId).color, OTHER_CATEGORY_COLOR, "non-palette change row gets neutral swatch");
+  assert.equal(view.other.color, OTHER_CATEGORY_COLOR, "Kategori lain keeps neutral swatch");
   assert.equal(view.other.rows.length, 2);
   assert.equal(view.other.rows[0].name, "Perjalanan");
   assert.equal(view.other.rows[0].color, "", "expanded remaining categories have no swatch");

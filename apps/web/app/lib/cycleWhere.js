@@ -19,8 +19,7 @@ export function rankingView(facts, palette = null) {
   const view = row => ({ ...row, delta: deltaFor(row), length: fraction(row.amount, peak) });
   const rows = ranking.rows.map(row => {
     const key = categoryKey(row);
-    const assigned = colors.get(key);
-    const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
+    const color = colors.get(key) || OTHER_CATEGORY_COLOR;
     return { ...view(row), key, color, openable: evidenceKeys.has(key) };
   });
   const otherRows = Array.isArray(ranking.other?.rows)
@@ -53,8 +52,7 @@ export function changesView(facts, { limit = 8, palette = null } = {}) {
   const { colors } = categoryColorMap(facts, palette);
   const rows = items.map(item => {
     const key = categoryKey(item);
-    const assigned = colors.get(key);
-    const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
+    const color = colors.get(key) || OTHER_CATEGORY_COLOR;
     return {
       key,
       id: item.id,

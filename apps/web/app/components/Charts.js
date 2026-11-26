@@ -70,13 +70,33 @@ export function DashboardDailySpendingChart({ items, height = 240 }) {
 
 const dayOfMonth = period => period?.slice(8) || "";
 
-function DayTick({ x, y, payload, partialDay, last }) {
+function DayTick({ x, y, payload, partialDay, firstDay, last, crowdedFirst, crowdedPartial }) {
   const partial = payload.value === partialDay;
-  return <text x={x} y={y + 12} textAnchor={partial && last ? "end" : "middle"} fill="var(--chart-axis)" fontFamily="var(--font-body)" fontSize={12}>{dayOfMonth(payload.value)}{partial && <tspan x={x} dy={14}>belum penuh</tspan>}</text>;
+  const first = payload.value === firstDay;
+  const anchor = partial && last && !first ? "end"
+    : partial && first && !last ? "start"
+    : crowdedFirst && first ? "end"
+    : crowdedPartial && partial ? "start"
+    : "middle";
+  return <text x={x} y={y + 12} textAnchor={anchor} fill="var(--chart-axis)" fontFamily="var(--font-body)" fontSize={12} data-day-tick={payload.value}>{dayOfMonth(payload.value)}{partial && <tspan x={x} dy={14}>belum penuh</tspan>}</text>;
 }
 
 export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, partialDay = "", peakDay = "", height = 150 }) {
   const motion = useChartMotion(items);
+  const wrapRef = useRef(null);
+  const [chartWidth, setChartWidth] = useState(0);
+  useEffect(() => {
+    const node = wrapRef.current;
+    if (!node) return undefined;
+    const measure = () => {
+      if (node.clientWidth > 0) setChartWidth(node.clientWidth);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const measured = mapDailySpending(items);
   const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage);
   if (!measured.length || measured.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
@@ -94,7 +114,12 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
   const lastIndex = data.length - 1;
   const stride = data.length > 20 ? 5 : 3;
   const partialIndex = partialDay ? data.findIndex(item => item.period === partialDay) : -1;
+  const plotWidth = Math.max(0, chartWidth - 50);
+  const slotWidth = data.length > 0 && plotWidth > 0 ? plotWidth / data.length : 0;
+  const crowdedFirst = partialIndex > 0 && slotWidth > 0 && partialIndex * slotWidth < 24;
+  const crowdedPartial = crowdedFirst && partialIndex === 1 && partialIndex !== lastIndex;
   const ticks = data.filter((item, index) => {
+    if (index === 0) return true;
     if (partialIndex >= 0 && index === partialIndex) return true;
     if (index === lastIndex) return partialIndex < 0 || Math.abs(lastIndex - partialIndex) >= 3;
     if (index % stride !== 0) return false;
@@ -118,7 +143,7 @@ export function CycleSpendingPatternChart({ items, period, average: suppliedAver
       {rectangle}
     </a>;
   };
-  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialDay ? 16 : 0 }} barCategoryGap={`${CYCLE_BAR_GAP * 100}%`}><defs><pattern id="daily-partial-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--surface)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--chart-daily)" strokeWidth="3"/></pattern></defs><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="period" tickFormatter={dayOfMonth} axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialDay ? <DayTick partialDay={partialDay} last={partialDay === data[lastIndex].period}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialDay ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--ink)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar {...motion} dataKey="expenseValue" fill="var(--chart-daily)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
+  return <div ref={wrapRef} className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialDay ? 16 : 0 }} barCategoryGap={`${CYCLE_BAR_GAP * 100}%`}><defs><pattern id="daily-partial-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--surface)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--chart-daily)" strokeWidth="3"/></pattern></defs><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="period" tickFormatter={dayOfMonth} axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialDay ? <DayTick partialDay={partialDay} firstDay={data[0].period} last={partialDay === data[lastIndex].period} crowdedFirst={crowdedFirst} crowdedPartial={crowdedPartial}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialDay ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--ink)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar {...motion} dataKey="expenseValue" fill="var(--chart-daily)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {
