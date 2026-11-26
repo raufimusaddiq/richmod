@@ -191,7 +191,7 @@ export function editErrorMessage(status, body = {}) {
     case "TRANSACTION_VOIDED": return "Transaksi yang dibatalkan tidak bisa diubah.";
     case "TRANSFER_FIELD_LOCKED": return "Kategori, akun, dan tempat transfer tidak bisa diubah.";
     case "INVALID_CATEGORY": return "Kategori tidak valid atau tidak aktif. Pilih kategori lain.";
-    case "LOCKED_FIELD": return "Jumlah dan tanggal transaksi ini tidak bisa diubah. Muat ulang lalu coba lagi.";
+    case "LOCKED_FIELD": return "Jumlah dan tanggal transaksi ini tidak bisa diubah di sini.";
     case "INVALID_AMOUNT": return "Isi jumlah dengan angka bulat lebih dari 0.";
     case "DATE_IN_FUTURE": return "Tanggal itu belum terjadi.";
     case "DATE_TOO_OLD": return "Tanggal itu terlalu lama.";
