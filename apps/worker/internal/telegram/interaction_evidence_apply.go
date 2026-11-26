@@ -230,7 +230,8 @@ func (p *Processor) finishConfirm(ctx context.Context, tx, sp pgx.Tx, householdI
 		return reask(step, choiceStaleAck), nil
 	case reviewdomain.IsMerchantLinkProblem(err):
 		_ = sp.Rollback(ctx)
-		return reask(step, ambiguousMerchantReply), nil
+		reply, _ := merchantLinkProblemReply(err)
+		return reask(step, reply), nil
 	case err != nil:
 		_ = sp.Rollback(ctx)
 		return stepOutcome{}, err

@@ -440,14 +440,20 @@ func (p *Processor) applyIgnore(ctx context.Context, tx pgx.Tx, householdID, sou
 func (p *Processor) applyMerchant(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, review engineReview, step Step, text string) (stepOutcome, error) {
 	value, ok := usableMerchantText(text)
 	if !ok {
+		err := reviewdomain.CheckMerchantLink(ctx, tx, householdID, text)
+		if reply, problem := merchantLinkProblemReply(err); problem {
+			return reask(step, reply), nil
+		}
+		if err != nil {
+			return stepOutcome{}, err
+		}
 		return reask(step, unusableAnswerAck), nil
 	}
-	merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, value)
-	if err != nil {
+	if err := reviewdomain.CheckMerchantLink(ctx, tx, householdID, value); err != nil {
+		if reply, problem := merchantLinkProblemReply(err); problem {
+			return reask(step, reply), nil
+		}
 		return stepOutcome{}, err
-	}
-	if merchantReview {
-		return reask(step, ambiguousMerchantReply), nil
 	}
 	remembered, err := setReviewMerchant(ctx, tx, householdID, review.RequestID, review.TransactionID, value)
 	if err != nil {
