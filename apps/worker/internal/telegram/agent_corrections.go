@@ -348,8 +348,11 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		return outcome, err
 	case errors.Is(err, reviewdomain.ErrCorrectionNotAllowed):
 		var locked reviewdomain.CorrectionLockedError
-		errors.As(err, &locked)
-		outcome.Refused, outcome.RefusedReason = true, locked.Reason
+		if errors.As(err, &locked) {
+			outcome.Refused, outcome.RefusedReason = true, locked.Reason
+		} else {
+			outcome.Blocked = "TARGET_UNAVAILABLE"
+		}
 		_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 		return outcome, err
 	case err != nil && !errors.Is(err, reviewdomain.ErrCorrectionEmpty):

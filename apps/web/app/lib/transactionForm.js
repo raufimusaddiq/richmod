@@ -105,6 +105,7 @@ const FACTS_LOCK_NOTES = {
   SOURCE_EVIDENCE: "Jumlah dan tanggal transaksi ini mengikuti sumbernya (email atau dokumen), jadi tidak bisa diubah di sini. Untuk tanggal, minta bot di Telegram, misalnya: ubah tanggal Warung Contoh jadi 3 Okt. Kalau jumlahnya salah, batalkan transaksi ini lalu catat ulang dengan jumlah yang benar.",
   NOT_CONFIRMED: "Jumlah dan tanggal baru bisa diubah setelah transaksinya tersimpan. Selesaikan tinjauannya dulu.",
   TRANSFER: "Jumlah dan tanggal transfer tidak bisa diubah. Batalkan lalu catat ulang jika salah.",
+  NOT_EDITABLE_TYPE: "Jumlah dan tanggal jenis transaksi ini tidak bisa diubah di sini. Kalau salah, batalkan transaksi ini lalu catat ulang.",
   SALARY: "Jumlah dan tanggal gaji mengikuti slip gaji, jadi tidak bisa diubah di sini.",
   MERGED: "Transaksi ini sudah digabung. Pisahkan penggabungannya dulu kalau jumlah atau tanggalnya perlu diubah.",
 };
