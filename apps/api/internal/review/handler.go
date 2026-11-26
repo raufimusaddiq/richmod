@@ -443,7 +443,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) {
-		writeJSON(w, 400, map[string]string{"error": "merchant name is ambiguous; choose a more specific name"})
+		writeJSON(w, 400, map[string]string{"error": "Nama merchant cocok dengan lebih dari satu merchant. Tulis nama yang lebih spesifik."})
 		return
 	}
 	var missing *reviewdomain.ErrMissingFacts

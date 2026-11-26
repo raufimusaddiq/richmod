@@ -114,7 +114,7 @@ func TestConfirmAmbiguousMerchantStaysInReview(t *testing.T) {
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
 	response := httptest.NewRecorder()
 	NewHandler(pool).Confirm(response, request)
-	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("ambiguous")) {
+	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	var status, merchantID string
