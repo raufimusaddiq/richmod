@@ -1,7 +1,6 @@
 package bankemail
 
 import (
-	"slices"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
@@ -86,9 +85,6 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"transaction_semantics"}
 		decision.WhyNotAuto = "the email did not clearly support an ordinary spending classification"
-	}
-	if merchantReview && result.ReviewType != "UNKNOWN_MERCHANT" && !slices.Contains(decision.MissingFacts, "merchant") {
-		decision.MissingFacts = append(decision.MissingFacts, "merchant")
 	}
 	return decision
 }

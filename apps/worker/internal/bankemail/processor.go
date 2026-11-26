@@ -555,17 +555,23 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		}
 	}
 	categoryID := result.CategoryID
-	merchantID, merchantReview, err := resolveMerchantLink(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
-	if err != nil {
-		return err
+	merchantID := ""
+	merchantReview := false
+	if reviewReasonCollectsMerchant(result.ReviewType) {
+		merchantID, merchantReview, err = resolveMerchantLink(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+		if err != nil {
+			return err
+		}
+	} else {
+		merchantID, err = resolveLegacyMerchantID(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+		if err != nil {
+			return err
+		}
 	}
 	if merchantReview {
 		result.AutoConfirm = false
 		result.Status = "NEEDS_REVIEW"
-		switch result.ReviewType {
-		case "", "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
-			result.ReviewType = "UNKNOWN_MERCHANT"
-		}
+		result.ReviewType = "UNKNOWN_MERCHANT"
 	}
 	autoNotice = autoNotice && !merchantReview
 	transactionType := result.Type
@@ -746,9 +752,38 @@ func loadMerchantMemory(ctx context.Context, q merchantmemory.Querier, household
 	}
 	return MerchantMemory{MerchantID: match.MerchantID, CategoryID: match.CategoryID, AutoApply: true}, nil
 }
+func reviewReasonCollectsMerchant(reason string) bool {
+	switch reason {
+	case "", "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
+		return true
+	}
+	return false
+}
+
 func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
 	merchantID, _, err := resolveMerchantLink(ctx, tx, household, raw)
 	return merchantID, err
+}
+
+func resolveLegacyMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
+	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	if raw == "" {
+		return "", nil
+	}
+	var id string
+	err := tx.QueryRow(ctx, `SELECT min(normalized_merchant_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) GROUP BY household_id,lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT normalized_merchant_id)=1`, household, raw).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	stored := strings.ToUpper(raw)
+	if runes := []rune(stored); len(runes) > 160 {
+		stored = string(runes[:160])
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, stored).Scan(&id)
+	return id, err
 }
 
 func resolveMerchantLink(ctx context.Context, tx pgx.Tx, household, raw string) (string, bool, error) {

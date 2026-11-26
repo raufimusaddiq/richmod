@@ -589,6 +589,57 @@ func TestResolveMerchantIDNormalizesLongPayeeBeforeTruncation(t *testing.T) {
 	}
 }
 
+func TestBankEmailTransferReviewUsesLegacyExactMerchantLink(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := testsupport.UniqueStamp()
+	var household, owner, account, merchant, listenerID, sourceID string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank transfer merchant %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-transfer-%d@test.invalid", stamp)).Scan(&owner))
+	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE EXACT') RETURNING id`, household).Scan(&merchant))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'PAYEE EXACT',$2)`, household, merchant)
+		return err
+	}())
+	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, sourceID, listenerID)
+		return err
+	}())
+	amount, direction, channel, payee, description := "41873", "OUTGOING", "TRANSFER", "PAYEE EXACT", "Transfer"
+	at := time.Now().Add(-time.Hour).UTC()
+	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: &amount, Direction: &direction, Channel: &channel, Merchant: &payee, Description: &description, TransactionAt: &at, Confidence: .95}
+	listener := Listener{ID: listenerID, HouseholdID: household, BankName: "Bank", SenderAddress: "bank@test.invalid", AccountID: account, TrackingPolicy: "SPENDING_ONLY", Active: true}
+	result := EvaluateBankEmail(listener, extraction, nil)
+	if result.ReviewType != "TRANSFER_CLASSIFICATION" {
+		t.Fatalf("fixture review type=%s", result.ReviewType)
+	}
+	must((&Processor{pool: pool}).persist(ctx, listener, sourceID, extraction, result, ""))
+	var transactionID, reviewType, missing string
+	var merchantID *string
+	must(pool.QueryRow(ctx, `SELECT t.id::text,t.merchant_id::text,ri.review_type,COALESCE(ri.decision->'missingFacts'->>0,'') FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN review_item ri ON ri.transaction_id=t.id WHERE e.source_event_id=$1`, sourceID).Scan(&transactionID, &merchantID, &reviewType, &missing))
+	if merchantID == nil || *merchantID != merchant || reviewType != "TRANSFER_CLASSIFICATION" || missing != "transfer_relationship" {
+		t.Fatalf("transaction=%s merchant=%v review=%s missing=%s", transactionID, merchantID, reviewType, missing)
+	}
+}
+
 func TestLoadMerchantMemoryRequiresOneUnambiguousNormalizedRule(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

@@ -42,7 +42,7 @@ func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
 	}
 }
 
-func TestMerchantReviewAppendsToOtherReasons(t *testing.T) {
+func TestMerchantReviewKeepsOtherReasonMissingFacts(t *testing.T) {
 	merchant := "PAYEE DUP"
 	for _, test := range []struct {
 		reason string
@@ -51,15 +51,15 @@ func TestMerchantReviewAppendsToOtherReasons(t *testing.T) {
 		{"TRANSFER_CLASSIFICATION", "transfer_relationship"},
 		{"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "transaction_semantics"},
 	} {
-		d := transactionReviewDecision("h", "s", Extraction{Merchant: &merchant}, PolicyResult{ReviewType: test.reason}, true, "t")
+		d := transactionReviewDecision("h", "s", Extraction{Merchant: &merchant}, PolicyResult{ReviewType: test.reason}, false, "t")
 		if d.ReasonCode != test.reason {
 			t.Fatalf("%s became %s", test.reason, d.ReasonCode)
 		}
-		if !slices.Contains(d.MissingFacts, test.want) || !slices.Contains(d.MissingFacts, "merchant") {
+		if len(d.MissingFacts) != 1 || d.MissingFacts[0] != test.want {
 			t.Fatalf("%s missing facts=%v", test.reason, d.MissingFacts)
 		}
-		if _, known := d.KnownFacts["merchant"]; known {
-			t.Fatalf("%s must not mark the ambiguous merchant known", test.reason)
+		if d.KnownFacts["merchant"] != merchant {
+			t.Fatalf("%s must keep the exact-linked merchant known: %v", test.reason, d.KnownFacts)
 		}
 	}
 }
