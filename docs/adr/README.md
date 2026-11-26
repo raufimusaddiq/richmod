@@ -1102,6 +1102,7 @@ Scope: what the web client may compute or reinterpret from served financial valu
 - **Day subtotal counts only confirmed rows**: a ledger day's spend is confirmed expenses minus confirmed refunds, so needs-review and voided rows never move it. (`ledgerDays.js`)
 - **Decision text length counts code points**: the client counts characters, not bytes, because the server's 1-2000 rule counts code points. (`cycleSections.js`)
 - **Calendar range totals are served by Go**: `GET /api/v1/analytics/range-summary` returns the calendar range totals, active-month count and peak month; the web never sums money itself.
+- **Merchant ranking is the top 6 plus remainder**: `merchantRanking` serves the top 6 spending merchants plus `other` (rank 7 onward) and `total` from Go (`analyticscore/facts.go`), so `MerchantCard` renders all served rows directly and never derives a remainder in the browser.
 
 ## ADR-107: Review card and transaction form contracts with the server
 *Accepted · 2026-11-21*

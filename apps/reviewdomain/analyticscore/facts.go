@@ -193,7 +193,7 @@ type merchantRanking struct {
 	Total merchantRankTotal `json:"total"`
 }
 
-const merchantRankingRows = 10
+const merchantRankingRows = 6
 
 type reviewMember struct {
 	reviewValue

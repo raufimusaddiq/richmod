@@ -420,7 +420,7 @@ test("the closed-cycle meeting walks all 7 steps, auto-opens folds, keeps a draf
   await expect(page.locator("#quality .review-quality"), "quality fold opens on quality step").toBeVisible();
   await page.getByRole("navigation", { name: "Langkah tinjauan siklus" }).getByRole("button", { name: "1. Posisi siklus", exact: true }).click();
   expect(searchOf(page).get("review")).toBe("position");
-  expect(await page.locator("#quality > details").evaluate(element => element.open), "leaving quality step closes its fold").toBe(false);
+  await expect(page.locator("#quality > details"), "leaving quality step closes its fold").not.toHaveAttribute("open");
 
   const nav = page.getByRole("navigation", { name: "Langkah tinjauan siklus" });
   await expect(nav.getByRole("button")).toHaveCount(7);
@@ -575,8 +575,8 @@ test("a stable cycle shows its one-line commentary and never generates", async (
   await page.getByText("Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", { exact: true }).waitFor();
   await expect(page.locator(".kpi-cell:nth-child(3) dd")).toHaveText(idr(0));
   await expect(page.locator(".insight-text p"), "stable commentary is not expanded into filler").toHaveCount(1);
-  await openDisclosure(page, "details#changes", "#changes tbody tr");
-  await expect(page.locator("#changes tbody tr")).toHaveCount(1);
+  await openDisclosure(page, "details#changes", "#changes .empty");
+  await expect(page.locator("#changes tbody tr")).toHaveCount(0);
   expect(api.calls("/api/v1/insights/generate"), "stable review never auto-generates commentary").toHaveLength(0);
 });
 

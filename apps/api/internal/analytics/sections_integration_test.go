@@ -182,10 +182,10 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 
 	review := f.review(t, "")
 	r := review.MerchantRanking
-	if r.Mode != "ELAPSED_DAYS" || len(r.Rows) != 10 {
+	if r.Mode != "ELAPSED_DAYS" || len(r.Rows) != 6 {
 		t.Fatalf("mode=%s rows=%d", r.Mode, len(r.Rows))
 	}
-	want := []string{"Fixture cafe", "Warung Baru", "Tanpa merchant", "Small merchant 9", "Small merchant 8", "Small merchant 7", "Small merchant 6", "Small merchant 5", "Small merchant 4", "Small merchant 3"}
+	want := []string{"Fixture cafe", "Warung Baru", "Tanpa merchant", "Small merchant 9", "Small merchant 8", "Small merchant 7"}
 	for i, name := range want {
 		if r.Rows[i].Name != name {
 			t.Fatalf("row %d = %s, want %s (rows=%+v)", i, r.Rows[i].Name, name, r.Rows)
@@ -202,7 +202,7 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 	if warung.Amount != "700" || *warung.Previous != "0" || *warung.Delta != "700" || none.Amount != "300" || none.Count != 1 || *none.Previous != "100" || *none.Delta != "200" {
 		t.Fatalf("warung=%+v none=%+v", warung, none)
 	}
-	if r.Other.Amount != "30" || r.Other.Count != 2 || r.Other.MerchantCount != 2 || *r.Other.Previous != "0" || *r.Other.Delta != "30" {
+	if r.Other.Amount != "210" || r.Other.Count != 6 || r.Other.MerchantCount != 6 || *r.Other.Previous != "0" || *r.Other.Delta != "210" {
 		t.Fatalf("other=%+v", r.Other)
 	}
 	if r.Total.Amount != "3450" || r.Total.Count != 13 || *r.Total.Previous != "3100" || *r.Total.Delta != "350" {

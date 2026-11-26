@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ratioLabel, transactionHref } from "../lib/cycleReview";
-import { categoryColorMap, changesView, OTHER_CATEGORY_COLOR, rankingView } from "../lib/cycleWhere";
+import { categoryColorMap, changesView, nonZeroCategoryChanges, OTHER_CATEGORY_COLOR, rankingView } from "../lib/cycleWhere";
 import { money } from "../lib/format";
 import { ComparisonContext, ChangesTable } from "./CycleSections";
 import { SectionTitle } from "./shared";
@@ -115,7 +115,7 @@ export default function CategoryTable({ facts, step, selected = "", select, pale
       <summary>Perbandingan lengkap › <small>median, persentase &amp; kontribusi</small></summary>
       <p className="dash-caption">Urutan dari server, bukan penilaian baik atau buruk. Merah dan hijau hanya menunjukkan arah pengeluaran. Satu pembanding: {changes.baseline}.</p>
       <ComparisonContext comparison={facts.comparison} period={facts.period}/>
-      <ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selected} select={select} colors={colorMap.colors}/>
+      <ChangesTable items={nonZeroCategoryChanges(facts)} comparison={facts.comparison} selected={selected} select={select} colors={colorMap.colors}/>
     </details>
   </section>;
 }

@@ -138,9 +138,9 @@ function MerchantDelta({ value }) {
 
 export function MerchantCard({ facts, step }) {
   const list = merchantBars(facts.merchantRanking);
-  const top = list?.rows?.slice(0, 6) || [];
+  const rows = list?.rows || [];
   const other = list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
-  const empty = !list || !list.rows.length;
+  const empty = !list || !rows.length;
   return <section id="merchants" className="surface dash-card" aria-labelledby="merchants-title">
     <div className="dash-card-head">
       <div>
@@ -150,7 +150,7 @@ export function MerchantCard({ facts, step }) {
     </div>
     {empty ? <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p> : <>
       <ul className="merchant-list" aria-label="Merchant teratas">
-        {top.map(item => <li key={item.key} className="merchant-item">
+        {rows.map(item => <li key={item.key} className="merchant-item">
           <span className="merchant-item-name">
             {item.id ? <a href={transactionHref(facts.period, { merchantId: item.id })}>{item.name}</a> : <span>{item.name}</span>}
             {item.notNamed && <small>tanpa nama penerima</small>}

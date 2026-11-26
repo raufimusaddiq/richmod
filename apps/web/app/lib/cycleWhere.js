@@ -36,15 +36,19 @@ export function rankingView(facts, palette = null) {
   return { rows, other, baseline: basis.label, hasBaseline, total: facts.cashflow.expense };
 }
 
+export function nonZeroCategoryChanges(facts) {
+  const basis = baselineFor(facts.period, facts.spendingShape?.days);
+  return (facts.categoryChanges || []).filter(item => {
+    const delta = item?.[basis.delta];
+    return delta != null && !isZero(delta);
+  });
+}
+
 export function changesView(facts, { limit = 8, palette = null } = {}) {
   const { comparison, period } = facts;
   const basis = baselineFor(period, facts.spendingShape?.days);
   const hasBaseline = Boolean(comparison?.previousFullCycle || comparison?.previous);
-  const nonZero = (facts.categoryChanges || []).filter(item => {
-    const delta = item?.[basis.delta];
-    return delta != null && !isZero(delta);
-  });
-  const items = nonZero.slice(0, limit);
+  const items = nonZeroCategoryChanges(facts).slice(0, limit);
   const peak = Math.max(0, ...items.map(item => Math.abs(Number(item.amount))).filter(Number.isFinite));
   const { colors } = categoryColorMap(facts, palette);
   const rows = items.map(item => {

@@ -31,7 +31,7 @@ function merchantRankingFor(facts) {
     entry.amount += BigInt(merchant.amount); entry.count += merchant.count ?? 0; entry.previous += BigInt(merchant.previous ?? 0);
     payees.set(key, entry);
   }
-  const rows = [...payees.values()].sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0)).slice(0, 10)
+  const rows = [...payees.values()].sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0)).slice(0, 6)
     .map(entry => ({ id: entry.id, name: entry.name, kind: entry.id ? "MERCHANT" : "COUNTERPARTY", amount: String(entry.amount), count: entry.count, previous: String(entry.previous), deltaVsPrevious: String(entry.amount - entry.previous), shareOfExpense: facts.cashflow.expense === "0" ? null : String(entry.amount) / facts.cashflow.expense }));
   const listed = rows.reduce((sum, row) => sum + BigInt(row.amount), 0n);
   const listedPrevious = rows.reduce((sum, row) => sum + BigInt(row.previous), 0n);
