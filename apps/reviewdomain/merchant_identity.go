@@ -260,7 +260,14 @@ func ResolveOrCreateMerchant(ctx context.Context, q MerchantQuerier, household, 
 	if id != "" {
 		return id, nil
 	}
-	err = q.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, raw).Scan(&id)
+	if err != nil {
+		return id, err
+	}
+	stored := raw
+	if runes := []rune(stored); len(runes) > 160 {
+		stored = string(runes[:160])
+	}
+	err = q.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, stored).Scan(&id)
 	return id, err
 }
 

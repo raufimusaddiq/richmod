@@ -554,6 +554,41 @@ func TestMerchantIdentityIgnoresCrossHouseholdAliasTarget(t *testing.T) {
 	}
 }
 
+func TestResolveMerchantIDNormalizesLongPayeeBeforeTruncation(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	var household, merchant string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Long payee %d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	short := "PAYEE " + strings.Repeat("A", 140)
+	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, household, short).Scan(&merchant); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	id, err := resolveMerchantID(ctx, tx, household, short+" BANK MANDIRI 1128 5635 31")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != merchant {
+		t.Fatalf("long payee resolved=%s want %s", id, merchant)
+	}
+}
+
 func TestLoadMerchantMemoryRequiresOneUnambiguousNormalizedRule(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

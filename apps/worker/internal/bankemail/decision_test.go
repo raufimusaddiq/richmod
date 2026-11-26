@@ -42,6 +42,28 @@ func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
 	}
 }
 
+func TestMerchantReviewAppendsToOtherReasons(t *testing.T) {
+	merchant := "PAYEE DUP"
+	for _, test := range []struct {
+		reason string
+		want   string
+	}{
+		{"TRANSFER_CLASSIFICATION", "transfer_relationship"},
+		{"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "transaction_semantics"},
+	} {
+		d := transactionReviewDecision("h", "s", Extraction{Merchant: &merchant}, PolicyResult{ReviewType: test.reason}, true, "t")
+		if d.ReasonCode != test.reason {
+			t.Fatalf("%s became %s", test.reason, d.ReasonCode)
+		}
+		if !slices.Contains(d.MissingFacts, test.want) || !slices.Contains(d.MissingFacts, "merchant") {
+			t.Fatalf("%s missing facts=%v", test.reason, d.MissingFacts)
+		}
+		if _, known := d.KnownFacts["merchant"]; known {
+			t.Fatalf("%s must not mark the ambiguous merchant known", test.reason)
+		}
+	}
+}
+
 func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	decision := partialDecision("household", "source", Extraction{}, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"amount", "transaction_at"}, "facts absent")
 	if len(decision.MissingFacts) != 2 {

@@ -562,7 +562,10 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if merchantReview {
 		result.AutoConfirm = false
 		result.Status = "NEEDS_REVIEW"
-		result.ReviewType = "UNKNOWN_MERCHANT"
+		switch result.ReviewType {
+		case "", "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
+			result.ReviewType = "UNKNOWN_MERCHANT"
+		}
 	}
 	autoNotice = autoNotice && !merchantReview
 	transactionType := result.Type
@@ -757,9 +760,6 @@ func resolveMerchantLink(ctx context.Context, tx pgx.Tx, household, raw string) 
 		return "", true, nil
 	}
 	raw = strings.ToUpper(raw)
-	if runes := []rune(raw); len(runes) > 160 {
-		raw = string(runes[:160])
-	}
 	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
 	if reviewdomain.IsMerchantLinkProblem(err) {
 		return "", true, nil
