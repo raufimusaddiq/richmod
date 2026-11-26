@@ -310,6 +310,8 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Transfer tidak punya kategori pengeluaran, jadi kategorinya tidak diubah. Tidak ada yang berubah.", true
 	case "TRANSACTION_VOIDED":
 		return "Transaksi itu sudah dibatalkan, jadi perubahannya tidak disimpan.", true
+	case "AMBIGUOUS_MERCHANT":
+		return "Nama merchant itu cocok dengan lebih dari satu tempat, jadi belum ada yang diubah. Sebutkan nama merchant yang lebih spesifik, ya.", true
 	case "TRANSFER_PURPOSE_REQUIRED":
 		return "Aku belum bisa menentukan jenis transfernya. Sebutkan akun tujuannya (tabungan, investasi, atau utang) atau tulis bahwa ini pindah antar rekening. Belum ada yang dicatat.", true
 	case "INCOMPATIBLE_TRANSFER_PURPOSE", "INCOMPATIBLE_WEALTH_ACCOUNT":

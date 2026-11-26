@@ -568,8 +568,8 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		result.AutoConfirm = false
 		result.Status = "NEEDS_REVIEW"
 		result.ReviewType = "UNKNOWN_MERCHANT"
-		result.Description = "Nama merchant cocok dengan lebih dari satu tempat atau tidak bisa dipakai."
 	}
+	autoNotice = autoNotice && !merchantReview
 	transactionType := result.Type
 	if transactionType == "NEEDS_REVIEW" {
 		transactionType = "UNCLASSIFIED"

@@ -318,6 +318,15 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	}
 	merchantID := ""
 	if proposedMerchant != nil {
+		merchantReview, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, householdID, *proposedMerchant)
+		if err != nil {
+			return outcome, err
+		}
+		if merchantReview {
+			outcome.Blocked = "AMBIGUOUS_MERCHANT"
+			_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
+			return outcome, err
+		}
 		id, _, err := resolveEntryMerchantTx(ctx, tx, householdID, *proposedMerchant)
 		if err != nil {
 			return outcome, err

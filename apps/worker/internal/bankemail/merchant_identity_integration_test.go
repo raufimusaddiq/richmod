@@ -242,6 +242,14 @@ func TestBankEmailAmbiguousMerchantRoutesToUnknownMerchantReview(t *testing.T) {
 	var household, owner, account, shortCategory, longCategory, listenerID, sourceID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank merchant review %d", stamp)).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-merchant-%d@test.invalid", stamp)).Scan(&owner))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, owner)
+		return err
+	}())
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp, household, owner)
+		return err
+	}())
 	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&shortCategory))
 	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Other','other') RETURNING id`, household).Scan(&longCategory))
@@ -276,6 +284,16 @@ func TestBankEmailAmbiguousMerchantRoutesToUnknownMerchantReview(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT review_type FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND')`, household, transactionID).Scan(&reviewType))
 	if reviewType != "UNKNOWN_MERCHANT" {
 		t.Fatalf("review type=%s", reviewType)
+	}
+	var noticeAt *time.Time
+	must(pool.QueryRow(ctx, `SELECT notice_at FROM bank_email_extraction WHERE source_event_id=$1`, sourceID).Scan(&noticeAt))
+	if noticeAt != nil {
+		t.Fatalf("ambiguous merchant claimed notice_at: %v", noticeAt)
+	}
+	var notices int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tersimpan%'`, stamp).Scan(&notices))
+	if notices != 0 {
+		t.Fatalf("ambiguous merchant enqueued %d saved notices", notices)
 	}
 }
 
