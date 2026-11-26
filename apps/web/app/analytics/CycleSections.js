@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { amountLabel, measuredLabel, ratioLabel, reviewSteps, signedMoney, transactionHref } from "../lib/cycleReview";
+import { deltaView } from "../lib/cycleKpi";
 import { compactMillions, directionMark } from "../lib/cycleLedger";
 import { buildHeatmap, deltaTone, householdRows, merchantBars, nonZeroAmount } from "../lib/cycleSections";
 import { OTHER_CATEGORY_COLOR, categoryKey } from "../lib/categoryColors";
 import { money } from "../lib/format";
-import { Metric } from "./shared";
+import { Metric, SectionTitle } from "./shared";
 
 const monthShort = new Intl.DateTimeFormat("id-ID", { month: "short", timeZone: "UTC" });
 function columnMonth(start) {
@@ -72,16 +73,17 @@ export function ChangesTable({ items, comparison, selected, select, colors = nul
   </table></div></>;
 }
 
-export function CategoryHeatmap({ facts, colors = null, selectedCategory = "", onSelectCategory }) {
+export function CategoryHeatmap({ facts, mode: controlledMode = null, colors = null, selectedCategory = "", onSelectCategory }) {
   const sameDay = facts.categoryHistory?.sameDay;
-  const [mode, setMode] = useState(sameDay ? "SAME_DAY" : "FULL");
+  const [localMode, setLocalMode] = useState(sameDay ? "SAME_DAY" : "FULL");
+  const mode = controlledMode ?? localMode;
   const heat = buildHeatmap(facts.categoryHistory, facts.history, mode, { selectedCategory, selectable: facts.categoryChanges.map(item => item.id || "uncategorized") });
   if (!heat) return <p className="empty compact">Matriks kategori belum tersedia untuk siklus ini.</p>;
   const deltaLabel = heat.mode === "SAME_DAY" ? "Selisih vs siklus lalu, hari yang sama" : "Selisih vs siklus lalu";
   return <div className="heat-section">
-    {sameDay && <div className="segmented" data-slide role="group" aria-label="Rentang kolom matriks">
-      <button type="button" aria-pressed={mode === "SAME_DAY"} className={mode === "SAME_DAY" ? "active" : "secondary"} onClick={() => setMode("SAME_DAY")}>Hari ke-{sameDay.elapsedDays} yang sama</button>
-      <button type="button" aria-pressed={mode === "FULL"} className={mode === "FULL" ? "active" : "secondary"} onClick={() => setMode("FULL")}>Siklus penuh</button>
+    {sameDay && controlledMode == null && <div className="segmented" data-slide role="group" aria-label="Rentang kolom matriks">
+      <button type="button" aria-pressed={mode === "SAME_DAY"} className={mode === "SAME_DAY" ? "active" : "secondary"} onClick={() => setLocalMode("SAME_DAY")}>Hari ke-{sameDay.elapsedDays} yang sama</button>
+      <button type="button" aria-pressed={mode === "FULL"} className={mode === "FULL" ? "active" : "secondary"} onClick={() => setLocalMode("FULL")}>Siklus penuh</button>
     </div>}
     <p className="review-description">{heat.mode === "SAME_DAY" ? `Setiap siklus dihitung sampai hari ke-${sameDay.elapsedDays} agar siklus berjalan setara.` : "Total akhir tiap siklus. Kolom berjalan ditandai garis putus-putus dan tidak ikut pewarnaan karena belum selesai."}</p>
     <div className="heat-wrap" tabIndex={0} role="region" aria-label="Pengeluaran per kategori dan siklus, geser untuk semua kolom">
@@ -121,6 +123,55 @@ export function CategoryHeatmap({ facts, colors = null, selectedCategory = "", o
     </div>
     <p className="heat-legend">Warna sel: besar relatif dalam satu baris (lebih gelap = lebih besar), bukan baik atau buruk. Klik baris untuk membuka kategori (merchant &amp; transaksi).</p>
   </div>;
+}
+
+function MerchantDelta({ value }) {
+  const delta = deltaView(value ?? null, { lowerIsBetter: true });
+  if (delta.empty) return <span className="merchant-row-delta" data-tone="none"/>;
+  if (delta.zero) return <span className="merchant-row-delta" data-tone="none">sama</span>;
+  return <span className="merchant-row-delta" data-tone={delta.tone}>
+    {delta.mark && <span aria-hidden="true">{delta.mark} </span>}
+    {delta.word && <span className="visually-hidden">{delta.word} </span>}
+    {delta.text}
+  </span>;
+}
+
+export function MerchantCard({ facts, step }) {
+  const list = merchantBars(facts.merchantRanking);
+  const top = list?.rows?.slice(0, 6) || [];
+  const other = list?.other && nonZeroAmount(list.other.amount) ? list.other : null;
+  const empty = !list || !list.rows.length;
+  return <section id="merchants" className="surface dash-card merchant-card" aria-labelledby="merchants-title">
+    <div className="dash-card-head">
+      <div>
+        <SectionTitle id="merchants-title" title="Merchant teratas"/>
+        {facts.takeaways?.merchants && <p className="takeaway">{facts.takeaways.merchants}</p>}
+      </div>
+    </div>
+    {empty ? <p className="empty compact">Belum ada merchant pendukung pada siklus ini.</p> : <>
+      <ul className="merchant-list" aria-label="Merchant teratas">
+        {top.map(item => <li key={item.key} className="merchant-item">
+          <span className="merchant-item-name">
+            {item.id ? <a href={transactionHref(facts.period, { merchantId: item.id })}>{item.name}</a> : <span>{item.name}</span>}
+            {item.notNamed && <small>tanpa nama penerima</small>}
+          </span>
+          <span className="merchant-item-amount">{money(item.amount)}</span>
+          <span className="merchant-item-bar" aria-hidden="true"><i style={{ width: `${item.length * 100}%` }}/></span>
+          <MerchantDelta value={item.deltaVsPrevious}/>
+        </li>)}
+        {other && <li className="merchant-item" data-other="">
+          <span className="merchant-item-name"><span>Merchant lain · {other.merchantCount}</span></span>
+          <span className="merchant-item-amount">{money(other.amount)}</span>
+          <span aria-hidden="true"/>
+          <MerchantDelta value={other.deltaVsPrevious}/>
+        </li>}
+      </ul>
+      <details className="review-daily" open={step === "drivers" || undefined}>
+        <summary>Semua merchant › <small>{list.rows.length} teratas, jumlah transaksi, total</small></summary>
+        <MerchantRanking ranking={facts.merchantRanking} period={facts.period}/>
+      </details>
+    </>}
+  </section>;
 }
 
 export function MerchantRanking({ ranking, period }) {

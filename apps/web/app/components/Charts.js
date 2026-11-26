@@ -3,7 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart,
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, netWorthHistoryRows, netWorthHistorySummary } from "../lib/chartData";
 import { OTHER_CATEGORY_COLOR, categoryColorFor, categoryColorMap, categoryKey } from "../lib/categoryColors";
 import { useCategoryPalette } from "./CategoryPaletteProvider";
-import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceEndLabels, paceMarkerNote, paceTicks } from "../lib/cycleLedger";
+import { compactMillions, hasPace, mapPace, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceDateLabel, paceEndLabels, paceMarkerNote, paceTicks, provisionalDays } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { clippedBarLabels, dailyChartModel, dayLedgerHref, formatDailyTick } from "../lib/home";
 import { useRouter } from "../router";
@@ -18,6 +18,7 @@ const CYCLE_BAR_GAP = 0.1;
 function DailyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const item = payload[0].payload;
+  if (item?.ghost) return null;
   return <div className="chart-tooltip"><b className="chart-tooltip-title">{dayLabel(item?.period) || label}</b><div className="chart-tooltip-row"><span>Pengeluaran bersih</span><strong>{money(item.expense)}</strong></div>{item.refund != null && <div className="chart-tooltip-row"><span>Refund</span><strong>{money(item.refund)}</strong></div>}</div>;
 }
 
@@ -74,25 +75,50 @@ function DayTick({ x, y, payload, partialDay, last }) {
   return <text x={x} y={y + 12} textAnchor={partial && last ? "end" : "middle"} fill="var(--chart-axis)" fontFamily="var(--font-body)" fontSize={12}>{dayOfMonth(payload.value)}{partial && <tspan x={x} dy={14}>belum penuh</tspan>}</text>;
 }
 
-export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, partialDay = "", height = 190 }) {
+export function CycleSpendingPatternChart({ items, period, average: suppliedAverage, partialDay = "", peakDay = "", height = 150 }) {
   const motion = useChartMotion(items);
-  const data = mapDailySpending(items);
+  const measured = mapDailySpending(items);
   const average = suppliedAverage == null ? Number.NaN : Number(suppliedAverage);
-  if (!data.length || data.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
-  const max = Math.max(...data.map(item => item.expenseValue), Number.isFinite(average) ? average : 0, 0);
+  if (!measured.length || measured.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
+  const planned = period?.state === "ACTIVE" ? provisionalDays(period) : 0;
+  const data = [...measured];
+  if (planned > data.length && measured[0]?.period) {
+    const startMs = Date.parse(`${measured[0].period}T00:00:00Z`);
+    if (!Number.isNaN(startMs)) {
+      for (let index = data.length; index < planned; index += 1) {
+        data.push({ period: new Date(startMs + index * 86400000).toISOString().slice(0, 10), expense: null, expenseValue: 0, refund: null, ghost: true });
+      }
+    }
+  }
+  const max = Math.max(...measured.map(item => item.expenseValue), Number.isFinite(average) ? average : 0, 0);
   const lastIndex = data.length - 1;
-  const ticks = data.filter((_, index) => (index % 3 === 0 && !(partialDay && lastIndex - index < 3 && index !== lastIndex)) || (partialDay && index === lastIndex)).map(item => item.period);
-  const dayBar = ({ x, y, width, height, payload, fill, radius }) => {
+  const stride = data.length > 20 ? 5 : 3;
+  const partialIndex = partialDay ? data.findIndex(item => item.period === partialDay) : -1;
+  const ticks = data.filter((item, index) => {
+    if (partialIndex >= 0 && index === partialIndex) return true;
+    if (index === lastIndex) return partialIndex < 0 || Math.abs(lastIndex - partialIndex) >= 3;
+    if (index % stride !== 0) return false;
+    if (partialIndex >= 0 && Math.abs(index - partialIndex) < Math.min(stride, 3)) return false;
+    if (lastIndex - index < Math.min(stride, 3)) return false;
+    return true;
+  }).map(item => item.period);
+  const dayBar = ({ x, y, width, height: barHeight, payload, fill, radius }) => {
+    if (payload.ghost) {
+      return <rect x={x} y={y + barHeight - 4} width={width} height={4} rx={2} fill="var(--surface-muted)"/>;
+    }
     const partial = partialDay && payload.period === partialDay;
-    const rectangle = <Rectangle {...{ x, y, width, height, radius }} fill={partial ? "var(--line-strong)" : fill}/>;
+    const isPeak = !partial && peakDay && payload.period === peakDay;
+    const rectangle = partial
+      ? <Rectangle {...{ x, y, width, height: barHeight, radius }} fill="url(#daily-partial-hatch)" stroke="var(--chart-daily)" strokeWidth={1}/>
+      : <Rectangle {...{ x, y, width, height: barHeight, radius }} fill={isPeak ? "var(--expense)" : fill}/>;
     if (!period || payload.expenseValue === 0) return rectangle;
     const band = width / (1 - CYCLE_BAR_GAP);
     return <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>
-      <rect x={x - (band - width) / 2} y={0} width={band} height={y + height} fill="transparent"/>
+      <rect x={x - (band - width) / 2} y={0} width={band} height={y + barHeight} fill="transparent"/>
       {rectangle}
     </a>;
   };
-  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialDay ? 16 : 0 }} barCategoryGap={`${CYCLE_BAR_GAP * 100}%`}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="period" tickFormatter={dayOfMonth} axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialDay ? <DayTick partialDay={partialDay} last={partialDay === data[lastIndex].period}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialDay ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--ink)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar {...motion} dataKey="expenseValue" fill="var(--chart-daily)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji, dalam jutaan rupiah" style={{ height }}><ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 10, left: 0, bottom: partialDay ? 16 : 0 }} barCategoryGap={`${CYCLE_BAR_GAP * 100}%`}><defs><pattern id="daily-partial-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--surface)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--chart-daily)" strokeWidth="3"/></pattern></defs><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="period" tickFormatter={dayOfMonth} axisLine={false} tickLine={false} ticks={ticks} interval={0} tick={partialDay ? <DayTick partialDay={partialDay} last={partialDay === data[lastIndex].period}/> : { ...axisTick, fill: "var(--chart-axis)" }} height={partialDay ? 36 : 22}/><YAxis width={40} axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} tickFormatter={millionTickFormatter(max)}/><Tooltip content={<DailyTooltip/>}/>{Number.isFinite(average) && <ReferenceLine y={average} stroke="var(--ink)" strokeDasharray="6 5" strokeWidth={1.5} ifOverflow="extendDomain"/>}<Bar {...motion} dataKey="expenseValue" fill="var(--chart-daily)" radius={[2, 2, 0, 0]} maxBarSize={44} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {
@@ -125,7 +151,7 @@ export function CyclePaceChart({ items, references = [], pace, period, height = 
   }, [height]);
   if (!items?.length) return null;
   if (!hasPace(items)) return <p className="empty compact">Total pengeluaran sampai hari ini belum tersedia.</p>;
-  const data = mapPace(items, pace);
+  const data = mapPace(items, pace, period);
   const curves = paceCurves(pace);
   const last = data[items.length - 1];
   const tone = reference => (reference.tone === "median" ? "var(--chart-reference)" : "var(--line-strong)");

@@ -24,7 +24,7 @@ export function activeHref(pathname) {
   return path;
 }
 
-export default function AppShell({ user, title, eyebrow, actions, children }) {
+export default function AppShell({ user, title, eyebrow, actions, headerAside, children }) {
   const pathname = usePathname();
   const reviewCount = useInboxCount();
   const { open } = useQuickRecord();
@@ -55,7 +55,7 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
       {user?.isSuperAdmin && <Link className="admin-link" href="/admin" aria-current={isActive("/admin") ? "page" : undefined}><ShieldChevron aria-hidden="true"/><span>Admin</span></Link>}
       <div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>{user?.isSuperAdmin ? "Super admin" : "Anggota keluarga"}</small></div><button type="button" aria-label="Keluar" title="Keluar" onClick={logout}><SignOut aria-hidden="true"/></button></div>
     </aside>
-    <ViewTransition name="app-main" enter="page-swap" exit="page-swap" share="page-swap" default="none"><main ref={main} id="main-content" className="app-main"><BuildUpdateNotice/><header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{(actions || reviewCount > 0) && <div className="page-actions">{reviewCount > 0 && <Link className="review-pill" href="/inbox">{reviewCount} perlu dicek ›</Link>}{actions}</div>}</header>{children}</main></ViewTransition>
+    <ViewTransition name="app-main" enter="page-swap" exit="page-swap" share="page-swap" default="none"><main ref={main} id="main-content" className="app-main"><BuildUpdateNotice/><header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{(headerAside || actions || reviewCount > 0) && <div className="page-actions">{headerAside}{reviewCount > 0 && <Link className="review-pill" href="/inbox">{reviewCount} perlu dicek ›</Link>}{actions}</div>}</header>{children}</main></ViewTransition>
     <nav className="mobile-nav" data-slide data-slide-memory="mobile-nav" aria-label="Navigasi utama seluler">
       <NavLink item={homeLink} active={isActive(homeLink[0])} inboxCount={reviewCount}/>
       <NavLink item={ledgerLink} active={isActive(ledgerLink[0])} inboxCount={reviewCount}/>

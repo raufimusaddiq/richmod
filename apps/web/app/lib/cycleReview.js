@@ -27,12 +27,6 @@ export function ratioLabel(value) {
   return value == null ? "—" : minusSign(percentage.format(Number(value)));
 }
 
-export function changeWidth(item, items, field = "deltaVsPrevious") {
-  const magnitude = row => Math.abs(Number(row[field] ?? row.amount));
-  const max = Math.max(0, ...items.map(magnitude));
-  return max > 0 ? `${magnitude(item) / max * 100}%` : "0%";
-}
-
 export function transactionHref(period, filters = {}) {
   const query = new URLSearchParams({ from: period.start, to: inclusiveEnd(period.measuredUntil), status: "CONFIRMED", type: "SPENDING" });
   for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
@@ -77,13 +71,27 @@ export const reviewSteps = [
 ];
 
 export const qualityCopy = {
-  OPEN_REVIEWS: ["tinjauan belum selesai", "Buka Inbox"],
-  UNCATEGORIZED_EXPENSE: ["pengeluaran belum dikategorikan", "Lihat transaksi"],
-  PROCESSING_INCOMPLETE: ["sumber belum selesai diproses", "Buka Tindakan"],
-  MISSING_SALARY_ANCHOR: ["Belum ada gaji utama terkonfirmasi untuk menentukan siklus", "Buka pengaturan"],
-  MISSING_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan untuk periode ini", "Perbarui Kekayaan"],
-  MISSING_PREVIOUS_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan sebelum siklus ini", "Buka Kekayaan"],
-  WEALTH_SNAPSHOT_BEFORE_CYCLE: ["Belum ada pengamatan kekayaan di siklus ini", "Perbarui Kekayaan"],
-  WEALTH_ACCOUNT_SET_CHANGED: ["Daftar akun kekayaan berubah antar catatan", "Buka Kekayaan"],
+  OPEN_REVIEWS: ["tinjauan belum selesai", "Buka Inbox", true],
+  UNCATEGORIZED_EXPENSE: ["pengeluaran belum dikategorikan", "Lihat transaksi", true],
+  PROCESSING_INCOMPLETE: ["sumber belum selesai diproses", "Buka Tindakan", true],
+  MISSING_SALARY_ANCHOR: ["Belum ada gaji utama terkonfirmasi untuk menentukan siklus", "Buka pengaturan", true],
+  MISSING_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan untuk periode ini", "Perbarui Kekayaan", false],
+  MISSING_PREVIOUS_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan sebelum siklus ini", "Buka Kekayaan", false],
+  WEALTH_SNAPSHOT_BEFORE_CYCLE: ["Belum ada pengamatan kekayaan di siklus ini", "Perbarui Kekayaan", false],
+  WEALTH_ACCOUNT_SET_CHANGED: ["Daftar akun kekayaan berubah antar catatan", "Buka Kekayaan", false],
 };
 
+export function isBlockingQuality(kind) {
+  const entry = qualityCopy[kind];
+  return entry ? entry[2] !== false : true;
+}
+
+export function splitDataQuality(items = []) {
+  const blocking = [];
+  const advisory = [];
+  for (const item of items || []) {
+    if (isBlockingQuality(item.kind)) blocking.push(item);
+    else advisory.push(item);
+  }
+  return { blocking, advisory };
+}

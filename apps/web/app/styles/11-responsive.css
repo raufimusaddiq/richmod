@@ -85,10 +85,12 @@
   .overview-trend, .overview-categories, .overview-activity, .overview-wealth, .analytics-chart, .ledger-panel, .panel, .settings-section, .admin-panel { padding: 17px; }
   .analytics-flow { gap: 14px; }
   .range-controls { display: grid; width: 100%; overflow: visible; }
+  .cycle-review .range-controls { display: grid; padding: 10px; gap: 10px; align-items: stretch; }
   .range-control-group { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; }
   .range-control-group button { width: 100%; }
   .cycle-review .cycle-picker { width: 100%; }
   .cycle-review .cycle-selector { flex: 1 1 auto; min-width: 0; }
+  .quality-chip { min-height: 44px; }
   .custom-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); margin: 0; }
   .custom-range select { width: 100%; }
   .custom-range button { grid-column: 1 / -1; }

@@ -67,10 +67,9 @@
 .family-talk-part { min-width: 0; padding-top: var(--space-4); border-top: 1px solid var(--line); }
 .family-talk-part:first-child { padding-top: 0; border-top: 0; }
 .family-talk-part > h3 { margin: 0 0 var(--space-2); color: var(--ink); font-family: var(--font-display); font-size: 16px; font-weight: var(--weight-semibold); }
-.cycle-review .range-controls { display: flex; width: 100%; margin: 0 0 var(--space-4); padding: 0; border: 0; background: transparent; gap: var(--space-4); overflow: visible; }
+.cycle-review .range-controls { display: flex; width: 100%; margin: 0 0 var(--space-4); padding: 8px 12px; border: 1.5px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface); gap: 10px 14px; align-items: center; overflow: visible; }
 .cycle-review .range-controls button, .cycle-review select, .cycle-review summary, .cycle-review .review-quality a, .cycle-review .change-button { min-height: 44px; }
 .cycle-review .range-control-group { flex-wrap: wrap; }
-.cycle-review .range-controls { align-items: flex-end; }
 .cycle-review .custom-range select, .cycle-review .custom-range button { min-height: 54px; }
 .cycle-review .review-section a { color: var(--accent); }
 .cycle-review .review-section > .section-title h2 { margin: 0; }
@@ -82,18 +81,21 @@
 .cycle-review .review-table-wrap caption { max-width: 74ch; }
 .cycle-review .insight-card { margin-bottom: var(--space-4); }
 .cycle-review .review-context, .cycle-review .review-values, .cycle-review .review-attribution, .cycle-review .review-destinations { background: var(--surface); }
+.cycle-review[data-meeting-step] .notice-strip,
+.cycle-review[data-meeting-step] #last-cycle,
+.cycle-review[data-meeting-step] #household,
 .cycle-review[data-meeting-step]:not([data-meeting-step="position"]) #position,
-.cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) #daily,
+.cycle-review[data-meeting-step]:not([data-meeting-step="position"]) #history,
 .cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) #spending-shape,
-.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]) #changes,
+.cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) #daily,
+.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]):not([data-meeting-step="drivers"]) #where,
+.cycle-review[data-meeting-step]:not([data-meeting-step="drivers"]) #merchants,
 .cycle-review[data-meeting-step]:not([data-meeting-step="drivers"]) #drivers,
 .cycle-review[data-meeting-step]:not([data-meeting-step="quality"]) section#quality,
 .cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]):not([data-meeting-step="decisions"]) #family-talk,
 .cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]) #discussion,
 .cycle-review[data-meeting-step]:not([data-meeting-step="decisions"]) #decisions,
-.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]):not([data-meeting-step="drivers"]) #where,
-.cycle-review[data-meeting-step]:not([data-meeting-step="position"]) #history,
-.cycle-review[data-meeting-step] #household { display: none; }
+.cycle-review[data-meeting-step]:not([data-meeting-step="quality"]):not([data-meeting-step="discussion"]):not([data-meeting-step="decisions"]) .review-stack { display: none; }
 .cycle-review[data-meeting-step="discussion"] #family-talk > details > summary,
 .cycle-review[data-meeting-step="decisions"] #family-talk > details > summary { display: none; }
 .cycle-review[data-meeting-step="discussion"] .family-talk-part,

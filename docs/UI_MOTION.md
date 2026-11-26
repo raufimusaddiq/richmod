@@ -45,7 +45,7 @@ drives a timer from an animation duration.
 | Drawer, sheet, dialog entry | `.detail-drawer`, `.admin-drawer`, `.mobile-more-panel`, `dialog[open]` | the panel used to cut into place |
 | Page entry | `.route-fade .app-main` fallback in `app/App.js`; `ViewTransition` in `AppShell` where supported | a route change lands, under 200 ms, opacity only |
 | Sheet travel | `dialog` at 719px and below | the sheet slides up by `transform` only and stays opaque for the whole open and close, so the page never shows through it; desktop dialogs keep the fade |
-| Chart draw-in | Recharts bars and lines in `Charts.js`, `.history-bar`, `.where-stack`, `.category-bars-track`, `.home-share` | a series shows where its figures came from, once per dataset (see below) |
+| Chart draw-in | Recharts bars and lines in `Charts.js`, `.history-bar`, `.cat-stack`, `.category-bars-track`, `.home-share` | a series shows where its figures came from, once per dataset (see below) |
 | Hero count-up | `CountUp` on the home hero and figures, the cycle KPI strip, the wealth position | the headline figure lands on its exact value instead of cutting in |
 
 `data-updated` is set only by the code path the user triggered: saving or
