@@ -31,7 +31,11 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	if channel := value(extraction.Channel); channel != "" {
 		known["channel"] = channel
 	}
-	if merchant := value(extraction.Merchant); merchant != "" {
+	if result.CategoryID != "" {
+		known["category_id"] = result.CategoryID
+	}
+	merchantAmbiguous := result.ReviewType == "UNKNOWN_MERCHANT" && result.CategoryID != ""
+	if merchant := value(extraction.Merchant); merchant != "" && !merchantAmbiguous {
 		known["merchant"] = merchant
 	}
 
@@ -58,9 +62,14 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		decision.WhyNotAuto = "extraction did not resolve an active household category"
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
-		decision.MissingFacts = []string{"merchant", "category"}
+		if merchantAmbiguous {
+			decision.MissingFacts = []string{"merchant"}
+			decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used; the accepted category is kept"
+		} else {
+			decision.MissingFacts = []string{"merchant", "category"}
+			decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
+		}
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
-		decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}

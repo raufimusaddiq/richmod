@@ -110,9 +110,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		if err != nil {
 			return result, err
 		}
-		if created == "" {
-			return result, ErrAmbiguousMerchantMatch
-		}
 		merchantID = &created
 	}
 	if cmd.RememberMerchant && merchantID == nil {

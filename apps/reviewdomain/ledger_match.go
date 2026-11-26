@@ -179,7 +179,7 @@ func EnrichLinkedTransaction(ctx context.Context, tx pgx.Tx, householdID, transa
 		}
 		if missing {
 			merchantID, err := ResolveOrCreateMerchant(ctx, tx, householdID, name)
-			if errors.Is(err, ErrAmbiguousMerchantMatch) {
+			if errors.Is(err, ErrAmbiguousMerchantMatch) || errors.Is(err, ErrUnusableMerchantName) {
 				merchantID, err = "", nil
 			}
 			if err != nil {

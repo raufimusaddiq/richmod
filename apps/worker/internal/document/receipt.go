@@ -529,7 +529,7 @@ func canonicalMerchantID(ctx context.Context, tx pgx.Tx, householdID, name strin
 		return known, nil
 	}
 	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, name)
-	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) {
+	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) || errors.Is(err, reviewdomain.ErrUnusableMerchantName) {
 		return nil, nil
 	}
 	if err != nil || id == "" {

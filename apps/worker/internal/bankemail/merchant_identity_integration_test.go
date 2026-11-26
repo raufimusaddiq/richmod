@@ -2,6 +2,7 @@ package bankemail
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -318,6 +319,23 @@ func TestBankEmailAmbiguousMerchantRoutesToUnknownMerchantReview(t *testing.T) {
 	if reviewType != "UNKNOWN_MERCHANT" {
 		t.Fatalf("review type=%s", reviewType)
 	}
+	var itemID, transactionCategory string
+	var rawDecision []byte
+	must(pool.QueryRow(ctx, `SELECT ri.id::text,t.category_id::text,ri.decision FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND ri.status IN ('OPEN','PENDING_SEND')`, household, transactionID).Scan(&itemID, &transactionCategory, &rawDecision))
+	var decision struct {
+		MissingFacts []string       `json:"missingFacts"`
+		KnownFacts   map[string]any `json:"knownFacts"`
+	}
+	must(json.Unmarshal(rawDecision, &decision))
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "merchant" {
+		t.Fatalf("ambiguous merchant missing facts=%v", decision.MissingFacts)
+	}
+	if _, known := decision.KnownFacts["merchant"]; known {
+		t.Fatalf("ambiguous merchant must not be known: %v", decision.KnownFacts)
+	}
+	if decision.KnownFacts["category_id"] != shortCategory || transactionCategory != shortCategory {
+		t.Fatalf("accepted category lost: known=%v transaction=%s want %s", decision.KnownFacts["category_id"], transactionCategory, shortCategory)
+	}
 	var noticeAt *time.Time
 	must(pool.QueryRow(ctx, `SELECT notice_at FROM bank_email_extraction WHERE source_event_id=$1`, sourceID).Scan(&noticeAt))
 	if noticeAt != nil {
@@ -327,6 +345,20 @@ func TestBankEmailAmbiguousMerchantRoutesToUnknownMerchantReview(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%Tersimpan%'`, stamp).Scan(&notices))
 	if notices != 0 {
 		t.Fatalf("ambiguous merchant enqueued %d saved notices", notices)
+	}
+	tx, err := pool.Begin(ctx)
+	must(err)
+	defer tx.Rollback(ctx)
+	_, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+		HouseholdID: household, ActorUserID: owner, TransactionID: transactionID, ReviewItemID: itemID,
+		Action: "CONFIRM_REVIEW", MerchantName: "JOHN DOE", ResolveReview: true,
+	})
+	must(err)
+	must(tx.Commit(ctx))
+	var confirmedStatus, confirmedCategory, confirmedMerchant string
+	must(pool.QueryRow(ctx, `SELECT status,category_id::text,merchant_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&confirmedStatus, &confirmedCategory, &confirmedMerchant))
+	if confirmedStatus != "CONFIRMED" || confirmedCategory != shortCategory || confirmedMerchant != shortMerchant {
+		t.Fatalf("merchant-only confirmation status=%s category=%s merchant=%s", confirmedStatus, confirmedCategory, confirmedMerchant)
 	}
 }
 

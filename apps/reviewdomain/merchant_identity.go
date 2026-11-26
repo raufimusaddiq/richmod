@@ -9,6 +9,7 @@ import (
 )
 
 var ErrAmbiguousMerchantMatch = errors.New("reviewdomain: normalized payee matches more than one merchant")
+var ErrUnusableMerchantName = errors.New("reviewdomain: merchant name cannot be used")
 
 type MerchantQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -241,8 +242,11 @@ func matchNamedMerchant(ctx context.Context, q MerchantQuerier, household string
 
 func ResolveOrCreateMerchant(ctx context.Context, q MerchantQuerier, household, raw string) (string, error) {
 	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
-	if raw == "" || strings.TrimSpace(NormalizePayeeName(raw)) == "" {
+	if raw == "" {
 		return "", nil
+	}
+	if strings.TrimSpace(NormalizePayeeName(raw)) == "" {
+		return "", ErrUnusableMerchantName
 	}
 	id, err := ExistingMerchantID(ctx, q, household, raw)
 	if err != nil {

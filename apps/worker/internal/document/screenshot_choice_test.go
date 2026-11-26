@@ -125,6 +125,8 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 func TestScreenshotReviewReasonNamesAmbiguousMerchant(t *testing.T) {
 	row := unmatchedOutRow("1000")
 	row.MerchantReview = true
+	income := row
+	income.Type = "INCOME"
 	cases := []struct {
 		name      string
 		row       validatedScreenshotRow
@@ -132,6 +134,7 @@ func TestScreenshotReviewReasonNamesAmbiguousMerchant(t *testing.T) {
 		want      string
 	}{
 		{"ambiguous merchant", row, false, "UNKNOWN_MERCHANT"},
+		{"income material dimension", income, false, "TRANSFER_CLASSIFICATION"},
 	}
 	for _, testCase := range cases {
 		if got := screenshotReviewReason(testCase.row, testCase.duplicate); got != testCase.want {

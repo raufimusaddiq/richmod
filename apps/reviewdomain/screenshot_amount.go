@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 var ErrMissingAmountReviewInvalid = errors.New("reviewdomain: missing-amount review invalid")
@@ -92,25 +93,24 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, err
 	}
 	duplicate = duplicate || carried > 0
+	merchantReview := false
+	var merchantID *string
+	if merchant != "" {
+		id, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchant)
+		if errors.Is(err, ErrAmbiguousMerchantMatch) || errors.Is(err, ErrUnusableMerchantName) {
+			merchantReview = true
+		} else if err != nil {
+			return result, err
+		} else if id != "" {
+			merchantID = &id
+		}
+	}
 	status, proposalStatus := "CONFIRMED", "ACCEPTED"
-	if duplicate {
+	if duplicate || merchantReview {
 		status, proposalStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET amount=$2::numeric,transaction_at=$3,category_candidate_id=$4,proposal_status=$5,metadata_json=metadata_json||jsonb_build_object('amount_source','USER','date_known',true),updated_at=now() WHERE id=$1`, cmd.ProposalID, *cmd.AmountIDR, at, category, proposalStatus); err != nil {
 		return result, err
-	}
-	var merchantID *string
-	if merchant != "" {
-		id, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchant)
-		if errors.Is(err, ErrAmbiguousMerchantMatch) {
-			id, err = "", nil
-		}
-		if err != nil {
-			return result, err
-		}
-		if id != "" {
-			merchantID = &id
-		}
 	}
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,$2,$3,$4::numeric,'IDR',$5,$6,$7,NULLIF($8,''),$9,$9,CASE WHEN $3='CONFIRMED' THEN now() ELSE NULL END) RETURNING id`, cmd.HouseholdID, typ, status, *cmd.AmountIDR, at, merchantID, category, description, confidence).Scan(&result.TransactionID); err != nil {
 		return result, err
@@ -140,13 +140,32 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb)`, cmd.HouseholdID, result.TransactionID, string(encoded)); err != nil {
 			return result, err
 		}
+	} else if merchantReview {
+		decision, ok := reviewdec.Preset("UNKNOWN_MERCHANT", "transaction", result.TransactionID)
+		if !ok {
+			return result, errors.New("reviewdomain: no UNKNOWN_MERCHANT review contract")
+		}
+		decision.KnownFacts["amount_idr"] = *cmd.AmountIDR
+		decision.KnownFacts["transaction_at"] = at.Format(time.RFC3339)
+		if category != nil {
+			decision.KnownFacts["category_id"] = *category
+		}
+		decision.MissingFacts = []string{"merchant"}
+		decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
+		encoded, err := decision.JSON()
+		if err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN',$3::jsonb)`, cmd.HouseholdID, result.TransactionID, string(encoded)); err != nil {
+			return result, err
+		}
 	} else if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, at, cmd.UserID); err != nil {
 		return result, err
 	}
 	if err := RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, source); err != nil {
 		return result, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'SET_SCREENSHOT_AMOUNT','transaction',$4,jsonb_build_object('review_item_id',$5::uuid,'proposal_id',$6::uuid,'needs_duplicate_review',$7::boolean))`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, result.TransactionID, cmd.ReviewItemID, cmd.ProposalID, duplicate)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'SET_SCREENSHOT_AMOUNT','transaction',$4,jsonb_build_object('review_item_id',$5::uuid,'proposal_id',$6::uuid,'needs_duplicate_review',$7::boolean,'needs_merchant_review',$8::boolean))`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, result.TransactionID, cmd.ReviewItemID, cmd.ProposalID, duplicate, merchantReview)
 	return result, err
 }
 

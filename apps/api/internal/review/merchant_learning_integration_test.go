@@ -124,6 +124,21 @@ func TestConfirmAmbiguousMerchantStaysInReview(t *testing.T) {
 	if status != "NEEDS_REVIEW" || merchantID != shortMerchant {
 		t.Fatalf("transaction status=%s merchant=%s", status, merchantID)
 	}
+	body = []byte(`{"categoryId":"` + categoryID + `","merchantName":"123456789"}`)
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewReader(body))
+	request.SetPathValue("id", transactionID)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+	response = httptest.NewRecorder()
+	NewHandler(pool).Confirm(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unusable merchant status=%d body=%s", response.Code, response.Body.String())
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,merchant_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&status, &merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || merchantID != shortMerchant {
+		t.Fatalf("unusable merchant transaction status=%s merchant=%s", status, merchantID)
+	}
 }
 
 func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
