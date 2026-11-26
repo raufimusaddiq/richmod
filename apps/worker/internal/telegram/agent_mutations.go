@@ -67,10 +67,11 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, fmt.Errorf("re-authorize Telegram identity: %w", err)
 	}
 
-	merchantID, remembered, merchantReview, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
+	merchantID, remembered, merchantProblem, err := resolveEntryMerchantTx(ctx, tx, state.HouseholdID, value.Merchant)
 	if err != nil {
 		return result, true, err
 	}
+	merchantReview := merchantProblem != nil
 	if value.CategorySlug == "" && remembered != nil && value.Type == "EXPENSE" {
 		value.CategorySlug = remembered.Slug
 	}

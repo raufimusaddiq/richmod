@@ -316,10 +316,11 @@ func (p *Processor) confirmPendingBatchTx(ctx context.Context, tx pgx.Tx, househ
 			outcome.Skipped++
 			continue
 		}
-		merchantID, remembered, merchantReview, err := resolveEntryMerchantTx(ctx, tx, householdID, v.Merchant)
+		merchantID, remembered, merchantProblem, err := resolveEntryMerchantTx(ctx, tx, householdID, v.Merchant)
 		if err != nil {
 			return outcome, err
 		}
+		merchantReview := merchantProblem != nil
 		slug := v.CategorySlug
 		if slug != "" && !contains(allowedCategories, slug) {
 			slug = ""

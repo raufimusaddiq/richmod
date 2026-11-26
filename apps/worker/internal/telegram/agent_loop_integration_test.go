@@ -575,8 +575,8 @@ func TestAmbiguousCorrectionMerchantDoesNotApply(t *testing.T) {
 	defer tx.Rollback(ctx)
 	outcome, err := applyPendingCorrectionTx(ctx, tx, f.householdID, actionID, f.chatID)
 	mustAgentTest(t, err)
-	if outcome.Blocked != "AMBIGUOUS_MERCHANT" || outcome.Refused || outcome.Voided {
-		t.Fatalf("ambiguous merchant correction outcome=%+v", outcome)
+	if outcome.Blocked != "UNUSABLE_MERCHANT" || outcome.Refused || outcome.Voided {
+		t.Fatalf("unusable merchant correction outcome=%+v", outcome)
 	}
 	mustAgentTest(t, tx.Commit(ctx))
 	var merchantID *string

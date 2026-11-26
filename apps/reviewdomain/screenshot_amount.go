@@ -164,8 +164,8 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		decision.KnownFacts["transaction_at"] = at.Format(time.RFC3339)
 		if category != nil {
 			decision.KnownFacts["category_id"] = *category
+			decision.MissingFacts = slices.DeleteFunc(decision.MissingFacts, func(fact string) bool { return fact == "category" })
 		}
-		decision.MissingFacts = slices.DeleteFunc(decision.MissingFacts, func(fact string) bool { return fact == "category" })
 		decision.WhyNotAuto = "the payee matches more than one merchant or cannot be used"
 		encoded, err := decision.JSON()
 		if err != nil {

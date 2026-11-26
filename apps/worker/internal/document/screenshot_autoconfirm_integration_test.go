@@ -271,6 +271,73 @@ func TestScreenshotMissingAmountDuplicateAmbiguousMerchantKeepsMerchantGap(t *te
 	if reviewType != "POSSIBLE_DUPLICATE" || !duplicateGap || !merchantGap || knownMerchant {
 		t.Fatalf("review type=%s duplicateGap=%t merchantGap=%t knownMerchant=%t", reviewType, duplicateGap, merchantGap, knownMerchant)
 	}
+
+	t.Run("no_category_keeps_category_missing_fact", func(t *testing.T) {
+		f := seedScreenshotFixture(t, "Screenshot merchant gap without category")
+		row := screenshotDataRow("INCOME", "54000", long)
+		row.Value.Amount, row.Value.Direction, row.Value.CategorySlug, row.CategoryID = nil, "IN", nil, nil
+		f.persist(t, []validatedScreenshotRow{row})
+		var proposalID, reviewID, userID string
+		if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := f.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		amount := "54000"
+		result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amount, IncomeConfirmed: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var reviewType string
+		var merchantGap, categoryGap, knownCategory bool
+		if err := f.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'merchant',decision->'missingFacts' ? 'category',decision->'knownFacts' ? 'category_id' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND review_type='UNKNOWN_MERCHANT' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &merchantGap, &categoryGap, &knownCategory); err != nil {
+			t.Fatal(err)
+		}
+		if reviewType != "UNKNOWN_MERCHANT" || !merchantGap || !categoryGap || knownCategory {
+			t.Fatalf("review type=%s merchantGap=%t categoryGap=%t knownCategory=%t", reviewType, merchantGap, categoryGap, knownCategory)
+		}
+	})
+
+	t.Run("known_category_drops_category_missing_fact", func(t *testing.T) {
+		f := seedScreenshotFixture(t, "Screenshot merchant gap with category")
+		category := f.categoryID
+		row := screenshotDataRow("EXPENSE", "54000", long)
+		row.Value.Amount = nil
+		row.Value.Direction, row.Value.CategorySlug = "OUT", &f.categorySlug
+		row.CategoryID, row.CategoryDecided = &category, true
+		f.persist(t, []validatedScreenshotRow{row})
+		var proposalID, reviewID, userID string
+		if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := f.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		amount := "54000"
+		result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amount})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var reviewType string
+		var merchantGap, categoryGap, knownCategory bool
+		if err := f.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts' ? 'merchant',decision->'missingFacts' ? 'category',decision->'knownFacts' ? 'category_id' FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND review_type='UNKNOWN_MERCHANT' AND status IN ('OPEN','PENDING_SEND')`, f.householdID, result.TransactionID).Scan(&reviewType, &merchantGap, &categoryGap, &knownCategory); err != nil {
+			t.Fatal(err)
+		}
+		if reviewType != "UNKNOWN_MERCHANT" || !merchantGap || categoryGap || !knownCategory {
+			t.Fatalf("review type=%s merchantGap=%t categoryGap=%t knownCategory=%t", reviewType, merchantGap, categoryGap, knownCategory)
+		}
+	})
 }
 
 func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T) {

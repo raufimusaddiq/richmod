@@ -271,21 +271,29 @@ func ResolveOrCreateMerchant(ctx context.Context, q MerchantQuerier, household, 
 	return id, err
 }
 
-func MerchantLinkNeedsReview(ctx context.Context, q MerchantQuerier, household, raw string) (bool, error) {
+func CheckMerchantLink(ctx context.Context, q MerchantQuerier, household, raw string) error {
 	if strings.TrimSpace(raw) == "" {
-		return false, nil
+		return nil
 	}
 	id, err := ExistingMerchantID(ctx, q, household, raw)
 	if err != nil {
-		if IsMerchantLinkProblem(err) {
-			return true, nil
-		}
-		return false, err
+		return err
 	}
 	if id != "" {
-		return false, nil
+		return nil
 	}
-	return strings.TrimSpace(NormalizePayeeName(raw)) == "", nil
+	if strings.TrimSpace(NormalizePayeeName(raw)) == "" {
+		return ErrUnusableMerchantName
+	}
+	return nil
+}
+
+func MerchantLinkNeedsReview(ctx context.Context, q MerchantQuerier, household, raw string) (bool, error) {
+	err := CheckMerchantLink(ctx, q, household, raw)
+	if IsMerchantLinkProblem(err) {
+		return true, nil
+	}
+	return false, err
 }
 
 type MerchantMemoryMatch struct {

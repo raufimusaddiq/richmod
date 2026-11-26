@@ -757,6 +757,12 @@ func TestInteractionEngineContract(t *testing.T) {
 			h.wantButtons("Beli aset", "Abaikan")
 			h.wantTransaction("NEEDS_REVIEW", "", "")
 		}},
+		{"digits-only merchant answer gets the unusable merchant reply", "UNKNOWN_MERCHANT", nil, func(h *contractHarness) {
+			h.reply("1128 5635 31")
+			h.wantCard(unusableMerchantReply + " Ini bayar ke mana?")
+			h.wantButtons("Beli aset", "Abaikan")
+			h.wantTransaction("NEEDS_REVIEW", "", "")
+		}},
 		{"remembered merchant typed finishes with the saved category", "UNKNOWN_MERCHANT", []contractOption{withRememberedMerchant()}, func(h *contractHarness) {
 			h.reply("warung contoh")
 			h.wantCard(contractDone)

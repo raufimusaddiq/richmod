@@ -15,8 +15,18 @@ func TestAmbiguousMerchantReplyAndProblemMapping(t *testing.T) {
 	if !ok || reply != ambiguousMerchantReply {
 		t.Fatalf("ambiguous merchant reply=%q ok=%t", reply, ok)
 	}
-	if !reviewdomain.IsMerchantLinkProblem(reviewdomain.ErrAmbiguousMerchantMatch) || !reviewdomain.IsMerchantLinkProblem(reviewdomain.ErrUnusableMerchantName) {
-		t.Fatal("both merchant link problems must map to the same re-ask")
+	reply, ok = agentMutationReply(agentToolResult{Status: "UNUSABLE_MERCHANT"})
+	if !ok || reply != unusableMerchantReply {
+		t.Fatalf("unusable merchant reply=%q ok=%t", reply, ok)
+	}
+	if got, ok := merchantLinkProblemReply(reviewdomain.ErrAmbiguousMerchantMatch); !ok || got != ambiguousMerchantReply {
+		t.Fatalf("ambiguous problem reply=%q ok=%t", got, ok)
+	}
+	if got, ok := merchantLinkProblemReply(reviewdomain.ErrUnusableMerchantName); !ok || got != unusableMerchantReply {
+		t.Fatalf("unusable problem reply=%q ok=%t", got, ok)
+	}
+	if got, ok := merchantLinkProblemReply(nil); ok || got != "" {
+		t.Fatalf("nil problem reply=%q ok=%t", got, ok)
 	}
 }
 

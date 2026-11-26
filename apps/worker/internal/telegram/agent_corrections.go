@@ -318,12 +318,15 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	}
 	merchantID := ""
 	if proposedMerchant != nil {
-		id, _, merchantReview, err := resolveEntryMerchantTx(ctx, tx, householdID, *proposedMerchant)
+		id, _, merchantProblem, err := resolveEntryMerchantTx(ctx, tx, householdID, *proposedMerchant)
 		if err != nil {
 			return outcome, err
 		}
-		if merchantReview {
+		if merchantProblem != nil {
 			outcome.Blocked = "AMBIGUOUS_MERCHANT"
+			if errors.Is(merchantProblem, reviewdomain.ErrUnusableMerchantName) {
+				outcome.Blocked = "UNUSABLE_MERCHANT"
+			}
 			_, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 			return outcome, err
 		}
@@ -378,24 +381,24 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 	return outcome, nil
 }
 
-func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw string) (string, *merchantmemory.Match, bool, error) {
+func resolveEntryMerchantTx(ctx context.Context, tx pgx.Tx, householdID, raw string) (string, *merchantmemory.Match, error, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", nil, false, nil
+		return "", nil, nil, nil
 	}
 	match, err := merchantmemory.Lookup(ctx, tx, householdID, raw)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, nil, err
 	}
 	if match != nil {
-		return match.MerchantID, match, false, nil
+		return match.MerchantID, match, nil, nil
 	}
 	merchantID, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, householdID, raw)
 	if reviewdomain.IsMerchantLinkProblem(err) {
-		return "", nil, true, nil
+		return "", nil, err, nil
 	}
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, nil, err
 	}
-	return merchantID, nil, false, nil
+	return merchantID, nil, nil, nil
 }
