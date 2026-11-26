@@ -200,7 +200,7 @@ test("editing sends only the changed fields with the version it read, and Escape
 
 test("the editor shows amount and date inputs only for hand-entered transactions and explains why they are locked otherwise", { tag: "@desktop-only" }, async ({ page, api }) => {
   ledgerApi(api, { items: [
-    transaction("tx-1", "Warung", { transactionAt: new Date(Date.now() - 3 * 86400000).toISOString(), amount: "5000", categoryId: "cat-1", accountId: "account-1", factsEditable: true, factsLockReason: null }),
+    transaction("tx-1", "Warung", { amount: "5000", categoryId: "cat-1", accountId: "account-1", factsEditable: true, factsLockReason: null }),
     transaction("tx-2", "Bank", { amount: "7000", categoryId: "cat-1", accountId: "account-1", factsEditable: false, factsLockReason: "SOURCE_EVIDENCE" }),
   ] });
   api.on("/api/v1/transactions/tx-1", () => ({}), { method: "PATCH" });
