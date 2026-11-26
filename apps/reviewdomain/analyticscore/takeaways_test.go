@@ -83,6 +83,46 @@ func TestTakeawaysSingleCategory(t *testing.T) {
 	}
 }
 
+func TestWhereTakeawayNamesOneOnlyWhenTheTopDominatesOrTheSecondIsTiny(t *testing.T) {
+	f := fullCycleFacts()
+	f.CategoryRanking.Rows = []rankedCategory{
+		{Name: "Orang Tua", Amount: "5000000"},
+		{Name: "Tempat Tinggal", Amount: "2000000"},
+	}
+	if got := whereTakeaway(f); got != "Orang Tua menghabiskan 50% pengeluaran siklus ini." {
+		t.Fatalf("dominant where=%q", got)
+	}
+	f.CategoryRanking.Rows[0].Amount = "2000000"
+	f.CategoryRanking.Rows[1].Amount = "500000"
+	if got := whereTakeaway(f); got != "Orang Tua menghabiskan 20% pengeluaran siklus ini." {
+		t.Fatalf("negligible second where=%q", got)
+	}
+	f.CategoryRanking.Rows[1].Amount = "2000000"
+	if got := whereTakeaway(f); got != "Orang Tua dan Tempat Tinggal menghabiskan 40% pengeluaran siklus ini." {
+		t.Fatalf("balanced where=%q", got)
+	}
+}
+
+func TestTakeawaysVerdictUsesTheShownExpenseDelta(t *testing.T) {
+	f := fullCycleFacts()
+	f.Period.State = "ACTIVE"
+	f.Period.Start, f.Period.MeasuredUntil = "2026-10-25", "2026-11-06"
+	f.Comparison.Expense.Delta = sp("-617700")
+	if got := buildTakeaways(f).Verdict; got != "Rp 617.700 lebih rendah dari siklus lalu di hari ke-12." {
+		t.Fatalf("active verdict=%q", got)
+	}
+	f.Period.State = "CLOSED"
+	f.Comparison.Expense.DeltaFull = sp("1090000")
+	if got := buildTakeaways(f).Verdict; got != "Rp 1.090.000 lebih tinggi dari siklus lalu (penuh)." {
+		t.Fatalf("closed verdict=%q", got)
+	}
+	g := fullCycleFacts()
+	g.Comparison.Expense = reviewChange{}
+	if got := buildTakeaways(g).Verdict; got != "" {
+		t.Fatalf("no baseline verdict=%q", got)
+	}
+}
+
 func TestTakeawaysEmptyCycleOmitsEverything(t *testing.T) {
 	var f Facts
 	f.Period = reviewPeriod{Kind: "SALARY_CYCLE", Start: "2026-10-25", State: "ACTIVE"}

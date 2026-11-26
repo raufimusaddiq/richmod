@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	rankingTopCategories = 6
+	rankingTopCategories = 8
 	RankingOtherName     = "Kategori lain"
 )
 
@@ -67,7 +67,7 @@ func buildRankedRow(v reviewValue, expense string, baseline *cycleMeasure) (rank
 	return row, baseAmount
 }
 
-func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode string, topIDs []string) categoryRanking {
+func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode string) categoryRanking {
 	out := emptyCategoryRanking()
 	if mode == "ELAPSED_DAYS" {
 		out.Baseline = "SAME_DAY"
@@ -83,34 +83,12 @@ func buildCategoryRanking(current cycleMeasure, baseline *cycleMeasure, mode str
 		if c := compareAmounts(candidates[i].Amount, candidates[j].Amount); c != 0 {
 			return c > 0
 		}
-		if candidates[i].Name != candidates[j].Name {
-			return candidates[i].Name < candidates[j].Name
-		}
 		return candidates[i].ID < candidates[j].ID
 	})
-	topSet := map[string]bool{}
-	for _, id := range topIDs {
-		if id == "" {
-			continue
-		}
-		if len(topSet) >= rankingTopCategories {
-			break
-		}
-		topSet[id] = true
-	}
 	top := make([]reviewValue, 0, rankingTopCategories)
 	rest := make([]reviewValue, 0, len(candidates))
 	for _, v := range candidates {
-		positiveCategorized := v.ID != "" && compareAmounts(v.Amount, "0") > 0
-		if len(topSet) > 0 {
-			if positiveCategorized && topSet[v.ID] {
-				top = append(top, v)
-			} else {
-				rest = append(rest, v)
-			}
-			continue
-		}
-		if positiveCategorized && len(top) < rankingTopCategories {
+		if v.ID != "" && compareAmounts(v.Amount, "0") > 0 && len(top) < rankingTopCategories {
 			top = append(top, v)
 		} else {
 			rest = append(rest, v)

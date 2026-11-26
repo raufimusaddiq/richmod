@@ -13,6 +13,7 @@ type reviewTakeaways struct {
 	History string `json:"history,omitempty"`
 	Changes string `json:"changes,omitempty"`
 	Pace    string `json:"pace,omitempty"`
+	Verdict string `json:"verdict,omitempty"`
 }
 
 func buildTakeaways(f Facts) reviewTakeaways {
@@ -21,6 +22,7 @@ func buildTakeaways(f Facts) reviewTakeaways {
 		History: historyTakeaway(f),
 		Changes: changesTakeaway(f),
 		Pace:    paceTakeaway(f),
+		Verdict: verdictTakeaway(f),
 	}
 }
 
@@ -73,12 +75,26 @@ func whereTakeaway(f Facts) string {
 		return ""
 	}
 	rows := f.CategoryRanking.Rows
-	if len(rows) > 2 {
-		rows = rows[:2]
-	}
 	if len(rows) == 0 {
 		return ""
 	}
+	top, ok := parseAmount(rows[0].Amount)
+	if !ok || top.Sign() <= 0 {
+		return ""
+	}
+	named := rows[:1]
+	if len(rows) > 1 {
+		second, ok := parseAmount(rows[1].Amount)
+		if !ok || second.Sign() < 0 {
+			return ""
+		}
+		dominant := new(big.Int).Mul(top, big.NewInt(2)).Cmp(whole) >= 0
+		negligible := new(big.Int).Mul(second, big.NewInt(10)).Cmp(whole) < 0
+		if !dominant && !negligible {
+			named = rows[:2]
+		}
+	}
+	rows = named
 	sum, names := new(big.Int), make([]string, 0, len(rows))
 	for _, row := range rows {
 		amount, ok := parseAmount(row.Amount)
@@ -119,14 +135,87 @@ func historyTakeaway(f Facts) string {
 	} else {
 		parts[len(parts)-1] += " (ditutup)"
 	}
-	return strings.Join(parts, " → ")
+	text := strings.Join(parts, " → ")
+	if last.State == "CLOSED" && selected >= 1 {
+		if sentence := perDayChange(last, f.History[selected-1]); sentence != "" {
+			text += " " + sentence
+		}
+	}
+	return text
+}
+
+func cycleDays(c historyCycle) int {
+	if c.Days > 0 {
+		return c.Days
+	}
+	return daysBetween(c.Start, c.MeasuredUntil)
+}
+
+func cycleAverage(c historyCycle) string {
+	if c.AverageDailyExpenseRounded != "" {
+		return c.AverageDailyExpenseRounded
+	}
+	return roundedPerDay(c.Expense, cycleDays(c))
+}
+
+func percentTenthsText(part, whole *big.Int) string {
+	rat := new(big.Rat).SetFrac(new(big.Int).Mul(part, big.NewInt(1000)), whole)
+	rounded := new(big.Int).Add(new(big.Int).Mul(rat.Num(), big.NewInt(2)), rat.Denom())
+	rounded.Div(rounded, new(big.Int).Mul(rat.Denom(), big.NewInt(2)))
+	whole10, fraction := new(big.Int).DivMod(rounded, big.NewInt(10), new(big.Int))
+	return fmt.Sprintf("%s,%d%%", thousandsText(whole10.String()), fraction.Int64())
+}
+
+func perDayChange(current, previous historyCycle) string {
+	if current.State != "CLOSED" || previous.State != "CLOSED" || cycleDays(current) == cycleDays(previous) {
+		return ""
+	}
+	currentAverage, previousAverage := cycleAverage(current), cycleAverage(previous)
+	cur, curOK := parseAmount(currentAverage)
+	prev, prevOK := parseAmount(previousAverage)
+	if !curOK || !prevOK || prev.Sign() <= 0 {
+		return ""
+	}
+	head := fmt.Sprintf("Per hari Rp %s vs Rp %s, ", thousandsText(currentAverage), thousandsText(previousAverage))
+	diff := new(big.Int).Sub(cur, prev)
+	if diff.Sign() == 0 {
+		return head + "sama."
+	}
+	direction := "tinggi"
+	if diff.Sign() < 0 {
+		direction = "rendah"
+	}
+	return head + fmt.Sprintf("%s lebih %s.", percentTenthsText(new(big.Int).Abs(diff), prev), direction)
 }
 
 func categoryDelta(f Facts, c reviewCategory) *string {
-	if f.Period.State != "ACTIVE" && c.DeltaFull != nil {
-		return c.DeltaFull
+	return shownDelta(f.Period.State, c.Delta, c.DeltaFull)
+}
+
+func verdictTakeaway(f Facts) string {
+	var delta *string
+	suffix := " (penuh)"
+	if f.Period.State == "ACTIVE" {
+		delta = f.Comparison.Expense.Delta
+		suffix = fmt.Sprintf(" di hari ke-%d", daysBetween(f.Period.Start, f.Period.MeasuredUntil))
+	} else {
+		delta = f.Comparison.Expense.DeltaFull
 	}
-	return c.Delta
+	if delta == nil {
+		return ""
+	}
+	amount, ok := parseAmount(*delta)
+	if !ok {
+		return ""
+	}
+	if amount.Sign() == 0 {
+		return fmt.Sprintf("Pengeluaran sama dengan siklus lalu%s.", suffix)
+	}
+	direction := "lebih tinggi"
+	if amount.Sign() < 0 {
+		direction = "lebih rendah"
+	}
+	return fmt.Sprintf("Rp %s %s dari siklus lalu%s.", thousandsText(new(big.Int).Abs(amount).String()), direction, suffix)
 }
 
 func changesTakeaway(f Facts) string {
