@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.4-alpine AS web
+FROM oven/bun:1.4.5-alpine AS web
 WORKDIR /web
 COPY apps/web/package.json apps/web/bun.lock ./
 RUN bun install --frozen-lockfile --ignore-scripts
