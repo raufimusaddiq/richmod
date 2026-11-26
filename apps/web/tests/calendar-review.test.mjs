@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addMonths, calendarCategoryView, calendarErrorMessage, calendarKpiCells, calendarPeriodLabel, calendarVerdict, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthChoices, monthName, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
+import { addMonths, calendarCategoryView, calendarErrorMessage, calendarKpiCells, calendarPeriodLabel, calendarTransactionHref, calendarVerdict, currentMonthKey, firstActiveMonth, hasActivity, hasRefunds, monthChoices, monthName, monthRowLabel, monthSpan, nextMonthKey, rangeSummary, validateCustomRange } from "../app/lib/calendarReview.js";
 
 const october = new Date("2026-10-02T05:00:00Z");
 
@@ -96,6 +96,33 @@ test("calendar KPI cells format served summary fields and handle zero active mon
   assert.match(empty[0].emptyComparison, /Belum ada transaksi terkonfirmasi/);
   assert.equal(empty[3].value, "—");
   assert.equal(calendarVerdict({ months: 0 }), "");
+
+  const incomeOnly = calendarVerdict({
+    income: "24000000",
+    expense: "0",
+    months: 2,
+    averageMonthlyExpenseRounded: "0",
+    peakMonth: "2026-09",
+    peakMonthExpense: "0",
+  });
+  assert.match(incomeOnly, /^Rata-rata .*0 per bulan\.$/);
+  assert.doesNotMatch(incomeOnly, /tertinggi/i, "income-only range omits the zero peak clause");
+  assert.doesNotMatch(calendarVerdict({ months: 2, averageMonthlyExpenseRounded: "0", peakMonth: "2026-09", peakMonthExpense: null }), /tertinggi/i);
+});
+
+test("calendar transaction links omit an empty cycle param and preserve a reviewed cycle when set", () => {
+  assert.equal(
+    calendarTransactionHref({ from: "2026-05", to: "2026-10", cycle: "" }),
+    "/transactions?from=2026-05-01&to=2026-10-31&status=CONFIRMED&type=SPENDING",
+  );
+  assert.equal(
+    calendarTransactionHref({ from: "2026-05", to: "2026-10", cycle: "" }, { merchantId: "m-1" }),
+    "/transactions?from=2026-05-01&to=2026-10-31&status=CONFIRMED&type=SPENDING&merchantId=m-1",
+  );
+  assert.equal(
+    calendarTransactionHref({ from: "2026-05", to: "2026-10", cycle: "2026-08-26" }, { merchantId: "m-1" }),
+    "/transactions?from=2026-05-01&to=2026-10-31&status=CONFIRMED&type=SPENDING&merchantId=m-1&cycle=2026-08-26",
+  );
 });
 
 test("calendar category view keeps the server order without summing a remainder in JS", () => {
