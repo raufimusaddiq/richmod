@@ -1099,6 +1099,7 @@ Scope: what the web client may compute or reinterpret from served financial valu
 - **Running cycle is not tinted in the heatmap**: in full mode a column is tinted only if it covers the same span as the others, so a partial running cycle is flagged instead of looking smaller than completed ones. (`cycleSections.js`)
 - **Day subtotal counts only confirmed rows**: a ledger day's spend is confirmed expenses minus confirmed refunds, so needs-review and voided rows never move it. (`ledgerDays.js`)
 - **Decision text length counts code points**: the client counts characters, not bytes, because the server's 1-2000 rule counts code points. (`cycleSections.js`)
+- **Calendar range totals are served by Go**: `GET /api/v1/analytics/range-summary` returns the calendar range totals, active-month count and peak month; the web never sums money itself.
 
 ## ADR-107: Review card and transaction form contracts with the server
 *Accepted · 2026-11-21*

@@ -3,15 +3,16 @@ package analytics
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/financialmath"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
 )
 
 type monthlyValue struct {
@@ -67,6 +68,87 @@ func (h *Handler) monthly(ctx context.Context, household string, start, end time
 		result = append(result, value)
 	}
 	return result, rows.Err()
+}
+
+type rangeSummaryValue struct {
+	Income                       string  `json:"income"`
+	Expense                      string  `json:"expense"`
+	Refund                       string  `json:"refund"`
+	NetCashflow                  string  `json:"netCashflow"`
+	Months                       int     `json:"months"`
+	AverageMonthlyExpenseRounded string  `json:"averageMonthlyExpenseRounded"`
+	PeakMonth                    *string `json:"peakMonth"`
+	PeakMonthExpense             *string `json:"peakMonthExpense"`
+}
+
+func (h *Handler) RangeSummary(w http.ResponseWriter, r *http.Request) {
+	household, ok := analyticsHousehold(w, r)
+	if !ok {
+		return
+	}
+	start, end, err := h.analyticsRange(household, r)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	rows, err := h.monthly(r.Context(), household, start, end)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to calculate range summary"})
+		return
+	}
+	summary := rangeSummaryValue{Income: "0", Expense: "0", Refund: "0", AverageMonthlyExpenseRounded: "0"}
+	firstActive := -1
+	for index, row := range rows {
+		summary.Income = add(summary.Income, row.Income)
+		summary.Expense = add(summary.Expense, row.Expense)
+		summary.Refund = add(summary.Refund, row.Refund)
+		if firstActive < 0 && (row.Income != "0" || row.Expense != "0" || row.Refund != "0") {
+			firstActive = index
+		}
+	}
+	summary.NetCashflow = subtract(summary.Income, summary.Expense)
+	if firstActive < 0 {
+		writeJSON(w, 200, summary)
+		return
+	}
+	summary.Months = len(rows) - firstActive
+	summary.AverageMonthlyExpenseRounded = roundedAverage(summary.Expense, summary.Months)
+	peak := firstActive
+	for index := firstActive + 1; index < len(rows); index++ {
+		if compareAmounts(rows[index].Expense, rows[peak].Expense) > 0 {
+			peak = index
+		}
+	}
+	summary.PeakMonth = &rows[peak].Period
+	summary.PeakMonthExpense = &rows[peak].Expense
+	writeJSON(w, 200, summary)
+}
+
+func roundedAverage(total string, months int) string {
+	value, ok := new(big.Int).SetString(total, 10)
+	if !ok || months <= 0 {
+		return "0"
+	}
+	rat := new(big.Rat).SetFrac(value, big.NewInt(int64(months)))
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(rat.Num(), rat.Denom(), remainder)
+	if new(big.Int).Lsh(new(big.Int).Abs(remainder), 1).Cmp(rat.Denom()) >= 0 {
+		if rat.Sign() < 0 {
+			quotient.Sub(quotient, big.NewInt(1))
+		} else {
+			quotient.Add(quotient, big.NewInt(1))
+		}
+	}
+	return quotient.String()
+}
+
+func compareAmounts(left, right string) int {
+	l, lOK := new(big.Int).SetString(left, 10)
+	r, rOK := new(big.Int).SetString(right, 10)
+	if !lOK || !rOK {
+		return 0
+	}
+	return l.Cmp(r)
 }
 
 type rankedValue struct {
