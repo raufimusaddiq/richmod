@@ -108,8 +108,7 @@ for (const [name, width, height] of viewports) {
       await page.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
       expect(await overflows(page), "analytics calendar has horizontal overflow").toBe(false);
       await page.getByRole("button", { name: "Siklus Gaji" }).click();
-      await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
-      await page.evaluate(() => { document.querySelector("#daily > details").open = true; });
+      await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
       await page.locator(".cycle-spending-chart .recharts-bar-rectangle").first().hover();
       await page.locator(".chart-tooltip").waitFor();
 
@@ -159,7 +158,7 @@ test.describe("phone cycle review", () => {
     test(`${label}: no overflow and the lead KPI is visible`, async ({ page, api }) => {
       visualApi(api, { scenario });
       await page.goto("/analytics", { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+      await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
       expect(await overflows(page)).toBe(false);
       const lead = await page.locator(".kpi-cell[data-lead]").boundingBox();
       expect(lead && lead.y >= 0 && lead.y + lead.height <= 844, "the lead KPI is fully visible without scrolling").toBe(true);
@@ -169,9 +168,9 @@ test.describe("phone cycle review", () => {
 
   test("every keyboard stop on the dashboard is visible, named and shows a focus ring", async ({ page }) => {
     await page.goto("/analytics", { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+    await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
     const stops = [];
-    for (let step = 0; step < 40; step += 1) {
+    for (let step = 0; step < 55; step += 1) {
       await page.keyboard.press("Tab");
       const stop = await page.evaluate(() => {
         const element = document.activeElement;
@@ -197,8 +196,8 @@ test.describe("phone cycle review", () => {
     expect(stops.filter(stop => !stop.ring), "every keyboard stop shows a focus ring").toEqual([]);
     expect(stops.filter(stop => !stop.name), "every keyboard stop has an accessible name").toEqual([]);
     expect(stops.filter(stop => stop.role === "application"), "no chart is a focusable role=application stop").toEqual([]);
-    expect(stops.some(stop => stop.name.includes("Lihat nilai laju pengeluaran")), "the pace chart's data table is reachable by keyboard").toBe(true);
-    expect(stops.some(stop => stop.name.startsWith("Pengeluaran harian")), "the daily chart's disclosure is reachable by keyboard").toBe(true);
+    expect(stops.some(stop => stop.name.includes("Tabel laju")), "the pace chart's data table is reachable by keyboard").toBe(true);
+    expect(stops.some(stop => stop.name.includes("Nilai harian")), "the daily chart's table disclosure is reachable by keyboard").toBe(true);
   });
 
   test("scrolling regions on the dashboard and the document drawer are keyboard reachable and named", async ({ page }) => {

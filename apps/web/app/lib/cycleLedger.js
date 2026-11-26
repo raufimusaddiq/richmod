@@ -71,22 +71,38 @@ function columnSegments(index, categoryHistory, colorMap) {
   return segments;
 }
 
-export function buildLedger(history = [], selectedStart = "", categoryHistory = null, colorMap = null) {
-  const peak = Math.max(0, ...history.map(item => Number(item.expense)).filter(Number.isFinite));
+export function buildLedger(history = [], selectedStart = "", categoryHistory = null, colorMap = null, mode = "FULL") {
+  const sameDaySource = mode === "SAME_DAY" ? categoryHistory?.sameDay : null;
+  const useSameDay = Boolean(
+    sameDaySource
+    && sameDaySource.cycleStarts?.length === history.length
+    && sameDaySource.totals?.length === history.length
+    && sameDaySource.cycleStarts.every((start, index) => start === history[index].start),
+  );
+  const expenses = useSameDay ? sameDaySource.totals : history.map(item => item.expense);
+  const peak = Math.max(0, ...expenses.map(Number).filter(Number.isFinite));
   const length = value => (peak > 0 && Number.isFinite(Number(value)) ? Math.min(1, Math.max(0, Number(value)) / peak) : 0);
-  const aligned = Boolean(categoryHistory?.cycleStarts?.length === history.length && categoryHistory.cycleStarts.every((start, index) => start === history[index].start));
+  const segmentSource = useSameDay ? sameDaySource : categoryHistory;
+  const aligned = Boolean(segmentSource?.cycleStarts?.length === history.length && segmentSource.cycleStarts.every((start, index) => start === history[index].start));
   return {
-    columns: history.map((item, index) => ({
-      start: item.start,
-      label: dayMonth(item.start),
-      until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
-      running: item.state === "ACTIVE",
-      selected: item.start === selectedStart,
-      expense: item.expense,
-      expenseLength: length(item.expense),
-      net: item.netCashflow,
-      segments: aligned ? columnSegments(index, categoryHistory, colorMap) : [],
-    })),
+    mode: useSameDay ? "SAME_DAY" : "FULL",
+    columns: history.map((item, index) => {
+      const expense = expenses[index];
+      return {
+        start: item.start,
+        label: dayMonth(item.start),
+        until: item.state === "ACTIVE" ? "berjalan" : `– ${dayMonth(inclusiveEnd(item.end))}`,
+        running: item.state === "ACTIVE",
+        selected: item.start === selectedStart,
+        expense,
+        expenseLength: length(expense),
+        net: item.netCashflow,
+        days: item.days ?? null,
+        averageDailyExpenseRounded: item.averageDailyExpenseRounded ?? null,
+        elapsedDays: useSameDay ? (sameDaySource.measuredDays?.[index] ?? sameDaySource.elapsedDays ?? null) : null,
+        segments: aligned ? columnSegments(index, segmentSource, colorMap) : [],
+      };
+    }),
   };
 }
 
@@ -142,9 +158,16 @@ export function paceCurves(pace) {
   return { previous: usable(pace?.previousFullCycle) ? pace.previousFullCycle : null, median: usable(pace?.median3) ? pace.median3 : null };
 }
 
-export function mapPace(items = [], pace) {
+export function provisionalDays(period) {
+  if (period?.state !== "ACTIVE") return 0;
+  const days = period.provisionalDays;
+  return Number.isInteger(days) && days > 0 ? days : 0;
+}
+
+export function mapPace(items = [], pace, period = null) {
   const { previous, median } = paceCurves(pace);
-  const length = Math.max(items.length, previous?.length ?? 0, median?.length ?? 0);
+  const planned = provisionalDays(period);
+  const length = Math.max(items.length, previous?.length ?? 0, median?.length ?? 0, planned);
   const point = (series, index) => (series?.[index] == null ? null : Number(series[index]));
   return Array.from({ length }, (_, index) => ({
     day: index + 1,

@@ -8,14 +8,14 @@ import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
-import { adjacentCycles } from "../lib/cycleLedger";
-import { cycleLabel, inclusiveEnd, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
-import { categoryColorMap, categoryKey } from "../lib/cycleWhere";
-import { money } from "../lib/format";
+import { adjacentCycles, provisionalDays } from "../lib/cycleLedger";
+import { cycleLabel, inclusiveEnd, readReviewSelection, selectionHref, splitDataQuality } from "../lib/cycleReview";
+import { categoryKey } from "../lib/cycleWhere";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
-import { MeetingNav, ComparisonContext, ChangesTable, HouseholdSection } from "./CycleSections";
-import { CategoryDrawer, ChangesCard, DailyCard, HistoryCard, WhereCard } from "./CycleWhere";
-import { KpiStrip, NoticeStrip, PaceCard, QualityFooter } from "./CycleDashboard";
+import { MeetingNav, HouseholdSection, MerchantCard } from "./CycleSections";
+import { CategoryDrawer, DailyCard, HistoryCard } from "./CycleWhere";
+import CategoryTable from "./CategoryTable";
+import { KpiStrip, LastCycleCard, NoticeStrip, PaceCard, QualityFooter } from "./CycleDashboard";
 import WealthWorkspace from "../wealth/WealthWorkspace";
 import { CalendarReview } from "./CalendarReview";
 
@@ -57,6 +57,7 @@ function AnalyticsReview() {
   const insightAbort = useRef(null);
   const [drafts, setDrafts] = useState({});
   const [decisionMeta, setDecisionMeta] = useState({ status: "loading", count: 0 });
+  const [qualityOpenTrigger, setQualityOpenTrigger] = useState(0);
   const trigger = useRef(null);
   const drawerPushed = useRef(false);
   const valueNav = useRef(false);
@@ -161,7 +162,9 @@ function AnalyticsReview() {
   const meeting = selection.view === "cycle" && facts?.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && Boolean(selection.step);
   const step = meeting ? selection.step : "";
   useEffect(() => {
-    if (step) document.getElementById(step)?.querySelector("h2, h3")?.focus();
+    if (!step) return;
+    const targetId = step === "changes" || step === "drivers" ? "where" : step;
+    document.getElementById(targetId)?.querySelector("h2, h3")?.focus();
   }, [step, facts]);
 
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
@@ -182,9 +185,25 @@ function AnalyticsReview() {
     else if (selection.view === "wealth") navigate({ view: "cycle" });
   };
   const wealthView = selection.view === "wealth";
-  return <AppShell user={user} eyebrow="Analisis" title="Laporan">
+  const { advisory: wealthNotices } = splitDataQuality(facts?.dataQuality);
+  const plannedDays = facts?.period?.state === "ACTIVE" ? provisionalDays(facts.period) : 0;
+  const statusLine = facts
+    ? facts.period.state === "ACTIVE"
+      ? `Berjalan · hari ke-${facts.spendingShape.days}${plannedDays ? ` dari ±${plannedDays}` : ""} · data s.d. ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}`
+      : `Ditutup · ${facts.spendingShape.days} hari · data s.d. ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}`
+    : "";
+
+  const jumpToQuality = event => {
+    if (meeting) {
+      event.preventDefault();
+      navigate({ step: "quality" });
+      return;
+    }
+    setQualityOpenTrigger(count => count + 1);
+  };
+
+  return <AppShell user={user} eyebrow="Analisis" title="Laporan" headerAside={<ReportSwitch view={selection.view} choose={chooseReport}/>}>
     <div className="analytics-flow">
-      <ReportSwitch view={selection.view} choose={chooseReport}/>
       {wealthView ? <div className="analytics-panel" role="tabpanel" id="laporan-panel" aria-labelledby="laporan-tab-wealth"><WealthWorkspace user={user}/></div> :
       <div id="laporan-panel" role="tabpanel" aria-labelledby="laporan-tab-cycle" className="cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
       <div className="range-controls">
@@ -204,9 +223,8 @@ function AnalyticsReview() {
           <button type="button" className="secondary cycle-step-button" disabled={!adjacent.newer} aria-label="Siklus berikutnya" title="Siklus berikutnya" onClick={() => navigate({ cycle: adjacent.newer, category: "", step: "" })}><span aria-hidden="true">›</span></button>
         </div>
         {facts && !error && <div className="cycle-status" aria-live="polite">
-          <strong>{facts.period.state === "ACTIVE" ? `Berjalan · hari ke-${facts.spendingShape.days} · data sampai ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}` : `Ditutup · ${facts.spendingShape.days} hari · data sampai ${dayLabel(inclusiveEnd(facts.period.measuredUntil))}`}</strong>
-          <span>{facts.period.state === "ACTIVE" && "Hari ini belum penuh · "}Asia/Jakarta</span>
-          {facts.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && !meeting && <button type="button" onClick={() => navigate({ step: "position" })}>Tinjau siklus ini</button>}
+          <strong>{statusLine}</strong>
+          {wealthNotices.length > 0 && <a className="quality-chip" href={meeting ? selectionHref({ ...selection, step: "quality" }) : "#quality"} onClick={jumpToQuality}>{wealthNotices.length} perlu dilengkapi</a>}
         </div>}</>}
       </div>
       {selection.view === "calendar" ? <CalendarReview selection={selection} navigate={navigate}/> : <>
@@ -217,14 +235,16 @@ function AnalyticsReview() {
         {facts && !error && <>
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
           <NoticeStrip facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
-          <KpiStrip facts={facts} updated={valueUpdated}/>
-          <div className="dash-row"><WhereCard facts={facts} step={step} select={chooseCategory} palette={palette}/>
-            <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory} palette={palette}/></div>
-          <div className="dash-row dash-row-half dash-row-pace">
-            <ChangesCard facts={facts} step={step} select={chooseCategory}><ComparisonContext comparison={facts.comparison} period={facts.period}/><ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory} colors={categoryColorMap(facts, palette).colors}/></ChangesCard>
-            <PaceCard facts={facts}/></div>
+          <LastCycleCard facts={facts} meeting={meeting} onReviewPrevious={start => navigate({ cycle: start, category: "", step: "position" })}/>
+          <KpiStrip facts={facts} updated={valueUpdated} meeting={meeting} onStartReview={() => navigate({ step: "position" })}/>
+          <PaceCard facts={facts} step={step}/>
+          <CategoryTable facts={facts} step={step} selected={selection.category} select={chooseCategory} palette={palette}/>
+          <div className="dash-row dash-row-split">
+            <HistoryCard facts={facts} step={step} selectedCategory={selection.category} onSelect={start => navigate({ cycle: start, category: "", step: "" })} onSelectCategory={chooseCategory} palette={palette}/>
+            <MerchantCard facts={facts}/>
+          </div>
+          <DailyCard facts={facts} step={step}/>
           <div className="review-stack surface card">
-          <DailyCard facts={facts} step={step}><details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap" tabIndex={0} role="region" aria-label="Nilai pengeluaran harian, geser untuk semua kolom"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{Number(item.expense) !== 0 ? <a href={transactionHref({ ...facts.period, reviewStep: step }, { from: item.period, to: item.period })} aria-label={`Lihat pengeluaran ${dayLabel(item.period)}`}>{dayLabel(item.period)}</a> : dayLabel(item.period)}</th><td data-label="Pengeluaran">{money(item.expense)}</td><td data-label="Refund">{money(item.refund)}</td><td data-label="Total sampai hari ini">{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details></DailyCard>
           <section id="family-talk" className="review-section" aria-labelledby="family-talk-title">
             <details className="report-disclosure" open={step === "discussion" || step === "decisions" || Boolean(drafts[cycleStart]) || undefined}>
               <summary>
@@ -245,7 +265,7 @@ function AnalyticsReview() {
               </div>
             </details>
           </section>
-          <QualityFooter facts={facts} step={step}/>
+          <QualityFooter facts={facts} step={step} openTrigger={qualityOpenTrigger}/>
           </div>
           <Presence show={selectedCategory && (!meeting || step === "drivers")}>{() => <CategoryDrawer item={selectedCategory} facts={facts} period={{ ...facts.period, reviewStep: step }} close={closeCategory} triggerRef={trigger} palette={palette}/>}</Presence>
         </>}

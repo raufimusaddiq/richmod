@@ -1,5 +1,5 @@
 import { reply } from "./api.js";
-import { cycleCommentary, cycleFacts, stableCycleFacts } from "../../tests/fixtures/cycle-review.mjs";
+import { cycleCommentary, cycleFacts, earlyCycleFacts, stableCycleFacts } from "../../tests/fixtures/cycle-review.mjs";
 
 export const cycleUser = { id: "synthetic-user", displayName: "Rafi", householdName: "Rumah keluarga", household: { role: "OWNER" } };
 
@@ -15,6 +15,7 @@ export function cycleReviewApi(api) {
     salaryCalls: 0,
     failDecisionSave: false,
     decisionsFail: false,
+    advisory: false,
   };
   const notes = new Map([["2026-07-26", [{ id: "77777777-7777-4777-8777-777777777777", cycleStart: "2026-07-26", body: "Jaga lebih banyak kas likuid.", author: "Dina", authorUserId: "synthetic-user", createdAt: "2026-08-26T10:00:00+07:00" }]]]);
 
@@ -23,7 +24,9 @@ export function cycleReviewApi(api) {
     if (path === "/api/v1/reviews") return [];
     if (path === "/api/v1/analytics/cycle-review") {
       flags.salaryCalls++;
-      const body = flags.stable ? stableCycleFacts() : cycleFacts(query.get("cycle_start") || undefined);
+      const cycleStart = query.get("cycle_start") || undefined;
+      const body = flags.stable ? stableCycleFacts() : cycleStart === "2026-09-05" ? earlyCycleFacts(cycleStart) : cycleFacts(cycleStart);
+      if (flags.advisory) body.dataQuality.push({ kind: "WEALTH_SNAPSHOT_BEFORE_CYCLE", count: 1, impact: "ANALYSIS_PARTIAL", action: "/wealth" });
       if (flags.noSalary) {
         body.period = { ...body.period, kind: "CALENDAR_MONTH", start: "2026-09-01", state: "ACTIVE", end: "2026-10-01", measuredUntil: "2026-09-07" };
         body.cycles = [];

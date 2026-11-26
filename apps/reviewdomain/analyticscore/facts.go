@@ -17,12 +17,13 @@ import (
 var ErrCycleNotFound = errors.New("confirmed salary cycle not found")
 
 type reviewPeriod struct {
-	Kind          string  `json:"kind"`
-	Start         string  `json:"start"`
-	End           *string `json:"end"`
-	MeasuredUntil string  `json:"measuredUntil"`
-	State         string  `json:"state"`
-	Configured    bool    `json:"configured"`
+	Kind            string  `json:"kind"`
+	Start           string  `json:"start"`
+	End             *string `json:"end"`
+	MeasuredUntil   string  `json:"measuredUntil"`
+	State           string  `json:"state"`
+	Configured      bool    `json:"configured"`
+	ProvisionalDays int     `json:"provisionalDays,omitempty"`
 }
 
 type reviewCashflow struct {
@@ -193,7 +194,7 @@ type merchantRanking struct {
 	Total merchantRankTotal `json:"total"`
 }
 
-const merchantRankingRows = 10
+const merchantRankingRows = 6
 
 type reviewMember struct {
 	reviewValue
@@ -328,6 +329,9 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if err != nil {
 		return Facts{}, err
 	}
+	if len(periods) > 0 {
+		periods[0].ProvisionalDays = provisionalCycleDays(periods, 0)
+	}
 	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), CategoryRanking: emptyCategoryRanking(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, MerchantRanking: emptyMerchantRanking(), Members: []reviewMember{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
 	index := 0
 	if selected != "" {
@@ -348,7 +352,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		}
 		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
 		end := start.AddDate(0, 1, 0).Format("2006-01-02")
-		periods = []reviewPeriod{{"CALENDAR_MONTH", start.Format("2006-01-02"), &end, now.AddDate(0, 0, 1).Format("2006-01-02"), "ACTIVE", configured}}
+		periods = []reviewPeriod{{Kind: "CALENDAR_MONTH", Start: start.Format("2006-01-02"), End: &end, MeasuredUntil: now.AddDate(0, 0, 1).Format("2006-01-02"), State: "ACTIVE", Configured: configured}}
 		facts.block("MISSING_SALARY_ANCHOR", 1, nil, "/settings")
 	}
 	facts.Period = periods[index]
@@ -657,6 +661,37 @@ func buildMatrix(measures []cycleMeasure, idxs []int, ids []string, names map[st
 		matrix.TotalDeltaVsPrevious = delta(matrix.Totals)
 	}
 	return matrix
+}
+
+func provisionalCycleDays(periods []reviewPeriod, index int) int {
+	if index < 0 || index >= len(periods) {
+		return 0
+	}
+	current := periods[index]
+	if current.Kind != "SALARY_CYCLE" || current.State != "ACTIVE" {
+		return 0
+	}
+	closed := make([]int, 0, 3)
+	for _, p := range periods[index+1:] {
+		if p.Kind != "SALARY_CYCLE" || p.State != "CLOSED" || p.End == nil {
+			continue
+		}
+		if d := daysBetween(p.Start, *p.End); d > 0 {
+			closed = append(closed, d)
+			if len(closed) == 3 {
+				break
+			}
+		}
+	}
+	if len(closed) == 0 {
+		return 0
+	}
+	if len(closed) < 3 {
+		return closed[0]
+	}
+	sorted := []int{closed[0], closed[1], closed[2]}
+	sort.Ints(sorted)
+	return sorted[1]
 }
 
 func emptyMerchantRanking() merchantRanking {

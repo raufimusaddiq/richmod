@@ -115,10 +115,10 @@ func TestMerchantRankingIsNumericAndReconcilesToNetExpense(t *testing.T) {
 	}
 	cur, prev := rankMeasure(sum, merchants), rankMeasure("20000", previous)
 	r := buildMerchantRanking([]cycleMeasure{cur, prev}, "FULL_CYCLE")
-	if len(r.Rows) != 10 || r.Rows[0].ID != "m11" || r.Rows[1].ID != "m10" || r.Rows[9].ID != "m02" {
-		t.Fatalf("rows must be the ten largest, numerically (12000 before 2000): %+v", r.Rows)
+	if len(r.Rows) != 6 || r.Rows[0].ID != "m11" || r.Rows[1].ID != "m10" || r.Rows[5].ID != "m06" {
+		t.Fatalf("rows must be the six largest, numerically (12000 before 2000): %+v", r.Rows)
 	}
-	if r.Rows[0].Kind != "MERCHANT" || *r.Rows[0].Previous != "8000" || *r.Rows[0].Delta != "4000" || *r.Rows[9].Previous != "0" {
+	if r.Rows[0].Kind != "MERCHANT" || *r.Rows[0].Previous != "8000" || *r.Rows[0].Delta != "4000" || *r.Rows[5].Previous != "0" {
 		t.Fatalf("row previous/delta: %+v", r.Rows[0])
 	}
 	listed, listedPrev, listedCount := "0", "0", 0
@@ -136,7 +136,7 @@ func TestMerchantRankingIsNumericAndReconcilesToNetExpense(t *testing.T) {
 	if financialmath.Add(*r.Other.Delta, financialmath.Subtract(listed, listedPrev)) != *r.Total.Delta {
 		t.Fatal("row deltas + other delta must equal the total delta")
 	}
-	if r.Other.MerchantCount != 5 {
+	if r.Other.MerchantCount != 9 {
 		t.Fatalf("other merchant count=%d", r.Other.MerchantCount)
 	}
 	if merchantKind(merchants[":tanpa merchant"]) != "NONE" || merchantKind(reviewValue{Name: "Warung X"}) != "COUNTERPARTY" {

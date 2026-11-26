@@ -181,11 +181,14 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 	other.transaction(t, "2026-08-03", "EXPENSE", "CONFIRMED", "444444", false)
 
 	review := f.review(t, "")
+	if review.Period.ProvisionalDays != 31 {
+		t.Fatalf("active period provisionalDays=%d, want 31 (median of 31/31/30)", review.Period.ProvisionalDays)
+	}
 	r := review.MerchantRanking
-	if r.Mode != "ELAPSED_DAYS" || len(r.Rows) != 10 {
+	if r.Mode != "ELAPSED_DAYS" || len(r.Rows) != 6 {
 		t.Fatalf("mode=%s rows=%d", r.Mode, len(r.Rows))
 	}
-	want := []string{"Fixture cafe", "Warung Baru", "Tanpa merchant", "Small merchant 9", "Small merchant 8", "Small merchant 7", "Small merchant 6", "Small merchant 5", "Small merchant 4", "Small merchant 3"}
+	want := []string{"Fixture cafe", "Warung Baru", "Tanpa merchant", "Small merchant 9", "Small merchant 8", "Small merchant 7"}
 	for i, name := range want {
 		if r.Rows[i].Name != name {
 			t.Fatalf("row %d = %s, want %s (rows=%+v)", i, r.Rows[i].Name, name, r.Rows)
@@ -202,7 +205,7 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 	if warung.Amount != "700" || *warung.Previous != "0" || *warung.Delta != "700" || none.Amount != "300" || none.Count != 1 || *none.Previous != "100" || *none.Delta != "200" {
 		t.Fatalf("warung=%+v none=%+v", warung, none)
 	}
-	if r.Other.Amount != "30" || r.Other.Count != 2 || r.Other.MerchantCount != 2 || *r.Other.Previous != "0" || *r.Other.Delta != "30" {
+	if r.Other.Amount != "210" || r.Other.Count != 6 || r.Other.MerchantCount != 6 || *r.Other.Previous != "0" || *r.Other.Delta != "210" {
 		t.Fatalf("other=%+v", r.Other)
 	}
 	if r.Total.Amount != "3450" || r.Total.Count != 13 || *r.Total.Previous != "3100" || *r.Total.Delta != "350" {
@@ -219,7 +222,11 @@ func TestCycleReviewMerchantRankingReconcilesAndLinksTanpaMerchant(t *testing.T)
 		t.Fatalf("previous side must reconcile: %s + %s vs %s / comparison %s", listedPrevious, *r.Other.Previous, *r.Total.Previous, *review.Comparison.Expense.Previous)
 	}
 
-	closed := f.review(t, "?cycle_start=2026-08-01").MerchantRanking
+	closedReview := f.review(t, "?cycle_start=2026-08-01")
+	if closedReview.Period.ProvisionalDays != 0 {
+		t.Fatalf("closed period provisionalDays=%d, want 0", closedReview.Period.ProvisionalDays)
+	}
+	closed := closedReview.MerchantRanking
 	if closed.Mode != "FULL_CYCLE" || closed.Rows[0].Name != "Fixture cafe" || closed.Rows[0].Amount != "8000" || *closed.Rows[0].Previous != "4700" || *closed.Total.Previous != "4700" || closed.Total.Amount != "8100" {
 		t.Fatalf("closed ranking=%+v", closed)
 	}

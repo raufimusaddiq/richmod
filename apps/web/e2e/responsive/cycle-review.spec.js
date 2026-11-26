@@ -7,6 +7,7 @@ import { defaultRange } from "../../app/lib/calendarReview.js";
 test.use({ user: cycleUser });
 
 const CYCLE = "/analytics?view=cycle&cycle=2026-09-01";
+const EARLY = "/analytics?view=cycle&cycle=2026-09-05";
 const CLOSED = "/analytics?view=cycle&cycle=2026-08-26";
 const GROCERIES = "11111111-1111-4111-8111-111111111111";
 const MERCHANT = "22222222-2222-4222-8222-222222222222";
@@ -38,7 +39,7 @@ test.beforeEach(async ({ api }) => {
   flags = cycleReviewApi(api);
 });
 
-test("an active cycle opens calm: four KPI tiles, takeaways, exact amounts and nothing generated", async ({ page, api }) => {
+test("an active cycle opens calm: wide verdict lead tile, pace first, unified category table, balanced row and always-visible daily strip", async ({ page, api }) => {
   await visit(page, CYCLE);
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
   await expect(page.getByRole("heading", { name: "Laporan", level: 1 }), "the page is Laporan").toBeVisible();
@@ -46,51 +47,75 @@ test("an active cycle opens calm: four KPI tiles, takeaways, exact amounts and n
   expect(await tabs.allTextContents()).toEqual(["Arus kas", "Kekayaan"]);
   await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
 
-  const explanation = page.locator("#spending-shape .review-daily");
-  await expect(explanation.locator("table"), "values are secondary to the chart").toBeHidden();
-  await explanation.locator("summary").focus();
+  const paceFold = page.locator("#spending-shape .review-daily");
+  await expect(paceFold.locator("table"), "values are secondary to the chart").toBeHidden();
+  await paceFold.locator("summary").focus();
   await page.keyboard.press("Enter");
-  await expect(explanation.locator("table"), "native disclosure is keyboard accessible").toBeVisible();
+  await expect(paceFold.locator("table"), "native disclosure is keyboard accessible").toBeVisible();
   await page.keyboard.press("Enter");
-  await expect(explanation.locator("table")).toBeHidden();
+  await expect(paceFold.locator("table")).toBeHidden();
 
-  await expect(page.locator(".kpi-cell"), "the KPI strip has four calm tiles").toHaveCount(4);
-  for (const id of ["where", "history", "changes", "spending-shape"]) expect((await page.locator(`#${id} .takeaway`).textContent()).length, `${id} shows a takeaway sentence`).toBeGreaterThan(10);
-  await expect(page.locator(".kpi-note"), "refund/explainer line is removed").toHaveCount(0);
+  await expect(page.locator(".kpi-cell"), "the KPI strip keeps four tiles").toHaveCount(4);
+  for (const id of ["where", "history", "spending-shape", "daily"]) expect((await page.locator(`#${id} .takeaway`).textContent()).length, `${id} shows a takeaway sentence`).toBeGreaterThan(10);
+  await expect(page.locator(".kpi-cell[data-lead] .kpi-verdict")).toContainText("lebih tinggi dari siklus lalu");
+  await expect(page.locator(".kpi-cell[data-lead] .kpi-chip")).toHaveCount(2);
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => document.fonts.check('500 16px "Fraunces"') && document.fonts.check('400 14px "Inter"')), "brand fonts loaded").toBe(true);
-  expect((await page.locator(".kpi-cell[data-lead] dt").textContent()).startsWith("Pengeluaran bersih"), "a running cycle leads with spending, not a net cashflow that looks large on day 1").toBe(true);
+  expect((await page.locator(".kpi-cell[data-lead] dt").textContent()).startsWith("Pengeluaran bersih"), "a running cycle leads with spending").toBe(true);
   await expect(page.locator(".kpi-cell[data-lead] dd")).toHaveText(idr(4200000));
   await expect(page.locator("#position").getByText("Arus kas bersih sejauh ini", { exact: true }), "net cashflow stays visible as a regular metric").toBeVisible();
 
   expect(api.requests.filter(request => request.method === "POST"), "opening review never invokes generation").toHaveLength(0);
-  await expect(page.getByRole("button", { name: "Tinjau siklus ini", exact: true }), "active cycle cannot enter closed-cycle meeting").toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mulai tinjauan · 7 langkah", exact: true }), "active cycle cannot enter closed-cycle meeting").toHaveCount(0);
   await expect(page.getByRole("button", { name: "Simpan keputusan", exact: true }), "active cycle has no save action").toHaveCount(0);
   expect(flags.salaryCalls, "explicit cycle uses one facts request").toBe(1);
   await expect(page.getByText("Historical advice should never display.")).toHaveCount(0);
   await expect(page.getByText("Stale cutoff must never display.")).toHaveCount(0);
-  for (const id of ["daily", "family-talk"]) expect(await page.locator(`#${id} > details`).evaluate(element => element.open), `${id} is available on demand, not a wall of text`).toBe(false);
+  for (const id of ["family-talk", "quality"]) expect(await page.locator(`#${id} > details`).evaluate(element => element.open), `${id} is folded by default`).toBe(false);
+  await expect(page.locator(".cycle-status")).toContainText("dari ±30");
+  await expect(page.locator("#daily .cycle-spending-chart"), "Ritme harian chart is mounted immediately").toBeVisible();
+  await expect(page.locator("#daily .review-daily table"), "daily value table stays folded").toBeHidden();
 
-  await expect(page.locator("#where .where-delta"), "Ke mana uangnya omits delta column").toHaveCount(0);
-  await expect(page.locator("#where .where-share"), "Ke mana uangnya shows share percentages").toHaveCount(3);
-  await expect(page.locator("#quality").getByRole("link", { name: "Buka Inbox" }), "blockers stay actionable without expansion").toBeVisible();
-  await expect(page.locator(".comparison-bars > div")).toHaveCount(4);
-  await expect(page.locator(".diverge > li"), "Yang berubah draws the served changes (at most five)").toHaveCount(3);
-  await expect(page.locator(".change-ranking"), "the 25-row list is gone").toHaveCount(0);
-  await expect(page.locator("#where .where-list > li"), "three ranked categories; an empty remainder is not drawn").toHaveCount(3);
-  await expect(page.locator("#where .where-total strong"), "the list total is the served net expense").toHaveText(idr(4200000));
-  expect(await page.locator("#where .where-list > li:not([data-other]) .where-amount").allTextContents(), "ranking order is the served order").toEqual([2100000, 1400000, 700000].map(idr));
-  await expect(page.locator("#changes"), "direction is worded neutrally, never as thrift or waste").toContainText("◀ lebih rendah");
-  await expect(page.locator("#changes")).toContainText("lebih tinggi ▶");
+  await expect(page.locator("#where .cat-list > li"), "three ranked categories; an empty remainder is not drawn").toHaveCount(3);
+  await expect(page.locator("#where .cat-total strong"), "the list total is the served net expense").toHaveText(idr(4200000));
+  expect(await page.locator("#where .cat-list > li:not([data-other]) .cat-amount").allTextContents(), "ranking order is the served order").toEqual([2100000, 1400000, 700000].map(idr));
+  await page.locator("#where").getByRole("button", { name: "Paling berubah", exact: true }).click();
+  await expect(page.locator("#where .cat-list > li")).toHaveCount(3);
+  await page.locator("#where").getByRole("button", { name: "Terbesar", exact: true }).click();
+
+  await expect(page.locator(".notice-strip").getByRole("link", { name: "Buka Inbox" }), "blocking notice stays actionable in top banner").toBeVisible();
+  await expect(page.locator("#quality"), "QualityFooter always renders").toHaveCount(1);
   await expect(page.locator("#main-content")).not.toContainText(/hemat|boros/i);
+  expect(await overflows(page)).toBe(false);
+});
+
+test("days 1-7 early cycle renders the LastCycleCard, wealth chip, and disables Paling berubah", async ({ page }) => {
+  await visit(page, EARLY);
+  await page.locator("#last-cycle").waitFor();
+  await expect(page.locator("#last-cycle")).toContainText("Siklus lalu sudah ditutup");
+  await expect(page.locator("#last-cycle")).toContainText(idr(10960000));
+  await expect(page.locator("#last-cycle")).toContainText("32 hari");
+  await expect(page.locator("#last-cycle").getByRole("link", { name: /Inbox/ })).toHaveAttribute("href", "/inbox");
+  await expect(page.locator(".notice-strip"), "wealth-only reminder is not shown as a blocking banner").toHaveCount(0);
+  const chip = page.locator(".quality-chip");
+  await expect(chip).toHaveText("1 perlu dilengkapi");
+  await expect(page.locator("#where").getByRole("button", { name: "Paling berubah", exact: true })).toBeDisabled();
+  await expect(page.locator("#history").getByRole("button", { name: "Siklus penuh", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await chip.click();
+  expect(await page.locator("#quality > details").evaluate(el => el.open), "clicking wealth chip opens Kelengkapan data").toBe(true);
+  await expect(page.locator("#quality")).toContainText("Belum ada pengamatan kekayaan di siklus ini");
+  await page.locator("#last-cycle").getByRole("button", { name: "Tinjau siklus lalu · 7 langkah", exact: true }).click();
+  await page.waitForFunction(() => new URL(location.href).searchParams.get("review") === "position");
+  expect(searchOf(page).get("cycle")).toBe("2026-08-26");
+  expect(searchOf(page).get("review")).toBe("position");
   expect(await overflows(page)).toBe(false);
 });
 
 test("the full category comparison is keyboard reachable and keeps exact figures", async ({ page }) => {
   await visit(page, CYCLE);
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
-  const full = page.locator("#changes details.review-daily");
-  expect(await full.evaluate(element => element.open), "the full comparison is secondary to the two cards").toBe(false);
+  const full = page.locator("details#changes");
+  expect(await full.evaluate(element => element.open), "the full comparison is folded by default").toBe(false);
   await full.locator(":scope > summary").focus();
   await page.keyboard.press("Enter");
   expect(await full.evaluate(element => element.open), "complete comparison is keyboard accessible").toBe(true);
@@ -112,7 +137,7 @@ test("the category drawer is a modal that traps focus, returns it, and follows B
   await page.keyboard.press("Tab");
   await groceries.focus();
   expect(await groceries.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe("none");
-  const rankedAmount = await groceries.locator(".where-amount").textContent();
+  const rankedAmount = await groceries.locator(".cat-amount").textContent();
   await page.keyboard.press("Enter");
   await drawer.waitFor();
   expect(searchOf(page).get("category")).toBe(GROCERIES);
@@ -170,22 +195,21 @@ test("the daily chart tooltip names net spending and refunds for the hovered dat
   facts.pace = { previousFullCycle: [...facts.pace.previousFullCycle, "2900000"], median3: [...facts.pace.median3, "3900000"] };
   api.use(({ path }) => (path === "/api/v1/analytics/cycle-review" ? facts : undefined));
   await visit(page, CYCLE);
-  await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
-  await openDisclosure(page, "#daily > details", ".cycle-spending-chart");
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   await page.locator(".cycle-spending-chart .recharts-bar-rectangle").last().hover();
   await page.locator(".chart-tooltip").waitFor();
   await expect(page.locator(".chart-tooltip")).toHaveText(/^1 Okt 2026Pengeluaran bersih.*Rp.*250\.000.*Refund.*Rp/);
 });
 
-test("the category matrix marks the running column, switches same-day and full, and opens evidence by keyboard", async ({ page }) => {
+test("history and matrix share the same-day and full toggle, show Rp/hr and arus kas, and open evidence by keyboard", async ({ page }) => {
   await visit(page, CYCLE);
   await openDisclosure(page, "#history details", ".heat-table");
   await page.getByRole("heading", { name: "Angka per kategori", exact: true }).waitFor();
   const heat = page.locator(".heat-table");
   await expect(heat.locator("thead th:not(:first-child):not(.heat-delta-head)"), "one column per served cycle").toHaveCount(6);
   await expect(heat.locator('thead th[aria-current="true"]'), "the selected cycle is marked").toHaveCount(1);
-  const sameDay = page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true });
-  const fullCycle = page.getByRole("button", { name: "Siklus penuh", exact: true });
+  const sameDay = page.locator("#history").getByRole("button", { name: "Hari 1–6", exact: true });
+  const fullCycle = page.locator("#history").getByRole("button", { name: "Siklus penuh", exact: true });
   await expect(sameDay, "same-day is the default while the cycle runs").toHaveAttribute("aria-pressed", "true");
   await expect(fullCycle).toHaveAttribute("aria-pressed", "false");
   await expect(heat.locator("thead th small").filter({ hasText: "hari 1–6" }), "every column names its cut").toHaveCount(6);
@@ -194,17 +218,14 @@ test("the category matrix marks the running column, switches same-day and full, 
   await expect(heat.locator("tfoot th")).toHaveText("Total pengeluaran bersih");
   await fullCycle.click();
   await expect(fullCycle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#history .history-cols > li").first()).toContainText("/hr");
+  await expect(page.locator("#history .history-cols > li").first()).toContainText("arus kas");
   await expect(heat.locator("thead th[data-running]"), "the running column is flagged in full mode").toHaveCount(1);
   await expect(heat.locator("td[data-running]"), "every row and the total mark the running column").toHaveCount(5);
   const firstRunning = heat.locator("td[data-running] .heat-cell").first();
   expect((await firstRunning.evaluate(element => element.style.getPropertyValue("--tint"))).trim(), "the running column carries no tint").toBe("0");
   expect(await firstRunning.evaluate(element => getComputedStyle(element).borderStyle), "the running column is dashed instead of tinted").toBe("dashed");
   expect(await heat.locator("td[data-running] .heat-cell").evaluateAll(cells => cells.map(cell => cell.style.getPropertyValue("--tint").trim())), "no tinted cell sits in the running column").toEqual(["0", "0", "0", "0"]);
-  await sameDay.click();
-  await expect(sameDay).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".kpi-cell[data-lead]")).toHaveText(/vs siklus lalu di hari ke-6/);
-  await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
-  await expect(page.locator("#history .history-cols > li"), "the cycle columns card draws every served cycle").toHaveCount(6);
   const matrixRow = heat.getByRole("button", { name: "Buka bukti Belanja rumah", exact: true });
   await expect(matrixRow).toHaveCount(1);
   await expect(heat.locator("tbody tr").first().locator("td.heat-amount").last(), "the selected column shows the served category amount").toHaveText("2,1");
@@ -216,22 +237,23 @@ test("the category matrix marks the running column, switches same-day and full, 
   await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor({ state: "detached" });
   await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
   expect(await matrixRow.evaluate(element => element === document.activeElement), "closing the drawer returns focus to the matrix row").toBe(true);
+  await expect(fullCycle, "history toggle survives same-cycle navigation").toHaveAttribute("aria-pressed", "true");
+  await sameDay.click();
+  await expect(sameDay).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#history .history-cols > li"), "the cycle columns card draws every served cycle").toHaveCount(6);
 });
 
-test("the matrix follows the selected cycle: a closed cycle has no same-day toggle and the active cycle re-seeds it", async ({ page }) => {
+test("the history toggle follows the selected cycle: a closed cycle has no same-day toggle and the active cycle re-seeds it", async ({ page }) => {
   await visit(page, CYCLE);
   await openDisclosure(page, "#history details", ".heat-table");
   await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
   await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Ditutup"));
   await openDisclosure(page, "#history details", ".heat-table");
-  await page.waitForFunction(() => !document.querySelector(".heat-section .segmented"));
-  await expect(page.getByRole("button", { name: "Siklus penuh", exact: true }), "a closed cycle has no same-day toggle").toHaveCount(0);
+  await expect(page.locator("#history").getByRole("button", { name: "Siklus penuh", exact: true }), "a closed cycle has no same-day toggle").toHaveCount(0);
   await expect(page.locator(".heat-table thead th[data-running]"), "a closed cycle has no running column").toHaveCount(0);
   await page.getByLabel("Siklus yang ditinjau").selectOption("2026-09-01");
   await page.waitForFunction(() => document.querySelector(".cycle-status strong")?.textContent.startsWith("Berjalan"));
-  await openDisclosure(page, "#history details", ".heat-section .segmented");
-  await page.waitForFunction(() => document.querySelector('.heat-section .segmented button[aria-pressed="true"]')?.textContent.includes("Hari ke-6"));
-  await expect(page.getByRole("button", { name: "Hari ke-6 yang sama", exact: true }), "returning to the active cycle re-seeds same-day").toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#history").getByRole("button", { name: "Hari 1–6", exact: true }), "returning to the active cycle re-seeds same-day").toHaveAttribute("aria-pressed", "true");
 });
 
 test("history columns share the category colours of the ranking", async ({ page }) => {
@@ -241,21 +263,20 @@ test("history columns share the category colours of the ranking", async ({ page 
   await expect(column.locator("em"), "a history column shows a served amount").toHaveText(/[1-9]/);
   expect(await column.locator(".history-bar").evaluate(element => element.getBoundingClientRect().height), "the history bar has a real height").toBeGreaterThan(0);
   expect(await column.locator(".history-seg").count(), "the history bar splits into category segments").toBeGreaterThanOrEqual(1);
-  const whereColor = await page.locator("#where .where-swatch").first().evaluate(el => getComputedStyle(el).backgroundColor);
+  const whereColor = await page.locator("#where .cat-swatch").first().evaluate(el => getComputedStyle(el).backgroundColor);
   const historyColor = await page.locator("#history .history-cols > li").last().locator(".history-seg").first().evaluate(el => getComputedStyle(el).backgroundColor);
   expect(historyColor, "Siklus ke siklus uses the same category colours as Ke mana uangnya").toBe(whereColor);
 });
 
-test("the merchant ranking and the household split are exact and never write", async ({ page, api }) => {
+test("the merchant card and household split are exact and never write", async ({ page, api }) => {
   await visit(page, CYCLE);
-  await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
-  await openDisclosure(page, "#where details", "#merchants table.merchant-rank");
-  const merchants = page.locator("#merchants table.merchant-rank");
-  for (const header of ["Merchant", "Transaksi", "Siklus ini", "Siklus lalu, hari yang sama", "Selisih"]) await expect(merchants.getByRole("columnheader", { name: header, exact: true }), `merchant column ${header}`).toHaveCount(1);
-  await expect(merchants.locator("tbody tr"), "one row per served payee plus the remainder").toHaveCount(2);
-  await expect(merchants.locator("tfoot th")).toHaveText("Total");
-  await expect(merchants.locator("tfoot"), "the total equals the cycle's net expense").toHaveText(/Rp\s?4\.200\.000/);
-  expect(new URL(await merchants.getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), page.url()).searchParams.get("merchantId")).toBe(MERCHANT);
+  await page.getByRole("heading", { name: "Merchant teratas" }).waitFor();
+  const rows = page.locator("#merchants .merchant-list > li");
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator("#merchants details"), "merchant card has no redundant fold").toHaveCount(0);
+  await expect(rows.first()).toContainText(idr(2100000));
+  await expect(rows.last()).toContainText("Merchant lain");
+  expect(new URL(await page.locator("#merchants").getByRole("link", { name: "Pasar Keluarga", exact: true }).getAttribute("href"), page.url()).searchParams.get("merchantId")).toBe(MERCHANT);
 
   await openDisclosure(page, "#family-talk > details", "#household .household-list");
   const household = page.locator("#household .household-list > li");
@@ -266,21 +287,31 @@ test("the merchant ranking and the household split are exact and never write", a
   expect(api.requests.filter(request => request.method === "POST"), "opening the detail sections never writes").toHaveLength(0);
 });
 
-test("the pace chart draws three curves and the sections lay out per width", async ({ page }) => {
+test("the pace chart comes first under KPI, draws three curves, and history + merchants balance height on desktop", async ({ page }) => {
   const name = test.info().project.name;
   await visit(page, CYCLE);
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
   await expect(page.locator(".cycle-pace-chart"), "pace is its own single-series chart").toBeVisible();
   await expect(page.locator(".pace-marker-note"), "a running cycle says today").toHaveText("Hari ini · hari ke-6");
-  const rows = await page.evaluate(() => {
+  const layout = await page.evaluate(() => {
     const box = selector => document.querySelector(selector)?.getBoundingClientRect();
-    const same = (x, y) => Boolean(x && y) && Math.abs(x.top - y.top) < 4 && x.right <= y.left + 1;
-    return { where: same(box("#where"), box("#history")), changes: same(box("#changes"), box("#spending-shape")) };
+    const kpi = box("#position");
+    const pace = box("#spending-shape");
+    const where = box("#where");
+    const history = box("#history");
+    const merchants = box("#merchants");
+    return {
+      paceBelowKpi: Boolean(kpi && pace) && pace.top >= kpi.bottom - 2,
+      whereBelowPace: Boolean(pace && where) && where.top >= pace.bottom - 2,
+      splitSideBySide: Boolean(history && merchants) && Math.abs(history.top - merchants.top) < 4 && history.right <= merchants.left + 1,
+      equalHeight: Boolean(history && merchants) && Math.abs(history.height - merchants.height) <= 2,
+    };
   });
-  if (name !== "tablet") {
-    const shared = name === "desktop";
-    expect(rows.where, `"Ke mana uangnya" and "Siklus ke siklus" ${shared ? "share a row" : "stack"}`).toBe(shared);
-    expect(rows.changes, `"Yang berubah" and "Laju pengeluaran" ${shared ? "share a row" : "stack"}`).toBe(shared);
+  expect(layout.paceBelowKpi, "PaceCard sits directly under the KPI row").toBe(true);
+  expect(layout.whereBelowPace, "CategoryTable sits below PaceCard").toBe(true);
+  if (name === "desktop") {
+    expect(layout.splitSideBySide, "HistoryCard and MerchantCard share the 7fr/5fr row on desktop").toBe(true);
+    expect(layout.equalHeight, "HistoryCard and MerchantCard stretch to equal height").toBe(true);
   }
   await expect(page.locator(".cycle-pace-chart .recharts-line-curve"), "the selected cycle, the previous cycle and the median are drawn as curves").toHaveCount(3);
   await expect(page.getByRole("button", { name: "Siklus berikutnya", exact: true }), "the active cycle has no newer neighbour").toBeDisabled();
@@ -292,10 +323,11 @@ test("a closed cycle still lets a decision be recorded when the list fails, and 
   await visit(page, CYCLE);
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
   await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   expect(searchOf(page).get("cycle")).toBe("2026-08-26");
   await page.waitForFunction(() => document.querySelector(".kpi-cell[data-lead]")?.textContent.includes("(penuh)"));
-  await expect(page.locator(".kpi-cell[data-lead]")).toHaveText(/vs siklus lalu .penuh./);
+  await expect(page.locator(".kpi-cell[data-lead]")).toHaveText(/vs siklus lalu \(penuh\)/);
+  await expect(page.locator(".kpi-cell[data-lead]").getByRole("button", { name: "Mulai tinjauan · 7 langkah", exact: true })).toBeVisible();
   await openDisclosure(page, "#family-talk > details", "#decisions form.decision-form");
   await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat dimuat" }).waitFor();
   await expect(page.getByLabel("Keputusan baru untuk siklus ini", { exact: true }), "a failed list still allows recording a decision").toHaveCount(1);
@@ -313,7 +345,7 @@ test("a closed cycle still lets a decision be recorded when the list fails, and 
 
 test("Laporan keeps the reviewed cycle across Calendar and switches views from the keyboard", async ({ page }) => {
   await visit(page, CLOSED);
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   const tabs = page.getByRole("tablist", { name: "Jenis laporan" }).getByRole("tab");
   await page.getByRole("button", { name: "Kalender", exact: true }).click();
   await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
@@ -340,7 +372,7 @@ test("Laporan keeps the reviewed cycle across Calendar and switches views from t
   await page.getByRole("button", { name: "Kalender", exact: true }).click();
   await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
   await page.getByRole("button", { name: "Siklus Gaji", exact: true }).click();
-  await page.getByRole("heading", { name: "Pengeluaran harian", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   expect(searchOf(page).get("cycle"), "returning from Calendar keeps the reviewed cycle").toBe("2026-08-26");
 });
 
@@ -359,28 +391,61 @@ test("commentary shows a dated older snapshot and an hourly cap never erases it"
 test("without AI every section is still there and nothing is posted", async ({ page, api }) => {
   flags.aiAvailable = false;
   await visit(page, CLOSED);
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   await page.locator("#family-talk > details > summary").getByText(/bahan pembahasan belum tersedia/).waitFor();
-  for (const id of ["position", "spending-shape", "where", "changes", "daily", "history", "family-talk", "household", "quality"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
+  for (const id of ["position", "spending-shape", "where", "changes", "daily", "history", "merchants", "family-talk", "household", "quality"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
   expect(api.requests.filter(request => request.method === "POST")).toHaveLength(0);
+  await expect(page.locator(".notice-strip").getByRole("link", { name: "Buka Inbox" })).toHaveCount(1);
+  await openDisclosure(page, "#quality > details", "#quality .review-quality");
   await expect(page.locator("#quality").getByRole("link", { name: "Buka Inbox" })).toHaveCount(1);
 });
 
-test("the closed-cycle meeting walks the steps, keeps a draft, and records decisions only on explicit save", async ({ page, api }) => {
+test("the closed-cycle meeting walks all 7 steps, auto-opens folds, keeps a draft, and records decisions only on explicit save", async ({ page, api }) => {
   flags.aiAvailable = false;
+  flags.advisory = true;
   await visit(page, CLOSED);
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
-  await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).click();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
+  await page.getByRole("button", { name: "Mulai tinjauan · 7 langkah", exact: true }).click();
   await page.waitForFunction(() => document.activeElement?.id === "position-title");
   expect(searchOf(page).get("review")).toBe("position");
   expect(await page.locator("#position h2").evaluate(element => element === document.activeElement)).toBe(true);
-  await expect(page.locator("#changes")).toBeHidden();
+  await expect(page.locator("#position")).toBeVisible();
+  await expect(page.locator("#history")).toBeVisible();
+  await expect(page.locator("#history .heat-table"), "step 1 auto-opens Angka per kategori").toBeVisible();
+  await expect(page.locator("#where")).toBeHidden();
+  await expect(page.locator("#spending-shape")).toBeHidden();
+
+  await page.locator(".quality-chip").click();
+  expect(searchOf(page).get("review"), "quality chip navigates to quality step during review").toBe("quality");
+  await expect(page.locator("#quality .review-quality"), "quality fold opens on quality step").toBeVisible();
+  await page.getByRole("navigation", { name: "Langkah tinjauan siklus" }).getByRole("button", { name: "1. Posisi siklus", exact: true }).click();
+  expect(searchOf(page).get("review")).toBe("position");
+  await expect(page.locator("#quality > details"), "leaving quality step closes its fold").not.toHaveAttribute("open");
+
   const nav = page.getByRole("navigation", { name: "Langkah tinjauan siklus" });
   await expect(nav.getByRole("button")).toHaveCount(7);
+
   await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  expect(searchOf(page).get("review")).toBe("spending-shape");
+  await expect(page.locator("#spending-shape")).toBeVisible();
+  await expect(page.locator("#spending-shape .review-daily table"), "step 2 auto-opens Tabel laju").toBeVisible();
+  await expect(page.locator("#daily")).toBeVisible();
+  await expect(page.locator("#daily .review-daily table"), "step 2 auto-opens Nilai harian").toBeVisible();
+  await expect(page.locator("#position")).toBeHidden();
+
   await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
-  await page.getByRole("button", { name: "Belanja rumah", exact: true }).click();
+  expect(searchOf(page).get("review")).toBe("changes");
+  await expect(page.locator("#where")).toBeVisible();
+  await expect(page.locator("#where").getByRole("button", { name: "Paling berubah", exact: true }), "step 3 forces Paling berubah").toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("details#changes table"), "step 3 auto-opens Perbandingan lengkap").toBeVisible();
+  await expect(page.locator("#merchants")).toBeHidden();
+
+  await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
+  expect(searchOf(page).get("review")).toBe("drivers");
+  await expect(page.locator("#where").getByRole("button", { name: "Terbesar", exact: true }), "step 4 forces Terbesar").toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#merchants")).toBeVisible();
+  await expect(page.locator("#merchants .merchant-list > li")).toHaveCount(2);
+  await page.locator("#where").getByRole("button", { name: /^Belanja rumah/ }).click();
   await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
   expect(searchOf(page).get("review")).toBe("drivers");
   const meetingLedger = page.getByRole("link", { name: "Lihat transaksi Belanja rumah dalam periode ini" });
@@ -392,6 +457,7 @@ test("the closed-cycle meeting walks the steps, keeps a draft, and records decis
   await returnLink.click();
   await page.getByRole("dialog", { name: "Belanja rumah", exact: true }).waitFor();
   await page.keyboard.press("Escape");
+
   for (const [button, section] of [["5. Tindak lanjut", "quality"], ["6. Pembahasan", "discussion"], ["7. Keputusan", "decisions"]]) {
     await nav.getByRole("button", { name: button, exact: true }).click();
     await page.locator(`#${section}`).waitFor({ state: "visible" });
@@ -430,7 +496,7 @@ test("the closed-cycle meeting walks the steps, keeps a draft, and records decis
 
 test("the calendar view validates ranges, links months by keyboard and survives a failed section", async ({ page }) => {
   await visit(page, CLOSED);
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   await page.getByRole("button", { name: "Kalender", exact: true }).click();
   await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
   expect(searchOf(page).get("view")).toBe("calendar");
@@ -498,7 +564,7 @@ test("a failed facts request never shows zero amounts and recovers, including wi
   api.requests.length = 0;
   await page.getByRole("button", { name: "Coba lagi", exact: true }).click();
   await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
-  await page.getByText("Belum ada gaji utama terkonfirmasi untuk menentukan siklus", { exact: true }).waitFor();
+  await page.locator(".notice-strip").getByText("Belum ada gaji utama terkonfirmasi untuk menentukan siklus", { exact: true }).waitFor();
   expect(api.requests.filter(request => request.path.startsWith("/api/v1/insights"))).toHaveLength(0);
 });
 
@@ -509,7 +575,8 @@ test("a stable cycle shows its one-line commentary and never generates", async (
   await page.getByText("Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", { exact: true }).waitFor();
   await expect(page.locator(".kpi-cell:nth-child(3) dd")).toHaveText(idr(0));
   await expect(page.locator(".insight-text p"), "stable commentary is not expanded into filler").toHaveCount(1);
-  await expect(page.locator("#changes tbody tr")).toHaveCount(1);
+  await openDisclosure(page, "details#changes", "#changes .empty");
+  await expect(page.locator("#changes tbody tr")).toHaveCount(0);
   expect(api.calls("/api/v1/insights/generate"), "stable review never auto-generates commentary").toHaveLength(0);
 });
 
@@ -524,8 +591,6 @@ test("a running cycle starting 25 Sep keeps exact daily rows, links days by keyb
   await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
   await expect(page.locator("#changes table")).toBeVisible();
   expect(await page.locator("#family-talk > details").evaluate(element => element.open)).toBe(true);
-  await page.locator("#daily .review-daily").waitFor({ state: "attached" });
-  await page.evaluate(() => document.querySelectorAll(".cycle-review details").forEach(details => { details.open = true; }));
   await expect(page.locator("#daily .review-daily table").locator("tbody tr"), "all exact daily rows retained").toHaveCount(7);
   const dailyTable = page.getByRole("region", { name: "Nilai pengeluaran harian, geser untuk semua kolom", exact: true });
   const dayName = "Lihat pengeluaran 25 Sep 2026";
@@ -536,7 +601,8 @@ test("a running cycle starting 25 Sep keeps exact daily rows, links days by keyb
   const dayChart = page.locator(".cycle-spending-chart");
   await expect(dayChart.getByRole("link", { name: dayName, exact: true }), "chart and table share the same drill").toHaveAttribute("href", DAY_HREF);
   await expect(dayChart.getByRole("link", { name: "Lihat pengeluaran 26 Sep 2026", exact: true }), "zero-spend day has no chart link").toHaveCount(0);
-  const rentChange = page.locator(".diverge > li").filter({ hasText: "Tempat Tinggal" });
+  await page.locator("#where").getByRole("button", { name: "Paling berubah", exact: true }).click();
+  const rentChange = page.locator("#where .cat-list > li").filter({ hasText: "Tempat Tinggal" });
   await expect(rentChange, "a running cycle shows the served same-day change").toHaveText(/naik.*1\.950\.000/);
   await expect(rentChange).not.toHaveText(/100%/);
   const rentRow = page.locator("#changes table tbody tr").filter({ hasText: "Tempat Tinggal" });
@@ -562,7 +628,6 @@ test("a running cycle starting 25 Sep keeps exact daily rows, links days by keyb
   await dayReturn.waitFor();
   expect(new URL(page.url()).search, "daily row navigates with the same-day query").toBe(DAY_HREF.slice(DAY_HREF.indexOf("?")));
   await dayReturn.click();
-  await openDisclosure(page, "#daily > details", ".cycle-spending-chart");
   await dayChart.getByRole("link", { name: dayName, exact: true }).waitFor();
   const chartLink = dayChart.getByRole("link", { name: dayName, exact: true });
   await chartLink.focus();
@@ -574,7 +639,6 @@ test("a running cycle starting 25 Sep keeps exact daily rows, links days by keyb
   await dayReturn.waitFor();
   expect(new URL(page.url()).search, "chart link works by keyboard").toBe(DAY_HREF.slice(DAY_HREF.indexOf("?")));
   await dayReturn.click();
-  await openDisclosure(page, "#daily > details", ".cycle-spending-chart");
   await dayChart.getByRole("link", { name: dayName, exact: true }).click();
   await dayReturn.waitFor();
   expect(new URL(page.url()).search, "chart link works by pointer").toBe(DAY_HREF.slice(DAY_HREF.indexOf("?")));
@@ -591,7 +655,7 @@ test("entering the ledger from the calendar directly keeps month bounds without 
 
 test("a running cycle links straight to writing a decision for the previous, closed cycle", async ({ page }) => {
   await visit(page, CYCLE);
-  await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+  await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
   await page.evaluate(() => { window.__sameDocument = true; });
   await openDisclosure(page, "#family-talk > details", "#decisions");
   await expect(page.locator("#decision-body"), "a running cycle has no decision field").toHaveCount(0);

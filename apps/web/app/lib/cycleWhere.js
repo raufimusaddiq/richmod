@@ -1,5 +1,4 @@
-import { baselineFor, deltaView } from "./cycleKpi.js";
-import { changeWidth } from "./cycleReview.js";
+import { baselineFor, deltaView, isZero } from "./cycleKpi.js";
 import { CATEGORY_COLORS, OTHER_CATEGORY_COLOR, buildCategoryPalette, categoryColorFor, categoryColorMap, categoryKey } from "./categoryColors.js";
 
 export { CATEGORY_COLORS, OTHER_CATEGORY_COLOR, buildCategoryPalette, categoryColorFor, categoryColorMap, categoryKey };
@@ -13,39 +12,62 @@ export function rankingView(facts, palette = null) {
   const ranking = facts.categoryRanking;
   if (!ranking || !Array.isArray(ranking.rows)) return null;
   const basis = baselineFor(facts.period, facts.spendingShape?.days);
-  const openable = new Set((facts.categoryChanges || []).map(categoryKey));
+  const evidenceKeys = new Set((facts.categoryChanges || []).map(categoryKey));
   const peak = Math.max(0, ...[...ranking.rows, ...(ranking.other ? [ranking.other] : [])].map(row => Math.abs(Number(row.amount))).filter(Number.isFinite));
   const { colors } = categoryColorMap(facts, palette);
-  const view = row => ({ ...row, delta: deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true }), length: fraction(row.amount, peak) });
+  const deltaFor = row => deltaView(row.deltaVsBaseline ?? null, { relative: row.relativeDeltaVsBaseline ?? null, lowerIsBetter: true });
+  const view = row => ({ ...row, delta: deltaFor(row), length: fraction(row.amount, peak) });
   const rows = ranking.rows.map(row => {
     const key = categoryKey(row);
     const assigned = colors.get(key);
     const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
-    return { ...view(row), key, color, openable: openable.has(key) };
+    return { ...view(row), key, color, openable: evidenceKeys.has(key) };
   });
   const otherRows = Array.isArray(ranking.other?.rows)
     ? ranking.other.rows.map(row => {
       const key = categoryKey(row);
-      return { ...view(row), key, color: "", openable: openable.has(key) };
+      return { ...view(row), key, color: "", openable: evidenceKeys.has(key) };
     })
     : [];
   const other = ranking.other && (Number(ranking.other.categoryCount) > 0 || otherRows.length > 0)
     ? { ...view(ranking.other), key: "other", color: OTHER_CATEGORY_COLOR, rows: otherRows }
     : null;
-  return { rows, other, baseline: basis.label, total: facts.cashflow.expense };
+  const hasBaseline = Boolean(facts.comparison?.previousFullCycle || facts.comparison?.previous);
+  return { rows, other, baseline: basis.label, hasBaseline, total: facts.cashflow.expense };
 }
 
-export function changesView(facts, { limit = 5, movers = 3 } = {}) {
+export function nonZeroCategoryChanges(facts) {
+  const basis = baselineFor(facts.period, facts.spendingShape?.days);
+  return (facts.categoryChanges || []).filter(item => {
+    const delta = item?.[basis.delta];
+    return delta != null && !isZero(delta);
+  });
+}
+
+export function changesView(facts, { limit = 8, palette = null } = {}) {
   const { comparison, period } = facts;
   const basis = baselineFor(period, facts.spendingShape?.days);
   const hasBaseline = Boolean(comparison?.previousFullCycle || comparison?.previous);
-  const items = (facts.categoryChanges || []).slice(0, limit);
+  const items = nonZeroCategoryChanges(facts).slice(0, limit);
+  const peak = Math.max(0, ...items.map(item => Math.abs(Number(item.amount))).filter(Number.isFinite));
+  const { colors } = categoryColorMap(facts, palette);
   const rows = items.map(item => {
-    const delta = item[basis.delta] ?? null;
-    return { key: categoryKey(item), name: item.name, amount: item.amount, delta: deltaView(delta, { relative: item[basis.relative] ?? null, lowerIsBetter: true }), side: delta == null || /^[-+]?0+(\.0+)?$/.test(String(delta)) ? "" : String(delta).startsWith("-") ? "less" : "more", width: changeWidth(item, items, basis.delta) };
+    const key = categoryKey(item);
+    const assigned = colors.get(key);
+    const color = assigned && assigned !== OTHER_CATEGORY_COLOR ? assigned : "";
+    return {
+      key,
+      id: item.id,
+      name: item.name,
+      amount: item.amount,
+      shareOfExpense: item.shareOfExpense ?? null,
+      length: fraction(item.amount, peak),
+      color,
+      openable: true,
+      delta: deltaView(item[basis.delta] ?? null, { relative: item[basis.relative] ?? null, lowerIsBetter: true }),
+    };
   });
-  const merchants = (facts.merchantDrivers || []).slice(0, movers).map(item => ({ key: `${item.id || "none"}:${item.name}`, id: item.id || "", name: item.name, delta: deltaView(item[basis.delta] ?? null, { relative: item[basis.relative] ?? null, lowerIsBetter: true }) }));
-  return { rows, merchants, hasBaseline, baseline: basis.label };
+  return { rows, hasBaseline, baseline: basis.label };
 }
 
 export function partialDay(period, items = []) {

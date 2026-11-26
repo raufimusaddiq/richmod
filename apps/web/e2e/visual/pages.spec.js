@@ -6,13 +6,13 @@ test.use({ user: visualUser() });
 const shot = (page, name) => expect(page).toHaveScreenshot(`${name}.png`, { fullPage: true });
 
 const desktopStates = [
-  ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
+  ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Ritme harian" })],
   ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
   ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator("#history")],
-  ["analytics-cycle-first-desktop", "/analytics", { firstCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
-  ["analytics-cycle-nowealth-desktop", "/analytics", { noWealth: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
-  ["analytics-cycle-nospending-desktop", "/analytics", { noSpending: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
-  ["analytics-cycle-full-desktop", "/analytics", { fullCycle: true }, page => page.getByRole("heading", { name: "Pengeluaran harian" })],
+  ["analytics-cycle-first-desktop", "/analytics", { firstCycle: true }, page => page.getByRole("heading", { name: "Ritme harian" })],
+  ["analytics-cycle-nowealth-desktop", "/analytics", { noWealth: true }, page => page.getByRole("heading", { name: "Ritme harian" })],
+  ["analytics-cycle-nospending-desktop", "/analytics", { noSpending: true }, page => page.getByRole("heading", { name: "Ritme harian" })],
+  ["analytics-cycle-full-desktop", "/analytics", { fullCycle: true }, page => page.getByRole("heading", { name: "Ritme harian" })],
 ];
 
 const mobileStates = [
@@ -44,8 +44,7 @@ test.describe("desktop 1440x900", () => {
 
   test("analytics-cycle-tooltip-desktop", async ({ page }) => {
     await page.goto("/analytics", { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
-    await page.evaluate(() => { document.querySelector("#daily > details").open = true; });
+    await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
     await page.locator(".cycle-spending-chart .recharts-bar-rectangle").first().hover();
     await page.locator(".chart-tooltip").waitFor();
     await expect(page).toHaveScreenshot("analytics-cycle-tooltip-desktop.png");
@@ -99,7 +98,7 @@ test.describe("mobile 390x844", () => {
     test(name, async ({ page, api }) => {
       visualApi(api, { scenario });
       await page.goto("/analytics", { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "Pengeluaran harian" }).waitFor();
+      await page.getByRole("heading", { name: "Ritme harian" }).waitFor();
       await shot(page, name);
     });
   }

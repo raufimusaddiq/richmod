@@ -2,7 +2,7 @@
 
 This is the single record of Richmod's architecture decisions. Each entry keeps the decision, the constraint or reason behind it and the consequence; the long write-ups it replaces are in git history (for example `git show c7dfcec6:docs/adr/ADR-046-universal-review-interaction-projection.md`). `AGENTS.md` requires an entry here for a material architecture change or new infrastructure.
 
-- **Adding one:** append an entry numbered **ADR-130**, in the heading form `## ADR-130: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
+- **Adding one:** append an entry numbered **ADR-132**, in the heading form `## ADR-132: Title` followed by an italic line `*Status · YYYY-MM-DD*` and one short paragraph (decision, key reason, consequence). Where an entry changes an earlier one, update the earlier entry's status line to name it.
 - **Current versus superseded:** the status line is authoritative. Superseded or rejected decisions are kept as a short note pointing at the entry that replaced them, so references such as `ADR-037` in code, tests and docs still resolve here.
 - **Dates:** the date is when the ADR was first committed unless its own status stated a date; amendments carry their own dates in the entry.
 - **Duplicate number:** ADR-033 was used by two decisions on different topics. Both are current and both stay under the number: *Bounded natural conversational finance agent* (what code comments and the Telegram migrations mean by "ADR-033") and *Cloudflare email ingress and two-deploy Gmail sunset*.
@@ -122,7 +122,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-109](#adr-109-static-frontend-build-service-worker-and-css-invariants) | Static frontend build, service worker and CSS invariants | Accepted |
 | [ADR-110](#adr-110-source-comments-are-banned-decisions-live-in-the-adr-log) | Source comments are banned; decisions live in the ADR log | Accepted |
 | [ADR-111](#adr-111-perlu-dicek-answers-merchant-rename-by-alias-dead-states-dropped) | Perlu dicek answers, merchant rename by alias, dead states dropped | Accepted |
-| [ADR-112](#adr-112-laporan-unifies-arus-kas-and-kekayaan-spending-direction-colour-is-separate-from-category-colour) | Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour | Accepted |
+| [ADR-112](#adr-112-laporan-unifies-arus-kas-and-kekayaan-spending-direction-colour-is-separate-from-category-colour) | Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour | Accepted, amended by ADR-131 |
 | [ADR-113](#adr-113-ci-is-path-targeted-and-images-are-built-only-on-prs-and-by-release-images) | CI is path-targeted and images are built only on PRs and by Release Images | Accepted |
 | [ADR-114](#adr-114-google-oidc-login-invite-bound-enrollment-and-active-only-household-uniqueness) | Google OIDC login, invite-bound enrollment, and active-only household uniqueness | Accepted, amends ADR-035 and ADR-059 |
 | [ADR-115](#adr-115-the-web-app-is-a-bun-built-react-spa-without-nextjs) | The web app is a Bun-built React SPA without Next.js | Accepted, replaces the framework of ADR-002 and the export format of ADR-056 |
@@ -141,6 +141,7 @@ This is the single record of Richmod's architecture decisions. Each entry keeps 
 | [ADR-128](#adr-128-household-merchant-memory-wins-over-the-screenshot-model-category) | Household merchant memory wins over the screenshot model category | Accepted |
 | [ADR-129](#adr-129-telegram-interaction-engine) | Telegram interaction engine | Accepted |
 | [ADR-130](#adr-130-hand-entered-amount-and-date-are-editable-on-the-web-through-one-domain-correction) | Hand-entered amount and date are editable on the web through one domain correction | Accepted |
+| [ADR-131](#adr-131-laporan-cycle-layout-hierarchy-unified-category-table-split-notices-and-early-cycle-close-out) | Laporan cycle layout: verdict lead tile, pace first, unified category table, split notices, days 1–7 close-out card | Accepted, amends ADR-112 |
 ## ADR-001: Go backend
 *Accepted · 2026-08-25*
 
@@ -1101,6 +1102,8 @@ Scope: what the web client may compute or reinterpret from served financial valu
 - **Day subtotal counts only confirmed rows**: a ledger day's spend is confirmed expenses minus confirmed refunds, so needs-review and voided rows never move it. (`ledgerDays.js`)
 - **Decision text length counts code points**: the client counts characters, not bytes, because the server's 1-2000 rule counts code points. (`cycleSections.js`)
 - **Calendar range totals are served by Go**: `GET /api/v1/analytics/range-summary` returns the calendar range totals, active-month count and peak month; the web never sums money itself.
+- **Merchant ranking is the top 6 plus remainder**: `merchantRanking` serves the top 6 spending merchants plus `other` (rank 7 onward) and `total` from Go (`analyticscore/facts.go`), so `MerchantCard` renders all served rows directly and never derives a remainder in the browser.
+- **Provisional cycle length is served as `period.provisionalDays` (median of recent closed cycles), axis-only**: set on an ACTIVE salary cycle from up to the 3 most recent closed salary cycles (middle value for 3, most recent for 1–2, omitted for 0 or closed cycles); used strictly for chart axis extent and the `dari ±N` status label, never as a money projection or next-payday date. (`analyticscore/facts.go`)
 
 ## ADR-107: Review card and transaction form contracts with the server
 *Accepted · 2026-11-21*
@@ -1163,7 +1166,7 @@ Source files in Go, JavaScript, CSS, SQL, shell and YAML carry no comments. Abou
 **Consequence:** the Inbox renders history-ranked 1-tap answers and an inline `Urungkan` over the reopen endpoint, addressed by `reviewItemId`; `ReopenReview` may undo a plain `CONFIRM_REVIEW` of a confirmed expense/income/refund only when it is the latest item and no active merge or salary event references the transaction (history is kept, a fresh item opens); the migration refuses to run if a legacy `PENDING`/`ADJUSTMENT` row exists rather than rewriting canonical records.
 
 ## ADR-112: Laporan unifies Arus kas and Kekayaan; spending-direction colour is separate from category colour
-*Accepted · 2026-11-21*
+*Accepted, amended by ADR-131 · 2026-11-21*
 
 **Decision:** (1) `/analytics` (`Laporan`) has a top `Arus kas | Kekayaan` switch (`?view=cycle|calendar|wealth`); the whole Kekayaan workspace is one shared component rendered inside `Laporan`, and `/wealth` renders the same page in wealth mode so `?snapshotId=` and `?observationId=` links keep working. (2) `GET /api/v1/analytics/cycle-review` adds an optional `takeaways` object (`where`, `history`, `changes`, `pace`): deterministic Indonesian sentences built in Go from the exact computed facts, with no AI and each key omitted when not computable. (3) Muted `--expense`/`--income` red and green are reserved for spending-change direction, always with ▲/▼ and neutral `lebih rendah`/`lebih tinggi` wording; `--chart-category-1..6` contain no red or green and each clears 4.5:1 on `--surface-strong`.
 
@@ -1362,3 +1365,12 @@ Amendment (2026-11-25, marking a payslip income as salary): a confirmed payslip-
 **Reason:** "anything saved can be corrected from the web" was false while amount and date were refused for every transaction, yet source-evidence facts must not drift from their evidence.
 
 **Consequence:** the optimistic `If-Match` check stays on `updated_at`. A correction that fails mid-way writes nothing. Telegram Ubah still moves the date of an evidence-backed transaction, as before; only amount and merchant are hand-entered-only there. No migration.
+
+## ADR-131: Laporan cycle layout: verdict lead tile, pace first, unified category table, split notices, days 1–7 close-out card
+*Accepted, amends ADR-112 · 2026-11-26*
+
+**Decision:** Laporan's Siklus Gaji view keeps the four-tile KPI strip (amending ADR-112) with a wider lead tile (`2fr 1fr 1fr 1fr`) carrying `takeaways.verdict` and served delta chips (same-day vs previous and median while active on day 4+; full-cycle total with a day-count footnote and "Mulai tinjauan · 7 langkah" CTA when closed), moves `PaceCard` to be the first full-width card below it with x-domain extended to `period.provisionalDays`, replaces `WhereCard` and `ChangesCard` with one `CategoryTable` toggling between server-ordered "Terbesar" and non-zero "Paling berubah", places `HistoryCard` (shared Hari 1–N / Siklus penuh toggle, served Rp/hari and labelled net cashflow) and `MerchantCard` (top 6 served rows + remainder, no redundant fold) in a balanced equal-height 7fr/5fr row, makes `DailyCard` ("Ritme harian") an always-visible strip with ghost slots, peak highlight and hatched today, adds a days 1–7 `LastCycleCard` above the KPI row when `previousCycle` is present, moves `Arus kas | Kekayaan` beside the title with a fixed-position control bar, and splits notices so only blocking kinds stay in the top banner while wealth reminders move to a control-bar chip linking to an always-rendered `QualityFooter`.
+
+**Reason:** the prior layout buried the pace answer fourth in an unbalanced 2×2 grid, split categories across two cards with conflicting orders and baselines, shouted wealth-snapshot reminders at the start of every cycle, and left days 1–7 staring at empty charts instead of closing out the previous cycle.
+
+**Consequence:** all money comparisons, ordering, verdicts and per-day figures remain server-owned (ADR-106); all section IDs (`#position`, `#spending-shape`, `#where`, `#changes`, `#history`, `#matrix`, `#merchants`, `#daily`, `#family-talk`, `#quality`, `#drivers`) stay stable; the 7-step `?review=` CSS and auto-open folds follow the new hierarchy; and the `WhereCard`, `ChangesCard`, diverging-bar and movers code and CSS are removed.

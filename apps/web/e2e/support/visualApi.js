@@ -11,9 +11,9 @@ const transactions = () => [
 ];
 
 const categories = () => [
-  { id: "cat-1", name: "Belanja rumah", amount: "1250000", active: true, slug: "belanja-rumah" },
-  { id: "cat-2", name: "Transportasi", amount: "640000", active: true, slug: "transportasi" },
-  { id: "cat-3", name: "Makan", amount: "420000", active: true, slug: "makan" },
+  { id: "11111111-1111-4111-8111-111111111111", name: "Belanja rumah", amount: "1250000", active: true, slug: "belanja-rumah" },
+  { id: "66666666-6666-4666-8666-666666666666", name: "Transportasi", amount: "640000", active: true, slug: "transportasi" },
+  { id: "55555555-5555-4555-8555-555555555555", name: "Makan", amount: "420000", active: true, slug: "makan" },
   { id: "cat-4", name: "Tagihan", amount: "280000", active: true, slug: "tagihan" },
 ];
 

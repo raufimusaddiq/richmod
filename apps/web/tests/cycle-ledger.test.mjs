@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceEndLabels, paceMarkerNote, paceTicks, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, millionTickFormatter, paceAxis, paceCeiling, paceCurves, paceEndLabels, paceMarkerNote, paceTicks, provisionalDays, compactMillions, directionMark, directionText, hasPace, mapPace, paceReferences, signedMillions } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 
@@ -278,4 +278,27 @@ test("pace end labels separate close values by at least label height + 4px, stay
     const y = (1 - item.value / 20_000_000) * 100 + item.dy;
     assert.ok(y >= 0 && y <= 100, `bottom-clamped label ${item.key} stays inside [0, 100], got ${y}`);
   }
+});
+
+test("buildLedger supports SAME_DAY totals and passes through served per-day fields in FULL mode", () => {
+  const facts = cycleFacts();
+  const sameDay = buildLedger(facts.history, facts.period.start, facts.categoryHistory, null, "SAME_DAY");
+  assert.equal(sameDay.mode, "SAME_DAY");
+  assert.deepEqual(sameDay.columns.map(col => col.expense), facts.categoryHistory.sameDay.totals);
+  assert.equal(sameDay.columns[0].elapsedDays, 6);
+  const full = buildLedger(facts.history, facts.period.start, facts.categoryHistory, null, "FULL");
+  assert.equal(full.mode, "FULL");
+  assert.equal(full.columns[0].days, facts.history[0].days);
+  assert.equal(full.columns[0].averageDailyExpenseRounded, facts.history[0].averageDailyExpenseRounded);
+});
+
+test("mapPace extends the x-domain using served period.provisionalDays on active cycles", () => {
+  assert.equal(provisionalDays({ state: "ACTIVE", start: "2026-09-05", end: null, provisionalDays: 32 }), 32);
+  assert.equal(provisionalDays({ state: "ACTIVE", start: "2026-09-05", end: null }), 0);
+  assert.equal(provisionalDays({ state: "CLOSED", start: "2026-09-05", end: "2026-10-05", provisionalDays: 32 }), 0);
+  const items = [{ period: "2026-09-05", cumulativeExpense: "100" }, { period: "2026-09-06", cumulativeExpense: "250" }];
+  const extended = mapPace(items, null, { state: "ACTIVE", start: "2026-09-05", end: null, provisionalDays: 32 });
+  assert.equal(extended.length, 32);
+  assert.equal(extended[1].runningTotal, 250);
+  assert.equal(extended[2].runningTotal, null);
 });
