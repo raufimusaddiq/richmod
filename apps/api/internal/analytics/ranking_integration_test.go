@@ -22,7 +22,7 @@ func (f reviewFixture) categorized(t *testing.T, name, date, typ, amount string)
 	}
 }
 
-func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t *testing.T) {
+func TestCycleReviewCategoryRankingTop8PlusOtherReconcilesWithSameDayBaseline(t *testing.T) {
 	t.Parallel()
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-01")
@@ -45,9 +45,9 @@ func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t 
 	if facts.Cashflow.Expense != "24076777" {
 		t.Fatalf("expense=%s", facts.Cashflow.Expense)
 	}
-	wantNames := []string{"Cat C", "Cat G", "Cat B", "Cat A", "Cat E", "Cat F"}
-	wantAmounts := []string{"20000000", "2000000", "1000000", "800000", "150000", "75000"}
-	if len(r.Rows) != 6 {
+	wantNames := []string{"Cat C", "Cat G", "Cat B", "Cat A", "Cat E", "Cat F", "Cat H", "Cat D"}
+	wantAmounts := []string{"20000000", "2000000", "1000000", "800000", "150000", "75000", "40000", "3500"}
+	if len(r.Rows) != 8 {
 		t.Fatalf("rows=%d", len(r.Rows))
 	}
 	sum := new(big.Int)
@@ -62,11 +62,11 @@ func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t 
 	if sum.Add(sum, other).String() != facts.Cashflow.Expense {
 		t.Fatalf("rows+other=%s expense=%s", sum, facts.Cashflow.Expense)
 	}
-	if r.Other.Name != "Kategori lain" || r.Other.Amount != "51777" || r.Other.CategoryCount != 4 || len(r.Other.Rows) != 4 {
+	if r.Other.Name != "Kategori lain" || r.Other.Amount != "8277" || r.Other.CategoryCount != 2 || len(r.Other.Rows) != 2 {
 		t.Fatalf("other=%+v", r.Other)
 	}
-	wantOtherNames := []string{"Cat H", "Belum dikategorikan", "Cat D", "Cat I"}
-	wantOtherAmounts := []string{"40000", "7777", "3500", "500"}
+	wantOtherNames := []string{"Belum dikategorikan", "Cat I"}
+	wantOtherAmounts := []string{"7777", "500"}
 	for i, row := range r.Other.Rows {
 		if row.Name != wantOtherNames[i] || row.Amount != wantOtherAmounts[i] {
 			t.Fatalf("other row %d = %+v", i, row)
@@ -78,7 +78,7 @@ func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t 
 	if g := r.Rows[1]; *g.Baseline != "0" || *g.Delta != "2000000" || g.Relative != nil {
 		t.Fatalf("new category: %+v", g)
 	}
-	if r.Other.Baseline == nil || *r.Other.Baseline != "100" || *r.Other.Delta != "51677" {
+	if r.Other.Baseline == nil || *r.Other.Baseline != "0" || *r.Other.Delta != "8277" {
 		t.Fatalf("other baseline=%+v", r.Other)
 	}
 	if facts.SpendingShape.AverageRounded != "2407678" {
@@ -86,7 +86,7 @@ func TestCycleReviewCategoryRankingTop6PlusOtherReconcilesWithSameDayBaseline(t 
 	}
 }
 
-func TestCycleReviewCategoryRankingUsesThreeCycleTopSixOverCurrentSpike(t *testing.T) {
+func TestCycleReviewCategoryRankingRanksCurrentCycleNotTheThreeCyclePalette(t *testing.T) {
 	t.Parallel()
 	f := cycleReviewFixture(t)
 	for _, d := range []string{"2026-07-01", "2026-08-01", "2026-09-01"} {
@@ -101,16 +101,53 @@ func TestCycleReviewCategoryRankingUsesThreeCycleTopSixOverCurrentSpike(t *testi
 
 	facts := f.review(t, "?cycle_start=2026-09-01")
 	r := facts.CategoryRanking
-	if len(r.Rows) != 6 {
-		t.Fatalf("expected 6 ranked rows, got %d: %+v", len(r.Rows), r.Rows)
+	if len(r.Rows) != 7 || r.Rows[0].Name != "Perjalanan" || r.Rows[0].Amount != "631000" {
+		t.Fatalf("the larger current-cycle category must be a named row: %+v", r.Rows)
 	}
-	for _, row := range r.Rows {
-		if row.Name == "Perjalanan" {
-			t.Fatalf("non-top-6 category Perjalanan must fold into Kategori lain: %+v", r.Rows)
+	if r.Other.Amount != "0" || len(r.Other.Rows) != 0 {
+		t.Fatalf("nothing is left for Kategori lain: %+v", r.Other)
+	}
+}
+
+func TestCycleReviewCategoryChangesSortByShownBaselineWithZeroRowsLast(t *testing.T) {
+	t.Parallel()
+	f := cycleReviewFixture(t)
+	for _, d := range []string{"2026-07-01", "2026-08-01", "2026-09-01"} {
+		f.anchor(t, d)
+	}
+	f.categorized(t, "Rising Today", "2026-08-02", "EXPENSE", "100000")
+	f.categorized(t, "Rising Today", "2026-09-02", "EXPENSE", "4000000")
+	f.categorized(t, "Sagging Today", "2026-08-02", "EXPENSE", "1000000")
+	f.categorized(t, "Sagging Today", "2026-09-02", "EXPENSE", "200000")
+	f.categorized(t, "Same Today Big Full Gap", "2026-08-02", "EXPENSE", "500000")
+	f.categorized(t, "Same Today Big Full Gap", "2026-08-20", "EXPENSE", "5000000")
+	f.categorized(t, "Same Today Big Full Gap", "2026-09-02", "EXPENSE", "500000")
+
+	facts := f.review(t, "?cycle_start=2026-09-01")
+	if facts.Comparison.Mode != "ELAPSED_DAYS" {
+		t.Fatalf("mode=%s", facts.Comparison.Mode)
+	}
+	var names []string
+	for _, c := range facts.Categories {
+		names = append(names, c.Name)
+	}
+	if len(names) != 3 || names[0] != "Rising Today" || names[1] != "Sagging Today" || names[2] != "Same Today Big Full Gap" {
+		t.Fatalf("same-day order with zero last=%v", names)
+	}
+	if *facts.Categories[2].Delta != "0" || *facts.Categories[2].DeltaFull != "-5000000" {
+		t.Fatalf("zero same-day delta=%+v", facts.Categories[2])
+	}
+	if got := facts.Takeaways.Changes; got != "Naik paling banyak Rising Today, turun paling banyak Sagging Today." {
+		t.Fatalf("the takeaway must name the first sorted row, got %q", got)
+	}
+	previous := facts.PreviousCycle
+	if previous == nil || previous.Start != "2026-08-01" || previous.End == nil || *previous.End != "2026-09-01" || previous.Days != 31 || previous.Expense != "6600000" || previous.UnallocatedSurplus != "3400000" || previous.Delta == nil || *previous.Delta != "6600000" {
+		t.Fatalf("previous cycle summary=%+v", previous)
+	}
+	for _, m := range facts.Merchants {
+		if m.Delta != nil && *m.Delta == "0" {
+			t.Fatalf("merchant drivers must not include a zero same-day delta: %+v", m)
 		}
-	}
-	if r.Other.Amount != "631000" || r.Other.CategoryCount != 1 || len(r.Other.Rows) != 1 || r.Other.Rows[0].Name != "Perjalanan" {
-		t.Fatalf("expected Perjalanan inside other.rows, got %+v", r.Other)
 	}
 }
 

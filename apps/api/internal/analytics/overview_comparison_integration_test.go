@@ -3,6 +3,7 @@ package analytics
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +78,37 @@ func TestOverviewCalendarMonthComparisonAndEmptyHousehold(t *testing.T) {
 	got := f.overview(t, now)
 	if got.ConfirmedCount != 1 || got.PreviousExpense == nil || *got.PreviousExpense != "400000" || got.PreviousDays == nil || *got.PreviousDays != 30 || got.ExpenseDelta == nil || *got.ExpenseDelta != "-250000" {
 		t.Fatalf("calendar=%+v", got)
+	}
+}
+
+func TestClosedCycleHistoryNamesPerDayChangeWhenCycleLengthsDiffer(t *testing.T) {
+	t.Parallel()
+	f := cycleReviewFixture(t)
+	for _, d := range []string{"2026-06-23", "2026-07-25", "2026-08-22"} {
+		f.anchor(t, d)
+	}
+	f.transaction(t, "2026-06-30", "EXPENSE", "CONFIRMED", "11280000", true)
+	f.transaction(t, "2026-08-10", "EXPENSE", "CONFIRMED", "9590000", true)
+	facts := f.review(t, "?cycle_start=2026-07-25")
+
+	var selectedDays, previousDays int
+	var selectedAverage, previousAverage string
+	for _, cycle := range facts.History {
+		switch cycle.Start {
+		case "2026-07-25":
+			selectedDays, selectedAverage = cycle.Days, cycle.AverageDailyExpenseRounded
+		case "2026-06-23":
+			previousDays, previousAverage = cycle.Days, cycle.AverageDailyExpenseRounded
+		}
+	}
+	if selectedDays != 28 || selectedAverage != "342500" || previousDays != 32 || previousAverage != "352500" {
+		t.Fatalf("selected days=%d average=%s previous days=%d average=%s", selectedDays, selectedAverage, previousDays, previousAverage)
+	}
+	if !strings.Contains(facts.Takeaways.History, "Per hari Rp 342.500 vs Rp 352.500, 2,8% lebih rendah.") {
+		t.Fatalf("history takeaway must name the per-day change: %q", facts.Takeaways.History)
+	}
+	if got := facts.Takeaways.Verdict; got != "Rp 1.690.000 lebih rendah dari siklus lalu (penuh)." {
+		t.Fatalf("verdict=%q", got)
 	}
 }
 

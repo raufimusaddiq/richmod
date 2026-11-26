@@ -384,6 +384,7 @@ func TestCycleReviewMerchantDriversMergeAliasAndShowTanpaMerchant(t *testing.T) 
 	t.Parallel()
 	f := cycleReviewFixture(t)
 	ctx := context.Background()
+	f.anchor(t, "2026-07-01")
 	f.anchor(t, "2026-08-01")
 	f.anchor(t, "2026-09-01")
 	var payee string

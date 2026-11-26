@@ -97,17 +97,30 @@ type reviewWealth struct {
 }
 
 type historyCycle struct {
-	Start            string  `json:"start"`
-	End              *string `json:"end"`
-	MeasuredUntil    string  `json:"measuredUntil"`
-	State            string  `json:"state"`
-	Income           string  `json:"income"`
-	GrossExpense     string  `json:"grossExpense"`
-	Refund           string  `json:"refund"`
-	Expense          string  `json:"expense"`
-	Net              string  `json:"netCashflow"`
-	SavingsAllocated string  `json:"savingsAllocated"`
-	ExpenseDelta     *string `json:"expenseDelta"`
+	Start                      string  `json:"start"`
+	End                        *string `json:"end"`
+	MeasuredUntil              string  `json:"measuredUntil"`
+	State                      string  `json:"state"`
+	Days                       int     `json:"days"`
+	Income                     string  `json:"income"`
+	GrossExpense               string  `json:"grossExpense"`
+	Refund                     string  `json:"refund"`
+	Expense                    string  `json:"expense"`
+	AverageDailyExpenseRounded string  `json:"averageDailyExpenseRounded"`
+	Net                        string  `json:"netCashflow"`
+	SavingsAllocated           string  `json:"savingsAllocated"`
+	ExpenseDelta               *string `json:"expenseDelta"`
+}
+
+type previousCycle struct {
+	Start              string  `json:"start"`
+	End                *string `json:"end"`
+	Days               int     `json:"days"`
+	Expense            string  `json:"expense"`
+	Delta              *string `json:"deltaVsPreviousFullCycle"`
+	Relative           *string `json:"relativeDeltaVsPreviousFullCycle"`
+	SavingsAllocated   string  `json:"savingsAllocated"`
+	UnallocatedSurplus string  `json:"unallocatedSurplus"`
 }
 
 type historyCategory struct {
@@ -194,6 +207,7 @@ type Facts struct {
 	Period          reviewPeriod    `json:"period"`
 	Cycles          []reviewPeriod  `json:"cycles"`
 	History         []historyCycle  `json:"history"`
+	PreviousCycle   *previousCycle  `json:"previousCycle"`
 	CategoryHistory categoryHistory `json:"categoryHistory"`
 	Pace            paceBaselines   `json:"pace"`
 	Comparison      struct {
@@ -404,6 +418,9 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if fullIndex >= 0 {
 		full = &measures[fullIndex]
 	}
+	if facts.Period.State == "ACTIVE" {
+		facts.PreviousCycle = buildPreviousCycle(periods, index, measures, full)
+	}
 	measures = measures[:historyCount]
 	facts.MerchantRanking = buildMerchantRanking(measures, facts.Comparison.Mode)
 	facts.Pace = buildPace(full, measures[1:], facts.Comparison.Median3Available)
@@ -416,25 +433,26 @@ func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	} else {
 		rankBase = full
 	}
-	topCategoryIDs, err := loadTopCategoryIDs(ctx, tx, household, periods, now)
-	if err != nil {
-		return facts, err
-	}
-	facts.CategoryRanking = buildCategoryRanking(measures[0], rankBase, facts.Comparison.Mode, topCategoryIDs)
+	facts.CategoryRanking = buildCategoryRanking(measures[0], rankBase, facts.Comparison.Mode)
 	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense }, full)
 	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income }, full)
 	facts.Comparison.NetCashflow = cashChange(measures, func(c reviewCashflow) string { return c.Net }, full)
-	for _, c := range changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categories }, full) {
+	state := facts.Period.State
+	for _, c := range changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categories }, full, state) {
 		category := reviewCategory{reviewChange: c, Merchants: []reviewChange{}, Transactions: []reviewTransaction{}}
-		category.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categoryMerchants[c.ID] }, full)
+		category.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categoryMerchants[c.ID] }, full, state)
 		if len(category.Merchants) > 10 {
 			category.Merchants = category.Merchants[:10]
 		}
 		facts.Categories = append(facts.Categories, category)
 	}
-	facts.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.merchants }, full)
-	if len(facts.Merchants) > 10 {
-		facts.Merchants = facts.Merchants[:10]
+	for _, m := range changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.merchants }, full, state) {
+		if delta := shownDelta(state, m.Delta, m.DeltaFull); delta != nil && compareAmounts(*delta, "0") != 0 {
+			facts.Merchants = append(facts.Merchants, m)
+		}
+		if len(facts.Merchants) == 10 {
+			break
+		}
 	}
 	if err := loadReviewTransactions(ctx, tx, household, &facts); err != nil {
 		return facts, err
@@ -561,8 +579,12 @@ func buildHistory(measures []cycleMeasure, window, sameDay []int, selectedStart 
 		if m.period.Start == selectedStart {
 			selected = pos
 		}
-		history = append(history, historyCycle{Start: m.period.Start, End: m.period.End, MeasuredUntil: m.period.MeasuredUntil, State: m.period.State,
-			Income: m.cash.Income, GrossExpense: m.cash.GrossExpense, Refund: m.cash.Refund, Expense: m.cash.Expense, Net: m.cash.Net, SavingsAllocated: m.cash.Allocated})
+		days := daysBetween(m.period.Start, m.period.MeasuredUntil)
+		history = append(history, historyCycle{
+			Start: m.period.Start, End: m.period.End, MeasuredUntil: m.period.MeasuredUntil, State: m.period.State, Days: days,
+			Income: m.cash.Income, GrossExpense: m.cash.GrossExpense, Refund: m.cash.Refund, Expense: m.cash.Expense,
+			AverageDailyExpenseRounded: roundedPerDay(m.cash.Expense, days), Net: m.cash.Net, SavingsAllocated: m.cash.Allocated,
+		})
 		for id, v := range m.categories {
 			if _, ok := totals[id]; !ok {
 				totals[id], names[id] = "0", v.Name
@@ -788,7 +810,22 @@ func (c *reviewChange) setFullPrevious(amount string) {
 	c.RelativeFull = positiveRatio(*c.DeltaFull, amount)
 }
 
-func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]reviewValue, full *cycleMeasure) []reviewChange {
+func shownDelta(state string, delta, deltaFull *string) *string {
+	if state != "ACTIVE" && deltaFull != nil {
+		return deltaFull
+	}
+	return delta
+}
+
+func amountMagnitude(raw string) *big.Int {
+	n, ok := new(big.Int).SetString(raw, 10)
+	if !ok {
+		return new(big.Int)
+	}
+	return n.Abs(n)
+}
+
+func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]reviewValue, full *cycleMeasure, state string) []reviewChange {
 	names := map[string]reviewValue{}
 	if full != nil {
 		for id, v := range values(*full) {
@@ -838,15 +875,20 @@ func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]revie
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i].Amount, out[j].Amount
-		if out[i].DeltaFull != nil {
-			a, b = *out[i].DeltaFull, *out[j].DeltaFull
-		} else if out[i].Delta != nil {
-			a, b = *out[i].Delta, *out[j].Delta
+		dx, dy := shownDelta(state, out[i].Delta, out[i].DeltaFull), shownDelta(state, out[j].Delta, out[j].DeltaFull)
+		if (dx == nil) != (dy == nil) {
+			return dx != nil
 		}
-		x, _ := new(big.Int).SetString(a, 10)
-		y, _ := new(big.Int).SetString(b, 10)
-		if c := x.Abs(x).Cmp(y.Abs(y)); c != 0 {
+		if dx != nil {
+			x, y := amountMagnitude(*dx), amountMagnitude(*dy)
+			xZero, yZero := x.Sign() == 0, y.Sign() == 0
+			if xZero != yZero {
+				return !xZero
+			}
+			if c := x.Cmp(y); c != 0 {
+				return c > 0
+			}
+		} else if c := amountMagnitude(out[i].Amount).Cmp(amountMagnitude(out[j].Amount)); c != 0 {
 			return c > 0
 		}
 		if out[i].Name != out[j].Name {
@@ -854,6 +896,30 @@ func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]revie
 		}
 		return out[i].ID < out[j].ID
 	})
+	return out
+}
+
+func buildPreviousCycle(periods []reviewPeriod, index int, measures []cycleMeasure, full *cycleMeasure) *previousCycle {
+	if full == nil {
+		return nil
+	}
+	out := &previousCycle{
+		Start:              full.period.Start,
+		End:                full.period.End,
+		Days:               daysBetween(full.period.Start, full.period.MeasuredUntil),
+		Expense:            full.cash.Expense,
+		SavingsAllocated:   full.cash.Allocated,
+		UnallocatedSurplus: full.cash.Unallocated,
+	}
+	if index+2 < len(periods) && periods[index+2].State == "CLOSED" && periods[index+2].End != nil {
+		prior := periods[index+2]
+		for _, m := range measures {
+			if m.period.Start == prior.Start && m.period.MeasuredUntil == *prior.End {
+				out.Delta, out.Relative = deltaPair(out.Expense, m.cash.Expense)
+				break
+			}
+		}
+	}
 	return out
 }
 
