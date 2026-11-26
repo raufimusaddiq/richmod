@@ -102,6 +102,9 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	var merchantID *string
 	if merchant != "" {
 		id, err := ResolveOrCreateMerchant(ctx, tx, cmd.HouseholdID, merchant)
+		if errors.Is(err, ErrAmbiguousMerchantMatch) {
+			id, err = "", nil
+		}
 		if err != nil {
 			return result, err
 		}

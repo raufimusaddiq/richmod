@@ -442,6 +442,10 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
+	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) {
+		writeJSON(w, 400, map[string]string{"error": "merchant name is ambiguous; choose a more specific name"})
+		return
+	}
 	var missing *reviewdomain.ErrMissingFacts
 	if errors.As(err, &missing) {
 		if err := audit(r.Context(), tx, household, p.UserID, "UPDATE_REVIEW_FACTS", id, map[string]any{"missingFacts": missing.Facts}); err != nil || tx.Commit(r.Context()) != nil {

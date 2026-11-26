@@ -75,6 +75,57 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	}
 }
 
+func TestConfirmAmbiguousMerchantStaysInReview(t *testing.T) {
+	t.Parallel()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := testsupport.UniqueStamp()
+	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
+	var shortMerchant, longMerchant string
+	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE SHORT') RETURNING id`, householdID).Scan(&shortMerchant); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAYEE LONG') RETURNING id`, householdID).Scan(&longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	long := "PAYEE DUP BANK MANDIRI 1128 5635 31"
+	if _, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id) VALUES($1,'PAYEE DUP',$2),($1,$3,$4)`, householdID, shortMerchant, long, longMerchant); err != nil {
+		t.Fatal(err)
+	}
+	var transactionID string
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,category_id,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',45000,now(),$2,$3) RETURNING id`, householdID, categoryID, shortMerchant).Scan(&transactionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","missingFacts":["merchant"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, transactionID); err != nil {
+		t.Fatal(err)
+	}
+	principal := auth.Principal{UserID: userID, Household: &auth.Membership{HouseholdID: householdID, Role: "OWNER"}}
+	body := []byte(`{"categoryId":"` + categoryID + `","merchantName":"` + long + `"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewReader(body))
+	request.SetPathValue("id", transactionID)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+	response := httptest.NewRecorder()
+	NewHandler(pool).Confirm(response, request)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte("ambiguous")) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var status, merchantID string
+	if err := pool.QueryRow(ctx, `SELECT status,merchant_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&status, &merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || merchantID != shortMerchant {
+		t.Fatalf("transaction status=%s merchant=%s", status, merchantID)
+	}
+}
+
 func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
 	t.Parallel()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

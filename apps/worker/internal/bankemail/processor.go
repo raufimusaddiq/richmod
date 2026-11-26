@@ -757,7 +757,11 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	if runes := []rune(raw); len(runes) > 160 {
 		raw = string(runes[:160])
 	}
-	return reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
+	id, err := reviewdomain.ResolveOrCreateMerchant(ctx, tx, household, raw)
+	if errors.Is(err, reviewdomain.ErrAmbiguousMerchantMatch) {
+		return "", nil
+	}
+	return id, err
 }
 
 type bankLink struct {

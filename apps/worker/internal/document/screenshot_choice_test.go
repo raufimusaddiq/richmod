@@ -122,6 +122,24 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 	}
 }
 
+func TestScreenshotReviewReasonNamesAmbiguousMerchant(t *testing.T) {
+	row := unmatchedOutRow("1000")
+	row.MerchantReview = true
+	cases := []struct {
+		name      string
+		row       validatedScreenshotRow
+		duplicate bool
+		want      string
+	}{
+		{"ambiguous merchant", row, false, "UNKNOWN_MERCHANT"},
+	}
+	for _, testCase := range cases {
+		if got := screenshotReviewReason(testCase.row, testCase.duplicate); got != testCase.want {
+			t.Fatalf("%s: reason=%s want %s", testCase.name, got, testCase.want)
+		}
+	}
+}
+
 func TestScreenshotSummaryReportsBatchOutcome(t *testing.T) {
 	summary := screenshotSummary(10, 8, 1, 1)
 	for _, want := range []string{"10 transaksi ditemukan.", "✅ 8 tersimpan", "✅ 1 cocok dengan transaksi yang sudah ada", "⏳ 1 menunggu jawabanmu"} {

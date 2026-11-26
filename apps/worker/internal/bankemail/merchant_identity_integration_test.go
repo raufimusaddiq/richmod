@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/testsupport"
 )
 
@@ -127,6 +128,33 @@ func TestMerchantIdentityNormalizesBankAndEwalletSuffixes(t *testing.T) {
 		must(t, tx.QueryRow(ctx, `SELECT count(*) FROM merchant WHERE household_id=$1`, household).Scan(&count))
 		if count != 1 {
 			t.Fatalf("merchant count=%d", count)
+		}
+	})
+
+	t.Run("alias_precedes_leftover_merchant_row", func(t *testing.T) {
+		household := newHousehold(t, "Bank alias precedence")
+		category := newCategory(t, household, "Precedence")
+		target := newMerchant(t, household, "PAYEE TARGET")
+		long := "PAYEE TARGET BANK MANDIRI 1128 5635 31"
+		newMerchant(t, household, long)
+		newAlias(t, household, long, target, category)
+		memory, err := loadMerchantMemory(ctx, pool, household, long)
+		must(t, err)
+		if memory.MerchantID != target || memory.CategoryID != category {
+			t.Fatalf("alias did not win over leftover merchant row: %+v", memory)
+		}
+		tx, err := pool.Begin(ctx)
+		must(t, err)
+		defer tx.Rollback(ctx)
+		id, err := resolveMerchantID(ctx, tx, household, long)
+		must(t, err)
+		if id != target {
+			t.Fatalf("resolve=%s want alias target %s", id, target)
+		}
+		review, err := reviewdomain.MerchantLinkNeedsReview(ctx, tx, household, long)
+		must(t, err)
+		if review {
+			t.Fatal("a single alias hit must not need review because a leftover merchant row matches")
 		}
 	})
 

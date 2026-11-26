@@ -193,15 +193,36 @@ func ExistingMerchantID(ctx context.Context, q MerchantQuerier, household, raw s
 	if len(names) == 0 {
 		return "", nil
 	}
+	id, err := matchAliasMerchant(ctx, q, household, names)
+	if err != nil || id != "" {
+		return id, err
+	}
+	return matchNamedMerchant(ctx, q, household, names)
+}
+
+func matchAliasMerchant(ctx context.Context, q MerchantQuerier, household string, names []string) (string, error) {
 	var count int
 	var id *string
-	if err := q.QueryRow(ctx, `WITH matched AS (
-		SELECT ma.normalized_merchant_id AS merchant_id FROM merchant_alias ma
-		WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=ANY($2::text[])
-		UNION
-		SELECT m.id FROM merchant m
-		WHERE m.household_id=$1 AND lower(regexp_replace(btrim(m.normalized_name),'[[:space:]]+',' ','g'))=ANY($2::text[])
-	) SELECT count(*),min(merchant_id::text) FROM matched`, household, names).Scan(&count, &id); err != nil {
+	if err := q.QueryRow(ctx, `SELECT count(DISTINCT ma.normalized_merchant_id),min(ma.normalized_merchant_id::text)
+		FROM merchant_alias ma
+		WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=ANY($2::text[])`, household, names).Scan(&count, &id); err != nil {
+		return "", err
+	}
+	if count > 1 {
+		return "", ErrAmbiguousMerchantMatch
+	}
+	if count != 1 || id == nil {
+		return "", nil
+	}
+	return *id, nil
+}
+
+func matchNamedMerchant(ctx context.Context, q MerchantQuerier, household string, names []string) (string, error) {
+	var count int
+	var id *string
+	if err := q.QueryRow(ctx, `SELECT count(DISTINCT m.id),min(m.id::text)
+		FROM merchant m
+		WHERE m.household_id=$1 AND lower(regexp_replace(btrim(m.normalized_name),'[[:space:]]+',' ','g'))=ANY($2::text[])`, household, names).Scan(&count, &id); err != nil {
 		return "", err
 	}
 	if count > 1 {
@@ -219,11 +240,11 @@ func ResolveOrCreateMerchant(ctx context.Context, q MerchantQuerier, household, 
 		return "", nil
 	}
 	id, err := ExistingMerchantID(ctx, q, household, raw)
-	if errors.Is(err, ErrAmbiguousMerchantMatch) {
-		return "", nil
+	if err != nil {
+		return "", err
 	}
-	if err != nil || id != "" {
-		return id, err
+	if id != "" {
+		return id, nil
 	}
 	err = q.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, raw).Scan(&id)
 	return id, err
